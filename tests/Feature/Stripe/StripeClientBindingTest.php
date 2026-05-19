@@ -10,12 +10,16 @@ use Stripe\StripeClient;
 // which their try/catch swallowed — surfacing as empty transactions /
 // zero balance / empty upcoming payouts on the dashboard.
 //
+// stripe_version is pinned to partna.exports.commission.stripe_api_version
+// (env STRIPE_API_VERSION) so the async export pipeline and all other Stripe
+// SDK users share one pinned API version.
+//
 // This test pins the binding so a future container refactor can't quietly
 // regress it.
 
 it('binds \Stripe\StripeClient with the configured api_key', function (): void {
     config()->set('services.stripe.secret_key', 'sk_test_dummy_for_binding');
-    config()->set('services.stripe.api_version', '2026-02-25.clover');
+    config()->set('partna.exports.commission.stripe_api_version', '2025-02-24.acacia');
 
     // Rebind to pick up the new config (the provider closure reads at resolve time).
     app()->forgetInstance(StripeClient::class);
