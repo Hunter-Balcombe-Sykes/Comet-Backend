@@ -37,6 +37,19 @@ class CommissionExportController extends Controller
         // Skeleton policy check — mirrors StripeConnectController::export.
         // Uses CommissionPayout (not CommissionMovement) because viewOwnPayouts
         // is registered on CommissionPayout and expects that model type.
+        // Gate: Stripe Connect must be active before we queue an export. Without it
+        // the export job produces an empty file and wastes Horizon pipeline capacity.
+        // 422 (not 404/403) — the professional has the correct role, they just haven't
+        // completed onboarding. AccountCapabilitySet::requires_stripe_connect flags the
+        // need but doesn't reflect completion; we read stripe_connect_status directly.
+        // Covers null (pre-onboarding) and any non-active state ('incomplete',
+        // 'restricted', etc.) — only 'active' proceeds.
+        if ($pro->stripe_connect_status !== 'active') {
+            return response()->json([
+                'message' => 'Complete Stripe Connect onboarding before exporting transactions.',
+            ], 422);
+        }
+
         $skeleton = new CommissionPayout;
         $skeleton->forceFill($role === 'brand'
             ? ['brand_professional_id' => $pro->id]

@@ -105,8 +105,13 @@ class CommissionPayoutService
         // Brand eligibility: must have an ACTIVE v2 Account with a saved PaymentMethod
         // (card or BECS). The dual-capability check (card_payments + stripe_transfers) was
         // already enforced when we set stripe_connect_status='active' via the webhook.
+        // Dual-read during §28.1 migration window: match on account_type first,
+        // fall back to professional_type for rows not yet backfilled.
         $eligibleBrandIds = Professional::query()
-            ->where('professional_type', 'brand')
+            ->where(fn ($q) => $q
+                ->where('account_type', 'brand')
+                ->orWhere(fn ($q2) => $q2->whereNull('account_type')->where('professional_type', 'brand'))
+            )
             ->whereNotNull('stripe_connect_account_id')
             ->where('stripe_connect_status', 'active')
             ->whereNotNull('stripe_payment_method_id')

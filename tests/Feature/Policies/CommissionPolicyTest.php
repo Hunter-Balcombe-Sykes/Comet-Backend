@@ -15,13 +15,13 @@ beforeEach(function () {
 // PM lifecycle is covered by managePaymentMethod below.
 
 it('allows brand to managePaymentMethod on self only', function () {
-    $brand = (new Professional)->forceFill(['id' => 'brand-1', 'status' => 'active', 'professional_type' => 'brand']);
-    $other = (new Professional)->forceFill(['id' => 'brand-2', 'status' => 'active', 'professional_type' => 'brand']);
+    $brand = (new Professional)->forceFill(['id' => 'brand-1', 'status' => 'active', 'account_type' => 'brand', 'professional_type' => 'brand']);
+    $other = (new Professional)->forceFill(['id' => 'brand-2', 'status' => 'active', 'account_type' => 'brand', 'professional_type' => 'brand']);
     expect($this->policy->managePaymentMethod($brand, $brand))->toBeTrue();
     expect($this->policy->managePaymentMethod($brand, $other))->toBeFalse();
 });
 
-it('forbids non-brand professional_types from managePaymentMethod', function () {
-    $aff = (new Professional)->forceFill(['id' => 'aff-1', 'status' => 'active', 'professional_type' => 'affiliate']);
+it('forbids non-brand account_type from managePaymentMethod', function () {
+    $aff = (new Professional)->forceFill(['id' => 'aff-1', 'status' => 'active', 'account_type' => 'partner', 'professional_type' => 'affiliate']);
     expect($this->policy->managePaymentMethod($aff, $aff))->toBeFalse();
 });

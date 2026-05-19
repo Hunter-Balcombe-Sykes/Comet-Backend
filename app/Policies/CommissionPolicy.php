@@ -84,7 +84,7 @@ class CommissionPolicy extends BasePolicy
     public function viewOwnPayouts(Professional $pro, CommissionPayout $skeleton): bool
     {
         $actorId = (string) $pro->id;
-        $isBrand = ($pro->professional_type ?? null) === 'brand';
+        $isBrand = $pro->isBrand();
         $brandId = (string) ($skeleton->brand_professional_id ?? '');
         $affiliateId = (string) ($skeleton->affiliate_professional_id ?? '');
 
@@ -145,8 +145,7 @@ class CommissionPolicy extends BasePolicy
      */
     public function managePaymentMethod(Professional $actor, Professional $brand): bool
     {
-        return $actor->id === $brand->id
-            && ($actor->professional_type ?? null) === 'brand';
+        return $actor->id === $brand->id && $actor->isBrand();
     }
 
     /**
@@ -155,8 +154,7 @@ class CommissionPolicy extends BasePolicy
      */
     public function manageWallet(Professional $actor, Professional $brand): bool
     {
-        return $actor->id === $brand->id
-            && ($actor->professional_type ?? null) === 'brand';
+        return $actor->id === $brand->id && $actor->isBrand();
     }
 
     /**
