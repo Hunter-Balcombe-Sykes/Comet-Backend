@@ -102,8 +102,13 @@ class CommissionVoidService
         $cutoff = now()->utc()->subDays($this->voidWindowDays);
         $stats = ['voided_count' => 0, 'voided_cents' => 0];
 
+        // Dual-read during §28.1 migration window: match on account_type first,
+        // fall back to professional_type for rows not yet backfilled.
         $unfundedBrandIds = Professional::query()
-            ->where('professional_type', 'brand')
+            ->where(fn ($q) => $q
+                ->where('account_type', 'brand')
+                ->orWhere(fn ($q2) => $q2->whereNull('account_type')->where('professional_type', 'brand'))
+            )
             ->whereNull('stripe_payment_method_id')
             ->pluck('id')
             ->all();
@@ -394,8 +399,13 @@ class CommissionVoidService
         ];
 
         foreach ($warningWindows as $key => $window) {
+            // Dual-read: legacy professional_type values ('influencer','professional') map to
+            // account_type 'partner' or 'individual' — both are non-brand. §28.1 migration window.
             Professional::query()
-                ->whereIn('professional_type', ['influencer', 'professional'])
+                ->where(fn ($q) => $q
+                    ->whereIn('account_type', ['partner', 'individual'])
+                    ->orWhere(fn ($q2) => $q2->whereNull('account_type')->whereIn('professional_type', ['influencer', 'professional']))
+                )
                 ->where('stripe_connect_status', '!=', 'active')
                 ->whereBetween('created_at', $window['created_range'])
                 ->chunkById(200, function ($affiliates) use (&$sent, $key, $window) {

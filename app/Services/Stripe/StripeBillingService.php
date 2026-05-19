@@ -36,7 +36,8 @@ class StripeBillingService
             'name' => $professional->display_name,
             'metadata' => [
                 'sidest_professional_id' => $professional->id,
-                'professional_type' => $professional->professional_type,
+                'professional_type' => $professional->professional_type, // legacy — kept for Nightwatch filters
+                'account_type' => $professional->account_type,
             ],
         ], ['idempotency_key' => "customer_{$professional->id}"]);
 

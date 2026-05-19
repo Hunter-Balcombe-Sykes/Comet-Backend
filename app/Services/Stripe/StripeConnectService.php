@@ -137,7 +137,8 @@ class StripeConnectService
             'dashboard' => 'express',
             'metadata' => [
                 'sidest_professional_id' => $brand->id,
-                'professional_type' => $brand->professional_type,
+                'professional_type' => $brand->professional_type, // legacy — kept for Nightwatch filters
+                'account_type' => $brand->account_type,
             ],
         ];
 
@@ -180,7 +181,8 @@ class StripeConnectService
             'dashboard' => 'express',
             'metadata' => [
                 'sidest_professional_id' => $affiliate->id,
-                'professional_type' => $affiliate->professional_type,
+                'professional_type' => $affiliate->professional_type, // legacy — kept for Nightwatch filters
+                'account_type' => $affiliate->account_type,
             ],
         ];
 

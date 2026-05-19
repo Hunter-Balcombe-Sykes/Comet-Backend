@@ -1,6 +1,5 @@
 <?php
 
-use App\Jobs\Exports\ExportChunkJob;
 use App\Models\Commerce\CommissionExportAudit;
 use App\Models\Core\Professional\Professional;
 use Illuminate\Support\Facades\Bus;
@@ -34,7 +33,9 @@ function cet_actingAsBrand(array $overrides = []): Professional
         'display_name' => 'CET Brand',
         'primary_email' => $handle.'@example.com',
         'professional_type' => 'brand',
+        'account_type' => 'brand',
         'status' => 'active',
+        'stripe_connect_status' => 'active', // CAPE-1: gate requires active Connect
     ], $overrides));
 
     actingAsProfessional($pro);
@@ -59,7 +60,9 @@ function cet_makeProfessional(array $overrides = []): Professional
         'display_name' => 'CET Other',
         'primary_email' => $handle.'@example.com',
         'professional_type' => 'brand',
+        'account_type' => 'brand',
         'status' => 'active',
+        'stripe_connect_status' => 'active',
     ], $overrides));
 }
 
@@ -201,4 +204,32 @@ it('the sync payouts route is still registered (not broken by regex narrowing)',
     // whether it's a StreamedResponse or regular response. Assert not 404.
     $response = test()->call('GET', '/api/stripe/exports/payouts.csv', ['role' => 'brand']);
     expect($response->getStatusCode())->not->toBe(404, 'Sync payouts export route should still resolve');
+});
+
+// ─── CAPE-1: Stripe Connect status gate ───────────────────────────────────────
+
+it('POST returns 422 when professional has no active Stripe Connect', function () {
+    Bus::fake();
+
+    // Incomplete onboarding — stripe_connect_status is not 'active'.
+    cet_actingAsBrand(['stripe_connect_status' => 'incomplete']);
+
+    test()->postJson('/api/stripe/exports/transactions', ['format' => 'csv'])
+        ->assertStatus(422)
+        ->assertJson(['message' => 'Complete Stripe Connect onboarding before exporting transactions.']);
+
+    Bus::assertNothingDispatched();
+});
+
+it('POST returns 422 when professional has no Stripe Connect at all', function () {
+    Bus::fake();
+
+    // No stripe_connect_status set (new account pre-onboarding).
+    cet_actingAsBrand(['stripe_connect_status' => null]);
+
+    test()->postJson('/api/stripe/exports/transactions', ['format' => 'csv'])
+        ->assertStatus(422)
+        ->assertJson(['message' => 'Complete Stripe Connect onboarding before exporting transactions.']);
+
+    Bus::assertNothingDispatched();
 });
