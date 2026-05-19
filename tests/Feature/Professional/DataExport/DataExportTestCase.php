@@ -43,6 +43,7 @@ class DataExportTestCase
             public_contact_email TEXT,
             professional_type TEXT DEFAULT "professional",
             account_type TEXT NULL,
+            has_historical_partner_links INTEGER NULL,
             status TEXT DEFAULT "active",
             created_at TEXT,
             updated_at TEXT,
@@ -104,7 +105,8 @@ class DataExportTestCase
             id TEXT PRIMARY KEY,
             brand_professional_id TEXT,
             affiliate_professional_id TEXT,
-            created_at TEXT
+            created_at TEXT,
+            deleted_at TEXT NULL
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (

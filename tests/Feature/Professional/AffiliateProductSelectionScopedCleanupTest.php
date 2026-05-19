@@ -21,7 +21,8 @@ beforeEach(function () {
     $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_links (
         id TEXT PRIMARY KEY, affiliate_professional_id TEXT,
         brand_professional_id TEXT, slot INTEGER DEFAULT 0,
-        created_at TEXT, updated_at TEXT
+        created_at TEXT, updated_at TEXT,
+        deleted_at TEXT NULL
     )');
 });
 

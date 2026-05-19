@@ -36,6 +36,7 @@ beforeEach(function () {
         phone TEXT,
         professional_type TEXT DEFAULT "professional",
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT DEFAULT "active",
         country_code TEXT,
         timezone TEXT,

@@ -36,6 +36,7 @@ beforeEach(function () {
         id TEXT PRIMARY KEY,
         handle TEXT NULL,
         display_name TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         deleted_at TEXT NULL
     )');
 
@@ -46,7 +47,8 @@ beforeEach(function () {
         slot INTEGER NULL DEFAULT 0,
         custom_photos_enabled INTEGER NULL,
         created_at TEXT NULL,
-        updated_at TEXT NULL
+        updated_at TEXT NULL,
+        deleted_at TEXT NULL
     )');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (

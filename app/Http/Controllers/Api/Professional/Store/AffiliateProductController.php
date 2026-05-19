@@ -396,9 +396,11 @@ class AffiliateProductController extends ApiController
             return $this->success(['reset' => true, 'brand_professional_id' => $data['brand_professional_id']]);
         }
 
-        // No brand specified — reset across all linked brands.
+        // No brand specified — reset across all currently-linked brands.
+        // Tombstoned (ex-partner) links are excluded.
         $brandIds = DB::table('brand.brand_partner_links')
             ->where('affiliate_professional_id', $pro->id)
+            ->whereNull('deleted_at')
             ->pluck('brand_professional_id');
 
         foreach ($brandIds as $brandId) {

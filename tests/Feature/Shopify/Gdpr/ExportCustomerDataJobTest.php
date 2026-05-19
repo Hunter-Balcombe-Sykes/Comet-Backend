@@ -30,6 +30,7 @@ beforeEach(function () {
         status TEXT,
         professional_type TEXT,
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         created_at TEXT,
         updated_at TEXT,
         deleted_at TEXT

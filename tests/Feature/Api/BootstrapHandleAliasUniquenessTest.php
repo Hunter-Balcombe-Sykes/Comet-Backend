@@ -42,6 +42,7 @@ beforeEach(function () {
         phone TEXT NULL,
         professional_type TEXT NULL,
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT NULL,
         onboarding_step INTEGER NULL,
         country_code TEXT NULL,

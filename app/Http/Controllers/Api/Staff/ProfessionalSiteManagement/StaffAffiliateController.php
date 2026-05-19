@@ -21,6 +21,7 @@ class StaffAffiliateController extends ApiController
         $rows = DB::table('brand.brand_partner_links as bpl')
             ->join('core.professionals as p', 'p.id', '=', 'bpl.affiliate_professional_id')
             ->where('bpl.brand_professional_id', $professional->id)
+            ->whereNull('bpl.deleted_at')
             ->whereNull('p.deleted_at')
             ->orderByDesc('bpl.updated_at')
             ->get([

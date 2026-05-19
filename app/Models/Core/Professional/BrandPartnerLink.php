@@ -5,6 +5,7 @@ namespace App\Models\Core\Professional;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Brand-affiliate connection record. Pilot/V1 caps each affiliate to a single
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class BrandPartnerLink extends BaseModel
 {
-    use HasUuids;
+    use HasUuids, SoftDeletes;
 
     protected $table = 'brand.brand_partner_links';
 
@@ -35,6 +36,7 @@ class BrandPartnerLink extends BaseModel
         'custom_photos_enabled' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     public function affiliateProfessional(): BelongsTo

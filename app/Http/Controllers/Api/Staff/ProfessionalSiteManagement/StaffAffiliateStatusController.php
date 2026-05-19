@@ -26,6 +26,7 @@ class StaffAffiliateStatusController extends ApiController
         $linked = DB::table('brand.brand_partner_links')
             ->where('brand_professional_id', $professional->id)
             ->where('affiliate_professional_id', $affiliate->id)
+            ->whereNull('deleted_at')
             ->exists();
 
         if (! $linked) {

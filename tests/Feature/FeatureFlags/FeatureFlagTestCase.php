@@ -33,6 +33,7 @@ class FeatureFlagTestCase
             status TEXT DEFAULT "active",
             professional_type TEXT DEFAULT "professional",
             account_type TEXT NULL,
+            has_historical_partner_links INTEGER NULL,
             created_at TEXT,
             updated_at TEXT,
             deleted_at TEXT
