@@ -3,6 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -91,13 +92,39 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
             ->where('brand_professional_id', $this->brandProfessionalId)
             ->whereNull('deleted_at')
             ->chunkById(500, function ($rows) use ($brandName, $yearWeek, &$totalAffiliates) {
-                $jobs = $rows->map(fn ($row) => new SendBrandStatusNotificationJob(
-                    affiliateProfessionalId: $row->affiliate_professional_id,
-                    brandProfessionalId: $this->brandProfessionalId,
-                    brandName: $brandName,
-                    brandStatus: $this->brandStatus,
-                    yearWeek: $yearWeek,
-                ))->all();
+                // Defence-in-depth capability filter (§28.10 / §28.11).
+                // SendBrandStatusNotificationJob already gates per-recipient, but
+                // dropping ineligible affiliates here avoids ~N queue dispatches +
+                // ~N notification table inserts that would just be skipped at the
+                // leaf. ex-partners and any transitioned-to-individual cohort fall
+                // out cleanly without burning queue capacity.
+                $affiliateIds = $rows->pluck('affiliate_professional_id')->all();
+                $affiliates = Professional::query()->whereIn('id', $affiliateIds)->get()->keyBy('id');
+
+                $jobs = $rows
+                    ->filter(function ($row) use ($affiliates) {
+                        $aff = $affiliates->get($row->affiliate_professional_id);
+
+                        // Missing Professional row → trust the upstream brand_partner_links
+                        // join and let the leaf job's gate decide. Production always has
+                        // the row (FK), but test fixtures sometimes seed link rows only.
+                        if (! $aff) {
+                            return true;
+                        }
+
+                        return AccountCapabilities::for($aff)->receives_brand_status_notifications;
+                    })
+                    ->map(fn ($row) => new SendBrandStatusNotificationJob(
+                        affiliateProfessionalId: $row->affiliate_professional_id,
+                        brandProfessionalId: $this->brandProfessionalId,
+                        brandName: $brandName,
+                        brandStatus: $this->brandStatus,
+                        yearWeek: $yearWeek,
+                    ))->all();
+
+                if ($jobs === []) {
+                    return;
+                }
 
                 // One Redis pipeline write per batch vs. one per job if dispatched
                 // individually. allowFailures() preserves the per-job retry semantics

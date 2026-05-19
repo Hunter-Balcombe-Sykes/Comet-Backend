@@ -3,6 +3,8 @@
 namespace App\Jobs\Notifications;
 
 use App\Enums\BrandStatus;
+use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -113,10 +115,25 @@ class NudgeStuckOnboardingJob implements ShouldQueue
             ->select(['p.id', 'p.first_name', 'p.display_name'])
             ->orderBy('p.id')
             ->chunkById(500, function ($chunk) use ($publisher, $day, $milestone) {
+                $proIds = collect($chunk)->pluck('id')->filter()->all();
+                $pros = $proIds === []
+                    ? collect()
+                    : Professional::query()->whereIn('id', $proIds)->get()->keyBy('id');
+
                 foreach ($chunk as $row) {
                     try {
                         $proId = trim((string) ($row->id ?? ''));
                         if ($proId === '') {
+                            continue;
+                        }
+
+                        // Defence-in-depth capability gate (§28.10 / §28.11). The SQL
+                        // query above filters to brand-typed rows. If the row maps to
+                        // a real Professional and they don't require Stripe-Connect
+                        // (override or transitioned-away), skip. Missing model row
+                        // (test fixture) → let the publisher's gate decide.
+                        $pro = $pros->get($proId);
+                        if ($pro && ! AccountCapabilities::for($pro)->requires_stripe_connect) {
                             continue;
                         }
 
