@@ -8,7 +8,7 @@ BEGIN;
 
 CREATE TABLE commerce.commission_export_audit (
     id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    professional_id             uuid NOT NULL REFERENCES core.professionals(id) ON DELETE SET NULL,
+    professional_id             uuid REFERENCES core.professionals(id) ON DELETE SET NULL,
     role                        text NOT NULL CHECK (role IN ('brand','affiliate')),
     format                      text NOT NULL CHECK (format IN ('csv','xlsx')),
     filters                     jsonb NOT NULL DEFAULT '{}'::jsonb,

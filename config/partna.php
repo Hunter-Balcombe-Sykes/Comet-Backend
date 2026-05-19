@@ -1104,17 +1104,6 @@ return [
         'dedup_window_minutes' => (int) env('GDPR_EXPORT_DEDUP_WINDOW_MINUTES', 30),
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Async exports
-    |--------------------------------------------------------------------------
-    |
-    | Async commission/financial exports. The 'commission' subkey scopes the
-    | transactions export (POST /stripe/exports/transactions); other exports
-    | (payouts, detailed-commissions, eofy) remain synchronous and don't read these.
-    |
-    */
-
     // Async commission/financial exports. The 'commission' subkey scopes the
     // transactions export (POST /stripe/exports/transactions); other exports
     // (payouts, detailed-commissions, eofy) remain synchronous and don't read these.
