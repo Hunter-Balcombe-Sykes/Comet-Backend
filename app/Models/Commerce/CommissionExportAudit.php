@@ -56,6 +56,9 @@ class CommissionExportAudit extends BaseModel
     public $incrementing = false;
     protected $keyType = 'string';
 
+    // created_at is DB-defaulted (DEFAULT now()); no updated_at column exists
+    public $timestamps = false;
+
     // All columns writable; callers use forceFill() for status transitions
     protected $guarded = [];
 

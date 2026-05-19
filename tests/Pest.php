@@ -982,8 +982,7 @@ function setupCommissionExportAuditTable(): void
         created_at TEXT NULL,
         processing_at TEXT NULL,
         completed_at TEXT NULL,
-        expires_at TEXT NULL,
-        updated_at TEXT NULL
+        expires_at TEXT NULL
     )');
 }
 
