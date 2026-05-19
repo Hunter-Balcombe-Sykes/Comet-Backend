@@ -3,6 +3,7 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\ProvisionBrandDnsJob;
 use App\Jobs\Cloudflare\RetireBrandDnsJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
@@ -45,6 +46,25 @@ class SiteObserver
                 'subdomain' => $site->subdomain,
                 'message' => $e->getMessage(),
             ]));
+        }
+
+        // Cloudflare edge cache purge (§28.7). Fires on every save (not only on
+        // subdomain change) because any site.* mutation can change the rendered
+        // payload an Astro Worker reads for individual public profiles.
+        // After-commit dispatch + observer's `$afterCommit = true` ensures we
+        // never purge before the DB row is visible to the next read.
+        $handle = strtolower(trim((string) ($site->subdomain ?? '')));
+        if ($handle !== '') {
+            try {
+                CloudflareCachePurgeJob::dispatch($handle)->afterCommit();
+            } catch (\Throwable $e) {
+                Log::warning('CloudflareCachePurgeJob dispatch failed on site save', $this->logContext(__METHOD__, [
+                    'site_id' => $site->id,
+                    'professional_id' => $site->professional_id,
+                    'subdomain' => $handle,
+                    'message' => $e->getMessage(),
+                ]));
+            }
         }
 
         // Warm cache asynchronously if published

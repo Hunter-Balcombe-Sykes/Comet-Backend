@@ -9,6 +9,7 @@
 use App\Enums\AccountType;
 use App\Events\Accounts\AccountTypeTransitionEvent;
 use App\Exceptions\InvalidAccountTypeTransition;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Professional\Professional;
 use App\Services\Accounts\AccountTypeTransitionService;
@@ -84,6 +85,18 @@ describe('individual → partner', function () {
         $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
 
         Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($job) => $job->professionalId === (string) $pro->id);
+    });
+
+    it('dispatches CloudflareCachePurgeJob for the pro handle (§28.7)', function () {
+        Bus::fake();
+        Event::fake();
+
+        $pro = makeTransitionTestPro('individual');
+        $brand = makeTransitionTestBrandPro();
+
+        $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
+
+        Bus::assertDispatched(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === strtolower($pro->handle));
     });
 
     it('dispatches AccountTypeTransitionEvent with correct from/to', function () {

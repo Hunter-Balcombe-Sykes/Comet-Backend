@@ -106,6 +106,11 @@ return [
         'account_id' => env('CLOUDFLARE_ACCOUNT_ID'),
         'kv_namespace_id' => env('CLOUDFLARE_KV_NAMESPACE_ID'),
         'api_token' => env('CLOUDFLARE_API_TOKEN'),
+        // Scoped API token with only the "Zone.Cache Purge" permission on the
+        // partna.au zone. Distinct from `api_token` so credential rotation /
+        // blast-radius can be reasoned about per surface. Used by
+        // CloudflarePurgeService (§28.7) — never elsewhere.
+        'cache_purge_token' => env('CLOUDFLARE_CACHE_PURGE_TOKEN'),
     ],
 
     // Cloudflare Turnstile — bot-protection for public lead-capture endpoints.
