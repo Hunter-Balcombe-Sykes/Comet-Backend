@@ -70,6 +70,22 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                 continue;
             }
 
+            // Also exempt indexes on a column that was ADD COLUMN-ed in this same migration.
+            // New columns are always empty at index time — no lock contention possible.
+            // Extract the indexed column from the index definition (first word after the table).
+            $idxBody = substr($raw, strpos($raw, $match[0]));
+            if (preg_match('/ON\s+[\w.]+\s*\(([^)]+)\)/i', $idxBody, $colMatch)) {
+                $indexedCol = trim(explode(',', $colMatch[1])[0]);
+                $indexedCol = preg_replace('/\s+.*/', '', $indexedCol); // strip ASC/DESC
+                $columnAddedInSameFile = preg_match(
+                    '/\bADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?'.preg_quote($indexedCol, '/').'\b/i',
+                    $content,
+                ) === 1;
+                if ($columnAddedInSameFile) {
+                    continue;
+                }
+            }
+
             $errors[] = "$basename: CREATE INDEX without CONCURRENTLY detected on `$table`.\n"
                 ."  Use: CREATE INDEX CONCURRENTLY IF NOT EXISTS ... (outside any transaction block)\n"
                 .'  See: supabase/migrations/CONVENTIONS.md §1';

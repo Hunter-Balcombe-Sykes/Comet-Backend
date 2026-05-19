@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS core.handle_change_log (
     changed_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- Indexes on core.handle_change_log are exempt from CONCURRENTLY requirement:
+-- table is created in this same migration so it is empty and locks are moot.
+CREATE INDEX IF NOT EXISTS handle_change_log_pro_changed_idx
+    ON core.handle_change_log (professional_id, changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS handle_change_log_changed_at_idx
+    ON core.handle_change_log (changed_at DESC);
+
 -- Append-only: no UPDATE/DELETE from app role. Block via trigger.
 CREATE OR REPLACE FUNCTION core.trg_handle_change_log_append_only()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -116,19 +124,16 @@ GRANT INSERT, SELECT ON core.handle_change_log TO app_backend;
 COMMIT;
 
 -- =====================================================
--- Indexes — must run outside a transaction block (CONCURRENTLY).
--- Partial indexes: only rows with an expiry are scanned by the prune job.
+-- Partial indexes on existing tables — must run outside a transaction.
+-- Supabase CLI runs each statement through a pipeline; CONCURRENTLY is
+-- incompatible with pipeline mode. These are run as plain CREATE INDEX
+-- here because the columns are brand-new (no existing data to lock on).
+-- See supabase/migrations/CONVENTIONS.md §1 for the CONCURRENTLY rule.
 -- =====================================================
-CREATE INDEX CONCURRENTLY IF NOT EXISTS professional_handle_aliases_expires_at_idx
+CREATE INDEX IF NOT EXISTS professional_handle_aliases_expires_at_idx
     ON site.professional_handle_aliases (expires_at)
     WHERE expires_at IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS site_subdomain_aliases_expires_at_idx
+CREATE INDEX IF NOT EXISTS site_subdomain_aliases_expires_at_idx
     ON site.site_subdomain_aliases (expires_at)
     WHERE expires_at IS NOT NULL;
-
-CREATE INDEX CONCURRENTLY IF NOT EXISTS handle_change_log_pro_changed_idx
-    ON core.handle_change_log (professional_id, changed_at DESC);
-
-CREATE INDEX CONCURRENTLY IF NOT EXISTS handle_change_log_changed_at_idx
-    ON core.handle_change_log (changed_at DESC);
