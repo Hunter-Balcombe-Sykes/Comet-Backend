@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\Professional\Affiliate;
 
+use App\Enums\AccountType;
+use App\Exceptions\InvalidAccountTypeTransition;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountTypeTransitionService;
 use App\Services\Cache\ProfessionalCacheService;
 use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\Brand\BrandAffiliateInviteService;
@@ -23,7 +26,8 @@ class OpenInviteController extends ApiController
         string $handle,
         BrandAffiliateInviteService $inviteService,
         BrandPartnerLinkService $brandPartnerLinks,
-        AccountTypeDefaultsService $accountTypeDefaultsService
+        AccountTypeDefaultsService $accountTypeDefaultsService,
+        AccountTypeTransitionService $transitionService
     ): JsonResponse {
         $professional = $this->currentProfessional($request);
 
@@ -48,6 +52,22 @@ class OpenInviteController extends ApiController
             $invite = $inviteService->claimOpenInvite($brandProfessional, $professional);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 422);
+        }
+
+        // §28.12: flip account_type to partner (+ KV sync + event) after the
+        // invite service has already created the BrandPartnerLink. The transition
+        // service does NOT create the link again — it only handles account_type.
+        // InvalidAccountTypeTransition surfaces as 422 — this guards against
+        // brand-typed pros somehow reaching this endpoint (a 500 from the global
+        // handler would be a worse UX).
+        try {
+            $transitionService->transition(
+                $professional->fresh() ?? $professional,
+                AccountType::Partner,
+                ['brand_id' => (string) $invite->brand_professional_id]
+            );
+        } catch (InvalidAccountTypeTransition $e) {
+            return $this->error($e->getMessage(), 422);
         }
 
         $site = Site::query()->where('professional_id', $professional->id)->first();

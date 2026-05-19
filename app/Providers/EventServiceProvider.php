@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Events\Accounts\AccountTypeTransitionEvent;
+use App\Listeners\Accounts\InvalidateProfessionalCacheOnTransition;
+use App\Listeners\Accounts\LogAccountTypeTransition;
 use App\Models\Brand\BrandStoreSettings;
 use App\Models\Commerce\AffiliateProductSelection;
 use App\Models\Commerce\CommissionMovement;
@@ -36,7 +39,10 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 class EventServiceProvider extends ServiceProvider
 {
     protected $listen = [
-        // existing events...
+        AccountTypeTransitionEvent::class => [
+            InvalidateProfessionalCacheOnTransition::class,
+            LogAccountTypeTransition::class,
+        ],
     ];
 
     public function boot(): void
