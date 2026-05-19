@@ -267,6 +267,62 @@ Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.
 - **Minimal blast radius.** Only touch what's necessary. No side-effect bugs.
 - **Demand elegance (balanced).** For non-trivial changes, pause and ask "is there a more elegant way?" Skip this for simple, obvious fixes.
 
+## Individual sitepages — architectural ground truth
+
+Partna supports three account types stored as `Professional.account_type`:
+- `brand` — Shopify-connected commerce operator (terminal; cannot transition away)
+- `partner` — professional affiliated with a brand; sells on brand's storefront
+- `individual` — professional with public profile sitepage; no commerce
+
+All `<handle>.partna.au` requests route through one Cloudflare Worker
+(`cloudflare-worker/` in this repo) that reads `SUBDOMAIN_KV` and uses
+the Cache API:
+- `{type:"brand"}` → pass-through to Hydrogen on Shopify Oxygen
+- `{type:"affiliate", redirect}` → 301 to `<brand>.partna.au/<handle>` (Hydrogen)
+- `{type:"individual"}` → `caches.default.match`; on miss, Service Binding to
+  Astro app on Cloudflare Workers Static Assets; on success, `caches.default.put`
+
+The Worker has ONE writer: `SyncSubdomainToKvJob`. Never write KV elsewhere.
+
+Both apps render from `@partna/themes` (GitHub Packages, per-theme bundles +
+shared engines/brand/analytics/icons/motion). The package is Shopify-free
+and framework-free. Hydrogen adds the Shop section locally; Astro doesn't.
+
+Account capabilities (backend: `App\Services\Accounts\AccountCapabilities`;
+frontend: `lib/account-capabilities.ts`) are the source of truth for what
+features each type sees. Every notification dispatcher, route guard, and API
+response checks capabilities before acting. Defence in depth.
+
+The ONLY allowed `account_type` transitions are `individual ↔ partner` (both
+directions), via `AccountTypeTransitionService`. Brand is set at signup only
+by `BootstrapController` and never changes — there is NO promotion path from
+individual or partner to brand, and brand is terminal. Partner ↔ individual
+is seamless; historical brand-partner data persists indefinitely in an
+"ex-partner panel" via SOFT-DELETED `BrandPartnerLink` rows (Laravel
+SoftDeletes trait). Transitions are NEVER blocked by pending payouts.
+
+Per-individual styling uses the existing per-Site `settings.design` JSONB.
+Partners inherit brand styling (no per-affiliate overrides). Brand fallback
+content (placeholders, fallback gallery) lives ONLY in Hydrogen's data path.
+
+Worker responses are NOT auto-cached from `Cache-Control` alone. The router
+Worker MUST call `caches.default.put(request, response.clone())` to populate
+the edge cache. The cache-purge job invalidates by URL.
+
+Full plan: `~/Developer/PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` (mirrored at
+`PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` in this repo root).
+
+### Backend-specific rules
+
+- `Professional.account_type` is the source of truth. `professional_type` is
+  legacy (dual-write for migration). Don't read `professional_type` in new code.
+- Notification jobs and API endpoints MUST check `AccountCapabilities::for($pro)`
+  before acting.
+- `SyncSubdomainToKvJob` is the ONLY writer to `SUBDOMAIN_KV`. All routing
+  changes go through it.
+- `BrandPartnerLink` uses soft-delete. To query historical links, use
+  `withTrashed()`.
+
 ## Do NOT
 
 - Create Laravel migration files (use `supabase/migrations/` with raw SQL)
