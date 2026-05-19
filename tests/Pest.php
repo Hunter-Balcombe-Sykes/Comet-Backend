@@ -954,6 +954,40 @@ function setupBrandAffiliateInvitesTable(): void
 }
 
 /**
+ * commerce.commission_export_audit — async export audit rows.
+ * All columns nullable except id; mirrors the production table's write surface.
+ */
+function setupCommissionExportAuditTable(): void
+{
+    attachTestSchemas();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.commission_export_audit (
+        id TEXT PRIMARY KEY,
+        professional_id TEXT NULL,
+        role TEXT NULL,
+        format TEXT NULL,
+        filters TEXT NULL,
+        status TEXT NULL,
+        recipient_email TEXT NULL,
+        payouts_total INTEGER NULL,
+        payouts_processed INTEGER NULL DEFAULT 0,
+        chunk_size INTEGER NULL,
+        chunks_total INTEGER NULL,
+        chunks_completed INTEGER NULL DEFAULT 0,
+        last_processed_payout_id TEXT NULL,
+        next_chunk_index INTEGER NULL DEFAULT 0,
+        file_path TEXT NULL,
+        file_size_bytes INTEGER NULL,
+        file_sha256 TEXT NULL,
+        error_message TEXT NULL,
+        created_at TEXT NULL,
+        processing_at TEXT NULL,
+        completed_at TEXT NULL,
+        expires_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
  * Insert a Service row for $pro and return the Eloquent model.
  *
  * @param  array<string, mixed>  $overrides

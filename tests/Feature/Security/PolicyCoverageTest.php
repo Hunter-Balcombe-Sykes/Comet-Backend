@@ -59,6 +59,12 @@ const POLICY_EXEMPT = [
     // are FK metadata, not authorization keys. A Policy class would be meaningless
     // here because there is no controller action to gate.
     \App\Models\Core\Staff\StaffAuditEntry::class,
+
+    // Async export audit row. Created by the professional's own export request;
+    // read back only by the same professional via the export status endpoint.
+    // Access is gated at the controller level (professional_id scoping) — there
+    // is no cross-tenant resource access risk, and no policy-gated CRUD surface.
+    \App\Models\Commerce\CommissionExportAudit::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {
