@@ -30,7 +30,9 @@ class ProfessionalSectionBlockController extends ApiController
         $pro = $this->currentProfessional($request);
         $site = $this->currentSite($pro);
 
-        $professionalType = mb_strtolower(trim((string) ($pro->professional_type ?? '')));
+        // Read account_type->value when set (canonical); fall back to legacy professional_type
+        // during the §28.1 dual-write window. Used as a config-key lookup, not an identity check.
+        $professionalType = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
         $defaults = $this->defaultsService->resolveDefaults($professionalType);
         $allowedSections = $defaults['allowed_sections'] ?? config('partna.section_block_types', []);
         $allSections = config('partna.section_block_types', []);
@@ -294,7 +296,9 @@ class ProfessionalSectionBlockController extends ApiController
     {
         $pro = $this->currentProfessional($request);
         $site = $this->currentSite($pro);
-        $professionalType = mb_strtolower(trim((string) ($pro->professional_type ?? '')));
+        // Read account_type->value when set (canonical); fall back to legacy professional_type
+        // during the §28.1 dual-write window. Used as a config-key lookup, not an identity check.
+        $professionalType = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
         $defaults = $this->defaultsService->resolveDefaults($professionalType);
         $allowedSections = $defaults['allowed_sections'] ?? config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {

@@ -16,6 +16,9 @@ class ProfessionalPublicResource extends JsonResource
         return [
             'id' => $this->id,
             'professional_type' => $this->professional_type,
+            // account_type enables public consumers (Astro/Hydrogen) to route brand vs
+            // partner vs individual without reading the legacy professional_type string.
+            'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
             'bio' => $this->bio,

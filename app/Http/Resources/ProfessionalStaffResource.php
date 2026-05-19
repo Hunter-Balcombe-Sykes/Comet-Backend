@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,6 +16,7 @@ class ProfessionalStaffResource extends JsonResource
             'id' => $this->id,
             'auth_user_id' => $this->auth_user_id,
             'professional_type' => $this->professional_type,
+            'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
             'first_name' => $this->first_name,
@@ -34,7 +36,12 @@ class ProfessionalStaffResource extends JsonResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            'stripe_connect_status' => $this->stripe_connect_status,
+            // Plan §28.8a: only emit stripe_connect_status for account types that use Stripe Connect.
+            // Individuals never have a Connect account; omitting the field avoids a null confusion.
+            'stripe_connect_status' => $this->when(
+                AccountCapabilities::for($this->resource)->requires_stripe_connect,
+                fn () => $this->stripe_connect_status,
+            ),
             // Staff-only tribal knowledge — must NEVER appear in ProfessionalResource (/me).
             'admin_notes' => $this->admin_notes,
             'created_at' => $this->created_at?->toIso8601String(),

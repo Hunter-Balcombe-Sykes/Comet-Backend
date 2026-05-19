@@ -32,7 +32,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can view affiliate invites.', 403);
         }
 
@@ -142,7 +142,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can generate affiliate invites.', 403);
         }
 
@@ -185,7 +185,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can check affiliate invite availability.', 403);
         }
 
@@ -206,7 +206,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can generate affiliate invites.', 403);
         }
 
@@ -227,7 +227,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can generate affiliate invites.', 403);
         }
 
@@ -340,7 +340,7 @@ class BrandAffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $this->error('Only brand accounts can delete affiliate invites.', 403);
         }
 

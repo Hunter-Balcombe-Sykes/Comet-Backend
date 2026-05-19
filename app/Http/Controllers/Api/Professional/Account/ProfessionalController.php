@@ -49,7 +49,7 @@ class ProfessionalController extends ApiController
         // facing banners + gate brand-only actions (e.g. "+ Add invite"). For
         // brands this is THEIR OWN brand_profile.brand_status; for affiliates
         // it's their connected brand partner's status.
-        if ($pro->professional_type === 'brand') {
+        if ($pro->isBrand()) {
             $brandProfile = BrandProfile::query()->where('professional_id', $pro->id)->first();
             $primaryBrandStatus = $brandProfile?->brand_status ?? BrandStatus::Onboarding->value;
             $primaryBrandName = $pro->display_name;

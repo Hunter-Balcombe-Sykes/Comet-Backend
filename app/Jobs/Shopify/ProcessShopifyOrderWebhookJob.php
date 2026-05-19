@@ -90,6 +90,20 @@ class ProcessShopifyOrderWebhookJob implements ShouldQueue
             return;
         }
 
+        // Defence-in-depth: confirm the brand target is actually a brand account.
+        // A professional converted away from brand (currently impossible — brand is terminal —
+        // but guards against future bugs or stale-rollback scenarios) would cause wrong commerce writes.
+        $brandProfessional = Professional::query()->whereKey($this->brandProfessionalId)->first();
+        if (! $brandProfessional || ! $brandProfessional->isBrand()) {
+            Log::warning('ProcessShopifyOrderWebhookJob: brand professional not found or not a brand, skipping', [
+                'order_id' => $orderId,
+                'brand_professional_id' => $this->brandProfessionalId,
+                'account_type' => $brandProfessional?->account_type?->value,
+            ]);
+
+            return;
+        }
+
         // Resolve affiliate from note_attributes. The cart attribute key is
         // `_partna_affiliate_id` and the value is the affiliate's professional UUID
         // (Hydrogen's `app/routes/$affiliateSlug.tsx` action sets

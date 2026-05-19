@@ -23,7 +23,7 @@ class StatsController extends Controller
         $pro = $request->attributes->get('professional');
         $role = (string) $request->input('role');
 
-        $isBrand = ($pro->professional_type ?? null) === 'brand';
+        $isBrand = $pro->isBrand();
         if ($role === 'brand' && ! $isBrand) {
             return response()->json(['error' => 'cross_role'], 403);
         }
