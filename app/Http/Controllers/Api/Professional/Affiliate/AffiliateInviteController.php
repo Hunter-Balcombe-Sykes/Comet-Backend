@@ -18,7 +18,7 @@ class AffiliateInviteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) === 'brand') {
+        if ($professional->isBrand()) {
             return $this->error('Brand accounts cannot view affiliate invites.', 403);
         }
 

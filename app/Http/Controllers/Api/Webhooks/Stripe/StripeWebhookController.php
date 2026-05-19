@@ -238,16 +238,17 @@ class StripeWebhookController extends Controller
             'provider_payload' => $this->sanitizeForStorage($event),
         ]);
 
-        // For affiliates, fall back to free plan. Brands do NOT get a free fallback.
+        // For non-brand accounts (partners and individuals), fall back to free plan.
+        // Brands do NOT get a free fallback — they go to pending/unpaid state.
         $professional = $localSub->professional;
-        if ($professional && $professional->professional_type !== 'brand') {
+        if ($professional && ! $professional->isBrand()) {
             app(SiteProvisioningService::class)->ensureFreeSubscription($professional);
         }
 
         Log::info('Stripe subscription deleted', [
             'subscription_id' => $localSub->id,
             'professional_id' => $localSub->professional_id,
-            'fallback_to_free' => $professional?->professional_type !== 'brand',
+            'fallback_to_free' => $professional ? ! $professional->isBrand() : false,
         ]);
     }
 

@@ -28,9 +28,15 @@ class OpenInviteController extends ApiController
         $professional = $this->currentProfessional($request);
 
         $handle = strtolower(trim($handle));
+        // Dual-read: match brands during the §28.1 window where account_type may still be null.
         $brandProfessional = Professional::query()
             ->where('handle_lc', $handle)
-            ->where('professional_type', 'brand')
+            ->where(function ($q): void {
+                $q->where('account_type', 'brand')
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('account_type')->where('professional_type', 'brand');
+                    });
+            })
             ->with('brandProfile')
             ->first();
 

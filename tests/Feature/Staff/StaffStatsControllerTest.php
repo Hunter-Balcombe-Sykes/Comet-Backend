@@ -17,6 +17,7 @@ it('returns correct shape with zero data', function () {
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
     $profQuery->shouldReceive('groupBy')->andReturnSelf();
+    $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
     $profQuery->shouldReceive('pluck')->andReturn(collect());
 
     $subQuery = Mockery::mock();
@@ -36,7 +37,7 @@ it('returns correct shape with zero data', function () {
     $data = json_decode($response->getContent(), true);
 
     expect($data)->toHaveKeys(['professionals', 'subscriptions', 'commissions'])
-        ->and($data['professionals'])->toHaveKeys(['brands', 'influencers', 'professionals', 'total'])
+        ->and($data['professionals'])->toHaveKeys(['brands', 'influencers', 'professionals', 'total', 'by_account_type'])
         ->and($data['professionals']['total'])->toBe(0)
         ->and($data['subscriptions']['active_count'])->toBe(0)
         ->and($data['commissions']['pending_cents'])->toBe(0);
@@ -47,6 +48,7 @@ it('sums professional type counts correctly', function () {
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
     $profQuery->shouldReceive('groupBy')->andReturnSelf();
+    $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
     $profQuery->shouldReceive('pluck')->andReturn(collect([
         'brand' => '3',
         'influencer' => '12',
@@ -82,8 +84,10 @@ it('caches the stats payload across calls', function () {
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
     $profQuery->shouldReceive('groupBy')->andReturnSelf();
-    // pluck must run exactly once: second invocation should be served from cache.
-    $profQuery->shouldReceive('pluck')->once()->andReturn(collect(['brand' => '1']));
+    $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
+    // pluck runs twice per cache-miss (once for professional_type, once for account_type
+    // breakdown). The second call to show() is served from cache — so total pluck calls = 2.
+    $profQuery->shouldReceive('pluck')->twice()->andReturn(collect(['brand' => '1']));
 
     $subQuery = Mockery::mock();
     $subQuery->shouldReceive('whereNull')->andReturnSelf();

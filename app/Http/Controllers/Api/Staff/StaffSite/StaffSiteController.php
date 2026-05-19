@@ -37,6 +37,9 @@ class StaffSiteController extends ApiController
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
                 'professional_type' => $row->professional_type,
+                // account_type alongside legacy professional_type; staff dashboards may filter on either
+                // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
+                'account_type' => $row->account_type,
                 'bio' => $row->professional_bio,
                 'location_street_address' => $row->professional_location_street_address,
                 'location_city' => $row->professional_location_city,
@@ -82,6 +85,9 @@ class StaffSiteController extends ApiController
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
                 'professional_type' => $row->professional_type,
+                // account_type alongside legacy professional_type; staff dashboards may filter on either
+                // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
+                'account_type' => $row->account_type,
                 'bio' => $row->professional_bio,
                 'location_street_address' => $row->professional_location_street_address,
                 'location_city' => $row->professional_location_city,

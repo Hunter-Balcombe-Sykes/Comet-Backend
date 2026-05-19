@@ -33,18 +33,28 @@ class StaffStatsController extends ApiController
 
     /**
      * @return array{
-     *     professionals: array{brands: int, influencers: int, professionals: int, total: int},
+     *     professionals: array{brands: int, influencers: int, professionals: int, total: int, by_account_type: array<string, int>},
      *     subscriptions: array{active_count: int},
      *     commissions: array{pending_cents: int}
      * }
      */
     private function buildPayload(): array
     {
+        // Legacy breakdown on professional_type — kept until staff dashboard migrates
+        // to account_type labels (§28.11 Option A: expose both, defer cutover to follow-up).
         $typeCounts = DB::table('core.professionals')
             ->whereNull('deleted_at')
             ->selectRaw('professional_type, count(*) as total')
             ->groupBy('professional_type')
             ->pluck('total', 'professional_type');
+
+        // New breakdown on account_type — bucket labels are brand|partner|individual.
+        // NULL rows (pre-migration) fall into the 'unknown' bucket so total doesn't drift.
+        $accountTypeCounts = DB::table('core.professionals')
+            ->whereNull('deleted_at')
+            ->selectRaw("COALESCE(account_type::text, 'unknown') as account_type, count(*) as total")
+            ->groupByRaw("COALESCE(account_type::text, 'unknown')")
+            ->pluck('total', 'account_type');
 
         $activeSubscriptions = DB::table('billing.subscriptions')
             ->whereNull('ended_at')
@@ -64,6 +74,8 @@ class StaffStatsController extends ApiController
                 'influencers' => $influencers,
                 'professionals' => $professionals,
                 'total' => $brands + $influencers + $professionals,
+                // New canonical breakdown — frontend should migrate to reading this.
+                'by_account_type' => $accountTypeCounts->all(),
             ],
             'subscriptions' => [
                 'active_count' => (int) $activeSubscriptions,

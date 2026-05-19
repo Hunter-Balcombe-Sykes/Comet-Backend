@@ -18,9 +18,16 @@ class PublicOpenInviteController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
+        // Dual-read: match brands during the §28.1 window where account_type may still be null.
+        // Returns 404 (not 403) on miss — public endpoint; revealing existence enables enumeration.
         $brand = Professional::query()
             ->where('handle_lc', $handle)
-            ->where('professional_type', 'brand')
+            ->where(function ($q): void {
+                $q->where('account_type', 'brand')
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('account_type')->where('professional_type', 'brand');
+                    });
+            })
             ->where('status', 'active')
             ->with('brandProfile')
             ->first();

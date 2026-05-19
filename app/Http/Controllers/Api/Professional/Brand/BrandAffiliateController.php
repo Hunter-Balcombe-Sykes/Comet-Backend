@@ -45,9 +45,16 @@ class BrandAffiliateController extends ApiController
             ->with(['professional'])
             ->whereIn('professional_id', $affiliateIds)
             ->whereHas('professional', function ($query): void {
+                // Exclude brands: dual-read inverse covers rows in the §28.1 window where
+                // account_type may still be null but professional_type='brand' means brand.
                 $query
                     ->where('status', 'active')
-                    ->where('professional_type', '!=', 'brand');
+                    ->where(function ($q): void {
+                        $q->where('account_type', '!=', 'brand')
+                            ->orWhere(function ($q2): void {
+                                $q2->whereNull('account_type')->where('professional_type', '!=', 'brand');
+                            });
+                    });
             })
             ->get()
             ->keyBy('professional_id');
@@ -72,6 +79,9 @@ class BrandAffiliateController extends ApiController
                     'display_name' => $connectedProfessional?->display_name,
                     'handle' => $connectedProfessional?->handle,
                     'professional_type' => $connectedProfessional?->professional_type,
+                    // account_type alongside legacy professional_type for Nightwatch continuity
+                    // and progressive frontend reads during the §28.1 dual-write window.
+                    'account_type' => $connectedProfessional?->account_type?->value,
                     'email' => $connectedProfessional?->primary_email ?? $connectedProfessional?->public_contact_email,
                     'phone' => $connectedProfessional?->phone ?? $connectedProfessional?->public_contact_number,
                     'connected_at' => optional($link->updated_at)->toIso8601String(),
@@ -274,6 +284,9 @@ class BrandAffiliateController extends ApiController
                 'display_name' => $affiliate->display_name,
                 'handle' => $affiliate->handle,
                 'professional_type' => $affiliate->professional_type,
+                // account_type alongside legacy professional_type for Nightwatch continuity
+                // and progressive frontend reads during the §28.1 dual-write window.
+                'account_type' => $affiliate->account_type?->value,
             ],
             'totals' => $totals,
             'commission' => $commission,

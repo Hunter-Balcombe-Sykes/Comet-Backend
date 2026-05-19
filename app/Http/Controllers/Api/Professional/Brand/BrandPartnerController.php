@@ -33,7 +33,7 @@ class BrandPartnerController extends ApiController
     ): JsonResponse {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) === 'brand') {
+        if ($professional->isBrand()) {
             return $this->error('Brand accounts cannot manage brand partner connections.', 403);
         }
 
@@ -42,9 +42,16 @@ class BrandPartnerController extends ApiController
             return $this->error('Site not found.', 404);
         }
 
+        // Dual-read: matches brands whether account_type is set or still in the
+        // §28.1 dual-write window where account_type may be null but professional_type='brand'.
         $brand = Professional::query()
             ->whereKey($brandProfessionalId)
-            ->where('professional_type', 'brand')
+            ->where(function ($q): void {
+                $q->where('account_type', 'brand')
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('account_type')->where('professional_type', 'brand');
+                    });
+            })
             ->where('status', 'active')
             ->first();
 
@@ -83,8 +90,14 @@ class BrandPartnerController extends ApiController
         $professional = $this->currentProfessional($request);
         $perPage = $this->normalizePerPage($request, 25, 100);
 
+        // Dual-read for brands in the §28.1 dual-write window (account_type may still be null).
         $page = Professional::query()
-            ->where('professional_type', 'brand')
+            ->where(function ($q): void {
+                $q->where('account_type', 'brand')
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('account_type')->where('professional_type', 'brand');
+                    });
+            })
             ->where('status', 'active')
             ->whereHas('brandProfile', fn ($q) => $q->where('affiliate_visibility', 'public')->where('brand_status', BrandStatus::ReadyForAffiliates->value))
             ->with('site')
@@ -111,7 +124,12 @@ class BrandPartnerController extends ApiController
         if ($connectedIds->isNotEmpty()) {
             $extraBrands = Professional::query()
                 ->whereIn('id', $connectedIds->all())
-                ->where('professional_type', 'brand')
+                ->where(function ($q): void {
+                    $q->where('account_type', 'brand')
+                        ->orWhere(function ($q2): void {
+                            $q2->whereNull('account_type')->where('professional_type', 'brand');
+                        });
+                })
                 ->with('site')
                 ->get();
 
@@ -137,7 +155,7 @@ class BrandPartnerController extends ApiController
     ): JsonResponse {
         $professional = $this->currentProfessional($request);
 
-        if (mb_strtolower(trim((string) $professional->professional_type)) === 'brand') {
+        if ($professional->isBrand()) {
             return $this->error('Brand accounts cannot manage brand partner connections.', 403);
         }
 

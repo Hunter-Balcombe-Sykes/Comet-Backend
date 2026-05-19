@@ -50,7 +50,7 @@ class ProfessionalDocumentController extends ApiController
 
         // Brand accounts are excluded per product spec — they have Shopify
         // for catalogue assets and don't get the generic document slot.
-        if ($pro->professional_type === 'brand') {
+        if ($pro->isBrand()) {
             return $this->error('Documents section not available for brand accounts.', 403);
         }
 
