@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
+// No capability gate: subscriber-level, not professional-level — same justification as SendStaffBroadcastEmailsJob.
 // Sends individual staff broadcast email, respecting unsubscribe preferences and subscriber status.
 // Dispatched by SendStaffBroadcastEmailsJob — one job per recipient so failures isolate and retry independently.
 class SendStaffBroadcastEmailToSubscriberJob implements ShouldQueue

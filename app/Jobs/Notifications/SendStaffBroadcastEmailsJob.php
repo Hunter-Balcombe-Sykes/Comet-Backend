@@ -13,6 +13,8 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
+// No capability gate: subscribers are not Professional-keyed (whereNull('professional_id')),
+// so account_type gating does not apply — this is a marketing list, not a per-account feature.
 // Fans out staff broadcast emails to all marketing-list subscribers using Bus::batch()
 // so each sub-chunk of jobs shares one Redis pipeline write instead of one write per job —
 // the marketing list grows unboundedly with sign-ups, so this is the urgent batch fix.

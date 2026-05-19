@@ -114,6 +114,7 @@ it('reports per-professional exception in SendWeeklyAnalyticsNotificationJob wit
         'handle_lc' => 'pro-weekly-'.substr($proId, 0, 8),
         'display_name' => 'Weekly Brand',
         'professional_type' => 'brand',
+        'account_type' => 'brand',
         'status' => 'active',
         'primary_email' => 'weekly@example.test',
         'created_at' => $now,

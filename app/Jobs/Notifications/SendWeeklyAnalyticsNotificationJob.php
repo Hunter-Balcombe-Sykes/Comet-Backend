@@ -40,9 +40,21 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
         $windowStart = now()->subDays(7)->startOfDay();
         $windowEnd = now()->startOfDay();
 
+        // Individuals have no commerce activity — exclude them at query level so
+        // we never run the rollup query or publish a notification for them.
+        // Only brand and partner account types have orders/commissions to report.
+        // Dual-read during the §28.1 SET NOT NULL promotion window: prefer
+        // account_type when set, fall back to professional_type for legacy rows.
         DB::table('core.professionals')
             ->where('status', 'active')
             ->whereNull('deleted_at')
+            ->where(function ($q): void {
+                $q->whereIn('account_type', ['brand', 'partner'])
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('account_type')
+                            ->whereIn('professional_type', ['brand', 'affiliate']);
+                    });
+            })
             ->orderBy('id')
             ->chunkById(200, function ($professionals) use ($publisher, $yearWeek, $windowStart, $windowEnd): void {
                 $ids = $professionals->pluck('id')->all();

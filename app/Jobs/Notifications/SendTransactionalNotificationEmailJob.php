@@ -3,6 +3,8 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,9 +16,32 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 // V2: Sends category-specific transactional emails (invites, commissions, payouts). Respects feature flags and user email preferences.
+// Categories with a capability gate are listed in CAPABILITY_GATE_MAP. Categories absent from the map bypass the gate
+// (e.g. analytics_weekly, profile_tasks) — they have no account_type restriction.
 class SendTransactionalNotificationEmailJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * Category → AccountCapabilitySet property name. Categories absent from this map
+     * bypass the capability gate (e.g. analytics_weekly, profile_tasks have no
+     * account_type restriction — all types can receive them when they have an email).
+     *
+     * @var array<string, string>
+     */
+    // Keys MUST match the category strings registered in
+    // config('partna.notifications.mailables') — silent fallthrough on a
+    // mistyped key would bypass the gate for financially-sensitive mail.
+    // `payout_warnings`, `brand_links`, `subscriptions`, `policy_update`,
+    // `incident`, `feature_announcement`, `integrations`, `analytics_*`,
+    // and `profile_tasks` are intentionally absent — they apply to all
+    // account types (or use a non-account-type policy elsewhere).
+    private const CAPABILITY_GATE_MAP = [
+        'payouts' => 'receives_payout_notifications',
+        'commissions' => 'receives_commission_notifications',
+        'brand_status' => 'receives_brand_status_notifications',
+        'invites' => 'receives_invite_notifications',
+    ];
 
     public int $tries = 3;
 
@@ -55,6 +80,30 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             ]);
 
             return;
+        }
+
+        // Capability gate: check account_type restrictions for categories that have them.
+        // Gate fires after feature-flag + mailable checks but before the DB queries so
+        // incapable recipients exit cheaply. Categories not in CAPABILITY_GATE_MAP are
+        // unrestricted (analytics_weekly, profile_tasks, etc.).
+        $capabilityProperty = self::CAPABILITY_GATE_MAP[$this->category] ?? null;
+        if ($capabilityProperty !== null) {
+            // Fail-closed for gated categories: a missing/hard-deleted
+            // professional is treated as incapable. Otherwise a deleted
+            // account could still receive a payouts/commissions email if
+            // the row vanishes between dispatch and run.
+            $pro = Professional::find($this->professionalId);
+            if (! $pro || ! AccountCapabilities::for($pro)->{$capabilityProperty}) {
+                Log::debug('Transactional email skipped: capability gate', [
+                    'professional_id' => $this->professionalId,
+                    'category' => $this->category,
+                    'capability' => $capabilityProperty,
+                    'professional_found' => $pro !== null,
+                    'job' => self::class,
+                ]);
+
+                return;
+            }
         }
 
         if (! NotificationPublisher::resolveEmailEnabled($this->professionalId, $this->category)) {

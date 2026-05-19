@@ -91,7 +91,16 @@ class NudgeStuckOnboardingJob implements ShouldQueue
         // null as Onboarding — that cohort is exactly who we most want to nudge.
         DB::table('core.professionals as p')
             ->leftJoin('brand.brand_profiles as bp', 'bp.professional_id', '=', 'p.id')
-            ->where('p.professional_type', 'brand')
+            // account_type is the source of truth; professional_type is the legacy
+            // dual-write column still in migration. Coalesce so the query works
+            // during the §28.1 SET NOT NULL promotion window.
+            ->where(function ($q): void {
+                $q->where('p.account_type', 'brand')
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('p.account_type')
+                            ->where('p.professional_type', 'brand');
+                    });
+            })
             ->whereNull('p.deleted_at')
             ->whereBetween('p.created_at', [$windowStart, $windowEnd])
             ->where(function ($q): void {

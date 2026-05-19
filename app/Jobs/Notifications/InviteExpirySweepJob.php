@@ -65,6 +65,14 @@ class InviteExpirySweepJob implements ShouldQueue
                             $label = 'An invitee';
                         }
 
+                        // No capability gate: §9's `receives_invite_notifications`
+                        // describes the *invitee* side ("you got invited"), but this
+                        // job notifies the *sender* (brand) that an invite they sent
+                        // has expired — a brand-management notification. Brand-only
+                        // semantics are inherent in the data (only brands create
+                        // affiliate invites) and brand is a terminal account_type,
+                        // so a defence-in-depth gate is structurally unnecessary.
+
                         $publisher->publish(
                             professionalId: $brandId,
                             frontendType: 'Warning',

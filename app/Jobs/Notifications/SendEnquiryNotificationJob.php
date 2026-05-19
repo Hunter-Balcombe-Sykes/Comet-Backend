@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 // V2: Sends the contact-form notification email to the affiliate's configured inbox after an enquiry is saved.
+// No capability gate: enquiries originate from public site contact forms and apply to all 3 account types
+// (brand, partner, individual) — there is no account_type restriction for this notification path.
 class SendEnquiryNotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
