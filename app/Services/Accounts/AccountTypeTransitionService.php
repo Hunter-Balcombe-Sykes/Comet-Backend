@@ -10,6 +10,7 @@ namespace App\Services\Accounts;
 use App\Enums\AccountType;
 use App\Events\Accounts\AccountTypeTransitionEvent;
 use App\Exceptions\InvalidAccountTypeTransition;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Professional\Professional;
 use App\Services\Professional\Brand\BrandPartnerLinkService;
@@ -107,7 +108,14 @@ class AccountTypeTransitionService
         // Sync new account_type routing entry to Cloudflare KV.
         SyncSubdomainToKvJob::dispatch((string) $pro->id);
 
-        // TODO §28.7: dispatch CloudflareCachePurgeJob($pro->handle) here once the job class lands.
+        // Purge edge cache for the pro's public profile so the next request
+        // observes the new account_type routing (§28.7). Handle is empty for
+        // ex-staff / freshly-created pros that haven't claimed a handle yet —
+        // job is a no-op in that case (defensive guard at the dispatch site).
+        $handle = strtolower(trim((string) ($pro->handle ?? '')));
+        if ($handle !== '') {
+            CloudflareCachePurgeJob::dispatch($handle);
+        }
 
         // Notify listeners (cache invalidation, audit log, future toggles).
         AccountTypeTransitionEvent::dispatch($pro, $from, $to);
