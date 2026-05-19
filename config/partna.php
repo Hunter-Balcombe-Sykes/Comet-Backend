@@ -776,6 +776,14 @@ return [
         'enquiry_notification_per_hour' => (int) env('PARTNA_ENQUIRY_NOTIFY_PER_HOUR', env('SIDEST_ENQUIRY_NOTIFY_PER_HOUR', 10)),
     ],
 
+    // Rate-limit config for the individual public profile endpoint (§28.8 CFG-3).
+    // Tunable at runtime via env without redeploy. Values are per-IP per-minute.
+    'public_profile' => [
+        'rate_limit_per_minute' => (int) env('SIDEST_RATE_LIMIT_PUBLIC_PROFILE_PER_MINUTE', 60),
+        // 60s edge TTL for the CacheLockService::rememberLocked payload.
+        'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
+    ],
+
     // Rate-limit config for the brand signup code redemption path (§33 CFG-3).
     // Values are intentionally in config (not inline) so they can be tightened
     // under abuse without a code deploy.

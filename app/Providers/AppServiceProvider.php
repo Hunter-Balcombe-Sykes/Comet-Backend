@@ -236,6 +236,23 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->ip());
         });
 
+        // Individual public profile endpoint (§28.8). Tunable via config — pre-clamped
+        // to >=1 so a misconfigured 0 doesn't lock out the Astro Worker subrequest path.
+        // Key prefers CF-Connecting-IP over $request->ip() so a TrustProxies misconfig
+        // can't collapse all edge requests onto one bucket.
+        RateLimiter::for('public-profile', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $perMinute = max(1, (int) config('partna.public_profile.rate_limit_per_minute', 60));
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
+            return Limit::perMinute($perMinute)
+                ->by((string) $key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
+        });
+
         // Public site endpoints (viewing sites, pages)
         RateLimiter::for('public-site', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
