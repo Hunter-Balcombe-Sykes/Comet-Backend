@@ -38,10 +38,22 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     // account types (or use a non-account-type policy elsewhere).
     private const CAPABILITY_GATE_MAP = [
         'payouts' => 'receives_payout_notifications',
+        'payout_settlement' => 'receives_payout_settlement_notifications',
         'commissions' => 'receives_commission_notifications',
         'brand_status' => 'receives_brand_status_notifications',
         'invites' => 'receives_invite_notifications',
     ];
+
+    /**
+     * Expose the capability gate map for the preference controller's category filter.
+     * Returns a copy so callers cannot mutate the internal map.
+     *
+     * @return array<string, string>
+     */
+    public static function capabilityGateMap(): array
+    {
+        return self::CAPABILITY_GATE_MAP;
+    }
 
     public int $tries = 3;
 

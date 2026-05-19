@@ -8,10 +8,10 @@ return [
 
     'handle' => [
         // Days during which only the original owner can reclaim a released handle for free.
-        'reclaim_days'   => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
+        'reclaim_days' => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
 
         // Total days an alias serves a 301 redirect. After this it is hard-deleted and the handle returns to the pool.
-        'redirect_days'  => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
+        'redirect_days' => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
 
         // Years to retain handle_change_log rows. 7y matches typical fraud-investigation retention.
         'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
@@ -1015,6 +1015,7 @@ return [
             'invites' => \App\Mail\Notifications\InviteNotificationMail::class,
             'commissions' => \App\Mail\Notifications\CommissionNotificationMail::class,
             'payouts' => \App\Mail\Notifications\PayoutNotificationMail::class,
+            'payout_settlement' => \App\Mail\Notifications\PayoutSettlementMail::class,
             'integrations' => \App\Mail\Notifications\IntegrationNotificationMail::class,
             'analytics_weekly' => \App\Mail\Notifications\AnalyticsWeeklyMail::class,
             'analytics_milestones' => \App\Mail\Notifications\AnalyticsMilestoneMail::class,

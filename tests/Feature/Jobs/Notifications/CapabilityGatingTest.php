@@ -251,6 +251,30 @@ it('SendTransactionalNotificationEmailJob: does not apply gate for ungated categ
     Log::shouldNotHaveReceived('debug', fn ($msg, $ctx) => isset($ctx['capability']) && str_contains($msg, 'capability gate'));
 });
 
+// ─── SendTransactionalNotificationEmailJob — payout_settlement gate ──────────
+
+it('SendTransactionalNotificationEmailJob: skips payout_settlement for individual without payout history', function () {
+    Log::spy();
+
+    config(['partna.notifications.email_enabled' => true]);
+
+    // Individual with no historical partner links → receives_payout_settlement_notifications = false.
+    $proId = insertPro('individual');
+
+    $job = new SendTransactionalNotificationEmailJob(
+        notificationId: (string) Str::uuid(),
+        category: 'payout_settlement',
+        professionalId: $proId,
+    );
+    $job->handle();
+
+    Log::shouldHaveReceived('debug')
+        ->atLeast()->once()
+        ->withArgs(fn (string $msg, array $ctx) => str_contains($msg, 'capability gate')
+            && ($ctx['capability'] ?? null) === 'receives_payout_settlement_notifications'
+            && ($ctx['professional_id'] ?? null) === $proId);
+});
+
 // ─── SendWeeklyAnalyticsNotificationJob ──────────────────────────────────────
 
 it('SendWeeklyAnalyticsNotificationJob: does not notify individual professionals', function () {
