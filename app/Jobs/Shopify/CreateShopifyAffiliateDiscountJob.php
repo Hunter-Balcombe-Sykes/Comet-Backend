@@ -193,6 +193,8 @@ class CreateShopifyAffiliateDiscountJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
+
         $integration = ProfessionalIntegration::find($this->integrationId);
         $integration?->mergeProviderMetadata(['partna_discount_state' => 'failed']);
     }

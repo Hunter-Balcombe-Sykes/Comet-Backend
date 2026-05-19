@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Core\FeatureFlag;
+use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Customer;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\Service;
@@ -21,6 +23,40 @@ class PurgeSoftDeleted extends Command
 
     protected $description = 'Permanently delete soft-deleted rows and pending-deletion professionals older than retention window.';
 
+    /**
+     * Models whose soft-deleted rows this command force-deletes after the
+     * retention window. Keep in sync with handle(). Audit DATA-4 sweep test
+     * asserts every SoftDeletes-using model is either listed here, in
+     * PURGE_EXEMPT, or in PURGE_OTHER_PATH.
+     */
+    public const PURGE_HANDLED = [
+        Customer::class,
+        Service::class,
+        SiteMedia::class,
+        Enquiry::class,
+        ServiceCategory::class,
+    ];
+
+    /**
+     * SoftDeletes-using models that are deliberately exempt from this purge.
+     * Each entry must carry a justification so future maintainers don't add
+     * them to PURGE_HANDLED without thought.
+     */
+    public const PURGE_EXEMPT = [
+        FeatureFlag::class => 'Lifecycle managed by FeatureFlagService — flags are tombstoned for audit history and never auto-purged.',
+        BrandPartnerLink::class => 'Plan §28.16: ex-partner panel relies on indefinite tombstone retention. Hard-delete happens only as a cascade of Professional purge via brand_partner_link_events SET NULL.',
+    ];
+
+    /**
+     * SoftDeletes-using models handled by a different purge path (not the
+     * generic retention loop in handle()).
+     */
+    public const PURGE_OTHER_PATH = [
+        // purgePendingDeletionProfessionals() — different lifecycle (Supabase
+        // Admin API call + audit log).
+        Professional::class => 'purgePendingDeletionProfessionals() — uses AccountDeletionService::purge() instead of forceDelete().',
+    ];
+
     public function handle(AccountDeletionService $deletionService): int
     {
         $days = (int) ($this->option('days') ?: config('partna.soft_delete_retention_days', 30));
@@ -30,11 +66,9 @@ class PurgeSoftDeleted extends Command
 
         $total = 0;
 
-        $total += $this->purgeModel(Customer::class, $cutoff);
-        $total += $this->purgeModel(Service::class, $cutoff);
-        $total += $this->purgeModel(SiteMedia::class, $cutoff);
-        $total += $this->purgeModel(Enquiry::class, $cutoff);
-        $total += $this->purgeModel(ServiceCategory::class, $cutoff);
+        foreach (self::PURGE_HANDLED as $modelClass) {
+            $total += $this->purgeModel($modelClass, $cutoff);
+        }
 
         $this->info("Done with soft deletes. Force-deleted {$total} rows.");
 
