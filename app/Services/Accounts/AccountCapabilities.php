@@ -29,17 +29,43 @@ use App\Models\Core\Professional\Professional;
  */
 final class AccountCapabilities
 {
+    /**
+     * Per-Professional memoization (audit SCALE-1). Notification fan-outs over
+     * many professionals previously rebuilt the value object N times per row;
+     * once §28.16's denorm-column read becomes part of individualCapabilities,
+     * that pattern is worth avoiding. WeakMap so memoized instances don't pin
+     * the Professional alive longer than necessary.
+     */
+    private static ?\WeakMap $cache = null;
+
     public static function for(Professional $pro): AccountCapabilitySet
     {
+        self::$cache ??= new \WeakMap;
+        if (isset(self::$cache[$pro])) {
+            return self::$cache[$pro];
+        }
+
         // Fall through to individual for legacy rows still in the dual-write window.
-        // After the §28.1 SET NOT NULL promotion lands in production, account_type is
-        // guaranteed non-null and this fallback becomes unreachable — leaving it
-        // here keeps the alpha rollout safe while readers migrate.
-        return match ($pro->account_type) {
+        // After the §28.1 SET NOT NULL promotion lands in production, account_type
+        // is guaranteed non-null and the fallback becomes unreachable. The default
+        // arm catches any future enum case added without an explicit branch —
+        // fail-safe over UnhandledMatchError.
+        $set = match ($pro->account_type) {
             AccountType::Brand => self::brandCapabilities(),
             AccountType::Partner => self::partnerCapabilities(),
             AccountType::Individual, null => self::individualCapabilities($pro),
+            default => self::individualCapabilities($pro),
         };
+
+        self::$cache[$pro] = $set;
+
+        return $set;
+    }
+
+    /** Flush the per-instance cache. Tests call this when reassigning fields on a memoized Professional. */
+    public static function flushCache(): void
+    {
+        self::$cache = null;
     }
 
     private static function brandCapabilities(): AccountCapabilitySet
