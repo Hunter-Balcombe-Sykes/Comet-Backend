@@ -32,6 +32,7 @@ class FeatureFlagTestCase
             primary_email TEXT,
             status TEXT DEFAULT "active",
             professional_type TEXT DEFAULT "professional",
+            account_type TEXT NULL,
             created_at TEXT,
             updated_at TEXT,
             deleted_at TEXT

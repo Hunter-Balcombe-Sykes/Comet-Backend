@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\PublicSite;
 
+use App\Enums\AccountType;
 use App\Enums\BrandStatus;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\BootstrapRequest;
@@ -89,13 +90,22 @@ class BootstrapController extends ApiController
                     }
 
                     $createdProfessional = true;
+                    $resolvedType = $resolveProfessionalType($data['professional_type'] ?? null);
+                    // Plan §28.13 + non-negotiable #5/#12: BootstrapController is the
+                    // ONLY writer of account_type='brand'. Default non-brand signups
+                    // to 'individual'; the brand-attach branches below flip the
+                    // freshly-created Professional to 'partner' on successful link.
+                    $initialAccountType = $resolvedType === 'brand'
+                        ? AccountType::Brand
+                        : AccountType::Individual;
                     $professional = new Professional([
                         'handle' => $data['handle'],
                         'display_name' => $data['display_name'],
                         'bio' => null,
                         'country_code' => $data['country_code'] ?? null,
                         'timezone' => $data['timezone'] ?? null,
-                        'professional_type' => $resolveProfessionalType($data['professional_type'] ?? null),
+                        'professional_type' => $resolvedType,
+                        'account_type' => $initialAccountType,
                         'status' => 'active',
                         'onboarding_step' => 0,
                         'phone' => $data['phone'] ?? null,
@@ -164,6 +174,11 @@ class BootstrapController extends ApiController
                 // existing brand connection is preserved; the new attempt is
                 // skipped and surfaced in logs so the frontend can ask the
                 // user to disconnect first if they want to switch.
+                // Tracks whether any of the three brand-attach branches below
+                // succeeded in creating a BrandPartnerLink. Used after the
+                // branches to promote the new professional to 'partner'.
+                $attachedAsPartner = false;
+
                 if (is_string($data['invite_token'] ?? null) && trim((string) $data['invite_token']) !== '') {
                     $invite = $brandAffiliateInviteService->findByToken((string) $data['invite_token']);
                     if (! $invite) {
@@ -174,6 +189,7 @@ class BootstrapController extends ApiController
                         $brandAffiliateInviteService->claimInvite($invite, $professional);
                         $this->syncSiteBrandPartnerSettings($site, $brandPartnerLinks, (string) $professional->id);
                         $accountTypeDefaultsService->applyAffiliateDefaults($professional, $site);
+                        $attachedAsPartner = true;
                     } catch (RuntimeException $e) {
                         Log::warning('Bootstrap brand-attach via invite_token skipped', [
                             'professional_id' => (string) $professional->id,
@@ -200,6 +216,7 @@ class BootstrapController extends ApiController
 
                         $this->syncSiteBrandPartnerSettings($site, $brandPartnerLinks, $affiliateId);
                         $accountTypeDefaultsService->applyAffiliateDefaults($professional, $site);
+                        $attachedAsPartner = true;
                     } catch (RuntimeException $e) {
                         Log::warning('Bootstrap brand-attach via brand_partner_professional_id skipped', [
                             'professional_id' => $affiliateId,
@@ -226,6 +243,7 @@ class BootstrapController extends ApiController
                                     $brandAffiliateInviteService->claimOpenInvite($joinBrand, $professional);
                                     $this->syncSiteBrandPartnerSettings($site, $brandPartnerLinks, $affiliateId);
                                     $accountTypeDefaultsService->applyAffiliateDefaults($professional, $site);
+                                    $attachedAsPartner = true;
                                 } catch (RuntimeException $e) {
                                     Log::warning('Bootstrap brand-attach via join_brand_handle skipped', [
                                         'professional_id' => $affiliateId,
@@ -277,6 +295,16 @@ class BootstrapController extends ApiController
                     app(ShopProfileAutoFillService::class)->fillFromShopData(
                         $professional, $site, $brandProfile, $shopifyData['shop_data']
                     );
+                }
+
+                // Plan §28.13: promote freshly-created non-brand professionals
+                // to 'partner' once a BrandPartnerLink has actually been
+                // established by one of the three brand-attach branches above.
+                // Brand accounts never transition; partner-via-link is the only
+                // post-creation account_type write in this controller.
+                if ($attachedAsPartner && ! $professional->isBrand() && ! $professional->isPartner()) {
+                    $professional->account_type = AccountType::Partner;
+                    $professional->save();
                 }
 
                 app(ProfessionalCacheService::class)->invalidateProfessional($professional);

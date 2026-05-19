@@ -41,6 +41,7 @@ beforeEach(function () {
         primary_email TEXT NULL,
         phone TEXT NULL,
         professional_type TEXT NULL,
+        account_type TEXT NULL,
         status TEXT NULL,
         onboarding_step INTEGER NULL,
         country_code TEXT NULL,

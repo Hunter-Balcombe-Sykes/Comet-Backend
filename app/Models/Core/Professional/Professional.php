@@ -2,6 +2,7 @@
 
 namespace App\Models\Core\Professional;
 
+use App\Enums\AccountType;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SiteVisit;
 use App\Models\BaseModel;
@@ -55,6 +56,7 @@ class Professional extends BaseModel
         'country_code',
         'timezone',
         'professional_type',
+        'account_type',
         'status',
         'onboarding_step',
         'phone',
@@ -111,6 +113,7 @@ class Professional extends BaseModel
     protected $casts = [
         'onboarding_step' => 'integer',
         'about' => 'array',
+        'account_type' => AccountType::class,
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -129,9 +132,28 @@ class Professional extends BaseModel
         return mb_strtolower(trim((string) ($this->professional_type ?? ''))) === 'influencer';
     }
 
+    // Account-type predicates. Read account_type when it has been set (dual-write
+    // window) and fall back to professional_type only as a safety net for code
+    // paths that haven't been migrated yet. Source of truth: account_type.
     public function isBrand(): bool
     {
+        if ($this->account_type instanceof AccountType) {
+            return $this->account_type === AccountType::Brand;
+        }
+
         return mb_strtolower(trim((string) ($this->professional_type ?? ''))) === 'brand';
+    }
+
+    public function isPartner(): bool
+    {
+        return $this->account_type instanceof AccountType
+            && $this->account_type === AccountType::Partner;
+    }
+
+    public function isIndividual(): bool
+    {
+        return $this->account_type instanceof AccountType
+            && $this->account_type === AccountType::Individual;
     }
 
     public function isProfessional(): bool

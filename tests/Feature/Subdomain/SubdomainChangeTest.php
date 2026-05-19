@@ -193,6 +193,7 @@ function setupCoreSchema(): void
             handle TEXT NULL,
             handle_lc TEXT NULL,
             professional_type TEXT NULL,
+            account_type TEXT NULL,
             status TEXT NULL,
             deleted_at TEXT NULL,
             created_at TEXT NULL,

@@ -133,10 +133,18 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
     // ── Check 4: ALTER COLUMN SET NOT NULL ────────────────────────────────────
     // Direct SET NOT NULL takes ACCESS EXCLUSIVE and scans every row under the lock.
     // Use the four-step NOT VALID + VALIDATE CONSTRAINT + SET NOT NULL pattern instead.
+    //
+    // Exemption: if the same file also contains VALIDATE CONSTRAINT, the
+    // SET NOT NULL is Step 4 of the documented four-step pattern. Postgres
+    // skips the row scan in that case because the validated CHECK already
+    // guarantees no NULLs.
     if (preg_match('/\bALTER\s+COLUMN\s+\S+\s+SET\s+NOT\s+NULL\b/i', $content)) {
-        $errors[] = "$basename: ALTER COLUMN SET NOT NULL detected.\n"
-            ."  Use the four-step pattern: ADD CONSTRAINT ... NOT VALID → backfill → VALIDATE → SET NOT NULL.\n"
-            .'  See: supabase/migrations/CONVENTIONS.md §3';
+        $hasValidate = preg_match('/\bVALIDATE\s+CONSTRAINT\b/i', $content) === 1;
+        if (! $hasValidate) {
+            $errors[] = "$basename: ALTER COLUMN SET NOT NULL detected.\n"
+                ."  Use the four-step pattern: ADD CONSTRAINT ... NOT VALID → backfill → VALIDATE → SET NOT NULL.\n"
+                .'  See: supabase/migrations/CONVENTIONS.md §3';
+        }
     }
 }
 

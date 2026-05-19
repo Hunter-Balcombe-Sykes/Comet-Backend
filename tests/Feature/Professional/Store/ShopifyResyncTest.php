@@ -35,6 +35,7 @@ beforeEach(function () {
         primary_email TEXT,
         phone TEXT,
         professional_type TEXT DEFAULT "professional",
+        account_type TEXT NULL,
         status TEXT DEFAULT "active",
         country_code TEXT,
         timezone TEXT,
