@@ -228,12 +228,18 @@ class VerifySupabaseJwt
 
         // Warm APCu for every kid in the set — the next authenticated request,
         // regardless of which kid it presents, then hits APCu instead of parseKeySet.
+        //
+        // §28.17 SEC-3 fix: derive alg per-kid from the parsed Key, NOT from the
+        // inbound JWT's $alg. A JWKS can mix RS256 + ES256 kids; warming every
+        // entry with the inbound alg poisoned the cache for the other algorithm
+        // and made signature verification fail for valid tokens until the cache
+        // entry expired.
         foreach ($parsed as $parsedKid => $parsedKey) {
             $pem = $this->extractPemFromKey($parsedKey);
             if ($pem !== null) {
                 $this->apcuStore(
                     self::APCU_KEY_PREFIX.$parsedKid,
-                    ['pem' => $pem, 'alg' => $alg],
+                    ['pem' => $pem, 'alg' => $parsedKey->getAlgorithm()],
                 );
             }
             self::$keysByKid[$parsedKid] = $parsedKey;
