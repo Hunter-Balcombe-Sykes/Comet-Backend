@@ -187,6 +187,12 @@ Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
     ->middleware(['throttle:waitlist', 'captcha']);
 Route::get('/public/brand-affiliate-invites/{token}', [PublicBrandAffiliateInviteController::class, 'show'])
     ->middleware('throttle:public-site');
+
+// §28.8 — Individual public profile (Astro Worker subrequest target).
+// Public, unauthenticated. Rate limit + cache key isolated from generic public-site.
+Route::get('/public/profiles/{handle}', [\App\Http\Controllers\Api\PublicSite\IndividualProfileController::class, 'show'])
+    ->where('handle', '[A-Za-z0-9-]+')
+    ->middleware('throttle:public-profile');
 Route::get('/public/join/{handle}', [PublicOpenInviteController::class, 'show'])
     ->where('handle', '[A-Za-z0-9][A-Za-z0-9_-]*')
     ->middleware('throttle:public-site');
