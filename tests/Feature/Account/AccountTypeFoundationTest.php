@@ -62,6 +62,17 @@ describe('account_type migration sequence', function () {
             ->toContain('BEFORE INSERT OR UPDATE');
     });
 
+    it("<ts2>: trigger preserves 'influencer' / 'professional' when account_type flips to partner/individual", function () {
+        // Regression guard: the prior trigger body unconditionally set
+        // professional_type := 'professional' whenever account_type changed to
+        // partner/individual — which destroyed the legacy 'influencer' value
+        // that isInfluencer() callers still depend on. Fix preserves it.
+        $sql = file_get_contents($this->ts2);
+
+        expect($sql)
+            ->toContain("NEW.professional_type IS NULL OR NEW.professional_type = 'brand'");
+    });
+
     it('<ts3>: validates both constraints, guards against NULLs, promotes to SET NOT NULL', function () {
         $sql = file_get_contents($this->ts3);
 

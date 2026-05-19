@@ -48,11 +48,18 @@ BEGIN
     END IF;
 
     -- account_type wins when both are explicitly set in the same statement.
+    -- For the partner/individual case, only collapse professional_type when it
+    -- has no meaningful current value or is 'brand' — preserve 'professional'
+    -- and 'influencer' since isInfluencer() callers still read them during the
+    -- dual-write window. Without this guard, the first account_type write on
+    -- an influencer would silently lose the legacy distinction.
     IF account_type_changed THEN
         IF NEW.account_type = 'brand' THEN
             NEW.professional_type := 'brand';
         ELSIF NEW.account_type IN ('partner', 'individual') THEN
-            NEW.professional_type := 'professional';
+            IF NEW.professional_type IS NULL OR NEW.professional_type = 'brand' THEN
+                NEW.professional_type := 'professional';
+            END IF;
         END IF;
         RETURN NEW;
     END IF;
