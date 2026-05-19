@@ -126,6 +126,9 @@ it('SendTransactionalNotificationEmailJob sends and stamps email_sent_at on firs
     DB::connection('pgsql')->table('core.professionals')->insert([
         'id' => $proId,
         'primary_email' => 'pro@example.test',
+        // 'commissions' is gated on receives_commission_notifications (§28.11);
+        // brand + partner have the capability, individual does not.
+        'account_type' => 'brand',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

@@ -9,6 +9,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
+// No capability gate: operates on Customer, not Professional — account_type gating does not apply.
 // V2: Asynchronously refreshes Customer.marketing_opt_in_cached after an EmailSubscription save.
 // EmailSubscription is the source of truth; the cached column on Customer is a UX/perf shortcut
 // that isMarketingOptedIn() falls back to a live lookup for when null — so a few seconds of

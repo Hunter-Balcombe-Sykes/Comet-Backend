@@ -32,6 +32,8 @@ it('issues at most one metrics query per chunk regardless of professional count'
             'handle_lc' => "pro{$i}",
             'display_name' => "Pro {$i}",
             'primary_email' => "pro{$i}@example.test",
+            'professional_type' => 'affiliate',
+            'account_type' => 'partner',
             'status' => 'active',
             'created_at' => $now,
             'updated_at' => $now,

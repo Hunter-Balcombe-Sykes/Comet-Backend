@@ -2,6 +2,8 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
@@ -40,6 +42,30 @@ class SendBrandStatusNotificationJob implements ShouldQueue
 
     public function handle(NotificationPublisher $publisher): void
     {
+        // Feature gate: defence-in-depth against ex-partner-leak (§28.16).
+        // FanOutBrandStatusNotificationJob already filters soft-deleted links,
+        // but a partner who transitions to individual after the fan-out was
+        // queued would no longer have receives_brand_status_notifications.
+        $affiliate = Professional::find($this->affiliateProfessionalId);
+        if (! $affiliate) {
+            Log::warning('SendBrandStatusNotificationJob: affiliate not found, skipping', [
+                'affiliate_professional_id' => $this->affiliateProfessionalId,
+                'brand_professional_id' => $this->brandProfessionalId,
+            ]);
+
+            return;
+        }
+
+        if (! AccountCapabilities::for($affiliate)->receives_brand_status_notifications) {
+            Log::debug('SendBrandStatusNotificationJob: capability gate skip', [
+                'professional_id' => $this->affiliateProfessionalId,
+                'capability' => 'receives_brand_status_notifications',
+                'job' => self::class,
+            ]);
+
+            return;
+        }
+
         match ($this->brandStatus) {
             'building' => $publisher->publish(
                 professionalId: $this->affiliateProfessionalId,

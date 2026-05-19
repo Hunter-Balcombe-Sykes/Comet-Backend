@@ -68,6 +68,19 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Identity gate: this job only makes sense for brand accounts. A non-brand
+        // professional should never reach here — log a warning (unexpected, not benign)
+        // and bail so we don't fan out status notifications to their contacts.
+        if (! $brand->isBrand()) {
+            Log::warning('FanOutBrandStatusNotificationJob: sender is not a brand, skipping fan-out', [
+                'brand_professional_id' => $this->brandProfessionalId,
+                'account_type' => $brand->account_type?->value,
+                'job' => self::class,
+            ]);
+
+            return;
+        }
+
         $yearWeek = now()->format('o-W');
         $brandName = (string) ($brand->display_name ?: $brand->handle ?: 'Brand');
         $totalAffiliates = 0;
