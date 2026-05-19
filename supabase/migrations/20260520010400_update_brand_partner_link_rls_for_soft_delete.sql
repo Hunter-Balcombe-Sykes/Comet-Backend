@@ -37,7 +37,7 @@ CREATE POLICY partner_links_party_select ON brand.brand_partner_links FOR SELECT
             brand_professional_id = (SELECT id FROM core.professionals WHERE auth_user_id = auth.uid() AND deleted_at IS NULL)
             AND deleted_at IS NULL
         )
-        OR EXISTS (SELECT 1 FROM core.sidest_staff s WHERE s.auth_user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM core.partna_staff s WHERE s.auth_user_id = auth.uid())
     );
 
 -- ─── brand_profiles_affiliate_select ────────────────────────────────────────

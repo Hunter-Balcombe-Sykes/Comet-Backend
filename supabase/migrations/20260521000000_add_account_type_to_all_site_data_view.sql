@@ -40,8 +40,6 @@ SELECT
     p.location_state AS professional_location_state,
     p.location_postcode AS professional_location_postcode,
     p.location_country AS professional_location_country,
-    p.account_type,
-    p.professional_type,
     COALESCE(jsonb_agg(
       jsonb_build_object(
         'id', b.id,
@@ -59,7 +57,12 @@ SELECT
         'updated_at', b.updated_at
       )
       ORDER BY b.sort_order
-    ) FILTER (WHERE b.id IS NOT NULL), '[]'::jsonb) AS blocks
+    ) FILTER (WHERE b.id IS NOT NULL), '[]'::jsonb) AS blocks,
+    -- New columns MUST be appended at end. CREATE OR REPLACE VIEW only allows
+    -- adding columns at the tail of the SELECT list; inserting earlier triggers
+    -- "cannot change name of view column" — Postgres treats it as a rename.
+    p.account_type,
+    p.professional_type
 FROM site.sites s
 JOIN core.professionals p ON p.id = s.professional_id
 LEFT JOIN site.themes t ON t.id = s.theme_id
