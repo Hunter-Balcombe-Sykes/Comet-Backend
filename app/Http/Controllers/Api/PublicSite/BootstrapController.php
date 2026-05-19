@@ -13,6 +13,7 @@ use App\Models\Core\Professional\BrandProfile;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\ProfessionalIntegration;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Waitlist\WaitlistSignup;
 use App\Services\Cache\ProfessionalCacheService;
 use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\Brand\BrandAffiliateInviteService;
@@ -52,6 +53,42 @@ class BootstrapController extends ApiController
                 'New account creation is currently waitlist-only. Please join the waitlist.',
                 403,
                 ['code' => 'WAITLIST_ONLY']
+            );
+        }
+
+        // §28.14 — Individual waitlist diversion (CFG-1). Runs BEFORE validation
+        // because the invite-only validation rules would otherwise reject individual
+        // signups before they reach this point. Brand, partner-via-invite, and
+        // partner-via-brand-signup-code signups are unaffected.
+        if (
+            (bool) config('partna.individual_waitlist_enabled', false)
+            && ! $this->hasExistingProfessional($uid)
+            && ! (is_string($request->input('invite_token')) && trim((string) $request->input('invite_token')) !== '')
+            && ! (is_string($request->input('brand_signup_code')) && trim((string) $request->input('brand_signup_code')) !== '')
+            && strtolower(trim((string) $request->input('professional_type', ''))) !== 'brand'
+        ) {
+            $emailLc = strtolower(trim((string) $request->input('primary_email', '')));
+            if ($emailLc !== '') {
+                // updateOrCreate (not upsert) — production has a UNIQUE index on
+                // email_lc, but using updateOrCreate keeps the divert
+                // working consistently across environments and avoids relying on
+                // the DB driver's ON CONFLICT clause shape.
+                WaitlistSignup::query()->updateOrCreate(
+                    ['email_lc' => $emailLc],
+                    [
+                        'email' => $emailLc,
+                        'name' => trim(((string) $request->input('first_name', '')).' '.((string) $request->input('last_name', ''))) ?: null,
+                        'applicant_type' => 'individual',
+                        'consent_source' => 'individual_waitlist_divert',
+                        'last_submitted_at' => now(),
+                    ]
+                );
+            }
+
+            return $this->error(
+                'New individual signups are temporarily on a waitlist. We\'ll be in touch.',
+                403,
+                ['code' => 'INDIVIDUAL_WAITLIST']
             );
         }
 
