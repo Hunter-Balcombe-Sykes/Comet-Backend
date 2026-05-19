@@ -26,8 +26,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ExportService
 {
-    // No constructor needed; StripeTransactionFetcher injection removed with exportTransactions.
-
     /**
      * @param  array<string, mixed>  $filters
      */
