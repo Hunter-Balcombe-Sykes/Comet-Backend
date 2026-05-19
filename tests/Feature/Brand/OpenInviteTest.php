@@ -41,6 +41,7 @@ beforeEach(function () {
         public_contact_number TEXT,
         public_contact_email TEXT,
         professional_type TEXT DEFAULT "professional",
+        account_type TEXT NULL,
         status TEXT DEFAULT "active",
         onboarding_step INTEGER DEFAULT 0,
         country_code TEXT,

@@ -19,6 +19,7 @@ beforeEach(function () {
         handle TEXT,
         display_name TEXT,
         professional_type TEXT,
+        account_type TEXT NULL,
         status TEXT,
         admin_notes TEXT,
         about TEXT,

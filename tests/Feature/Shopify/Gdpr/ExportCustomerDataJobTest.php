@@ -29,6 +29,7 @@ beforeEach(function () {
         handle TEXT,
         status TEXT,
         professional_type TEXT,
+        account_type TEXT NULL,
         created_at TEXT,
         updated_at TEXT,
         deleted_at TEXT

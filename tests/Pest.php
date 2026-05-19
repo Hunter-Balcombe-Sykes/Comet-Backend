@@ -216,6 +216,7 @@ function setupProfessionalsTable(): void
         primary_email TEXT NULL,
         phone TEXT NULL,
         professional_type TEXT NULL,
+        account_type TEXT NULL,
         status TEXT NULL,
         bio TEXT NULL,
         about TEXT NULL,
