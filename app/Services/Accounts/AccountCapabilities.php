@@ -120,12 +120,14 @@ final class AccountCapabilities
 
     private static function individualCapabilities(Professional $pro): AccountCapabilitySet
     {
-        // shows_ex_partner_panel and receives_payout_settlement_notifications are
-        // conditional on historical data (former brand-link, pending payouts).
-        // The denormalized boolean column + brandPartnerLinksAll() relationship
-        // land in §28.16; until then, individuals are treated as no-history.
-        // SCALE-1 will swap in the denorm lookup once the column exists.
-        $hasHistoricalLinks = false;
+        // shows_ex_partner_panel reads the §28.16 denormalized column. The
+        // observer maintains it (BrandPartnerLinkObserver), so this is a
+        // straight property read — no N+1 risk on list endpoints (audit SCALE-1).
+        // receives_payout_settlement_notifications is still inert: the
+        // pending-payout-history check needs commerce.commission_payouts; that
+        // wiring lands when the notification dispatcher is refactored (§28.10
+        // / §28.11).
+        $hasHistoricalLinks = (bool) ($pro->has_historical_partner_links ?? false);
         $hasPendingPayoutHistory = false;
 
         return new AccountCapabilitySet(

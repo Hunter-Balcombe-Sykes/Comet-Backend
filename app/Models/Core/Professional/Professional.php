@@ -114,6 +114,9 @@ class Professional extends BaseModel
         'onboarding_step' => 'integer',
         'about' => 'array',
         'account_type' => AccountType::class,
+        // Observer-maintained; not in $fillable so a bulk save() can't desync it
+        // from the brand_partner_links table.
+        'has_historical_partner_links' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -243,6 +246,16 @@ class Professional extends BaseModel
     public function brandPartnerLinks(): HasMany
     {
         return $this->hasMany(BrandPartnerLink::class, 'affiliate_professional_id');
+    }
+
+    /**
+     * Same as brandPartnerLinks() but includes soft-deleted rows. Use this for
+     * ex-partner derivation and historical-link queries; default queries
+     * (auto-excluded via the SoftDeletes trait) are still the right hot path.
+     */
+    public function brandPartnerLinksAll(): HasMany
+    {
+        return $this->hasMany(BrandPartnerLink::class, 'affiliate_professional_id')->withTrashed();
     }
 
     /**

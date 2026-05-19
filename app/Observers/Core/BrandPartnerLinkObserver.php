@@ -41,13 +41,54 @@ class BrandPartnerLinkObserver
         $this->dispatchSync($link);
         $this->bustHydrogenCaches($link);
         $this->publishCreated($link);
+        $this->setHistoricalFlag($link, true);
     }
 
+    // SoftDeletes-trait models fire `deleted` on soft-delete (NOT on force-delete).
+    // Stays true on soft-delete (the row is still in the table, just tombstoned) —
+    // the boolean reflects "ever had a link", not "currently has one".
     public function deleted(BrandPartnerLink $link): void
     {
         $this->dispatchSync($link);
         $this->bustHydrogenCaches($link);
         $this->publishDeleted($link);
+    }
+
+    // Fires when PurgeSoftDeleted removes a row at the end of the retention
+    // window. Re-evaluate from withTrashed() — if this was the last link the
+    // professional ever had, flip back to false.
+    public function forceDeleted(BrandPartnerLink $link): void
+    {
+        $this->reevaluateHistoricalFlag($link);
+    }
+
+    private function setHistoricalFlag(BrandPartnerLink $link, bool $value): void
+    {
+        $affiliateId = trim((string) ($link->affiliate_professional_id ?? ''));
+        if ($affiliateId === '') {
+            return;
+        }
+
+        // Direct UPDATE (no model load) — the column is observer-maintained,
+        // not $fillable, so this is the documented write path.
+        DB::table('core.professionals')
+            ->where('id', $affiliateId)
+            ->where('has_historical_partner_links', '!=', $value)
+            ->update(['has_historical_partner_links' => $value]);
+    }
+
+    private function reevaluateHistoricalFlag(BrandPartnerLink $link): void
+    {
+        $affiliateId = trim((string) ($link->affiliate_professional_id ?? ''));
+        if ($affiliateId === '') {
+            return;
+        }
+
+        $stillHasAny = DB::table('brand.brand_partner_links')
+            ->where('affiliate_professional_id', $affiliateId)
+            ->exists();
+
+        $this->setHistoricalFlag($link, $stillHasAny);
     }
 
     private function dispatchSync(BrandPartnerLink $link): void

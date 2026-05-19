@@ -48,6 +48,7 @@ beforeEach(function () {
         public_contact_email TEXT,
         professional_type TEXT DEFAULT "professional",
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT DEFAULT "active",
         onboarding_step INTEGER DEFAULT 0,
         country_code TEXT,
@@ -124,7 +125,8 @@ beforeEach(function () {
         slot INTEGER NOT NULL DEFAULT 0,
         custom_photos_enabled INTEGER,
         created_at TEXT,
-        updated_at TEXT
+        updated_at TEXT,
+        deleted_at TEXT NULL
     )');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (

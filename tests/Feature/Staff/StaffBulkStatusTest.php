@@ -20,6 +20,7 @@ beforeEach(function () {
         display_name TEXT,
         professional_type TEXT,
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT,
         admin_notes TEXT,
         about TEXT,

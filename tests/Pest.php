@@ -217,6 +217,7 @@ function setupProfessionalsTable(): void
         phone TEXT NULL,
         professional_type TEXT NULL,
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT NULL,
         bio TEXT NULL,
         about TEXT NULL,

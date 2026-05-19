@@ -5,7 +5,6 @@ use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateProfessionalRequest;
 use App\Http\Resources\ProfessionalResource;
 use App\Http\Resources\ProfessionalStaffResource;
 use App\Models\Core\Professional\Professional;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -22,6 +21,7 @@ beforeEach(function () {
         display_name TEXT,
         professional_type TEXT,
         account_type TEXT NULL,
+        has_historical_partner_links INTEGER NULL,
         status TEXT,
         admin_notes TEXT,
         about TEXT,
