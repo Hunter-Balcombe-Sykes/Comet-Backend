@@ -32,12 +32,6 @@ it('every notification dispatcher job consults AccountCapabilities or is documen
         // not a per-professional capability category. Capability gating lives in
         // the brand-settings layer (whether enquiries are accepted at all).
         'app/Jobs/Notifications/SendEnquiryNotificationJob.php' => 'Brand-inbox dispatch; capability gating is at brand-settings level, not per-category',
-        // TODO §28.11 follow-ups — capability gating not yet wired. Exempted so
-        // this test enforces the rule for NEW jobs while the retrofit is tracked
-        // explicitly. Remove from exempt list when each job is gated.
-        'app/Jobs/Notifications/FanOutBrandStatusNotificationJob.php' => 'TODO §28.11 follow-up — wire receives_brand_status_notifications gate on the per-affiliate fan-out',
-        'app/Jobs/Notifications/NudgeStuckOnboardingJob.php' => 'TODO §28.11 follow-up — wire onboarding-relevant capability check (likely no-op for individuals)',
-        'app/Jobs/Notifications/SendWeeklyAnalyticsNotificationJob.php' => 'TODO §28.11 follow-up — wire shows_*_dashboard capabilities (no analytics digest for individuals)',
     ];
 
     $dir = base_path('app/Jobs/Notifications');

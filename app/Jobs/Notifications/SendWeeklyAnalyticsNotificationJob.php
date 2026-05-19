@@ -3,6 +3,8 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Commerce\Order;
+use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -77,8 +79,23 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
                     ->get()
                     ->keyBy('affiliate_professional_id');
 
+                // Defence-in-depth capability gate (§28.10 / §28.11). SQL query
+                // already excludes individuals, but a brand or partner who had
+                // commission/order dashboards capability-revoked (override) should
+                // not get the digest. Loads as Eloquent so account_type cast hits.
+                $proModels = Professional::query()->whereIn('id', $ids)->get()->keyBy('id');
+
                 foreach ($professionals as $professional) {
                     try {
+                        // Defence-in-depth capability gate (§28.10 / §28.11). SQL
+                        // already excludes individuals; this also drops anyone whose
+                        // commission dashboard capability got revoked via override.
+                        // Missing model (test fixture) → fall through to send.
+                        $proModel = $proModels->get($professional->id);
+                        if ($proModel && ! AccountCapabilities::for($proModel)->shows_commissions_dashboard) {
+                            continue;
+                        }
+
                         $metrics = $metricsByPro->get($professional->id);
                         $this->notifyProfessional($publisher, $professional, $metrics, $yearWeek);
                     } catch (\Throwable $e) {

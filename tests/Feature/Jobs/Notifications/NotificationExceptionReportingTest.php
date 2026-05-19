@@ -85,6 +85,7 @@ it('reports per-record exception in NudgeStuckOnboardingJob without killing the 
         'handle_lc' => 'brand-nudge-'.substr($proId, 0, 8),
         'display_name' => 'Nudge Brand',
         'professional_type' => 'brand',
+        'account_type' => 'brand',
         'status' => 'active',
         'primary_email' => 'nudge@example.test',
         'created_at' => $created,

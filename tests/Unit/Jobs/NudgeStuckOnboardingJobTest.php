@@ -27,9 +27,20 @@ function makeOnboardingBrand(int $daysAgo, array $overrides = []): string
     // sweep scans for milestone N.
     $createdAt = now()->subDays($daysAgo)->toDateTimeString();
 
+    // Derive account_type from professional_type unless the caller overrode it
+    // explicitly. Tests that simulate non-brand cohorts (`professional_type =>
+    // 'influencer'`) must NOT be capability-gated into the brand class.
+    $proType = $overrides['professional_type'] ?? 'brand';
+    $defaultAccountType = match ($proType) {
+        'brand' => 'brand',
+        'affiliate' => 'partner',
+        default => 'individual',
+    };
+
     DB::connection('pgsql')->table('core.professionals')->insert(array_merge([
         'id' => $id,
         'professional_type' => 'brand',
+        'account_type' => $defaultAccountType,
         'primary_email' => Str::random(6).'@example.test',
         'first_name' => 'Brand',
         'created_at' => $createdAt,

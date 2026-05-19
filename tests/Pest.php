@@ -542,12 +542,29 @@ function createTenant(string $handle, string $type = 'professional'): Profession
 
 function createBrandTenant(string $handle = 'brand-a'): Professional
 {
-    return createTenant($handle, 'brand');
+    $pro = createTenant($handle, 'brand');
+    \Illuminate\Support\Facades\DB::connection('pgsql')
+        ->table('core.professionals')
+        ->where('id', $pro->id)
+        ->update(['account_type' => 'brand']);
+    \App\Services\Accounts\AccountCapabilities::flushCache();
+
+    return \App\Models\Core\Professional\Professional::query()->findOrFail($pro->id);
 }
 
 function createAffiliateTenant(string $handle = 'affiliate-a'): Professional
 {
-    return createTenant($handle, 'professional');
+    // A test "affiliate" is a partner (a brand-affiliated professional), not a
+    // generic professional. Set account_type='partner' so AccountCapabilities
+    // returns the partner capability set in dispatcher-gate tests.
+    $pro = createTenant($handle, 'affiliate');
+    \Illuminate\Support\Facades\DB::connection('pgsql')
+        ->table('core.professionals')
+        ->where('id', $pro->id)
+        ->update(['account_type' => 'partner']);
+    \App\Services\Accounts\AccountCapabilities::flushCache();
+
+    return \App\Models\Core\Professional\Professional::query()->findOrFail($pro->id);
 }
 
 /**
