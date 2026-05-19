@@ -55,6 +55,8 @@ return [
         'redis:integrations' => 60,
         'redis:notifications' => 60,
         'redis:default' => 60,
+        // Exports are async by design — a 5-min queue wait is acceptable.
+        'redis:exports' => 300,
         'redis:analytics' => 300,
         'redis:images' => 300,
         'redis:mail' => 120,
@@ -184,6 +186,22 @@ return [
             'timeout' => 3600,
             'nice' => 5,
         ],
+        // Async commission exports. ExportChunkJob + ExportFinalizerJob run on this
+        // queue. memory=256 to handle JSONL parts for large payout windows; timeout=300
+        // matches the per-chunk Stripe page-fetch budget. Capped at 2 processes to stay
+        // within Stripe rate limits across concurrent exports.
+        'supervisor-exports' => [
+            'connection' => 'redis',
+            'queue' => ['exports'],
+            'balance' => false,
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -196,12 +214,13 @@ return [
             'supervisor-analytics' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-gdpr' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 2],
+            'supervisor-exports' => ['maxProcesses' => 2],
         ],
 
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['stripe', 'integrations', 'notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['stripe', 'integrations', 'notifications', 'mail', 'default', 'exports', 'analytics', 'images'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -230,7 +249,7 @@ return [
             // redis_gdpr connection (see supervisor-gdpr note above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['stripe', 'integrations', 'notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['stripe', 'integrations', 'notifications', 'mail', 'default', 'exports', 'analytics', 'images'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,

@@ -265,3 +265,21 @@ Schedule::command('partna:backfill-subdomain-kv', ['--all', '--queue'])
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: backfill-subdomain-kv');
     });
+
+// Async commission export maintenance. sweep-stuck flips processing rows older
+// than 60 min to failed so the UI never shows a permanently-spinning export.
+// prune-expired deletes R2 parts past their TTL and clears file_path so signed
+// URLs stop working before the bucket objects disappear.
+Schedule::command('commission-exports:sweep-stuck')
+    ->hourly()
+    ->withoutOverlapping()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: commission-exports:sweep-stuck');
+    });
+
+Schedule::command('commission-exports:prune-expired')
+    ->dailyAt('03:30')
+    ->withoutOverlapping()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: commission-exports:prune-expired');
+    });
