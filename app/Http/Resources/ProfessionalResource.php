@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -33,7 +34,10 @@ class ProfessionalResource extends JsonResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            'stripe_connect_status' => $this->stripe_connect_status,
+            'stripe_connect_status' => $this->when(
+                AccountCapabilities::for($this->resource)->requires_stripe_connect,
+                fn () => $this->stripe_connect_status,
+            ),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
