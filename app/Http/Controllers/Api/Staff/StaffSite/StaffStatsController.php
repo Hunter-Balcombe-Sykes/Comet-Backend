@@ -8,7 +8,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Platform-wide stats for the staff ops dashboard. Single aggregation call — counts by professional_type, active subscriptions, pending commissions.
+// V2: Platform-wide stats for the staff ops dashboard. Counts by account_type
+// (brand/partner/individual), active subscriptions, pending commissions.
+// Legacy `professional_type` breakdown was dropped in the §28.11 follow-up
+// cutover; consumers must read `professionals.by_account_type`.
 class StaffStatsController extends ApiController
 {
     // Single shared cache key — these stats are platform-wide, not per-user.
@@ -33,28 +36,22 @@ class StaffStatsController extends ApiController
 
     /**
      * @return array{
-     *     professionals: array{brands: int, influencers: int, professionals: int, total: int, by_account_type: array<string, int>},
+     *     professionals: array{total: int, by_account_type: array<string, int>},
      *     subscriptions: array{active_count: int},
      *     commissions: array{pending_cents: int}
      * }
      */
     private function buildPayload(): array
     {
-        // Legacy breakdown on professional_type — kept until staff dashboard migrates
-        // to account_type labels (§28.11 Option A: expose both, defer cutover to follow-up).
-        $typeCounts = DB::table('core.professionals')
-            ->whereNull('deleted_at')
-            ->selectRaw('professional_type, count(*) as total')
-            ->groupBy('professional_type')
-            ->pluck('total', 'professional_type');
-
-        // New breakdown on account_type — bucket labels are brand|partner|individual.
-        // NULL rows (pre-migration) fall into the 'unknown' bucket so total doesn't drift.
+        // Breakdown on account_type — bucket labels are brand|partner|individual.
+        // NULL rows (pre-§28.1 backfill) fall into the 'unknown' bucket so total
+        // never drifts away from the row count.
         $accountTypeCounts = DB::table('core.professionals')
             ->whereNull('deleted_at')
             ->selectRaw("COALESCE(account_type::text, 'unknown') as account_type, count(*) as total")
             ->groupByRaw("COALESCE(account_type::text, 'unknown')")
-            ->pluck('total', 'account_type');
+            ->pluck('total', 'account_type')
+            ->all();
 
         $activeSubscriptions = DB::table('billing.subscriptions')
             ->whereNull('ended_at')
@@ -64,18 +61,10 @@ class StaffStatsController extends ApiController
             ->where('status', 'pending')
             ->sum('amount_cents');
 
-        $brands = (int) ($typeCounts->get('brand') ?? 0);
-        $influencers = (int) ($typeCounts->get('influencer') ?? 0);
-        $professionals = (int) ($typeCounts->get('professional') ?? 0);
-
         return [
             'professionals' => [
-                'brands' => $brands,
-                'influencers' => $influencers,
-                'professionals' => $professionals,
-                'total' => $brands + $influencers + $professionals,
-                // New canonical breakdown — frontend should migrate to reading this.
-                'by_account_type' => $accountTypeCounts->all(),
+                'total' => array_sum($accountTypeCounts),
+                'by_account_type' => $accountTypeCounts,
             ],
             'subscriptions' => [
                 'active_count' => (int) $activeSubscriptions,
