@@ -26,7 +26,10 @@ class EnsureBrandAccount
             return new JsonResponse(['error' => 'Unauthenticated.'], 401);
         }
 
-        if (($pro->professional_type ?? null) !== 'brand') {
+        // Reads account_type via isBrand() — falls back to professional_type
+        // during the dual-write window so legacy rows without account_type
+        // still gate correctly.
+        if (! $pro->isBrand()) {
             return new JsonResponse(
                 ['error' => 'This endpoint is only available for brand accounts.'],
                 403,

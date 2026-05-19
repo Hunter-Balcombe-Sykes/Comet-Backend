@@ -43,7 +43,7 @@ class BrandFundingGate
         // policy / controller guard) is the right place to 403 for
         // non-brand traffic; double-rejecting here would mask the real
         // reason and make the response shape misleading.
-        if (mb_strtolower(trim((string) $professional->professional_type)) !== 'brand') {
+        if (! $professional->isBrand()) {
             return $next($request);
         }
 
