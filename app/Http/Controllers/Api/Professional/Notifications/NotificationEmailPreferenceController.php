@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Professional\Notifications;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Requests\Api\Professional\Notifications\UpdateNotificationEmailPreferencesRequest;
+use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +36,20 @@ class NotificationEmailPreferenceController extends ApiController
             ->whereNull('professional_id')
             ->get(['category_key', 'mode'])
             ->keyBy('category_key');
+
+        // Filter to categories this account type can receive. Gated categories
+        // (those in CAPABILITY_GATE_MAP) are excluded when the capability is false.
+        // Universal categories (analytics_weekly, profile_tasks, etc.) are always included.
+        $caps = AccountCapabilities::for($pro);
+        $gateMap = SendTransactionalNotificationEmailJob::capabilityGateMap();
+        $visibleCategories = array_filter(
+            NotificationPublisher::categories(),
+            static function (string $category) use ($caps, $gateMap): bool {
+                $cap = $gateMap[$category] ?? null;
+
+                return $cap === null || $caps->{$cap};
+            }
+        );
 
         $result = array_map(function (string $category) use ($prefs, $perProPolicies, $globalPolicies): array {
             $perProMode = $perProPolicies->get($category)?->mode;
@@ -69,7 +85,7 @@ class NotificationEmailPreferenceController extends ApiController
                     || in_array($perProMode, ['force_on', 'force_off'], true)
                     || in_array($globalMode, ['force_on', 'force_off'], true),
             ];
-        }, NotificationPublisher::categories());
+        }, $visibleCategories);
 
         return $this->success(['preferences' => array_values($result)]);
     }
@@ -78,6 +94,19 @@ class NotificationEmailPreferenceController extends ApiController
     {
         $pro = $this->currentProfessional($request);
         $updates = $request->validated()['preferences'];
+
+        // Reject updates for categories the actor's account_type cannot receive.
+        // This prevents a partner silently enabling a brand-only category via direct API call.
+        $caps = AccountCapabilities::for($pro);
+        $gateMap = SendTransactionalNotificationEmailJob::capabilityGateMap();
+        foreach ($updates as $update) {
+            $cap = $gateMap[$update['category']] ?? null;
+            if ($cap !== null && ! $caps->{$cap}) {
+                return $this->error('INVALID_CATEGORY_FOR_ACCOUNT_TYPE', 422, [
+                    'category' => $update['category'],
+                ]);
+            }
+        }
 
         foreach ($updates as $update) {
             DB::statement(

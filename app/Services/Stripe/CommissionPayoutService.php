@@ -752,6 +752,34 @@ class CommissionPayoutService
             'currency' => $payout->currency_code,
             'payment_intent_id' => $payout->payment_intent_id,
         ]);
+
+        // Notify the affiliate that their payout has settled. Failure must not
+        // block the completion path — the payout has already been saved.
+        try {
+            $netDollars = number_format($payout->net_payout_cents / 100, 2);
+            $brandName = trim((string) ($brand->display_name ?? $brand->handle ?? 'a Partna brand'));
+            if ($brandName === '') {
+                $brandName = 'a Partna brand';
+            }
+
+            $this->publisher->publish(
+                professionalId: $affiliate->id,
+                frontendType: 'success',
+                category: 'payout_settlement',
+                title: "Payout settled — A\${$netDollars} now in your bank",
+                body: "Your commission payout of A\${$netDollars} from {$brandName} has settled and is on its way to your bank account.",
+                dedupeKey: "payout_settlement.{$payout->id}",
+                ctaUrl: '/account/payouts',
+                primaryActionLabel: 'View payouts',
+            );
+        } catch (\Throwable $e) {
+            // Non-fatal — payout is already marked completed above.
+            Log::warning('Failed to publish payout_settlement notification', [
+                'payout_id' => $payout->id,
+                'affiliate_id' => $affiliate->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function failPayout(CommissionPayout $payout, string $code, string $reason): void

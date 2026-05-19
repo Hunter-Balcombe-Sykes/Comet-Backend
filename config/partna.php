@@ -1031,6 +1031,7 @@ return [
             'invites' => \App\Mail\Notifications\InviteNotificationMail::class,
             'commissions' => \App\Mail\Notifications\CommissionNotificationMail::class,
             'payouts' => \App\Mail\Notifications\PayoutNotificationMail::class,
+            'payout_settlement' => \App\Mail\Notifications\PayoutSettlementMail::class,
             'integrations' => \App\Mail\Notifications\IntegrationNotificationMail::class,
             'analytics_weekly' => \App\Mail\Notifications\AnalyticsWeeklyMail::class,
             'analytics_milestones' => \App\Mail\Notifications\AnalyticsMilestoneMail::class,
