@@ -5,6 +5,9 @@ namespace App\Providers;
 use App\Events\Accounts\AccountTypeTransitionEvent;
 use App\Listeners\Accounts\InvalidateProfessionalCacheOnTransition;
 use App\Listeners\Accounts\LogAccountTypeTransition;
+use App\Listeners\Accounts\SetTransitionBannerOnTransition;
+use App\Listeners\Accounts\SyncNotificationPreferencesOnTransition;
+use App\Listeners\Accounts\ToggleStripeRequirementBannerOnTransition;
 use App\Models\Brand\BrandStoreSettings;
 use App\Models\Commerce\AffiliateProductSelection;
 use App\Models\Commerce\CommissionMovement;
@@ -42,6 +45,11 @@ class EventServiceProvider extends ServiceProvider
         AccountTypeTransitionEvent::class => [
             InvalidateProfessionalCacheOnTransition::class,
             LogAccountTypeTransition::class,
+            // §28.5 side-effects — order matters: cache bust above ensures
+            // AccountCapabilities::for() inside these listeners reads the new state.
+            SyncNotificationPreferencesOnTransition::class,
+            ToggleStripeRequirementBannerOnTransition::class,
+            SetTransitionBannerOnTransition::class,
         ],
     ];
 
