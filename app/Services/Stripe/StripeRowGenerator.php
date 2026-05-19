@@ -26,7 +26,7 @@ class StripeRowGenerator
      * Yield normalised transaction rows for a collection of payouts.
      *
      * @param  iterable<CommissionPayout>  $payouts
-     * @param  string  $role  'brand' or 'affiliate'
+     * @param  string  $role  'brand' | 'affiliate'. Unrecognised values route to the affiliate path.
      * @return \Generator<int, array<string, mixed>>
      */
     public function forPayouts(iterable $payouts, string $role): \Generator
