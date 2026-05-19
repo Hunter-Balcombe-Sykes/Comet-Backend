@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -37,7 +38,13 @@ class ProfessionalDashboardResource extends JsonResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            'stripe_connect_status' => $this->stripe_connect_status,
+            // Plan §28.8a (audit API-1): individuals never see a meaningless
+            // stripe_connect_status. Field is omitted entirely for accounts
+            // whose capability set doesn't include Stripe Connect.
+            'stripe_connect_status' => $this->when(
+                AccountCapabilities::for($this->resource)->requires_stripe_connect,
+                fn () => $this->stripe_connect_status,
+            ),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
             // Square — caller must eager-load 'squareIntegration' for these to appear
