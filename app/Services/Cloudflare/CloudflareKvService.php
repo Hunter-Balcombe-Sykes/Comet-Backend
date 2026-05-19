@@ -32,8 +32,10 @@ class CloudflareKvService
      * Write a routing entry for a subdomain handle.
      *
      * @param  array<string, mixed>  $value
+     * @param  int|null  $expirationTtl  Seconds until Cloudflare auto-evicts the key. Null = permanent.
+     *                                   Cloudflare KV enforces a minimum of 60s; callers should pre-clamp.
      */
-    public function put(string $key, array $value): void
+    public function put(string $key, array $value, ?int $expirationTtl = null): void
     {
         if (! $this->configured) {
             Log::debug('CloudflareKvService: skipping put (not configured)', ['key' => $key]);
@@ -41,9 +43,17 @@ class CloudflareKvService
             return;
         }
 
+        $url = $this->url($key);
+        if ($expirationTtl !== null) {
+            // Cloudflare KV: per-write TTL passed as ?expiration_ttl=<seconds> query param.
+            // Without it, the key is permanent — which silently regressed alias auto-eviction
+            // (see audit SYNC-1, 2026-05-20).
+            $url .= '?expiration_ttl='.$expirationTtl;
+        }
+
         Http::withToken($this->apiToken)
             ->withBody((string) json_encode($value), 'text/plain')
-            ->put($this->url($key))
+            ->put($url)
             ->throw();
     }
 
