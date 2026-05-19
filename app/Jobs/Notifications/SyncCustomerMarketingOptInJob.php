@@ -8,6 +8,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // No capability gate: operates on Customer, not Professional — account_type gating does not apply.
 // V2: Asynchronously refreshes Customer.marketing_opt_in_cached after an EmailSubscription save.
@@ -51,5 +53,17 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
 
         $customer->marketing_opt_in_cached = $this->subscribed;
         $customer->saveQuietly();
+    }
+
+    // §28.17 JOB-3 — explicit failed() so Nightwatch sees retry exhaustion.
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('notifications.sync_customer_marketing_opt_in.failed', [
+            'professional_id' => $this->professionalId,
+            'email' => $this->email,
+            'subscribed' => $this->subscribed,
+            'error' => $e->getMessage(),
+        ]);
     }
 }
