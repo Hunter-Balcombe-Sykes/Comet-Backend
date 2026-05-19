@@ -8,11 +8,6 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-/**
- * STUB — replaced by Plan Task 13 with real Blade template + envelope.
- * Constructor signature is the production one so the FinalizerJob's call
- * site does not change in Task 13.
- */
 class CommissionExportReadyMail extends Mailable
 {
     use Queueable, SerializesModels;
@@ -34,7 +29,18 @@ class CommissionExportReadyMail extends Mailable
 
     public function content(): Content
     {
-        // Stub view — real Blade template lands in Task 13.
-        return new Content(htmlString: 'STUB: <a href="' . htmlspecialchars($this->signedUrl) . '">download</a>');
+        return new Content(
+            view: 'emails.exports.commission-ready',
+            with: [
+                'signedUrl' => $this->signedUrl,
+                'role' => $this->role,
+                'format' => $this->format,
+                'dateFrom' => $this->filters['date_from'] ?? null,
+                'dateTo' => $this->filters['date_to'] ?? null,
+                'recordCount' => $this->recordCount,
+                'ttlDays' => $this->ttlDays,
+                'expiresAt' => $this->expiresAt,
+            ],
+        );
     }
 }
