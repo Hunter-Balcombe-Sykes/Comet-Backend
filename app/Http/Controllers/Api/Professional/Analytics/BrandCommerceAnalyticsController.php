@@ -218,6 +218,7 @@ class BrandCommerceAnalyticsController extends ApiController
     {
         $affiliateIds = DB::table('brand.brand_partner_links')
             ->where('brand_professional_id', $brandProfessionalId)
+            ->whereNull('deleted_at')
             ->pluck('affiliate_professional_id')
             ->toArray();
 
@@ -270,6 +271,7 @@ class BrandCommerceAnalyticsController extends ApiController
     {
         $affiliateIds = DB::table('brand.brand_partner_links')
             ->where('brand_professional_id', $brandProfessionalId)
+            ->whereNull('deleted_at')
             ->pluck('affiliate_professional_id')
             ->toArray();
 
@@ -295,6 +297,7 @@ class BrandCommerceAnalyticsController extends ApiController
     {
         $affiliateIds = DB::table('brand.brand_partner_links')
             ->where('brand_professional_id', $brandProfessionalId)
+            ->whereNull('deleted_at')
             ->pluck('affiliate_professional_id')
             ->toArray();
 

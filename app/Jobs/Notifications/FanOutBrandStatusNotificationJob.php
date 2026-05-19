@@ -72,8 +72,11 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
         $brandName = (string) ($brand->display_name ?: $brand->handle ?: 'Brand');
         $totalAffiliates = 0;
 
+        // Exclude soft-deleted links — ex-partners must not receive brand
+        // status notifications post-disconnect (plan §28.16).
         DB::table('brand.brand_partner_links')
             ->where('brand_professional_id', $this->brandProfessionalId)
+            ->whereNull('deleted_at')
             ->chunkById(500, function ($rows) use ($brandName, $yearWeek, &$totalAffiliates) {
                 $jobs = $rows->map(fn ($row) => new SendBrandStatusNotificationJob(
                     affiliateProfessionalId: $row->affiliate_professional_id,

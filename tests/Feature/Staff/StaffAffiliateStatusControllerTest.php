@@ -12,6 +12,7 @@ it('returns 404 when affiliate does not belong to the brand', function () {
 
     $mockQuery = Mockery::mock();
     $mockQuery->shouldReceive('where')->andReturnSelf();
+    $mockQuery->shouldReceive('whereNull')->andReturnSelf();
     $mockQuery->shouldReceive('exists')->andReturn(false);
 
     DB::shouldReceive('table')->with('brand.brand_partner_links')->andReturn($mockQuery);
@@ -34,6 +35,7 @@ it('suspends an affiliate that belongs to the brand', function () {
 
     $mockQuery = Mockery::mock();
     $mockQuery->shouldReceive('where')->andReturnSelf();
+    $mockQuery->shouldReceive('whereNull')->andReturnSelf();
     $mockQuery->shouldReceive('exists')->andReturn(true);
 
     DB::shouldReceive('table')->with('brand.brand_partner_links')->andReturn($mockQuery);
@@ -58,6 +60,7 @@ it('reactivates a suspended affiliate', function () {
 
     $mockQuery = Mockery::mock();
     $mockQuery->shouldReceive('where')->andReturnSelf();
+    $mockQuery->shouldReceive('whereNull')->andReturnSelf();
     $mockQuery->shouldReceive('exists')->andReturn(true);
 
     DB::shouldReceive('table')->with('brand.brand_partner_links')->andReturn($mockQuery);

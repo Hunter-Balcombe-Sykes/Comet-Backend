@@ -12,9 +12,12 @@
 --   - brand_profiles_affiliate_select  — EXISTS subquery filter
 --   - store_settings_affiliate_select  — EXISTS subquery filter
 --
--- The three changes ship in this single migration so there is no window
--- between "soft-deletes exist" (column added in Migration A) and "RLS hides
--- them" — readers atomically transition.
+-- The three changes ship in this single migration so within Migration C
+-- itself there is no half-applied state. The full §28.16 sequence (A → B → C)
+-- is still applied across multiple files; operators must push all five
+-- migrations in one go via `supabase db push` so soft-deletes don't become
+-- writable (Migration A) before RLS hides them (Migration C). Don't apply
+-- A then pause.
 --
 -- To revert: drop+recreate the three policies without the deleted_at filters
 -- (see prior definitions in 20260420200000_add_rls_to_remaining_tables.sql).

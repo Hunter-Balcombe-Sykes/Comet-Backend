@@ -84,6 +84,11 @@ class BrandPartnerLinkObserver
             return;
         }
 
+        // Intentional: this query INCLUDES soft-deleted rows (no whereNull on
+        // deleted_at). has_historical_partner_links is "ever had a link", so
+        // tombstones must keep it true. Only flips false when the last
+        // physical row is force-deleted by PurgeSoftDeleted at end of
+        // retention. Do not "fix" by filtering deleted_at.
         $stillHasAny = DB::table('brand.brand_partner_links')
             ->where('affiliate_professional_id', $affiliateId)
             ->exists();

@@ -23,6 +23,14 @@
 --     ADD CONSTRAINT brand_partner_link_events_affiliate_professional_id_fkey
 --       FOREIGN KEY (affiliate_professional_id) REFERENCES core.professionals(id) ON DELETE RESTRICT;
 
+-- Note on the in-transaction VALIDATE: the ADD CONSTRAINT NOT VALID + VALIDATE
+-- CONSTRAINT pattern usually splits the VALIDATE into a separate transaction
+-- so the surrounding txn doesn't extend the lock window. Here we accept the
+-- combined transaction because brand_partner_link_events is small (alpha-stage,
+-- one row per link create/remove) — the full-table VALIDATE scan completes in
+-- milliseconds. If this table grows materially before production, split the
+-- VALIDATE statements into a follow-up migration.
+
 BEGIN;
 
 ALTER TABLE brand.brand_partner_link_events
