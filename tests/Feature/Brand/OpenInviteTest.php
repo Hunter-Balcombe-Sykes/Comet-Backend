@@ -7,6 +7,7 @@ use App\Models\Core\Professional\BrandAffiliateInvite;
 use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountTypeTransitionService;
 use App\Services\Cache\ProfessionalCacheService;
 use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\Brand\BrandAffiliateInviteService;
@@ -353,11 +354,14 @@ it('creates connection when authenticated affiliate claims open invite', functio
     $cacheService->shouldReceive('invalidateProfessional');
     app()->instance(ProfessionalCacheService::class, $cacheService);
 
+    $transitionService = Mockery::mock(AccountTypeTransitionService::class);
+    $transitionService->shouldReceive('transition');
+
     $request = Request::create('/api/join/claimablebrand', 'POST');
     $request->attributes->set('professional', $affiliate);
 
     $controller = new OpenInviteController;
-    $response = $controller->claim($request, 'claimablebrand', $inviteService, $brandPartnerLinks, $accountDefaults);
+    $response = $controller->claim($request, 'claimablebrand', $inviteService, $brandPartnerLinks, $accountDefaults, $transitionService);
 
     expect($response->status())->toBe(200);
 
@@ -394,8 +398,10 @@ it('returns 404 when brand handle does not exist', function () {
     $request = Request::create('/api/join/ghost', 'POST');
     $request->attributes->set('professional', $affiliate);
 
+    $transitionService = Mockery::mock(AccountTypeTransitionService::class);
+
     $controller = new OpenInviteController;
-    $response = $controller->claim($request, 'ghost', $inviteService, $brandPartnerLinks, $accountDefaults);
+    $response = $controller->claim($request, 'ghost', $inviteService, $brandPartnerLinks, $accountDefaults, $transitionService);
 
     expect($response->status())->toBe(404);
 });
@@ -411,8 +417,10 @@ it('returns 422 when brand account tries to claim', function () {
     $request = Request::create('/api/join/targetbrand', 'POST');
     $request->attributes->set('professional', $claimingBrand);
 
+    $transitionService = Mockery::mock(AccountTypeTransitionService::class);
+
     $controller = new OpenInviteController;
-    $response = $controller->claim($request, 'targetbrand', $inviteService, $brandPartnerLinks, $accountDefaults);
+    $response = $controller->claim($request, 'targetbrand', $inviteService, $brandPartnerLinks, $accountDefaults, $transitionService);
 
     expect($response->status())->toBe(422);
     expect($response->getData(true)['message'])->toContain('Brand accounts cannot');
@@ -439,8 +447,10 @@ it('returns 422 when affiliate is already connected', function () {
     $request = Request::create('/api/join/connectedbrand', 'POST');
     $request->attributes->set('professional', $affiliate);
 
+    $transitionService = Mockery::mock(AccountTypeTransitionService::class);
+
     $controller = new OpenInviteController;
-    $response = $controller->claim($request, 'connectedbrand', $inviteService, $brandPartnerLinks, $accountDefaults);
+    $response = $controller->claim($request, 'connectedbrand', $inviteService, $brandPartnerLinks, $accountDefaults, $transitionService);
 
     expect($response->status())->toBe(422);
     expect($response->getData(true)['message'])->toContain('already connected');
@@ -457,8 +467,10 @@ it('returns 422 when brand is systems_down', function () {
     $request = Request::create('/api/join/deactivatedbrand', 'POST');
     $request->attributes->set('professional', $affiliate);
 
+    $transitionService = Mockery::mock(AccountTypeTransitionService::class);
+
     $controller = new OpenInviteController;
-    $response = $controller->claim($request, 'deactivatedbrand', $inviteService, $brandPartnerLinks, $accountDefaults);
+    $response = $controller->claim($request, 'deactivatedbrand', $inviteService, $brandPartnerLinks, $accountDefaults, $transitionService);
 
     expect($response->status())->toBe(422);
     expect($response->getData(true)['message'])->toContain('temporarily unavailable');
