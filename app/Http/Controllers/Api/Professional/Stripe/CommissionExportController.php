@@ -93,13 +93,11 @@ class CommissionExportController extends Controller
     {
         $pro = $request->attributes->get('professional');
 
-        $audit = CommissionExportAudit::query()
-            ->where('id', $exportId)
-            ->where('professional_id', $pro->id)
-            ->first();
-
-        // 404 not 403 — cross-tenant per CLAUDE.md: never reveal whether a resource exists
-        abort_if(! $audit, 404);
+        // Route through CommissionExportAuditPolicy::view. Unknown ID → 404
+        // (ModelNotFoundException). Cross-tenant ID → 404 via the policy's
+        // denyAsNotFound() — same status code, no resource-existence leak.
+        $audit = CommissionExportAudit::query()->findOrFail($exportId);
+        Gate::forUser($pro)->authorize('view', $audit);
 
         return new CommissionExportAuditResource($audit);
     }

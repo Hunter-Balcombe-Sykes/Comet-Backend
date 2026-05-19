@@ -16,7 +16,6 @@ it('returns correct shape with zero data', function () {
     $profQuery = Mockery::mock();
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
-    $profQuery->shouldReceive('groupBy')->andReturnSelf();
     $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
     $profQuery->shouldReceive('pluck')->andReturn(collect());
 
@@ -37,22 +36,22 @@ it('returns correct shape with zero data', function () {
     $data = json_decode($response->getContent(), true);
 
     expect($data)->toHaveKeys(['professionals', 'subscriptions', 'commissions'])
-        ->and($data['professionals'])->toHaveKeys(['brands', 'influencers', 'professionals', 'total', 'by_account_type'])
+        ->and($data['professionals'])->toHaveKeys(['total', 'by_account_type'])
+        ->and($data['professionals'])->not->toHaveKey('brands')
         ->and($data['professionals']['total'])->toBe(0)
         ->and($data['subscriptions']['active_count'])->toBe(0)
         ->and($data['commissions']['pending_cents'])->toBe(0);
 });
 
-it('sums professional type counts correctly', function () {
+it('sums account-type counts correctly', function () {
     $profQuery = Mockery::mock();
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
-    $profQuery->shouldReceive('groupBy')->andReturnSelf();
     $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
     $profQuery->shouldReceive('pluck')->andReturn(collect([
         'brand' => '3',
-        'influencer' => '12',
-        'professional' => '5',
+        'partner' => '8',
+        'individual' => '12',
     ]));
 
     $subQuery = Mockery::mock();
@@ -71,10 +70,12 @@ it('sums professional type counts correctly', function () {
     $response = $controller->show(Request::create('/', 'GET'));
     $data = json_decode($response->getContent(), true);
 
-    expect($data['professionals']['brands'])->toBe(3)
-        ->and($data['professionals']['influencers'])->toBe(12)
-        ->and($data['professionals']['professionals'])->toBe(5)
-        ->and($data['professionals']['total'])->toBe(20)
+    expect($data['professionals']['by_account_type'])->toBe([
+        'brand' => '3',
+        'partner' => '8',
+        'individual' => '12',
+    ])
+        ->and($data['professionals']['total'])->toBe(23)
         ->and($data['subscriptions']['active_count'])->toBe(8)
         ->and($data['commissions']['pending_cents'])->toBe(150000);
 });
@@ -83,11 +84,9 @@ it('caches the stats payload across calls', function () {
     $profQuery = Mockery::mock();
     $profQuery->shouldReceive('whereNull')->andReturnSelf();
     $profQuery->shouldReceive('selectRaw')->andReturnSelf();
-    $profQuery->shouldReceive('groupBy')->andReturnSelf();
     $profQuery->shouldReceive('groupByRaw')->andReturnSelf();
-    // pluck runs twice per cache-miss (once for professional_type, once for account_type
-    // breakdown). The second call to show() is served from cache — so total pluck calls = 2.
-    $profQuery->shouldReceive('pluck')->twice()->andReturn(collect(['brand' => '1']));
+    // Single pluck per cache-miss (now one breakdown only); second call served from cache.
+    $profQuery->shouldReceive('pluck')->once()->andReturn(collect(['brand' => '1']));
 
     $subQuery = Mockery::mock();
     $subQuery->shouldReceive('whereNull')->andReturnSelf();
