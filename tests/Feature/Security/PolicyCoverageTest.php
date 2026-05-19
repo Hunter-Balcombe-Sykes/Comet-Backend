@@ -65,6 +65,13 @@ const POLICY_EXEMPT = [
     // Access is gated at the controller level (professional_id scoping) — there
     // is no cross-tenant resource access risk, and no policy-gated CRUD surface.
     \App\Models\Commerce\CommissionExportAudit::class,
+
+    // Append-only audit log for brand signup code lifecycle events (generated, rotated,
+    // claimed, failed_claim, etc.). Written only by BrandSignupCodeService — never
+    // directly exposed over the API for write. Dashboard counts are aggregated via
+    // BrandSignupCodeController which scopes all reads to the authenticated brand's
+    // own profile. No per-row tenant policy is needed.
+    \App\Models\Core\Professional\BrandSignupCodeAuditEntry::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {

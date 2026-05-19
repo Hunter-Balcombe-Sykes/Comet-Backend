@@ -46,7 +46,7 @@ class BootstrapRequest extends BaseFormRequest
 
         $inviteContextRule = $requiresInvite
             ? [
-                'required_without_all:brand_partner_professional_id,join_brand_handle',
+                'required_without_all:brand_partner_professional_id,join_brand_handle,brand_signup_code',
                 'nullable',
                 'string',
                 'max:80',
@@ -55,7 +55,7 @@ class BootstrapRequest extends BaseFormRequest
 
         $brandPartnerIdRule = $requiresInvite
             ? [
-                'required_without_all:invite_token,join_brand_handle',
+                'required_without_all:invite_token,join_brand_handle,brand_signup_code',
                 'nullable',
                 'uuid',
                 Rule::exists('professionals', 'id'),
@@ -64,7 +64,7 @@ class BootstrapRequest extends BaseFormRequest
 
         $joinBrandHandleRule = $requiresInvite
             ? [
-                'required_without_all:invite_token,brand_partner_professional_id',
+                'required_without_all:invite_token,brand_partner_professional_id,brand_signup_code',
                 'nullable',
                 'string',
                 'max:50',
@@ -91,6 +91,9 @@ class BootstrapRequest extends BaseFormRequest
             'invite_token' => $inviteContextRule,
             'brand_partner_professional_id' => $brandPartnerIdRule,
             'join_brand_handle' => $joinBrandHandleRule,
+            // Brand signup code — alternative to invite_token for en-masse partner onboarding.
+            // Optional even for invite-only signups; the controller resolves it after invite_token fails.
+            'brand_signup_code' => ['sometimes', 'nullable', 'string', 'max:32'],
             'shopify_setup_token' => ['sometimes', 'nullable', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/'],
             'professional_type' => [
                 ...$professionalTypeRules,
@@ -142,7 +145,7 @@ class BootstrapRequest extends BaseFormRequest
     {
         $this->trimStrings([
             'handle', 'display_name', 'phone', 'first_name',
-            'last_name', 'country_code', 'timezone', 'professional_type', 'invite_token',
+            'last_name', 'country_code', 'timezone', 'professional_type', 'invite_token', 'brand_signup_code',
         ]);
         $this->sanitizeEmails(['primary_email']);
 
@@ -183,6 +186,12 @@ class BootstrapRequest extends BaseFormRequest
                 : null;
         }
 
+        if ($this->exists('brand_signup_code')) {
+            $merge['brand_signup_code'] = is_string($this->brand_signup_code)
+                ? trim($this->brand_signup_code)
+                : null;
+        }
+
         if ($this->exists('shopify_setup_token')) {
             $merge['shopify_setup_token'] = is_string($this->shopify_setup_token)
                 ? trim($this->shopify_setup_token)
@@ -216,6 +225,7 @@ class BootstrapRequest extends BaseFormRequest
             'invite_token.required_without_all' => $inviteRequiredMessage,
             'brand_partner_professional_id.required_without_all' => $inviteRequiredMessage,
             'join_brand_handle.required_without_all' => $inviteRequiredMessage,
+            'brand_signup_code.required_without_all' => $inviteRequiredMessage,
         ];
     }
 
@@ -225,7 +235,7 @@ class BootstrapRequest extends BaseFormRequest
     protected function failedValidation(Validator $validator): void
     {
         $errors = $validator->errors();
-        $inviteFields = ['invite_token', 'brand_partner_professional_id', 'join_brand_handle'];
+        $inviteFields = ['invite_token', 'brand_partner_professional_id', 'join_brand_handle', 'brand_signup_code'];
 
         $inviteOnlyFailure = collect($inviteFields)
             ->some(fn (string $f): bool => $errors->has($f)

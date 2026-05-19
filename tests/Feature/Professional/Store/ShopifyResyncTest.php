@@ -55,6 +55,9 @@ beforeEach(function () {
         professional_id TEXT UNIQUE,
         business_website TEXT,
         setup_complete INTEGER DEFAULT 0,
+        signup_code TEXT,
+        signup_code_active INTEGER NOT NULL DEFAULT 1,
+        signup_code_rotated_at TEXT,
         created_at TEXT,
         updated_at TEXT
     )');

@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\Professional\Brand\BrandPartnerController;
 use App\Http\Controllers\Api\Professional\Brand\BrandPayoutsController;
 use App\Http\Controllers\Api\Professional\Brand\BrandProfileController;
 use App\Http\Controllers\Api\Professional\Brand\BrandSetupController;
+use App\Http\Controllers\Api\Professional\Brand\BrandSignupCodeController;
 use App\Http\Controllers\Api\Professional\Brand\ShopifyEmbeddedConnectionController;
 use App\Http\Controllers\Api\Professional\Brand\ShopifyIntegrationController;
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
@@ -343,6 +344,15 @@ Route::middleware(['supabase.jwt', 'require.email_verified', 'current.pro', Enfo
             // Brand profile (business fields)
             Route::get('/brand/profile', [BrandProfileController::class, 'show']);
             Route::patch('/brand/profile', [BrandProfileController::class, 'update']);
+
+            // Brand signup code management (en-masse partner onboarding)
+            Route::get('/brand/signup-code', [BrandSignupCodeController::class, 'show']);
+            Route::post('/brand/signup-code/rotate', [BrandSignupCodeController::class, 'rotate'])
+                ->middleware('throttle:10,1');
+            Route::post('/brand/signup-code/deactivate', [BrandSignupCodeController::class, 'deactivate'])
+                ->middleware('throttle:10,1');
+            Route::post('/brand/signup-code/reactivate', [BrandSignupCodeController::class, 'reactivate'])
+                ->middleware('throttle:10,1');
 
             // Brand Gallery Fallback
             Route::get('/brand/gallery', [BrandGalleryController::class, 'index']);
