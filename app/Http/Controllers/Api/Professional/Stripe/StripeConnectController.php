@@ -596,7 +596,7 @@ class StripeConnectController extends Controller
      */
     public function export(ExportsRequest $request, string $type, string $format)
     {
-        if (! in_array($type, ['transactions', 'payouts', 'detailed-commissions', 'eofy'], true)) {
+        if (! in_array($type, ['payouts', 'detailed-commissions', 'eofy'], true)) {
             return response()->json(['error' => 'invalid_type'], 422);
         }
         if (! in_array($format, ['csv', 'xlsx'], true)) {
@@ -620,10 +620,10 @@ class StripeConnectController extends Controller
         ];
 
         return match ($type) {
-            'transactions' => $this->exportService->exportTransactions($pro, $role, $format, $filters),
             'payouts' => $this->exportService->exportPayouts($pro, $role, $format, $filters),
             'detailed-commissions' => $this->exportService->exportDetailedCommissions($pro, $role, $format, $filters),
             'eofy' => $this->exportService->exportEofy($pro, $role, $format, $filters),
+            default => abort(404),
         };
     }
 }

@@ -1104,6 +1104,23 @@ return [
         'dedup_window_minutes' => (int) env('GDPR_EXPORT_DEDUP_WINDOW_MINUTES', 30),
     ],
 
+    // Async commission/financial exports. The 'commission' subkey scopes the
+    // transactions export (POST /stripe/exports/transactions); other exports
+    // (payouts, detailed-commissions, eofy) remain synchronous and don't read these.
+    'exports' => [
+        'commission' => [
+            'queue' => env('PARTNA_COMMISSION_EXPORT_QUEUE', 'exports'),
+            'connection' => env('PARTNA_COMMISSION_EXPORT_CONNECTION', 'redis'),
+            'chunk_size' => (int) env('PARTNA_COMMISSION_EXPORT_CHUNK_SIZE', 500),
+            'signed_url_ttl_days' => (int) env('PARTNA_COMMISSION_EXPORT_TTL_DAYS', 3),
+            'retention_days' => (int) env('PARTNA_COMMISSION_EXPORT_RETENTION_DAYS', 30),
+            'dedup_window_minutes' => (int) env('PARTNA_COMMISSION_EXPORT_DEDUP_MINUTES', 5),
+            'stuck_watchdog_minutes' => (int) env('PARTNA_COMMISSION_EXPORT_STUCK_MINUTES', 60),
+            // Shared with the global Stripe SDK binding so the whole app pins one version.
+            'stripe_api_version' => env('STRIPE_API_VERSION', '2025-02-24.acacia'),
+        ],
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Reconciler

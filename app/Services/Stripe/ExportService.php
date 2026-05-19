@@ -13,8 +13,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Phase 6 — streaming CSV + XLSX exports for the Documents tab.
  *
- * Four export types:
- *   transactions          → Stripe-side charges/refunds/transfers/reversals (uses StripeTransactionFetcher)
+ * Three sync export types remain (transactions moved to async pipeline in Phase 7):
  *   payouts               → local commerce.commission_payouts rows
  *   detailed-commissions  → one row per linked commerce.order (the tax artifact)
  *   eofy                  → same as detailed-commissions, filtered to AU FY (Jul 1 → Jun 30)
@@ -27,40 +26,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ExportService
 {
-    public function __construct(private readonly StripeTransactionFetcher $transactionFetcher) {}
-
-    /**
-     * @param  array<string, mixed>  $filters
-     */
-    public function exportTransactions(Professional $pro, string $role, string $format, array $filters): StreamedResponse|BinaryFileResponse
-    {
-        $rows = $role === 'brand'
-            ? $this->transactionFetcher->forBrand($pro, array_merge($filters, ['limit' => 500]))
-            : $this->transactionFetcher->forAffiliate($pro, array_merge($filters, ['limit' => 500]));
-
-        $headers = ['date', 'type', 'description', 'counterparty', 'amount_cents', 'currency', 'status', 'payout_id', 'stripe_id'];
-        $generator = function () use ($rows, $role) {
-            foreach ($rows as $row) {
-                $counterparty = $role === 'brand'
-                    ? ($row['affiliate']['name'] ?? '')
-                    : ($row['brand']['name'] ?? '');
-                yield [
-                    $row['occurred_at'] ?? '',
-                    $row['type'] ?? '',
-                    $row['description'] ?? '',
-                    $counterparty,
-                    $row['amount_cents'] ?? 0,
-                    $row['currency_code'] ?? 'AUD',
-                    $row['status'] ?? '',
-                    $row['payout_id'] ?? '',
-                    $row['raw_stripe_id'] ?? '',
-                ];
-            }
-        };
-
-        return $this->stream($this->filename('transactions', $format), $headers, $generator, $format);
-    }
-
     /**
      * @param  array<string, mixed>  $filters
      */

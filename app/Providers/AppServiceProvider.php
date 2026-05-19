@@ -52,15 +52,18 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Stripe SDK client — services that DI \Stripe\StripeClient (e.g.
-        // StripeTransactionFetcher, StripeBalanceService) need the API key
-        // configured on the instance the container hands them. Without this
-        // binding, every Stripe call from those services raises
+        // StripeTransactionFetcher, StripeBalanceService, StripeRowGenerator) need
+        // the API key configured on the instance the container hands them. Without
+        // this binding, every Stripe call from those services raises
         // AuthenticationException which their try/catch silently swallows,
         // surfacing as empty transactions / zero balance on the dashboard.
+        // stripe_version is pinned via partna.exports.commission.stripe_api_version
+        // (env STRIPE_API_VERSION) so all SDK usage — including the async export
+        // pipeline — resolves the same Stripe response shape.
         $this->app->singleton(\Stripe\StripeClient::class, function () {
             return new \Stripe\StripeClient(array_filter([
                 'api_key' => config('services.stripe.secret_key'),
-                'stripe_version' => config('services.stripe.api_version'),
+                'stripe_version' => config('partna.exports.commission.stripe_api_version'),
             ]));
         });
     }

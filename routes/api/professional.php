@@ -52,6 +52,7 @@ use App\Http\Controllers\Api\Professional\Store\BrandStoreSettingsController;
 use App\Http\Controllers\Api\Professional\Store\ShareCheckoutLinkController;
 use App\Http\Controllers\Api\Professional\Store\ShopifyResyncController;
 use App\Http\Controllers\Api\Professional\Stripe\AffiliateStripeOnboardingController;
+use App\Http\Controllers\Api\Professional\Stripe\CommissionExportController;
 use App\Http\Controllers\Api\Professional\Stripe\StripeConnectController;
 use App\Http\Controllers\Api\Professional\Subscription\PlanController;
 use App\Http\Controllers\Api\Professional\Subscription\SubscriptionController;
@@ -442,8 +443,18 @@ Route::middleware(['supabase.jwt', 'require.email_verified', 'current.pro', Enfo
         Route::get('/stripe/transactions', [StripeConnectController::class, 'transactions']);
         Route::get('/stripe/balance', [StripeConnectController::class, 'balance'])
             ->middleware('affiliate.only');
+        // Sync exports — narrowed to the three pure-DB types. `transactions` is now async (POST below).
         Route::get('/stripe/exports/{type}.{format}', [StripeConnectController::class, 'export'])
+            ->where('type', 'payouts|detailed-commissions|eofy')
             ->where('format', 'csv|xlsx');
+
+        // Async commission transactions export pipeline.
+        Route::post('/stripe/exports/transactions', [CommissionExportController::class, 'store'])
+            ->middleware('throttle:5,60')
+            ->name('professional.stripe.exports.transactions.store');
+
+        Route::get('/stripe/exports/commission/{exportId}', [CommissionExportController::class, 'show'])
+            ->name('professional.stripe.exports.commission.show');
 
         // Brand billing & payout history (Lane B prerequisites — new role-scoped endpoints)
         Route::get('/brand/billing-summary', [BrandBillingSummaryController::class, 'show']);
