@@ -162,6 +162,17 @@ Gate::policy(YourModel::class, YourPolicy::class);
 
 This codebase reads `aal` and `amr` from Supabase JWTs and exposes them as request attributes (set by `VerifySupabaseJwt`). Staff routes are gated by `require.aal2`. For user-facing routes that should require MFA later, add `$this->requiresFreshAal2()` to the relevant policy method. Reference docs: `docs/auth/mfa-foundation.md`. Operator runbook (rollout, brute-force testing, lockout support): `docs/auth/mfa-foundation-runbook.md`.
 
+### Handle / subdomain lifecycle
+
+Renames write the old subdomain to `site.site_subdomain_aliases` and the old handle to `site.professional_handle_aliases` with two timestamps:
+
+- `reclaim_until` (default +14d) — only the original owner can rename back for free.
+- `expires_at`    (default +90d) — after this the row is hard-deleted by `handles:prune-expired-aliases` and the handle returns to the pool.
+
+Resolvers (`PublicSiteResolver`, `ResolvesSiteFromRequest`, `SiteCacheService`) filter expired rows with the `->active()` scope. Alias hits return **HTTP 301** to the canonical URL — never serve content under both. Cloudflare KV writes alias entries with `expirationTtl` so the edge auto-evicts in parallel.
+
+Configurable via `config('partna.handle.*')`. Full spec: `docs/handle-redirects.md`.
+
 ## Shopify Integration
 
 Load-bearing quirks (Admin-vs-Storefront API, 100× price scaling, ACTIVE-only catalog, `disconnected_at` reinstall, embedded auth): **see `docs/shopify-quirks.md`** before touching catalog, pricing, or reinstall paths.

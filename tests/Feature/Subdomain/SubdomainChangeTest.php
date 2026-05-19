@@ -218,6 +218,8 @@ function setupCoreSchema(): void
             id TEXT PRIMARY KEY,
             site_id TEXT NOT NULL,
             subdomain TEXT NOT NULL,
+            reclaim_until TEXT NULL,
+            expires_at TEXT NULL,
             created_at TEXT NOT NULL
         )');
 
@@ -229,8 +231,12 @@ function setupCoreSchema(): void
             id TEXT PRIMARY KEY,
             professional_id TEXT NOT NULL,
             handle TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            reclaim_until TEXT NULL,
+            expires_at TEXT NULL,
+            notified_t3_at TEXT NULL,
+            notified_t1_at TEXT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
         )');
 
         // The PublicSitePayload view lives under the 'site' schema in production;
@@ -239,6 +245,20 @@ function setupCoreSchema(): void
             site_id TEXT PRIMARY KEY,
             subdomain TEXT NULL,
             payload TEXT NULL
+        )');
+
+        // Append-only audit log for handle/subdomain renames. Trigger-locked in
+        // production; in SQLite we just create it so the action can INSERT rows.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT NULL,
+            old_handle TEXT NULL,
+            new_handle TEXT NULL,
+            reason TEXT NULL,
+            actor_id TEXT NULL,
+            ip_address TEXT NULL,
+            user_agent TEXT NULL,
+            changed_at TEXT NULL
         )');
 
         return;

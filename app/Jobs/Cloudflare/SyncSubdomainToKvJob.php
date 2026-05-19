@@ -6,6 +6,7 @@ use App\Jobs\Concerns\HasCloudflareRetryPolicy;
 use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Professional;
 use App\Services\Cloudflare\CloudflareKvService;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,11 +17,8 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Syncs one professional's subdomain routing entries in Cloudflare KV.
-// Brands get {"type":"brand"} — Edge Worker passes through to Hydrogen.
-// Affiliates get {"type":"affiliate","redirect":"https://brand.partna.au/handle"}.
-// Every historical handle alias (professional_handle_aliases) gets the same
-// entry as the current handle, so old shared <old>.partna.au URLs keep
-// resolving after a rename instead of 404ing at the edge.
+// Canonical handle: {"type":"brand"} or {"type":"affiliate","redirect":"..."}
+// Historical aliases: {"type":"alias","target":"<current-handle>"} with expirationTtl.
 // Dispatched by observers on: handle change, brand_partner_links change, brand URL change.
 class SyncSubdomainToKvJob implements ShouldQueue
 {
@@ -41,25 +39,16 @@ class SyncSubdomainToKvJob implements ShouldQueue
             return;
         }
 
-        // Current handle + every historical alias should resolve to the same
-        // routing target. Lowercased to match how Cloudflare keys are looked
-        // up (subdomain comparison is case-insensitive at the edge).
-        $handles = collect([$pro->handle])
-            ->concat($this->aliasHandles($pro->id))
-            ->map(fn (string $h): string => strtolower(trim($h)))
-            ->filter()
-            ->unique()
-            ->all();
+        $current = strtolower(trim((string) $pro->handle));
 
         if ($pro->isBrand()) {
-            foreach ($handles as $handle) {
-                $kv->put($handle, ['type' => 'brand']);
-            }
+            $kv->put($current, ['type' => 'brand'], null);
+            $this->writeAliasEntries($kv, $pro->id, $current);
 
             return;
         }
 
-        // Affiliate: use their primary brand link's precomputed site_url (brand.partna.au/affiliate).
+        // Affiliate: use their primary brand link's precomputed site_url.
         $siteUrl = BrandPartnerLink::query()
             ->where('affiliate_professional_id', $pro->id)
             ->whereNotNull('site_url')
@@ -67,26 +56,22 @@ class SyncSubdomainToKvJob implements ShouldQueue
             ->value('site_url');
 
         if (! $siteUrl) {
-            // No brand connection — retire every entry so Worker 404s on the
-            // subdomain rather than redirecting somewhere stale.
-            foreach ($handles as $handle) {
-                try {
-                    $kv->delete($handle);
-                } catch (\Throwable $e) {
-                    Log::warning('SyncSubdomainToKvJob: delete failed for unconnected affiliate', [
-                        'professional_id' => $pro->id,
-                        'handle' => $handle,
-                        'message' => $e->getMessage(),
-                    ]);
-                }
+            // No brand connection — retire the canonical entry so the Worker 404s.
+            try {
+                $kv->delete($current);
+            } catch (\Throwable $e) {
+                Log::warning('SyncSubdomainToKvJob: delete failed for unconnected affiliate', [
+                    'professional_id' => $pro->id,
+                    'handle'          => $current,
+                    'message'         => $e->getMessage(),
+                ]);
             }
 
             return;
         }
 
-        foreach ($handles as $handle) {
-            $kv->put($handle, ['type' => 'affiliate', 'redirect' => $siteUrl]);
-        }
+        $kv->put($current, ['type' => 'affiliate', 'redirect' => $siteUrl], null);
+        $this->writeAliasEntries($kv, $pro->id, $current);
     }
 
     public function failed(Throwable $e): void
@@ -94,16 +79,36 @@ class SyncSubdomainToKvJob implements ShouldQueue
         report($e);
         Log::error('cloudflare.sync_subdomain_to_kv.failed', [
             'professional_id' => $this->professionalId,
-            'error' => $e->getMessage(),
+            'error'           => $e->getMessage(),
         ]);
     }
 
-    /** @return array<int, string> */
-    private function aliasHandles(string $professionalId): array
+    /**
+     * Write alias KV entries — {type:'alias', target:'<current>'} with a TTL
+     * derived from expires_at so Cloudflare auto-evicts when the alias expires.
+     * Legacy NULL-expires_at aliases get no TTL (permanent until the next prune sweep).
+     */
+    private function writeAliasEntries(CloudflareKvService $kv, string $proId, string $current): void
     {
-        return DB::table('site.professional_handle_aliases')
-            ->where('professional_id', $professionalId)
-            ->pluck('handle')
-            ->all();
+        $aliases = DB::table('site.professional_handle_aliases')
+            ->where('professional_id', $proId)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->get();
+
+        foreach ($aliases as $alias) {
+            $handle = strtolower(trim($alias->handle));
+            if ($handle === '' || $handle === $current) {
+                continue;
+            }
+
+            // max(60, ...) so we never pass a sub-minimum TTL to CF KV.
+            $ttl = $alias->expires_at
+                ? max(60, (int) now()->diffInSeconds(Carbon::parse($alias->expires_at), false))
+                : null;
+
+            $kv->put($handle, ['type' => 'alias', 'target' => $current], $ttl);
+        }
     }
 }

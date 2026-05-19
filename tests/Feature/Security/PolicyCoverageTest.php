@@ -48,10 +48,10 @@ const POLICY_EXEMPT = [
     // 20260512200000_commission_clawbacks_enable_rls.sql).
     \App\Models\Commerce\CommissionClawback::class,
 
-    // Handle-rename redirect lookup. Read by HydrogenAffiliateController for
-    // public Hydrogen storefront resolution (anon API-key path); no tenant
-    // CRUD endpoints. Rows are written as side-effects of handle renames,
-    // never directly by professionals.
+    // Append-only audit log for handle/subdomain renames; readable by staff only — no per-row tenant policy.
+    \App\Models\Core\HandleChangeLog::class,
+
+    // Handle alias table — read/write access flows through the parent Professional's policy.
     \App\Models\Core\Site\ProfessionalHandleAlias::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support

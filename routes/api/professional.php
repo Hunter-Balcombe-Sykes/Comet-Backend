@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\Professional\Notifications\ConfirmationPreferenceCo
 use App\Http\Controllers\Api\Professional\Notifications\NotificationController;
 use App\Http\Controllers\Api\Professional\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\Professional\Notifications\ProfessionalEmailSubscriptionController;
+use App\Http\Controllers\Api\Professional\Site\HandleReclaimController;
 use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGalleryController;
 use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGoogleBusinessProfileController;
 use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
@@ -144,6 +145,8 @@ Route::middleware(['supabase.jwt', 'require.email_verified', 'current.pro', Enfo
 
         // Update Site Details
         Route::patch('/site', [ProfessionalSiteController::class, 'update']);
+        Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
+            ->name('professional.site.reclaim-handle');
         Route::put('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'upsert']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
 

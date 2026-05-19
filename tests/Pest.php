@@ -1362,6 +1362,8 @@ function setupSubdomainAliasesTable(): void
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
         subdomain TEXT NULL,
+        reclaim_until TEXT NULL,
+        expires_at TEXT NULL,
         created_at TEXT NULL
     )');
 }
@@ -1585,5 +1587,42 @@ function setupAuthFactorEventsTable(): void
         user_agent TEXT NULL,
         metadata TEXT NULL DEFAULT \'{}\',
         created_at TEXT NULL
+    )');
+}
+
+function setupHandleAliasesTable(): void
+{
+    attachTestSchemas();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+        id TEXT PRIMARY KEY,
+        professional_id TEXT NULL,
+        handle TEXT NULL,
+        reclaim_until TEXT NULL,
+        expires_at TEXT NULL,
+        notified_t3_at TEXT NULL,
+        notified_t1_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * core.handle_change_log — append-only audit log for handle/subdomain renames.
+ * In production, UPDATE/DELETE are blocked by a DB trigger. In SQLite tests,
+ * plain INSERT works fine — the trigger constraint is absent, which is correct.
+ */
+function setupHandleChangeLogTable(): void
+{
+    attachTestSchemas();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+        id TEXT PRIMARY KEY,
+        professional_id TEXT NULL,
+        old_handle TEXT NULL,
+        new_handle TEXT NULL,
+        reason TEXT NULL,
+        actor_id TEXT NULL,
+        ip_address TEXT NULL,
+        user_agent TEXT NULL,
+        changed_at TEXT NULL
     )');
 }

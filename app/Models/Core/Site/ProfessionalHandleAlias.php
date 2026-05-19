@@ -7,9 +7,8 @@ use App\Models\Core\Professional\Professional;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-// V2: Historical handle alias that still resolves to a professional after they change
-// their subdomain. Mirrors SiteSubdomainAlias so old shared URLs (Hydrogen affiliate
-// pages, public site lookups) keep resolving for the renamed person instead of 404ing.
+// Historical handle alias that serves 301 redirects after a professional renames.
+// Lifecycle: GRACE (0–14d, owner-reclaimable) → REDIRECT (14–90d) → RELEASED (prune deletes row).
 class ProfessionalHandleAlias extends BaseModel
 {
     use HasUuids;
@@ -25,14 +24,37 @@ class ProfessionalHandleAlias extends BaseModel
     protected $fillable = [
         'professional_id',
         'handle',
+        'reclaim_until',
+        'expires_at',
+        'notified_t3_at',
+        'notified_t1_at',
         'created_at',
         'updated_at',
     ];
 
     protected $casts = [
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'reclaim_until'   => 'datetime',
+        'expires_at'      => 'datetime',
+        'notified_t3_at'  => 'datetime',
+        'notified_t1_at'  => 'datetime',
+        'created_at'      => 'datetime',
+        'updated_at'      => 'datetime',
     ];
+
+    // Active = no expiry set (legacy) OR not yet expired.
+    public function scopeActive($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+        });
+    }
+
+    // Reclaimable = within the owner-only grace window.
+    public function scopeReclaimable($query)
+    {
+        return $query->whereNotNull('reclaim_until')->where('reclaim_until', '>', now());
+    }
+
 
     public function professional(): BelongsTo
     {

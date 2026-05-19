@@ -6,6 +6,17 @@ return [
     // so a fresh deploy never accidentally exposes the env-var report.
     'internal_env_check_token' => env('INTERNAL_ENV_CHECK_TOKEN'),
 
+    'handle' => [
+        // Days during which only the original owner can reclaim a released handle for free.
+        'reclaim_days'   => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
+
+        // Total days an alias serves a 301 redirect. After this it is hard-deleted and the handle returns to the pool.
+        'redirect_days'  => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
+
+        // Years to retain handle_change_log rows. 7y matches typical fraud-investigation retention.
+        'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
+    ],
+
     'public_domain' => env(
         'PARTNA_PUBLIC_DOMAIN',
         env(

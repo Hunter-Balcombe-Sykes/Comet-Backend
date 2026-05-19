@@ -2,6 +2,7 @@
 
 namespace App\Services\Site;
 
+use App\Models\Core\HandleChangeLog;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\ProfessionalHandleAlias;
 use App\Models\Core\Site\Site;
@@ -45,7 +46,7 @@ class UpdateSiteAction
         // IMPORTANT: never pass non-column fields into fill()
         unset($data['force_publish']);
 
-        return DB::transaction(function () use ($professional, $site, $data, $allowForcePublish, $forcePublish, $allowSubdomainOverride): Site {
+        return DB::transaction(function () use ($professional, $site, $data, $options, $allowForcePublish, $forcePublish, $allowSubdomainOverride): Site {
             if (array_key_exists('subdomain', $data)) {
                 $incoming = strtolower($data['subdomain']);
                 $current = strtolower((string) $site->subdomain);
@@ -74,8 +75,11 @@ class UpdateSiteAction
                         ]);
                     }
 
+                    // Exclude the current site's own aliases — renaming back to a
+                    // previously held subdomain is allowed (the alias will be collapsed below).
                     $conflictInAliases = DB::table('site.site_subdomain_aliases')
                         ->whereRaw('lower(subdomain) = ?', [$incoming])
+                        ->where('site_id', '!=', $site->id)
                         ->exists();
 
                     if ($conflictInAliases) {
@@ -84,53 +88,83 @@ class UpdateSiteAction
                         ]);
                     }
 
+                    $reclaimDays  = (int) config('partna.handle.reclaim_days', 14);
+                    $redirectDays = (int) config('partna.handle.redirect_days', 90);
+
                     if (! empty($site->subdomain)) {
-                        // Nested transaction = SAVEPOINT on Postgres. Without this, a 23505
-                        // duplicate error aborts the outer transaction even when caught in PHP.
                         try {
-                            DB::transaction(function () use ($site) {
-                                SiteSubdomainAlias::query()->create([
-                                    'site_id' => $site->id,
-                                    'subdomain' => $site->subdomain,
-                                    'created_at' => now(),
-                                ]);
-                            });
+                            SiteSubdomainAlias::query()->create([
+                                'site_id'       => $site->id,
+                                'subdomain'     => $site->subdomain,
+                                'reclaim_until' => now()->addDays($reclaimDays),
+                                'expires_at'    => now()->addDays($redirectDays),
+                                'created_at'    => now(),
+                            ]);
                         } catch (QueryException $e) {
                             if ($e->getCode() !== '23505') {
                                 throw $e;
                             }
-                            // Duplicate alias is fine — uniqueness enforced in DB.
+                            // Alias row already exists — refresh lifecycle timestamps in case
+                            // it was stale (e.g. a previous alias that expired and wasn't pruned yet).
+                            SiteSubdomainAlias::query()
+                                ->where('site_id', $site->id)
+                                ->whereRaw('lower(subdomain) = ?', [strtolower((string) $site->subdomain)])
+                                ->update([
+                                    'reclaim_until' => now()->addDays($reclaimDays),
+                                    'expires_at'    => now()->addDays($redirectDays),
+                                ]);
                         }
                     }
 
-                    // Keep the canonical handle on the professional in sync with
-                    // the subdomain. HydrogenAffiliateController + the public site
-                    // resolver both look up by handle_lc, so a desync here means
-                    // the affiliate URL stops working immediately after a rename.
-                    // Mirror the old handle into professional_handle_aliases so
-                    // links shared on the old URL still resolve.
+                    // Keep the canonical handle on the professional in sync with the subdomain.
+                    // HydrogenAffiliateController + public site resolver both look up by handle_lc,
+                    // so a desync means the affiliate URL breaks immediately after a rename.
+                    // The DB trigger (trg_professional_handle_change) records the old handle into
+                    // professional_handle_aliases automatically on this save. We also write it
+                    // from PHP (belt-and-suspenders) so tests without the trigger stay green.
                     $oldHandle = $professional->handle;
                     if (! empty($oldHandle) && strtolower($oldHandle) !== $incoming) {
                         try {
-                            DB::transaction(function () use ($professional, $oldHandle) {
-                                ProfessionalHandleAlias::query()->create([
-                                    'professional_id' => $professional->id,
-                                    'handle' => $oldHandle,
-                                    'created_at' => now(),
-                                    'updated_at' => now(),
-                                ]);
-                            });
+                            ProfessionalHandleAlias::query()->create([
+                                'professional_id' => $professional->id,
+                                'handle'          => $oldHandle,
+                                'reclaim_until'   => now()->addDays($reclaimDays),
+                                'expires_at'      => now()->addDays($redirectDays),
+                                'created_at'      => now(),
+                                'updated_at'      => now(),
+                            ]);
                         } catch (QueryException $e) {
                             if ($e->getCode() !== '23505') {
                                 throw $e;
                             }
-                            // Duplicate alias is fine — uniqueness enforced in DB.
                         }
+
+                        $professional->forceFill([
+                            'handle'    => $incoming,
+                            'handle_lc' => $incoming,
+                        ])->save();
                     }
-                    $professional->forceFill([
-                        'handle' => $incoming,
-                        'handle_lc' => $incoming,
-                    ])->save();
+
+                    // Collapse: if the user is renaming back to a subdomain they hold as an
+                    // alias, drop that alias — they own it again, nothing to redirect from it.
+                    SiteSubdomainAlias::query()
+                        ->where('site_id', $site->id)
+                        ->whereRaw('lower(subdomain) = ?', [$incoming])
+                        ->delete();
+
+                    // Audit log — record who changed what and from where. $current holds
+                    // the old subdomain; $incoming is the new one. actor_id falls back to
+                    // the professional themselves (self-serve rename).
+                    HandleChangeLog::create([
+                        'professional_id' => (string) $professional->id,
+                        'old_handle'      => $current,
+                        'new_handle'      => $incoming,
+                        'reason'          => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),
+                        'actor_id'        => (string) ($options['actor_id'] ?? $professional->id),
+                        'ip_address'      => $options['ip'] ?? null,
+                        'user_agent'      => $options['user_agent'] ?? null,
+                        'changed_at'      => now(),
+                    ]);
 
                     $data['subdomain'] = $incoming;
                     $site->subdomain_changed_at = now();
