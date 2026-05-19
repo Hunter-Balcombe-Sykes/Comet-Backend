@@ -17,13 +17,16 @@ use App\Services\Cache\ProfessionalCacheService;
 use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\Brand\BrandAffiliateInviteService;
 use App\Services\Professional\Brand\BrandPartnerLinkService;
+use App\Services\Professional\Brand\BrandSignupCodeService;
 use App\Services\Professional\SiteProvisioningService;
 use App\Services\Shopify\BrandSignupService;
 use App\Services\Shopify\ShopifySetupTokenService;
 use App\Services\Shopify\ShopProfileAutoFillService;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use RuntimeException;
 
 // V2: Account signup/update. Creates professional + site, applies type defaults, handles affiliate invite claims and brand partner connections. Entry point for affiliate/professional signup.
@@ -54,6 +57,44 @@ class BootstrapController extends ApiController
 
         $data = $request->validated();
 
+        // Brand signup code — rate-limit and resolve BEFORE the transaction so we can
+        // return 429/422 responses without wrapping them in a DB transaction closure.
+        // $resolvedSignupCodeBrand is non-null only when a valid code was supplied and passed.
+        $resolvedSignupCodeBrand = null;
+        $signupCodeAttempted = is_string($data['brand_signup_code'] ?? null) && trim((string) $data['brand_signup_code']) !== '';
+        if ($signupCodeAttempted) {
+            $attemptedCode = trim((string) $data['brand_signup_code']);
+            $sourceIp = $request->header('CF-Connecting-IP') ?? $request->ip();
+            $rateLimitKey = 'brand-signup-code:'.$sourceIp;
+
+            // Progressive delay when same IP has recently failed — CFG-3.
+            $failureCountKey = 'brand-signup-code-failures:'.$sourceIp;
+            $recentFailures = (int) Cache::get($failureCountKey, 0);
+            $delayThreshold = (int) config('partna.brand_signup_code.rate_limit.delay_after_failures', 5);
+            $delaySeconds = (int) config('partna.brand_signup_code.rate_limit.delay_seconds', 2);
+            if ($recentFailures >= $delayThreshold) {
+                sleep($delaySeconds);
+            }
+
+            // Hard rate limits per IP.
+            $perMinute = (int) config('partna.brand_signup_code.rate_limit.per_minute', 10);
+            $perHour = (int) config('partna.brand_signup_code.rate_limit.per_hour', 100);
+            if (RateLimiter::tooManyAttempts($rateLimitKey.':minute', $perMinute) ||
+                RateLimiter::tooManyAttempts($rateLimitKey.':hour', $perHour)) {
+                return $this->error('Too many signup code attempts. Please try again later.', 429);
+            }
+            RateLimiter::hit($rateLimitKey.':minute', 60);
+            RateLimiter::hit($rateLimitKey.':hour', 3600);
+
+            $resolvedSignupCodeBrand = app(BrandSignupCodeService::class)->resolveCode($attemptedCode);
+            if (! $resolvedSignupCodeBrand) {
+                Cache::put($failureCountKey, $recentFailures + 1, now()->addHour());
+                app(BrandSignupCodeService::class)->recordFailedClaim($attemptedCode, $sourceIp);
+
+                return $this->error('Code not recognized.', 422, ['code' => 'SIGNUP_CODE_NOT_FOUND']);
+            }
+        }
+
         try {
             $allowedProfessionalTypes = array_keys(config('partna.professional_types', []));
             $resolveProfessionalType = static function (mixed $candidate) use ($allowedProfessionalTypes): string {
@@ -67,7 +108,14 @@ class BootstrapController extends ApiController
                 return 'professional';
             };
 
-            $result = DB::transaction(function () use ($uid, $data, $brandAffiliateInviteService, $brandPartnerLinks, $accountTypeDefaultsService, $resolveProfessionalType) {
+            // Captures the user-facing message when single-brand cap blocks the
+            // signup_code attach. Must be a variable closed by-reference because
+            // throwing from inside DB::transaction() would roll back the freshly
+            // created Professional row — the user expects to keep their account
+            // and just see an error about the brand-attach failing.
+            $brandSignupCodeError = null;
+
+            $result = DB::transaction(function () use ($uid, $data, $brandAffiliateInviteService, $brandPartnerLinks, $accountTypeDefaultsService, $resolveProfessionalType, $request, $resolvedSignupCodeBrand, &$brandSignupCodeError) {
                 $createdProfessional = false;
 
                 $professional = Professional::query()->where('auth_user_id', $uid)->first();
@@ -256,6 +304,36 @@ class BootstrapController extends ApiController
                     }
                 }
 
+                // Brand signup code — resolved and rate-limited BEFORE the transaction.
+                // $resolvedSignupCodeBrand is set when a valid active code was supplied.
+                if (! $attachedAsPartner && $resolvedSignupCodeBrand !== null) {
+                    $brandProfessionalId = (string) $resolvedSignupCodeBrand->professional_id;
+                    $affiliateId = (string) $professional->id;
+                    $codeSourceIp = $request->header('CF-Connecting-IP') ?? $request->ip();
+
+                    try {
+                        if (! $brandPartnerLinks->isConnected($affiliateId, $brandProfessionalId)) {
+                            $brandPartnerLinks->connectBrandToAffiliate($affiliateId, $brandProfessionalId);
+                        }
+
+                        app(BrandSignupCodeService::class)->recordClaim($resolvedSignupCodeBrand, $professional, $codeSourceIp);
+                        $this->syncSiteBrandPartnerSettings($site, $brandPartnerLinks, $affiliateId);
+                        $accountTypeDefaultsService->applyAffiliateDefaults($professional, $site);
+                        $attachedAsPartner = true;
+                    } catch (RuntimeException $e) {
+                        Log::warning('Bootstrap brand-attach via brand_signup_code skipped', [
+                            'professional_id' => $affiliateId,
+                            'brand_professional_id' => $brandProfessionalId,
+                            'reason' => $e->getMessage(),
+                        ]);
+                        // Surface to the user via the by-reference variable, NOT
+                        // by rethrowing — rethrowing rolls back the freshly created
+                        // Professional row and the user loses the account they just
+                        // created. Service message is already user-facing.
+                        $brandSignupCodeError = $e->getMessage();
+                    }
+                }
+
                 // Shopify setup token: create integration from cached OAuth credentials
                 $shopifyIntegrationId = null;
                 $shopifySetupToken = is_string($data['shopify_setup_token'] ?? null) ? trim((string) $data['shopify_setup_token']) : '';
@@ -360,6 +438,17 @@ class BootstrapController extends ApiController
 
         // Strip internal ID before returning
         unset($result['shopify_integration_id']);
+
+        // Surface signup-code single-brand-cap failure after a successful txn —
+        // the Professional/Site rows are preserved; only the brand-attach failed.
+        // Wrap the success payload so the frontend can still navigate to the
+        // dashboard but knows to show the error toast.
+        if ($brandSignupCodeError !== null) {
+            return $this->error($brandSignupCodeError, 422, [
+                'code' => 'BRAND_SIGNUP_CODE_CAP_EXCEEDED',
+                'partial_success' => $result,
+            ]);
+        }
 
         return $this->success($result);
     }

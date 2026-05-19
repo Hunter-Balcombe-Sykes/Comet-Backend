@@ -3,6 +3,7 @@
 namespace App\Models\Core\Professional;
 
 use App\Models\BaseModel;
+use App\Services\Professional\Brand\BrandSignupCodeService;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class BrandProfile extends BaseModel
 {
     use HasUuids;
+
+    protected static function booted(): void
+    {
+        // Auto-generate a unique signup code for every new BrandProfile so that all
+        // brands have a sharable partner-onboarding code from day one.
+        // NOTE: this hook does NOT fire on createQuietly() — that is intentional.
+        // The Artisan backfill command (brand:backfill-signup-codes) assigns codes
+        // to existing rows by calling generate() explicitly then saveQuietly().
+        static::creating(static function (BrandProfile $model): void {
+            if ($model->signup_code === null) {
+                $model->signup_code = app(BrandSignupCodeService::class)->generate();
+            }
+        });
+    }
 
     protected $table = 'brand.brand_profiles';
 
@@ -29,11 +44,16 @@ class BrandProfile extends BaseModel
         'affiliate_visibility',
         'brand_status',
         'setup_complete',
+        'signup_code',
+        'signup_code_active',
+        'signup_code_rotated_at',
     ];
 
     protected $casts = [
         'industries' => 'array',
         'setup_complete' => 'boolean',
+        'signup_code_active' => 'boolean',
+        'signup_code_rotated_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

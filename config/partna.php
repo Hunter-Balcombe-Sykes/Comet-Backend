@@ -8,10 +8,10 @@ return [
 
     'handle' => [
         // Days during which only the original owner can reclaim a released handle for free.
-        'reclaim_days'   => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
+        'reclaim_days' => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
 
         // Total days an alias serves a 301 redirect. After this it is hard-deleted and the handle returns to the pool.
-        'redirect_days'  => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
+        'redirect_days' => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
 
         // Years to retain handle_change_log rows. 7y matches typical fraud-investigation retention.
         'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
@@ -774,6 +774,22 @@ return [
         'enabled' => (bool) env('PARTNA_THROTTLE_ENABLED', env('SIDEST_THROTTLE_ENABLED', true)),
         // Max notification emails sent per brand inbox per hour regardless of how many enquiries arrive.
         'enquiry_notification_per_hour' => (int) env('PARTNA_ENQUIRY_NOTIFY_PER_HOUR', env('SIDEST_ENQUIRY_NOTIFY_PER_HOUR', 10)),
+    ],
+
+    // Rate-limit config for the brand signup code redemption path (§33 CFG-3).
+    // Values are intentionally in config (not inline) so they can be tightened
+    // under abuse without a code deploy.
+    'brand_signup_code' => [
+        'rate_limit' => [
+            // Hard cap per IP per minute.
+            'per_minute' => (int) env('PARTNA_SIGNUP_CODE_RATE_PER_MINUTE', 10),
+            // Hard cap per IP per hour.
+            'per_hour' => (int) env('PARTNA_SIGNUP_CODE_RATE_PER_HOUR', 100),
+            // After this many failed attempts on the same IP within an hour, responses are delayed.
+            'delay_after_failures' => (int) env('PARTNA_SIGNUP_CODE_DELAY_AFTER_FAILURES', 5),
+            // Seconds to sleep when the delay threshold is hit.
+            'delay_seconds' => (int) env('PARTNA_SIGNUP_CODE_DELAY_SECONDS', 2),
+        ],
     ],
 
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),

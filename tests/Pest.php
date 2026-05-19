@@ -706,6 +706,9 @@ function setupBrandProfilesTable(): void
         brand_status TEXT NULL DEFAULT "building",
         setup_complete INTEGER NULL,
         business_website TEXT NULL,
+        signup_code TEXT NULL,
+        signup_code_active INTEGER NOT NULL DEFAULT 1,
+        signup_code_rotated_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
