@@ -115,9 +115,9 @@ class CommissionExportFinalWriter
      * Counterparty inference: for charge/refund (brand-side rows), the affiliate is
      * the counterparty; for transfer/reversal (affiliate-side rows), the brand is.
      *
-     * stripe_id: prefer the composite `id` field (e.g. "charge:ch_xxx") which is always
-     * present in the JSONL; fall back to raw_stripe_id for compatibility with older
-     * row shapes that set raw_stripe_id but not id.
+     * stripe_id: always use raw_stripe_id (e.g. "ch_xxx") — the bare Stripe object ID
+     * that accounting consumers paste into Stripe dashboard URLs. The composite `id`
+     * field (e.g. "charge:ch_xxx") is internal to the generator for dedup only.
      *
      * @param  array<string, mixed>  $row
      * @return list<scalar>
@@ -138,7 +138,7 @@ class CommissionExportFinalWriter
             $row['currency_code'] ?? 'AUD',
             $row['status'] ?? '',
             $row['payout_id'] ?? '',
-            $row['id'] ?? $row['raw_stripe_id'] ?? '',
+            $row['raw_stripe_id'] ?? '',
         ];
     }
 }

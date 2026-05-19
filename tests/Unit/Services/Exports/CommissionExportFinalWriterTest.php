@@ -13,9 +13,9 @@ class CommissionExportFinalWriterTest extends TestCase
         Storage::fake('media');
 
         Storage::disk('media')->put('exports/p/a/parts/chunk-0.jsonl',
-            json_encode($this->sampleRow('charge', 'row1')) . "\n");
+            json_encode($this->sampleRow('charge', 'charge:ch_AAAA', 'ch_AAAA')) . "\n");
         Storage::disk('media')->put('exports/p/a/parts/chunk-1.jsonl',
-            json_encode($this->sampleRow('refund', 'row2')) . "\n");
+            json_encode($this->sampleRow('refund', 'refund:re_BBBB', 're_BBBB')) . "\n");
 
         $writer = new CommissionExportFinalWriter;
         $tmpFinal = tempnam(sys_get_temp_dir(), 'final_') . '.csv';
@@ -31,8 +31,11 @@ class CommissionExportFinalWriterTest extends TestCase
         $this->assertSame(2, $meta['row_count']);
         $contents = file_get_contents($tmpFinal);
         $this->assertStringContainsString('date,type,description,counterparty,amount_cents', $contents);
-        $this->assertStringContainsString('row1', $contents);
-        $this->assertStringContainsString('row2', $contents);
+        $this->assertStringContainsString('ch_AAAA', $contents);
+        $this->assertStringContainsString('re_BBBB', $contents);
+        // Composite ids are internal to the generator and must not appear in the CSV:
+        $this->assertStringNotContainsString('charge:ch_AAAA', $contents);
+        $this->assertStringNotContainsString('refund:re_BBBB', $contents);
 
         @unlink($tmpFinal);
     }
@@ -41,7 +44,7 @@ class CommissionExportFinalWriterTest extends TestCase
     {
         Storage::fake('media');
         Storage::disk('media')->put('exports/p/a/parts/chunk-0.jsonl',
-            json_encode($this->sampleRow('charge', 'row1')) . "\n");
+            json_encode($this->sampleRow('charge', 'charge:ch_CCCC', 'ch_CCCC')) . "\n");
 
         $writer = new CommissionExportFinalWriter;
         $tmpFinal = tempnam(sys_get_temp_dir(), 'final_') . '.xlsx';
@@ -59,10 +62,10 @@ class CommissionExportFinalWriterTest extends TestCase
         @unlink($tmpFinal);
     }
 
-    private function sampleRow(string $type, string $id): array
+    private function sampleRow(string $type, string $compositeId, string $rawStripeId): array
     {
         return [
-            'id' => $id,
+            'id' => $compositeId,            // e.g. 'charge:ch_xxx' — internal dedup id
             'type' => $type,
             'occurred_at' => '2026-05-19T00:00:00Z',
             'description' => 'sample',
@@ -70,7 +73,7 @@ class CommissionExportFinalWriterTest extends TestCase
             'currency_code' => 'AUD',
             'status' => 'succeeded',
             'payout_id' => 'po_x',
-            'raw_stripe_id' => 'ch_x',
+            'raw_stripe_id' => $rawStripeId, // e.g. 'ch_xxx' — bare id for CSV
             'brand' => ['name' => 'B'],
             'affiliate' => ['name' => 'A'],
         ];
