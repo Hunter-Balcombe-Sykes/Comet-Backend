@@ -124,6 +124,8 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
+
         Log::error('FanOutBrandStatusNotificationJob failed', [
             'brand_professional_id' => $this->brandProfessionalId,
             'brand_status' => $this->brandStatus,

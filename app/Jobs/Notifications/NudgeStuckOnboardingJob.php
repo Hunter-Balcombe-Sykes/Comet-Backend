@@ -136,6 +136,8 @@ class NudgeStuckOnboardingJob implements ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
+
         Log::error('NudgeStuckOnboardingJob failed', [
             'message' => $e->getMessage(),
         ]);

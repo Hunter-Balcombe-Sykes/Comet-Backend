@@ -116,6 +116,8 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
+
         Log::error('Transactional notification email failed', [
             'notification_id' => $this->notificationId,
             'category' => $this->category,

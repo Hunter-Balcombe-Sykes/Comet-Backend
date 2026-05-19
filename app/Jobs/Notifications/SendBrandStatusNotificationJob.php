@@ -76,6 +76,8 @@ class SendBrandStatusNotificationJob implements ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
+
         Log::error('SendBrandStatusNotificationJob failed', [
             'affiliate_professional_id' => $this->affiliateProfessionalId,
             'brand_professional_id' => $this->brandProfessionalId,
