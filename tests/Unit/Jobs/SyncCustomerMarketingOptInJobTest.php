@@ -105,3 +105,41 @@ it('CACHE-11 job: is a no-op when no matching Customer exists', function () {
 
     expect(DB::connection('pgsql')->table('core.customers')->count())->toBe(0);
 });
+
+// §28.17 JOB-3 — failed() must call report() so Nightwatch sees exhaustion.
+it('JOB-3: failed() reports the exception before logging', function () {
+    \Illuminate\Support\Facades\Log::spy();
+
+    $exception = new \RuntimeException('boom');
+    $reported = null;
+    app()->bind(\Illuminate\Contracts\Debug\ExceptionHandler::class, function () use (&$reported) {
+        return new class($reported) implements \Illuminate\Contracts\Debug\ExceptionHandler
+        {
+            public function __construct(public &$captured) {}
+
+            public function report(\Throwable $e): void
+            {
+                $this->captured = $e;
+            }
+
+            public function shouldReport(\Throwable $e): bool
+            {
+                return true;
+            }
+
+            public function render($request, \Throwable $e): \Symfony\Component\HttpFoundation\Response
+            {
+                return new \Symfony\Component\HttpFoundation\Response;
+            }
+
+            public function renderForConsole($output, \Throwable $e): void {}
+        };
+    });
+
+    (new SyncCustomerMarketingOptInJob('p1', 'x@x.test', true))->failed($exception);
+
+    expect($reported)->toBe($exception);
+    \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
+        ->once()
+        ->with('notifications.sync_customer_marketing_opt_in.failed', \Mockery::on(fn ($ctx) => $ctx['error'] === 'boom'));
+});

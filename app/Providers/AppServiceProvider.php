@@ -139,6 +139,14 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('SHOPIFY_API_VERSION must be set (e.g. 2026-04).');
         }
 
+        // §28.17 SEC-2 — JWKS fail-closed in production.
+        // VerifySupabaseJwt falls open (accepts unverified JWTs) when JWKS fetch
+        // fails unless `SUPABASE_JWKS_FAIL_CLOSED=true`. Production must opt-in
+        // explicitly; refuse to boot if the flag is false.
+        if (app()->isProduction() && ! (bool) config('supabase.jwks_fail_closed', false)) {
+            throw new \RuntimeException('SUPABASE_JWKS_FAIL_CLOSED must be true in production (auth fails open without it).');
+        }
+
         // Auth::user() is always null in this app (Supabase JWT), so a user-based
         // Horizon gate is not possible. Default behavior: dashboard is open in
         // non-production environments and sealed in production. Production access

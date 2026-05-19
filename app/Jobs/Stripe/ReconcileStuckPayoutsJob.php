@@ -71,6 +71,10 @@ class ReconcileStuckPayoutsJob implements ShouldQueue
             try {
                 $pi = $stripe->paymentIntents->retrieve($payout->payment_intent_id);
             } catch (\Throwable $e) {
+                // §28.17 OBS-3 — report() so Nightwatch surfaces per-payout
+                // failures alongside the structured log entry (silent log-only
+                // swallowed real Stripe degradation incidents).
+                report($e);
                 Log::error('ReconcileStuckPayoutsJob retrieve failed', [
                     'payout_id' => $payout->id,
                     'payment_intent_id' => $payout->payment_intent_id,
