@@ -23,7 +23,9 @@ class EnsureAffiliateAccount
             return new JsonResponse(['error' => 'Unauthenticated.'], 401);
         }
 
-        if (($pro->professional_type ?? null) === 'brand') {
+        // Reads account_type via isBrand() — falls back to professional_type
+        // during the dual-write window. Partner + individual both pass.
+        if ($pro->isBrand()) {
             return new JsonResponse(
                 ['error' => 'Brand accounts cannot use this endpoint.'],
                 403,
