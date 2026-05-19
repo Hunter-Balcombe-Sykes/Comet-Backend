@@ -776,6 +776,12 @@ return [
         'enquiry_notification_per_hour' => (int) env('PARTNA_ENQUIRY_NOTIFY_PER_HOUR', env('SIDEST_ENQUIRY_NOTIFY_PER_HOUR', 10)),
     ],
 
+    // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
+    // brand_signup_code) are diverted to a waitlist row instead of creating a
+    // Professional. Default false (fail-closed). Read via config() — never env()
+    // directly — so `php artisan config:cache` is respected.
+    'individual_waitlist_enabled' => (bool) env('SIDEST_INDIVIDUAL_WAITLIST_ENABLED', false),
+
     // Rate-limit config for the individual public profile endpoint (§28.8 CFG-3).
     // Tunable at runtime via env without redeploy. Values are per-IP per-minute.
     'public_profile' => [
