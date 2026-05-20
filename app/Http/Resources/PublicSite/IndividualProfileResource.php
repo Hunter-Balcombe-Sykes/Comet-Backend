@@ -39,6 +39,7 @@ class IndividualProfileResource extends JsonResource
         'font_size',
         'layout',
         'border_radius',
+        'corner_radius',
         'border_thickness',
         'section_spacing',
         'brand_colors',
