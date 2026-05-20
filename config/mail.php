@@ -111,8 +111,8 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'info@sight.com'),
-        'name' => env('MAIL_FROM_NAME', 'Sight'),
+        'address' => env('MAIL_FROM_ADDRESS', 'hello@partna.au'),
+        'name' => env('MAIL_FROM_NAME', 'Partna'),
     ],
 
 ];

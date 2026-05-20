@@ -157,6 +157,21 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('SUPABASE_JWT_ISSUER and SUPABASE_JWT_AUD must be configured (JWT auth fails closed without them).');
         }
 
+        // F6 CFG-2 — Stripe secret key must be set in production. The StripeClient
+        // singleton array_filter()s out a missing key, so callers raise
+        // AuthenticationException that downstream try/catch silently swallows —
+        // surfacing as zero balances / empty transactions. Crash at boot instead.
+        if (app()->isProduction() && empty(config('services.stripe.secret_key'))) {
+            throw new \RuntimeException('STRIPE_SECRET_KEY must be set in production.');
+        }
+
+        // F6 CFG-4 — Nightwatch enabled without a token attempts an unauthenticated
+        // ingest connection on every request/command, generating silent error noise.
+        // If telemetry is on in production, the token must be present.
+        if (app()->isProduction() && (bool) config('nightwatch.enabled') && empty(config('nightwatch.token'))) {
+            throw new \RuntimeException('NIGHTWATCH_TOKEN must be set when NIGHTWATCH_ENABLED is true in production.');
+        }
+
         // Auth::user() is always null in this app (Supabase JWT), so a user-based
         // Horizon gate is not possible. Default behavior: dashboard is open in
         // non-production environments and sealed in production. Production access

@@ -25,7 +25,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F3 | Brand-status notification correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☑ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
 | ☑ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
-| ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
+| ☑ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
 | ☑ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
@@ -148,7 +148,7 @@ write the fixes and the tests that lock them in within one session.
 `app/Jobs/Shopify/ReconcileStuckShopifyIntegrationsJob.php`,
 `app/Jobs/ProcessImageVariantsJob.php`, `app/Jobs/ProcessVideoVariantsJob.php`.
 
-## ☐ F6 — Redis DB collision + config hygiene
+## ☑ F6 — Redis DB collision + config hygiene
 **Tier:** P1 · **Effort:** M · **Items:** CFG-1 (P1), CFG-2–4 (P2), CFG-5–7 (P3)
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~2.5h
 
@@ -158,10 +158,17 @@ write the fixes and the tests that lock them in within one session.
 - **CFG-2** — Production boot guard for missing `STRIPE_SECRET_KEY` in
   `AppServiceProvider` (matches existing 4-guard pattern; coordinate with F2's
   guard additions).
-- **CFG-3** — Align `config/` fallback defaults to `.env.example`; resolve the
-  `STRIPE_API_VERSION` split (canonical `2025-02-24.acacia`).
-- **CFG-4** — `NIGHTWATCH_ENABLED` default → `false` (or guard against
-  enabled-without-token).
+- **CFG-3** — Align `config/` fallback defaults to `.env.example`:
+  `DB_CONNECTION`→`pgsql`, `QUEUE_CONNECTION`→`redis`, `SESSION_DRIVER`→`cookie`.
+  **DEFERRED:** the `STRIPE_API_VERSION` (clover vs acacia) and
+  `SHOPIFY_API_VERSION` (2026-04 vs 2025-01) splits are NOT resolved here — both
+  carry real payment/catalog-flow implications and need a product decision.
+  Stripe connect/payout services consume `services.stripe.api_version`; the
+  export `StripeClient` consumes `partna.exports.commission.stripe_api_version` —
+  they share one env var but want different versions. Split to a follow-up.
+- **CFG-4** — Boot guard: refuse to boot in production when `NIGHTWATCH_ENABLED`
+  is true and `NIGHTWATCH_TOKEN` is empty (chosen over flipping the default to
+  preserve prod telemetry-on behaviour).
 - **CFG-5** — Add the ~30 missing `config/partna.php` knobs to `.env.example` as
   commented entries.
 - **CFG-6** — `config/mail.php` fallbacks → `hello@partna.au` / `Partna`.

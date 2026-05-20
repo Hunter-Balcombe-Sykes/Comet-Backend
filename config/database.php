@@ -16,7 +16,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'pgsql'),
 
     /*
     |--------------------------------------------------------------------------
@@ -194,7 +194,7 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', '6379'),
-            'database' => env('REDIS_SESSION_DB', '1'),
+            'database' => env('REDIS_SESSION_DB', '2'),
         ],
 
         'queue' => [
@@ -203,7 +203,7 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', '6379'),
-            'database' => env('REDIS_QUEUE_DB', '2'),
+            'database' => env('REDIS_QUEUE_DB', '3'),
         ],
 
         // Dedicated DB for atomic lock keys so Cache::flush() on the data
@@ -214,7 +214,7 @@ return [
             'password' => env('REDIS_PASSWORD', null),
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', 6379),
-            'database' => env('REDIS_CACHE_LOCKS_DB', 3),
+            'database' => env('REDIS_CACHE_LOCKS_DB', 4),
         ],
 
     ],
