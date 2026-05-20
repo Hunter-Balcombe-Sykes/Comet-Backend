@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\Professional\Professional;
-use App\Services\Billing\ResumeProfessionalSubscriptionAction;
+use App\Services\Billing\CancelProfessionalSubscriptionAction;
 use App\Services\Stripe\StripeBillingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -29,7 +29,7 @@ beforeEach(function () {
     )');
 });
 
-function resumeTestProfessional(): Professional
+function cancelTestProfessional(): Professional
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.professionals')->insert([
@@ -43,7 +43,7 @@ function resumeTestProfessional(): Professional
     return Professional::query()->where('id', $id)->first();
 }
 
-function seedResumeSubscription(string $professionalId, array $overrides = []): void
+function seedCancelSubscription(string $professionalId, array $overrides = []): void
 {
     DB::connection('pgsql')->table('billing.subscriptions')->insert(array_merge([
         'id' => (string) Str::uuid(),
@@ -51,7 +51,7 @@ function seedResumeSubscription(string $professionalId, array $overrides = []): 
         'provider' => 'stripe',
         'stripe_subscription_id' => 'sub_test_123',
         'status' => 'active',
-        'cancel_at_period_end' => 1,
+        'cancel_at_period_end' => 0,
         'current_period_end' => now()->addDays(10)->toIso8601String(),
         'ended_at' => null,
         'created_at' => now()->toIso8601String(),
@@ -59,85 +59,76 @@ function seedResumeSubscription(string $professionalId, array $overrides = []): 
     ], $overrides));
 }
 
-it('keeps the local DB update and does not throw when Stripe fails (webhook reconciles)', function () {
-    // TRNX-3: the Stripe call runs AFTER the local commit, outside any DB
-    // transaction. A Stripe failure must not throw and must not roll back the
-    // local intent — the customer.subscription.updated webhook reconciles.
-    $pro = resumeTestProfessional();
-    seedResumeSubscription($pro->id);
+it('sets cancel_at_period_end locally then calls Stripe', function () {
+    $pro = cancelTestProfessional();
+    seedCancelSubscription($pro->id);
 
     $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldReceive('resumeSubscription')
+    $billing->shouldReceive('cancelSubscriptionAtPeriodEnd')
         ->once()
-        ->andThrow(new \RuntimeException('Stripe API error'));
+        ->andReturn(Mockery::mock(\Stripe\Subscription::class));
 
-    $action = new ResumeProfessionalSubscriptionAction($billing);
+    $returned = (new CancelProfessionalSubscriptionAction($billing))->execute($pro);
 
-    // No exception bubbles out — local state is the source of intent.
-    $returned = $action->execute($pro);
-    expect($returned->cancel_at_period_end)->toBeFalse();
+    expect($returned->cancel_at_period_end)->toBeTrue();
 
     $row = DB::connection('pgsql')
         ->table('billing.subscriptions')
         ->where('professional_id', $pro->id)
         ->first();
-
-    // Local flag was committed before the Stripe call and stays committed.
-    expect((bool) $row->cancel_at_period_end)->toBeFalse();
+    expect((bool) $row->cancel_at_period_end)->toBeTrue();
 });
 
 it('commits the local update before calling Stripe (Stripe call is post-commit)', function () {
-    // Proves the Stripe call is NOT inside an open DB transaction: by the time
-    // resumeSubscription runs, the local row is already persisted.
-    $pro = resumeTestProfessional();
-    seedResumeSubscription($pro->id);
+    // TRNX-4: proves the Stripe call is NOT inside an open DB transaction —
+    // by the time the Stripe call runs, the local row is already persisted.
+    $pro = cancelTestProfessional();
+    seedCancelSubscription($pro->id);
 
     $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldReceive('resumeSubscription')
+    $billing->shouldReceive('cancelSubscriptionAtPeriodEnd')
         ->once()
         ->andReturnUsing(function () use ($pro) {
-            // Read the row on a fresh query while "inside" the Stripe call.
             $row = DB::connection('pgsql')
                 ->table('billing.subscriptions')
                 ->where('professional_id', $pro->id)
                 ->first();
-            expect((bool) $row->cancel_at_period_end)->toBeFalse();
+            expect((bool) $row->cancel_at_period_end)->toBeTrue();
 
             return Mockery::mock(\Stripe\Subscription::class);
         });
 
-    (new ResumeProfessionalSubscriptionAction($billing))->execute($pro);
+    (new CancelProfessionalSubscriptionAction($billing))->execute($pro);
 });
 
-it('clears cancel_at_period_end on success', function () {
-    $pro = resumeTestProfessional();
-    seedResumeSubscription($pro->id);
+it('keeps the local cancellation and does not throw when Stripe fails (webhook reconciles)', function () {
+    // TRNX-4: a post-commit Stripe failure must not throw — local state is the
+    // source of intent and the customer.subscription.updated webhook reconciles.
+    $pro = cancelTestProfessional();
+    seedCancelSubscription($pro->id);
 
     $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldReceive('resumeSubscription')->once()->andReturn(Mockery::mock(\Stripe\Subscription::class));
+    $billing->shouldReceive('cancelSubscriptionAtPeriodEnd')
+        ->once()
+        ->andThrow(new \RuntimeException('Stripe API error'));
 
-    $action = new ResumeProfessionalSubscriptionAction($billing);
-    $returned = $action->execute($pro);
-
-    expect($returned->cancel_at_period_end)->toBeFalse();
+    $returned = (new CancelProfessionalSubscriptionAction($billing))->execute($pro);
+    expect($returned->cancel_at_period_end)->toBeTrue();
 
     $row = DB::connection('pgsql')
         ->table('billing.subscriptions')
         ->where('professional_id', $pro->id)
         ->first();
-
-    expect((bool) $row->cancel_at_period_end)->toBeFalse();
+    expect((bool) $row->cancel_at_period_end)->toBeTrue();
 });
 
-it('skips Stripe call for non-stripe provider and still clears DB flag', function () {
-    $pro = resumeTestProfessional();
-    seedResumeSubscription($pro->id, ['provider' => 'manual', 'stripe_subscription_id' => null]);
+it('rejects cancellation of a free internal subscription', function () {
+    $pro = cancelTestProfessional();
+    seedCancelSubscription($pro->id, ['provider' => 'internal', 'stripe_subscription_id' => null]);
 
     $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldNotReceive('resumeSubscription');
+    $billing->shouldNotReceive('cancelSubscriptionAtPeriodEnd');
 
-    $action = new ResumeProfessionalSubscriptionAction($billing);
-    $returned = $action->execute($pro);
-
-    expect($returned->cancel_at_period_end)->toBeFalse();
+    expect(fn () => (new CancelProfessionalSubscriptionAction($billing))->execute($pro))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
 });

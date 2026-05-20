@@ -11,12 +11,18 @@ use Illuminate\Validation\ValidationException;
 // V2: Changes professional's subscription plan. Handles free->paid (checkout), paid->paid (Stripe update), and paid->free (cancel + fallback).
 class ChangeProfessionalPlanAction
 {
-    public function __construct(private StripeBillingService $billing) {}
+    public function __construct(
+        private StripeBillingService $billing,
+        private Entitlements $entitlements,
+    ) {}
 
     /**
      * Change the professional's current plan.
-     * On paid→paid switches, plan_id and cancel_at_period_end are reconciled
-     * asynchronously via the customer.subscription.updated webhook.
+     * On paid→paid switches the Stripe price update happens FIRST; only once
+     * Stripe confirms the change do we persist plan_id locally — so we never
+     * show a plan the customer is not actually being billed for. The
+     * customer.subscription.updated webhook remains the backup reconciliation
+     * path (it also re-syncs plan_id, but gated on status=active).
      *
      * @return Subscription|array{checkout_url: string, session_id: string}
      */
@@ -80,12 +86,30 @@ class ChangeProfessionalPlanAction
             return $subscription->fresh();
         }
 
-        // Paid -> Paid: update price on Stripe; customer.subscription.updated webhook
-        // reconciles plan_id and cancel_at_period_end locally (same as paid->free path).
+        // Paid -> Paid: Stripe FIRST, then persist locally.
+        //
+        // Ordering is deliberate and the opposite of the cancel/resume actions:
+        // for a plan CHANGE the local plan_id must never lead Stripe. If we wrote
+        // plan_id before Stripe confirmed, a failed Stripe call would leave the
+        // customer seeing (and being entitled to) a plan they are not paying for.
+        // So the Stripe price update must succeed before we touch the DB. If it
+        // throws, the exception propagates and the local row is untouched.
+        //
+        // No DB transaction is needed — there is exactly one local write below,
+        // and it only runs after the (non-transactional) Stripe call has returned.
         $this->billing->updateSubscriptionPlan(
             $subscription->stripe_subscription_id,
             $newPlan,
         );
+
+        // Stripe confirmed the price change — persist plan_id immediately so the
+        // UI and entitlement checks reflect reality without waiting on the webhook.
+        // The customer.subscription.updated webhook stays as the backup path.
+        $subscription->update(['plan_id' => $newPlan->id]);
+
+        // Drop the per-request entitlement cache so any subsequent entitlement
+        // check in this request resolves against the new plan.
+        $this->entitlements->clearCache($professional->id);
 
         return $subscription->fresh();
     }

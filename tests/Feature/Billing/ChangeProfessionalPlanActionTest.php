@@ -4,6 +4,7 @@ use App\Models\Billing\Plan;
 use App\Models\Billing\Subscription;
 use App\Models\Core\Professional\Professional;
 use App\Services\Billing\ChangeProfessionalPlanAction;
+use App\Services\Billing\Entitlements;
 use App\Services\Stripe\StripeBillingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -125,10 +126,10 @@ function planTestSubscription(Professional $professional, Plan $plan, string $st
 }
 
 // -------------------------------------------------------------------
-// Tests — these MUST FAIL until the paid→paid local write is removed
+// Tests — TRNX-5: paid→paid is Stripe-FIRST, then local plan_id write
 // -------------------------------------------------------------------
 
-it('paid→paid: calls Stripe updateSubscriptionPlan and does NOT update plan_id locally', function () {
+it('paid→paid: calls Stripe updateSubscriptionPlan then persists plan_id locally', function () {
     $professional = planTestProfessional('affiliate');
     $currentPlan = planTestPlan('starter', 'price_starter');
     $newPlan = planTestPlan('growth', 'price_growth');
@@ -137,17 +138,51 @@ it('paid→paid: calls Stripe updateSubscriptionPlan and does NOT update plan_id
     $billing = Mockery::mock(StripeBillingService::class);
     $billing->shouldReceive('updateSubscriptionPlan')
         ->once()
-        ->with($subscription->stripe_subscription_id, Mockery::on(fn ($p) => $p->id === $newPlan->id));
+        ->with($subscription->stripe_subscription_id, Mockery::on(fn ($p) => $p->id === $newPlan->id))
+        // Ordering proof: at the moment Stripe is called, the local plan_id must
+        // still be the OLD plan — the new plan_id is persisted only after this
+        // call returns. A write-before-Stripe regression fails here.
+        ->andReturnUsing(function () use ($subscription, $currentPlan) {
+            expect($subscription->fresh()->plan_id)->toBe($currentPlan->id);
 
-    $action = new ChangeProfessionalPlanAction($billing);
+            // updateSubscriptionPlan declares a Stripe\Subscription return type;
+            // return a stub so the mock satisfies it.
+            return new \Stripe\Subscription($subscription->stripe_subscription_id);
+        });
+
+    $action = new ChangeProfessionalPlanAction($billing, new Entitlements);
     $result = $action->execute($professional, ['plan_id' => $newPlan->id]);
 
-    // plan_id must NOT have been written locally — webhook reconciles it
-    expect($subscription->fresh()->plan_id)->toBe($currentPlan->id);
+    // plan_id is written locally only AFTER Stripe confirmed the price change.
+    expect($subscription->fresh()->plan_id)->toBe($newPlan->id);
 
-    // Action returns the (unmodified) subscription
+    $result = $result instanceof Subscription ? $result : null;
     expect($result)->toBeInstanceOf(Subscription::class);
     expect($result->id)->toBe($subscription->id);
+    expect($result->plan_id)->toBe($newPlan->id);
+});
+
+it('paid→paid: does NOT persist plan_id when the Stripe call fails (no plan they are not paying for)', function () {
+    // TRNX-5: ordering invariant — Stripe must succeed before plan_id is written.
+    // A failed Stripe call must leave the local plan_id untouched, otherwise the
+    // customer would be entitled to a plan they are not being billed for.
+    $professional = planTestProfessional('affiliate');
+    $currentPlan = planTestPlan('starter', 'price_starter');
+    $newPlan = planTestPlan('growth', 'price_growth');
+    $subscription = planTestSubscription($professional, $currentPlan);
+
+    $billing = Mockery::mock(StripeBillingService::class);
+    $billing->shouldReceive('updateSubscriptionPlan')
+        ->once()
+        ->andThrow(new \RuntimeException('Stripe API error'));
+
+    $action = new ChangeProfessionalPlanAction($billing, new Entitlements);
+
+    expect(fn () => $action->execute($professional, ['plan_id' => $newPlan->id]))
+        ->toThrow(\RuntimeException::class, 'Stripe API error');
+
+    // Local plan_id stays on the old plan — never lead Stripe.
+    expect($subscription->fresh()->plan_id)->toBe($currentPlan->id);
 });
 
 it('paid→paid: does not reset cancel_at_period_end locally', function () {
@@ -166,7 +201,7 @@ it('paid→paid: does not reset cancel_at_period_end locally', function () {
         ->once()
         ->with($subscription->stripe_subscription_id, Mockery::on(fn ($p) => $p->id === $newPlan->id));
 
-    $action = new ChangeProfessionalPlanAction($billing);
+    $action = new ChangeProfessionalPlanAction($billing, new Entitlements);
     $action->execute($professional, ['plan_id' => $newPlan->id]);
 
     // cancel_at_period_end must remain true — webhook will reconcile it

@@ -33,7 +33,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
 | ☑ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
 | ☑ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
-| ☐ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
+| ☑ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
 | ☐ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
 | ☐ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
 | ☐ | F17 | Query micro-optimisations | P3 | S | Sonnet | Sonnet | ~1h |
@@ -280,7 +280,7 @@ One migration adding the missing policies across the schema:
 
 **Files:** `supabase/migrations/` (new file).
 
-## ☐ F14 — Billing atomicity (Stripe-in-transaction)
+## ☑ F14 — Billing atomicity (Stripe-in-transaction)
 **Tier:** P2 · **Effort:** S · **Items:** TRNX-3, TRNX-4, TRNX-5
 **Implement:** Opus · **Review:** Sonnet · **Est. time:** ~2h
 

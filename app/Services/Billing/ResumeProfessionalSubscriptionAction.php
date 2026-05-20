@@ -5,7 +5,7 @@ namespace App\Services\Billing;
 use App\Models\Billing\Subscription;
 use App\Models\Core\Professional\Professional;
 use App\Services\Stripe\StripeBillingService;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 // V2: Resumes a subscription scheduled for cancellation. Clears cancel_at_period_end on both Stripe and local DB.
@@ -44,13 +44,35 @@ class ResumeProfessionalSubscriptionAction
             ]);
         }
 
-        DB::transaction(function () use ($subscription) {
-            $subscription->update(['cancel_at_period_end' => false]);
+        // Local-first, then Stripe. Resuming is intent-driven: the user wants the
+        // subscription to keep renewing, and that intent is fully captured by the
+        // local cancel_at_period_end=false. The Stripe call must NOT sit inside a
+        // DB transaction — a network call would hold the transaction open across
+        // latency, and a rollback could never undo the Stripe-side change anyway.
+        // It is a single-row update, so no explicit transaction is needed.
+        $subscription->update(['cancel_at_period_end' => false]);
 
-            if ($subscription->isStripeManaged() && $subscription->stripe_subscription_id) {
+        // Push the same change to Stripe after the local write. If this fails we
+        // do NOT throw — local state is the source of intent and the
+        // customer.subscription.updated webhook reconciles cancel_at_period_end.
+        if ($subscription->isStripeManaged() && $subscription->stripe_subscription_id) {
+            try {
                 $this->billing->resumeSubscription($subscription->stripe_subscription_id);
+            } catch (\Throwable $e) {
+                Log::warning('billing.resume.stripe_call_failed', [
+                    'subscription_id' => $subscription->id,
+                    'professional_id' => $professional->id,
+                    'stripe_subscription_id' => $subscription->stripe_subscription_id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                // Silent Stripe divergence: local state says "renewing" but
+                // Stripe may still be set to cancel. No self-healing path, so
+                // report() to surface it on Nightwatch — Log::warning is
+                // breadcrumb-only and never alerts.
+                report($e);
             }
-        });
+        }
 
         return $subscription->fresh();
     }
