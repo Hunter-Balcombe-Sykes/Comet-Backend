@@ -7,6 +7,7 @@ use App\Services\Auth\AuthFactorEventRepository;
 use App\Services\Auth\SupabaseAuthHookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Receives Supabase Auth Hook callbacks.
@@ -42,6 +43,21 @@ class SupabaseAuthHookController extends Controller
             return response()->json(['message' => 'Invalid signature'], 401);
         }
 
+        // WEBHOOK-3: dedup retried hook deliveries. Without this, a redelivered
+        // verification announcement double-records the auth-factor event —
+        // inflating the brute-force failure counter (or the success log). On a
+        // duplicate we return the permissive decision: the first delivery
+        // already recorded the outcome, and Supabase acts on whichever response
+        // reaches it first. Runs AFTER signature verification so an unsigned
+        // caller cannot probe which webhook IDs have been seen.
+        if ($id !== '' && ! Cache::add(
+            "supabase:auth-hook:{$id}",
+            true,
+            (int) config('partna.cache.ttls.webhook_idempotency'),
+        )) {
+            return response()->json(['decision' => 'continue']);
+        }
+
         $payload = $request->json()->all();
         $userId = (string) ($payload['user_id'] ?? '');
         $factorId = (string) ($payload['factor_id'] ?? '');
@@ -71,6 +87,7 @@ class SupabaseAuthHookController extends Controller
                 ip: $ip,
                 userAgent: $userAgent,
             );
+
             return response()->json(['decision' => 'continue']);
         }
 
@@ -90,6 +107,7 @@ class SupabaseAuthHookController extends Controller
                 userAgent: $userAgent,
                 metadata: ['recent_failures' => $recentFailures, 'window_seconds' => $windowSeconds],
             );
+
             return response()->json([
                 'decision' => 'reject',
                 'message' => 'Too many failed verification attempts. Try again in '.ceil($windowSeconds / 60).' minutes.',

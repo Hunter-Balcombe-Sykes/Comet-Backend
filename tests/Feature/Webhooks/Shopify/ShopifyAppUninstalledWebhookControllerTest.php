@@ -298,11 +298,44 @@ it('app/uninstalled — releases cache slot when transaction throws so Shopify r
 });
 
 it('app/uninstalled — unknown shop_domain returns 200 without side effects', function () {
-    $payload = uninstalledPayload();
+    // Body domain must match the header — SHOP-1 cross-check rejects a mismatch
+    // with 400 before the unknown-shop lookup is even reached.
+    $payload = ['id' => 999, 'name' => 'Ghost', 'myshopify_domain' => 'ghost.myshopify.com', 'domain' => 'ghost.myshopify.com'];
     $body = json_encode($payload);
 
     $this->postJson('/api/webhooks/shopify/app-uninstalled', $payload, [
         'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test-shop-secret'),
         'X-Shopify-Shop-Domain' => 'ghost.myshopify.com',
     ])->assertOk();
+});
+
+it('app/uninstalled — SHOP-1: body signed for shop A with header for shop B is rejected 400', function () {
+    // Brand B owns a connected Shopify store and a valid uninstall webhook for it.
+    $brandB = (string) Str::uuid();
+    DB::table('core.professional_integrations')->insert([
+        'id' => (string) Str::uuid(),
+        'professional_id' => $brandB,
+        'provider' => ProfessionalIntegration::PROVIDER_SHOPIFY,
+        'shopify_shop_domain' => 'brand-b.myshopify.com',
+        'access_token' => 'shpat_b_alive',
+        'provider_metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    seedBrandProfile($brandB);
+
+    // Attacker holds a webhook validly signed for their own store (brand-a) and
+    // swaps the unsigned header to point at brand-b.
+    $payload = uninstalledPayload(); // myshopify_domain = brand-a.myshopify.com
+    $body = json_encode($payload);
+
+    $this->postJson('/api/webhooks/shopify/app-uninstalled', $payload, [
+        'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test-shop-secret'),
+        'X-Shopify-Shop-Domain' => 'brand-b.myshopify.com',
+    ])->assertStatus(400);
+
+    // Brand B's integration is untouched.
+    $row = DB::table('core.professional_integrations')->where('professional_id', $brandB)->first();
+    expect($row->access_token)->toBe('shpat_b_alive');
+    expect($row->disconnected_at)->toBeNull();
 });

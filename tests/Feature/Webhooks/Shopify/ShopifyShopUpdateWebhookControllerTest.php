@@ -128,7 +128,11 @@ it('shop/update — bad HMAC is always rejected even for a previously-seen webho
 });
 
 it('shop/update — unknown shop_domain 200s without dispatch', function () {
+    // Body domain must match the header — SHOP-1 cross-check (HandlesShopifyWebhook)
+    // rejects a header/body mismatch with 400 before the unknown-shop lookup.
     $payload = realShopifyShopUpdatePayload();
+    $payload['domain'] = 'ghost.myshopify.com';
+    $payload['myshopify_domain'] = 'ghost.myshopify.com';
     $body = json_encode($payload);
 
     $this->postJson('/api/webhooks/shopify/shop-update', $payload, [
@@ -138,4 +142,57 @@ it('shop/update — unknown shop_domain 200s without dispatch', function () {
     ])->assertOk();
 
     Bus::assertNotDispatched(ProcessShopifyShopUpdateJob::class);
+});
+
+it('shop/update — SHOP-1: body signed for shop A with header for shop B is rejected 400', function () {
+    // Brand B is a real connected store — the attack swaps the header to a
+    // victim that resolves, so the trait's shop lookup succeeds and the SHOP-1
+    // cross-check is what stops the misrouted, validly-signed brand-a payload.
+    DB::table('core.professional_integrations')->insert([
+        'id' => (string) Str::uuid(),
+        'professional_id' => (string) Str::uuid(),
+        'provider' => ProfessionalIntegration::PROVIDER_SHOPIFY,
+        'shopify_shop_domain' => 'brand-b.myshopify.com',
+        'access_token' => 'shpat_b',
+        'provider_metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    // Payload is validly signed and identifies brand-a; the unsigned header is
+    // swapped to brand-b. The trait must reject the mismatch before dispatch.
+    $payload = realShopifyShopUpdatePayload(); // domain = brand-a.myshopify.com
+    $body = json_encode($payload);
+
+    $this->postJson('/api/webhooks/shopify/shop-update', $payload, [
+        'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test-shop-secret'),
+        'X-Shopify-Shop-Domain' => 'brand-b.myshopify.com',
+        'X-Shopify-Webhook-Id' => (string) Str::uuid(),
+    ])->assertStatus(400);
+
+    Bus::assertNotDispatched(ProcessShopifyShopUpdateJob::class);
+});
+
+it('shop/update — SHOP-1: a 400 mismatch burns no dedup slot — a corrected retry still succeeds', function () {
+    // The cross-check runs before the cache claim, so rejecting a spoofed
+    // delivery must NOT consume the X-Shopify-Webhook-Id slot — otherwise the
+    // legitimate, correctly-addressed retry would be deduped into oblivion.
+    $payload = realShopifyShopUpdatePayload(); // domain = brand-a.myshopify.com
+    $body = json_encode($payload);
+    $webhookId = (string) Str::uuid();
+
+    // Spoofed delivery: header points at a different shop → 400.
+    $this->postJson('/api/webhooks/shopify/shop-update', $payload, [
+        'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test-shop-secret'),
+        'X-Shopify-Shop-Domain' => 'brand-b.myshopify.com',
+        'X-Shopify-Webhook-Id' => $webhookId,
+    ])->assertStatus(400);
+
+    // Correctly-addressed retry with the SAME webhook id is processed, not
+    // short-circuited as a duplicate.
+    $this->postJson('/api/webhooks/shopify/shop-update', $payload, [
+        'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test-shop-secret'),
+        'X-Shopify-Shop-Domain' => 'brand-a.myshopify.com',
+        'X-Shopify-Webhook-Id' => $webhookId,
+    ])->assertOk()->assertJsonMissing(['duplicate' => true]);
 });

@@ -190,6 +190,77 @@ it('returns 422 and stores nothing when customers/data_request payload is missin
     Bus::assertNotDispatched(ExportCustomerDataJob::class);
 });
 
+it('SHOP-1: rejects 400 when the body shop_domain disagrees with the header', function () {
+    // Body is validly signed and identifies brand-a; the unsigned header is
+    // swapped to brand-b. The cross-check must reject before any DB write.
+    $payload = ['shop_domain' => 'brand-a.myshopify.com', 'shop_id' => 12345];
+    $body = json_encode($payload);
+
+    $this->postJson(
+        '/api/webhooks/shopify/gdpr/shop-redact',
+        $payload,
+        [
+            'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test_shared_secret'),
+            'X-Shopify-Shop-Domain' => 'brand-b.myshopify.com',
+        ]
+    )->assertStatus(400);
+
+    expect(GdprRequest::count())->toBe(0);
+    Bus::assertNotDispatched(RedactShopJob::class);
+});
+
+it('WEBHOOK-4: rejects 422 when X-Shopify-Triggered-At is older than the max-age window', function () {
+    $payload = ['shop_domain' => 'test-brand.myshopify.com', 'shop_id' => 12345];
+    $body = json_encode($payload);
+
+    $this->postJson(
+        '/api/webhooks/shopify/gdpr/shop-redact',
+        $payload,
+        [
+            'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test_shared_secret'),
+            'X-Shopify-Shop-Domain' => 'test-brand.myshopify.com',
+            'X-Shopify-Triggered-At' => now()->subDays(5)->toIso8601String(),
+        ]
+    )->assertStatus(422);
+
+    expect(GdprRequest::count())->toBe(0);
+    Bus::assertNotDispatched(RedactShopJob::class);
+});
+
+it('WEBHOOK-4: a fresh X-Shopify-Triggered-At within the window is processed normally', function () {
+    $payload = ['shop_domain' => 'test-brand.myshopify.com', 'shop_id' => 12345];
+    $body = json_encode($payload);
+
+    $this->postJson(
+        '/api/webhooks/shopify/gdpr/shop-redact',
+        $payload,
+        [
+            'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test_shared_secret'),
+            'X-Shopify-Shop-Domain' => 'test-brand.myshopify.com',
+            'X-Shopify-Triggered-At' => now()->subMinutes(2)->toIso8601String(),
+        ]
+    )->assertStatus(202);
+
+    Bus::assertDispatched(RedactShopJob::class);
+});
+
+it('WEBHOOK-4: an unparseable X-Shopify-Triggered-At fails open (webhook still processed)', function () {
+    $payload = ['shop_domain' => 'test-brand.myshopify.com', 'shop_id' => 12345];
+    $body = json_encode($payload);
+
+    $this->postJson(
+        '/api/webhooks/shopify/gdpr/shop-redact',
+        $payload,
+        [
+            'X-Shopify-Hmac-SHA256' => signShopifyBody($body, 'test_shared_secret'),
+            'X-Shopify-Shop-Domain' => 'test-brand.myshopify.com',
+            'X-Shopify-Triggered-At' => 'not-a-timestamp',
+        ]
+    )->assertStatus(202);
+
+    Bus::assertDispatched(RedactShopJob::class);
+});
+
 it('accepts the request even when shop_domain is unknown (deferred to the job)', function () {
     $payload = ['shop_domain' => 'ghost.myshopify.com'];
     $body = json_encode($payload);

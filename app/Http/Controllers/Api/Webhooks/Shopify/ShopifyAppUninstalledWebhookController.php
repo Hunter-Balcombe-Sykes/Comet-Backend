@@ -38,7 +38,27 @@ class ShopifyAppUninstalledWebhookController extends ApiController
             return $this->error('invalid signature', 401);
         }
 
-        // 2. Cache-backed dedup gate (SEC-2 / LIFE-2). Cache::add is atomic on Redis
+        // 2. SHOP-1: cross-check the signed body against the unsigned shop-domain
+        //    header before claiming a dedup slot or touching the DB. The
+        //    app/uninstalled payload is the shop resource — myshopify_domain /
+        //    domain are HMAC-protected; X-Shopify-Shop-Domain is not. Without
+        //    this, a brand that owns a Shopify store can replay its own
+        //    legitimately-signed uninstall webhook with the header swapped to
+        //    another brand's domain and disconnect that brand's integration.
+        $payload = json_decode($rawBody, true);
+        $payloadDomain = is_array($payload)
+            ? strtolower(trim((string) ($payload['myshopify_domain'] ?? $payload['domain'] ?? '')))
+            : '';
+        if ($payloadDomain !== '' && $payloadDomain !== $shopDomain) {
+            Log::warning('Shopify app/uninstalled webhook: shop domain mismatch', [
+                'header_shop_domain' => $shopDomain,
+                'payload_shop_domain' => $payloadDomain,
+            ]);
+
+            return $this->error('shop_domain_mismatch', 400);
+        }
+
+        // 3. Cache-backed dedup gate (SEC-2 / LIFE-2). Cache::add is atomic on Redis
         //    (SETNX), so concurrent retries cannot both pass. Mirrors the canonical
         //    pattern in HandlesShopifyWebhook — inlined here because this controller
         //    pre-dates the trait and does inline mutations rather than dispatching a
@@ -52,12 +72,12 @@ class ShopifyAppUninstalledWebhookController extends ApiController
             }
         }
 
-        // 3. Release the cache slot on any post-dedup failure so Shopify's retry can
+        // 4. Release the cache slot on any post-dedup failure so Shopify's retry can
         //    succeed instead of being silently swallowed for the TTL window (~24h).
         //    Mirrors HandlesShopifyWebhook's try/catch + Cache::forget invariant.
         try {
             $result = DB::transaction(function () use ($shopDomain) {
-                // 4. Lock the integration row inside the transaction so the read of
+                // 5. Lock the integration row inside the transaction so the read of
                 //    disconnected_at (column, post-DATA-2) and the subsequent token-null
                 //    write are atomic against EmbeddedSetupController::provisionShopifyIntegration
                 //    (which uses the same lockForUpdate pattern on reinstall). Without
@@ -77,7 +97,7 @@ class ShopifyAppUninstalledWebhookController extends ApiController
 
                 $metadata = is_array($integration->provider_metadata) ? $integration->provider_metadata : [];
 
-                // 5. Secondary idempotency guard, now inside the lock. Durable across
+                // 6. Secondary idempotency guard, now inside the lock. Durable across
                 //    cache TTL expiry; if the second delivery lands after the cache
                 //    forgets the webhook ID, the disconnected_at column still wins.
                 if ($integration->disconnected_at !== null) {
@@ -142,7 +162,7 @@ class ShopifyAppUninstalledWebhookController extends ApiController
             return $this->success(['received' => true, 'duplicate' => true]);
         }
 
-        // 6. Dispatch the purge AFTER the transaction commits. Inside the closure a
+        // 7. Dispatch the purge AFTER the transaction commits. Inside the closure a
         //    queue-connection failure would still commit the DB writes but lose the
         //    dispatch; here, either both happen or neither (the catch above releases
         //    the cache slot so Shopify retries the whole flow).

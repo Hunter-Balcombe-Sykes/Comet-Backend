@@ -1133,6 +1133,12 @@ return [
         // within this many minutes returns 409 instead of queuing again.
         // Prevents accidental double-clicks AND queue thrashing.
         'dedup_window_minutes' => (int) env('GDPR_EXPORT_DEDUP_WINDOW_MINUTES', 30),
+        // WEBHOOK-4: reject inbound GDPR webhooks whose X-Shopify-Triggered-At is
+        // older than this. Deliberately wide — beyond Shopify's ~48h retry
+        // horizon — so a legitimate retry is never clipped, while a genuinely
+        // ancient captured-and-replayed delivery is refused. payload_hash
+        // firstOrCreate already neutralises exact replays; this is defence in depth.
+        'webhook_max_age_seconds' => (int) env('GDPR_WEBHOOK_MAX_AGE_SECONDS', 259200), // 72h
     ],
 
     // Async commission/financial exports. The 'commission' subkey scopes the

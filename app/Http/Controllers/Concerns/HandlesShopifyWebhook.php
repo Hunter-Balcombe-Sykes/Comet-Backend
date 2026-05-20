@@ -10,12 +10,13 @@ use Illuminate\Support\Facades\Log;
 
 // Enforces the canonical Shopify webhook ingestion sequence:
 //   1. HMAC verification (401 on failure)
-//   2. Atomic cache claim — no pre-check probe, so callers cannot infer dedup state
+//   2. JSON decode — 422 so Shopify retries; prevents silent event loss
+//   3. SHOP-1 shop-domain cross-check — signed body vs unsigned header (400 on mismatch)
+//   4. Atomic cache claim — no pre-check probe, so callers cannot infer dedup state
 //      without a valid signature (Cache::add is the only dedup gate, not Cache::has)
-//   3. Optional DB-level dedup (override claimWebhookEvent)
-//   4. Shop domain lookup (200 if unknown)
-//   5. JSON decode — 422 so Shopify retries; prevents silent event loss
-//   6. dispatchWebhookJob — cache key released on failure so Shopify can retry
+//   5. Optional DB-level dedup (override claimWebhookEvent)
+//   6. Shop domain lookup (200 if unknown)
+//   7. dispatchWebhookJob — cache key released on failure so Shopify can retry
 //
 // Bugs fixed vs earlier controllers:
 //   • Cache::has before HMAC → webhook-ID enumeration without a valid signature
@@ -73,7 +74,40 @@ trait HandlesShopifyWebhook
             return $this->error('invalid signature', 401);
         }
 
-        // 2. Atomic cache claim — Cache::add returns false if the key exists,
+        // 2. JSON decode — 422 tells Shopify to retry, preventing permanent event
+        //    loss. Done before the dedup claim so a malformed body does not burn a
+        //    cache slot, which would dedup — and silently swallow — every retry.
+        $payload = json_decode($rawBody, true);
+        if (! is_array($payload)) {
+            Log::warning("Shopify {$this->topic()} webhook: malformed JSON body", [
+                'shop_domain' => $shopDomain,
+            ]);
+
+            return $this->error('malformed payload', 422);
+        }
+
+        // 3. SHOP-1: the X-Shopify-Shop-Domain header is NOT covered by the HMAC —
+        //    only the request body is. Resolve the authoritative shop identity from
+        //    the signed payload and reject any delivery whose unsigned header
+        //    disagrees, so a validly-signed webhook for shop A cannot be
+        //    re-addressed to shop B by swapping the header. Checked before the
+        //    dedup claim and the shop lookup so a spoofed delivery is refused
+        //    outright (no slot to release). Order payloads carry no shop field —
+        //    an empty payload domain skips the check (header-only, as before);
+        //    the high-impact shop/update + uninstall payloads do carry it.
+        $payloadDomain = mb_strtolower(trim(
+            (string) ($payload['myshopify_domain'] ?? $payload['domain'] ?? '')
+        ));
+        if ($payloadDomain !== '' && $payloadDomain !== $shopDomain) {
+            Log::warning("Shopify {$this->topic()} webhook: shop domain mismatch", [
+                'header_shop_domain' => $shopDomain,
+                'payload_shop_domain' => $payloadDomain,
+            ]);
+
+            return $this->error('shop_domain_mismatch', 400);
+        }
+
+        // 4. Atomic cache claim — Cache::add returns false if the key exists,
         //    deduplicating without a separate Cache::has probe.
         $cacheKey = null;
         if ($webhookId !== '') {
@@ -83,12 +117,12 @@ trait HandlesShopifyWebhook
             }
         }
 
-        // 3. DB-level dedup (opt-in — override claimWebhookEvent to enable).
+        // 5. DB-level dedup (opt-in — override claimWebhookEvent to enable).
         if (! $this->claimWebhookEvent($webhookId)) {
             return $this->success(['received' => true, 'duplicate' => true]);
         }
 
-        // 4. Shop domain lookup. Unknown domain is a soft 200 — not our shop.
+        // 6. Shop domain lookup. Unknown domain is a soft 200 — not our shop.
         $integration = ProfessionalIntegration::query()
             ->where('shopify_shop_domain', $shopDomain)
             ->where('provider', ProfessionalIntegration::PROVIDER_SHOPIFY)
@@ -102,18 +136,7 @@ trait HandlesShopifyWebhook
             return $this->success(['received' => true]);
         }
 
-        // 5. JSON decode — 422 tells Shopify to retry, preventing permanent event loss.
-        //    Returning 200 on decode failure would silently discard the event.
-        $payload = json_decode($rawBody, true);
-        if (! is_array($payload)) {
-            Log::warning("Shopify {$this->topic()} webhook: malformed JSON body", [
-                'shop_domain' => $shopDomain,
-            ]);
-
-            return $this->error('malformed payload', 422);
-        }
-
-        // 6. Dispatch — release the cache slot on failure so Shopify can retry.
+        // 7. Dispatch — release the cache slot on failure so Shopify can retry.
         //    Without this, an uncaught exception would leave the slot claimed and
         //    subsequent retries would be deduped, permanently losing the event.
         try {

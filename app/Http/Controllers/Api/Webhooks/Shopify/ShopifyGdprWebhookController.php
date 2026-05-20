@@ -10,6 +10,7 @@ use App\Jobs\Shopify\Gdpr\RedactShopJob;
 use App\Models\Core\Gdpr\GdprRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 // V2: Receives Shopify GDPR webhooks. Validates HMAC, writes an idempotent
@@ -49,6 +50,30 @@ class ShopifyGdprWebhookController extends ApiController
             return $this->error('invalid signature', 401);
         }
 
+        // WEBHOOK-4: reject deliveries far older than Shopify's ~48h retry
+        // horizon. X-Shopify-Triggered-At is the event-occurrence time and is
+        // constant across retries, so the cutoff is deliberately wide (72h
+        // default) — tight enough to refuse a stale captured-and-replayed
+        // delivery, loose enough never to clip a legitimate retry. Fails OPEN:
+        // a missing or unparseable header must never drop a compliance webhook.
+        $triggeredAtHeader = (string) $request->header('X-Shopify-Triggered-At', '');
+        if ($triggeredAtHeader !== '') {
+            try {
+                $triggeredAt = Carbon::parse($triggeredAtHeader);
+                $maxAge = (int) config('partna.gdpr.webhook_max_age_seconds');
+                if ($triggeredAt->lt(now()->subSeconds($maxAge))) {
+                    Log::warning("Shopify GDPR webhook ({$topic}): rejected stale delivery", [
+                        'shop_domain' => $shopDomain,
+                        'triggered_at' => $triggeredAtHeader,
+                    ]);
+
+                    return $this->error('stale webhook', 422);
+                }
+            } catch (\Throwable) {
+                // Unparseable timestamp — fail open and process the webhook.
+            }
+        }
+
         // Validate BEFORE computing hash — if a malformed payload gets cached as
         // RECEIVED, every Shopify retry is silently deduplicated and the compliance
         // action (deletion/export) never runs. Rejecting with 422 tells Shopify to
@@ -60,6 +85,22 @@ class ShopifyGdprWebhookController extends ApiController
             ]);
 
             return $this->error('malformed payload', 422);
+        }
+
+        // SHOP-1: the X-Shopify-Shop-Domain header is unsigned; the request body
+        // is HMAC-protected. GDPR payloads carry the originating store in
+        // shop_domain. Reject any delivery whose header disagrees so a signed
+        // redaction/export request cannot be re-addressed to another brand.
+        $payloadDomain = mb_strtolower(trim((string) (
+            $payload['shop_domain'] ?? $payload['myshopify_domain'] ?? $payload['domain'] ?? ''
+        )));
+        if ($payloadDomain !== '' && $payloadDomain !== $shopDomain) {
+            Log::warning("Shopify GDPR webhook ({$topic}): shop domain mismatch", [
+                'header_shop_domain' => $shopDomain,
+                'payload_shop_domain' => $payloadDomain,
+            ]);
+
+            return $this->error('shop_domain_mismatch', 400);
         }
 
         if (! $this->hasRequiredFields($topic, $payload)) {
