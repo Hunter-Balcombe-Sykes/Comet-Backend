@@ -8,11 +8,13 @@ use App\Models\Core\Professional\Professional;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 // V2: A single content block (link, section, etc.) on a site. Typed by block_type and block_group, sortable, with a JSON settings bag.
 class Block extends BaseModel
 {
     use HasUuids;
+    use SoftDeletes;
 
     protected $table = 'site.blocks';
 
@@ -41,6 +43,7 @@ class Block extends BaseModel
         'settings' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     public function professional(): BelongsTo

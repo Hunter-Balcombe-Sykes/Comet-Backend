@@ -27,7 +27,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
 | ☐ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
-| ☐ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
+| ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
 | ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
@@ -181,7 +181,7 @@ New migration `20260524000000_fix_prevent_staff_escalation_stale_ref.sql` with
 
 **Files:** `supabase/migrations/` (new file).
 
-## ☐ F8 — `Block` model soft-deletes
+## ☑ F8 — `Block` model soft-deletes
 **Tier:** P1 · **Effort:** S · **Item:** DATA-1 (P1)
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~0.5h
 
