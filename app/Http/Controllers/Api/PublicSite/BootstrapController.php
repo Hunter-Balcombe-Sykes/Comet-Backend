@@ -245,7 +245,7 @@ class BootstrapController extends ApiController
                 if ($createdProfessional) {
                     $accountTypeDefaultsService->applyDefaults($professional, $site);
 
-                    if ($professional->professional_type === 'brand') {
+                    if ($professional->isBrand()) {
                         BrandProfile::firstOrCreate(
                             ['professional_id' => (string) $professional->id],
                             ['setup_complete' => false]
