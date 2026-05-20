@@ -42,7 +42,13 @@ class BrandStoreSettingsObserver
 
         try {
             $key = CacheKeyGenerator::brandStoreSettings($professionalId);
-            Cache::forget($key);
+            // §28.17 CACHE-2 — also delete the SWR `:stale` companion key.
+            // Cache::forget alone leaves the stale-while-revalidate copy live;
+            // any request hitting CacheLockService::rememberLocked between the
+            // primary delete and the next fresh write would serve outdated
+            // brand settings (commission rate, theme, payout hold). Matches
+            // the CustomerObserver / ProfessionalIntegrationObserver pattern.
+            Cache::deleteMultiple([$key, $key.':stale']);
         } catch (\Throwable $e) {
             Log::warning('BrandStoreSettings cache invalidation failed', [
                 'professional_id' => $professionalId,
