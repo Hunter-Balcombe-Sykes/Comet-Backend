@@ -316,6 +316,13 @@ class ProfessionalLinkBlockController extends ApiController
             }
         });
 
+        // Mass-update via the query builder bypasses Eloquent's `updated`
+        // event on Block — so BlockObserver's touch-the-Site chain never
+        // fires, and the §28.8 backend cache key (`public.profile:{handle}:
+        // {site.updated_at}`) wouldn't rotate, and CloudflareCachePurgeJob
+        // wouldn't dispatch. Explicit Site touch closes the gap.
+        $site->touch();
+
         return $this->success(['ok' => true]);
     }
 }

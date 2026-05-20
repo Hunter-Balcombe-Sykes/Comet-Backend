@@ -156,3 +156,18 @@ it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain',
     $media->delete();
     Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
+
+// Bulk reorder paths bypass Eloquent observers (mass `update(['sort_order'])`
+// via the query builder). The controllers explicitly call `$site->touch()`
+// after the transaction commits to bridge the gap. Pin that contract here.
+
+it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJob', function () {
+    $fixture = seedTouchFixture();
+    Queue::fake();
+
+    \App\Models\Core\Site\Site::find($fixture['site_id'])->touch();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'touchtest';
+    });
+});
