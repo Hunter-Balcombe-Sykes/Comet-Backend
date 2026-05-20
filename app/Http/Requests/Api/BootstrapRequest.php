@@ -34,15 +34,26 @@ class BootstrapRequest extends BaseFormRequest
             ? ['sometimes', 'required']
             : ['required'];
 
-        // Invite-only signup for affiliates: a NEW non-brand professional must
-        // arrive with one of invite_token / brand_partner_professional_id /
-        // join_brand_handle. Without it the bootstrap would happily create an
-        // orphaned affiliate with no brand link — no KV entry, no site.settings
-        // brand_partner — and the user lands on a 404'd subdomain (see hjjh).
-        // Brands self-onboard and never need an invite.
+        // Invite gate: partner signups need a brand-link context
+        // (invite_token / brand_partner_professional_id / join_brand_handle /
+        // brand_signup_code), otherwise we'd create an orphaned partner with no
+        // brand link — no KV entry, no site.settings brand_partner — and the
+        // user lands on a 404'd subdomain (see hjjh).
+        //
+        // Brands and individuals self-onboard and never need an invite. The
+        // new `account_type` field is the explicit signal: when it's
+        // 'individual' or 'brand' the invite gate is skipped. The legacy
+        // `professional_type !== 'brand'` fallback stays for clients that
+        // haven't migrated to the 3-state field yet — those continue to be
+        // treated as partners and gated as before.
         $isFirstTimeSignup = ! is_string($existingProfessionalId) || $existingProfessionalId === '';
         $declaredType = mb_strtolower(trim((string) ($this->professional_type ?? '')));
-        $requiresInvite = $isFirstTimeSignup && $declaredType !== '' && $declaredType !== 'brand';
+        $declaredAccountType = mb_strtolower(trim((string) ($this->account_type ?? '')));
+        $accountTypeIsSelfOnboard = $declaredAccountType === 'individual' || $declaredAccountType === 'brand';
+        $requiresInvite = $isFirstTimeSignup
+            && ! $accountTypeIsSelfOnboard
+            && $declaredType !== ''
+            && $declaredType !== 'brand';
 
         $inviteContextRule = $requiresInvite
             ? [
@@ -100,6 +111,12 @@ class BootstrapRequest extends BaseFormRequest
                 'string',
                 Rule::in(array_keys(config('partna.professional_types', []))),
             ],
+            // §31.2 / §28.13 — Explicit 3-state account_type from the client.
+            // Optional during the dual-write window (professional_type fallback
+            // still works). When supplied, it's the source of truth for the
+            // invite gate (see $requiresInvite above) and gets persisted via
+            // `$initialAccountType` resolution in BootstrapController.
+            'account_type' => ['sometimes', 'nullable', 'string', Rule::in(['brand', 'partner', 'individual'])],
             'handle_lc' => [
                 'sometimes',
                 'nullable',
@@ -145,7 +162,7 @@ class BootstrapRequest extends BaseFormRequest
     {
         $this->trimStrings([
             'handle', 'display_name', 'phone', 'first_name',
-            'last_name', 'country_code', 'timezone', 'professional_type', 'invite_token', 'brand_signup_code',
+            'last_name', 'country_code', 'timezone', 'professional_type', 'account_type', 'invite_token', 'brand_signup_code',
         ]);
         $this->sanitizeEmails(['primary_email']);
 
@@ -168,6 +185,13 @@ class BootstrapRequest extends BaseFormRequest
 
         if ($this->exists('professional_type')) {
             $merge['professional_type'] = $this->normalizeProfessionalTypeInput($this->professional_type);
+        }
+
+        if ($this->exists('account_type')) {
+            $rawAccountType = is_string($this->account_type) ? mb_strtolower(trim($this->account_type)) : null;
+            $merge['account_type'] = in_array($rawAccountType, ['brand', 'partner', 'individual'], true)
+                ? $rawAccountType
+                : null;
         }
 
         if ($this->exists('invite_token')) {

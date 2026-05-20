@@ -196,6 +196,38 @@ it('accepts new BRAND signup with no invite context', function () {
     expect($errors)->toBeNull();
 });
 
+it('accepts new INDIVIDUAL signup with no invite context when account_type=individual', function () {
+    // §31.2 / §28.13 — Individuals self-onboard (same as brands). Frontend posts
+    // an explicit `account_type='individual'` alongside the legacy
+    // `professional_type='professional'`; the request must let it through
+    // without an invite_token / brand_partner / handle / signup-code.
+    $errors = validateBootstrapRequest(array_merge(
+        validBootstrapPayload([
+            'handle' => 'someindividual',
+            'professional_type' => 'professional',
+        ]),
+        ['join_brand_handle' => null, 'account_type' => 'individual']
+    ));
+
+    expect($errors)->toBeNull();
+});
+
+it('still rejects partner-intent signup with no invite when account_type=partner', function () {
+    // The invite gate must still fire when a client explicitly opts into the
+    // partner path — orphaned partner rows (no BrandPartnerLink) are the bug
+    // the gate was designed to prevent.
+    $errors = validateBootstrapRequest(array_merge(
+        validBootstrapPayload([
+            'handle' => 'partnerless',
+            'professional_type' => 'professional',
+        ]),
+        ['join_brand_handle' => null, 'account_type' => 'partner']
+    ));
+
+    expect($errors)->not->toBeNull();
+    expect($errors)->toHaveKey('join_brand_handle');
+});
+
 it('accepts re-bootstrap of existing professional without invite context', function () {
     // An existing professional re-saving their profile must not be subject to
     // the invite-only rule — they already passed it at signup.

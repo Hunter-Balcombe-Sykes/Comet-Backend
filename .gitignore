@@ -48,3 +48,4 @@ claude-overnight.log
 
 # ffmpeg binaries installed by deploy/ffmpeg.sh at build time
 /bin/
+.wrangler/
