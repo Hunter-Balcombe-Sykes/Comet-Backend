@@ -438,7 +438,13 @@ class ProfessionalUploadController extends ApiController
             }
         });
 
-        app(SiteCacheService::class)->invalidateSite($site);
+        // Mass-update via the query builder bypasses SiteMediaObserver — so
+        // the touch-parent-Site chain we wired into the observer never fires
+        // for reorders. Explicit Site touch closes the gap: SiteObserver::
+        // saved → CloudflareCachePurgeJob + §28.8 cache key rotation + the
+        // local Redis invalidateSite call (which is why we no longer need
+        // the explicit invalidateSite() call that lived here before).
+        $site->touch();
 
         return $this->success(['ok' => true]);
     }

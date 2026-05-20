@@ -289,6 +289,12 @@ class ProfessionalSectionBlockController extends ApiController
             }
         });
 
+        // Mass-update via the query builder bypasses BlockObserver. Explicit
+        // Site touch fires SiteObserver::saved → CloudflareCachePurgeJob +
+        // §28.8 cache key rotation. Without this, sort_order changes don't
+        // reflect at <handle>.partna.au for up to 5 min.
+        $site->touch();
+
         return $this->success(['ok' => true]);
     }
 
