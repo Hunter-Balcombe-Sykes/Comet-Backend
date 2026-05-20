@@ -28,7 +28,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
 | ☑ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
-| ☐ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
+| ☑ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
 | ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
 | ☐ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
@@ -191,9 +191,15 @@ Add `use Illuminate\Database\Eloquent\SoftDeletes;` and
 
 **Files:** `app/Models/Core/Site/Block.php`.
 
-## ☐ F9 — Cloudflare KV writer correctness
+## ☑ F9 — Cloudflare KV writer correctness
 **Tier:** P1 · **Effort:** S · **Items:** SYNC-1 (P1), SYNC-2 (P2)
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~1h
+
+**Already resolved in commit `65a01434` (PR #85).** `CloudflareKvService::put()`
+carries the `?int $expirationTtl` param + `?expiration_ttl=` query append; all
+`SyncSubdomainToKvJob` call sites pass the third arg; the partner-link query has
+the `->orderBy('created_at')` tie-break. No code change needed — verified
+2026-05-20.
 
 Both in the KV write path.
 
