@@ -32,7 +32,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
 | ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
 | ☑ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
-| ☐ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
+| ☑ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
 | ☐ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
 | ☐ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
 | ☐ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
@@ -263,7 +263,7 @@ session.
 `app/Http/Controllers/Api/Professional/Store/BrandStoreSettingsController.php`,
 `app/Services/Cache/SiteCacheService.php`.
 
-## ☐ F13 — RLS policy gaps (schema sweep)
+## ☑ F13 — RLS policy gaps (schema sweep)
 **Tier:** P2 · **Effort:** M · **Items:** RLS-1 … RLS-11
 **Implement:** Sonnet · **Review:** Opus · **Est. time:** ~3h
 
