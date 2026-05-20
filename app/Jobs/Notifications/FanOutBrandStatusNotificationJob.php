@@ -105,11 +105,12 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
                     ->filter(function ($row) use ($affiliates) {
                         $aff = $affiliates->get($row->affiliate_professional_id);
 
-                        // Missing Professional row → trust the upstream brand_partner_links
-                        // join and let the leaf job's gate decide. Production always has
-                        // the row (FK), but test fixtures sometimes seed link rows only.
+                        // FAIL-CLOSED: production has FK enforcement so a missing
+                        // Professional row indicates a data-integrity bug. Drop the
+                        // notification rather than blindly forwarding it. Tests must
+                        // seed real Professional rows for these branches to fire.
                         if (! $aff) {
-                            return true;
+                            return false;
                         }
 
                         return AccountCapabilities::for($aff)->receives_brand_status_notifications;

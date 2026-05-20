@@ -130,10 +130,13 @@ class NudgeStuckOnboardingJob implements ShouldQueue
                         // Defence-in-depth capability gate (§28.10 / §28.11). The SQL
                         // query above filters to brand-typed rows. If the row maps to
                         // a real Professional and they don't require Stripe-Connect
-                        // (override or transitioned-away), skip. Missing model row
-                        // (test fixture) → let the publisher's gate decide.
+                        // (override or transitioned-away), skip.
+                        //
+                        // FAIL-CLOSED: missing Professional row indicates a data-integrity
+                        // bug — skip rather than nudging a phantom recipient. Tests must
+                        // seed real Professional rows for this path.
                         $pro = $pros->get($proId);
-                        if ($pro && ! AccountCapabilities::for($pro)->requires_stripe_connect) {
+                        if (! $pro || ! AccountCapabilities::for($pro)->requires_stripe_connect) {
                             continue;
                         }
 

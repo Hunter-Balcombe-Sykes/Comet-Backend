@@ -111,19 +111,36 @@ it('splits affiliates into batches of at most 200', function () {
     $brand = createBrandTenant('fan-out-brand-chunk');
 
     // Insert 350 affiliates — expect two batches: 200 + 150.
-    $rows = [];
+    // Each affiliate needs a real Professional row (with account_type='partner')
+    // because the FanOut job's capability filter is now fail-closed on missing
+    // Professional rows (PR #98). Without these the filter drops every job.
+    $proRows = [];
+    $linkRows = [];
+    $now = now()->toDateTimeString();
     for ($i = 0; $i < 350; $i++) {
         $affiliateId = (string) Str::uuid();
-        $rows[] = [
+        $proRows[] = [
+            'id' => $affiliateId,
+            'handle' => 'aff-'.substr($affiliateId, 0, 8),
+            'handle_lc' => 'aff-'.substr($affiliateId, 0, 8),
+            'professional_type' => 'affiliate',
+            'account_type' => 'partner',
+            'status' => 'active',
+            'primary_email' => $affiliateId.'@example.test',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        $linkRows[] = [
             'id' => (string) Str::uuid(),
             'brand_professional_id' => $brand->id,
             'affiliate_professional_id' => $affiliateId,
             'status' => 'active',
-            'created_at' => now()->toDateTimeString(),
-            'updated_at' => now()->toDateTimeString(),
+            'created_at' => $now,
+            'updated_at' => $now,
         ];
     }
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('brand.brand_partner_links')->insert($rows);
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert($proRows);
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('brand.brand_partner_links')->insert($linkRows);
 
     $job = new FanOutBrandStatusNotificationJob($brand->id, 'live');
     $job->handle();
