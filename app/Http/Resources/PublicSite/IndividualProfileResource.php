@@ -19,6 +19,27 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class IndividualProfileResource extends JsonResource
 {
     /**
+     * Whitelist of allowed `settings.design.*` keys returned to the public payload
+     * (audit PROF-2). Any key not in this list is filtered out of `$design` at
+     * the controller layer before the Resource sees it. Adding a new public
+     * design field requires an explicit entry here — silent expansion is the
+     * exact failure mode this constant prevents.
+     *
+     * @var list<string>
+     */
+    public const DESIGN_KEYS = [
+        'theme',
+        'theme_mode',
+        'accent_color',
+        'background_color',
+        'font_family',
+        'font_size',
+        'layout',
+        'border_radius',
+        'brand_colors',
+    ];
+
+    /**
      * @param  array<string, mixed>  $design
      * @param  list<array<string, mixed>>  $blocks
      */
