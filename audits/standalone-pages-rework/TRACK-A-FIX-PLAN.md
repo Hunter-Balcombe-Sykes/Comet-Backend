@@ -26,7 +26,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
 | ☑ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
-| ☐ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
+| ☑ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
@@ -171,7 +171,7 @@ write the fixes and the tests that lock them in within one session.
 **Files:** `.env.example`, `config/{database,queue,services,partna,session,nightwatch,mail,auth}.php`,
 `app/Providers/AppServiceProvider.php`.
 
-## ☐ F7 — Stale PL/pgSQL function reference
+## ☑ F7 — Stale PL/pgSQL function reference
 **Tier:** P1 · **Effort:** S · **Item:** MIG-1 (P1)
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~0.5h
 
