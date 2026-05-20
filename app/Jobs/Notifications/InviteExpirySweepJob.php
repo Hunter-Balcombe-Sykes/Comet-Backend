@@ -35,12 +35,14 @@ class InviteExpirySweepJob implements ShouldQueue
     public function handle(NotificationPublisher $publisher): void
     {
         $now = now();
+        $expired = 0;
+        $notified = 0;
 
         DB::table('brand.brand_affiliate_invites')
             ->where('status', 'pending')
             ->where('expires_at', '<', $now)
             ->select(['id', 'brand_professional_id', 'email', 'first_name'])
-            ->chunkById(500, function ($chunk) use ($publisher, $now) {
+            ->chunkById(500, function ($chunk) use ($publisher, $now, &$expired, &$notified) {
                 $ids = $chunk->pluck('id')->all();
 
                 // Bulk update reduces N×UPDATE round-trips to one per chunk;
@@ -49,6 +51,8 @@ class InviteExpirySweepJob implements ShouldQueue
                     ->whereIn('id', $ids)
                     ->where('status', 'pending')
                     ->update(['status' => 'expired', 'updated_at' => $now]);
+
+                $expired += count($ids);
 
                 foreach ($chunk as $invite) {
                     try {
@@ -83,6 +87,8 @@ class InviteExpirySweepJob implements ShouldQueue
                             ctaUrl: '/account/affiliates',
                             retentionConfigKey: 'invite',
                         );
+
+                        $notified++;
                     } catch (\Throwable $e) {
                         Log::warning('InviteExpirySweepJob failed for invite', [
                             'invite_id' => $invite->id,
@@ -92,6 +98,12 @@ class InviteExpirySweepJob implements ShouldQueue
                     }
                 }
             });
+
+        Log::info('invites.expiry_sweep.completed', [
+            'sweep_date' => $now->toDateString(),
+            'expired' => $expired,
+            'notified' => $notified,
+        ]);
     }
 
     public function failed(\Throwable $e): void

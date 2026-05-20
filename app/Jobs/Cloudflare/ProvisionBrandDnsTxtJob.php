@@ -48,6 +48,11 @@ class ProvisionBrandDnsTxtJob implements ShouldQueue
         // upsertTxt is idempotent — patches the existing record when the
         // value differs, so re-dispatch with a fresh Shopify token always wins.
         $dns->upsertTxt($this->recordName, $this->txtValue);
+
+        Log::info('cloudflare.provision_brand_dns_txt.provisioned', [
+            'professional_id' => $this->professionalId,
+            'record_name' => $this->recordName,
+        ]);
     }
 
     public function failed(Throwable $e): void

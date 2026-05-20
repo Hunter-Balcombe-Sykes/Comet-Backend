@@ -35,7 +35,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
 | ☑ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
 | ☑ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
-| ☐ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
+| ☑ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
 | ☐ | F17 | Query micro-optimisations | P3 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F18 | Test-suite fragility | P3 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F19 | Dead-code / cosmetic cleanup | P3 | S | Sonnet | Sonnet | ~1h |
@@ -313,7 +313,7 @@ Same anti-pattern across three billing actions — fix together.
 `app/Http/Requests/Api/Professional/Site/StoreLinkBlockRequest.php`,
 `tests/Feature/PublicSite/*`.
 
-## ☐ F16 — Job observability / logging
+## ☑ F16 — Job observability / logging
 **Tier:** P2 · **Effort:** M · **Items:** OBS-1, OBS-2, OBS-3, OBS-4, OBS-5
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~2.5h
 

@@ -132,3 +132,12 @@ it('confirms slo_prefixes and threshold constants are as documented', function (
     expect(RecordCacheMetrics::SLO_PREFIXES)->toContain('site', 'pro');
     expect(RecordCacheMetrics::SLO_MIN_HIT_RATE)->toBe(0.9);
 });
+
+it('failed() calls report() so terminal failures alert Nightwatch', function () {
+    $handler = $this->spy(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+
+    $e = new \RuntimeException('redis connection lost');
+    (new AggregateCacheMetricsJob)->failed($e);
+
+    $handler->shouldHaveReceived('report')->once()->withArgs(fn ($reported) => $reported === $e);
+});

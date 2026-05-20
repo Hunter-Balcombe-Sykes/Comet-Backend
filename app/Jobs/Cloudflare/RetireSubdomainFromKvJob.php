@@ -33,16 +33,8 @@ class RetireSubdomainFromKvJob implements ShouldQueue
             return;
         }
 
-        try {
-            $kv->delete($this->handle);
-        } catch (\Throwable $e) {
-            Log::warning('RetireSubdomainFromKvJob: delete failed', [
-                'handle' => $this->handle,
-                'message' => $e->getMessage(),
-            ]);
-
-            throw $e;
-        }
+        // Exception is re-thrown so failed() runs as the single log/report site.
+        $kv->delete($this->handle);
     }
 
     public function failed(Throwable $e): void

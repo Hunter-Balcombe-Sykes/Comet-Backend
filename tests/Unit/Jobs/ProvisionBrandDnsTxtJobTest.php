@@ -26,3 +26,23 @@ it('is placed on the integrations queue', function () {
 
     expect($job->queue)->toBe('integrations');
 });
+
+it('logs success after provisioning the TXT record', function () {
+    $dns = mock(\App\Services\Cloudflare\CloudflareDnsService::class);
+    $dns->shouldReceive('upsertTxt')->once();
+
+    \Illuminate\Support\Facades\Log::spy();
+
+    (new \App\Jobs\Cloudflare\ProvisionBrandDnsTxtJob(
+        professionalId: 'pro-123',
+        recordName: 'shopify_verification_evostudio',
+        txtValue: 'shopify-verification=token-abc-123',
+    ))->handle($dns);
+
+    \Illuminate\Support\Facades\Log::shouldHaveReceived('info')
+        ->once()
+        ->with('cloudflare.provision_brand_dns_txt.provisioned', \Mockery::on(
+            fn ($ctx) => $ctx['professional_id'] === 'pro-123'
+                && $ctx['record_name'] === 'shopify_verification_evostudio'
+        ));
+});

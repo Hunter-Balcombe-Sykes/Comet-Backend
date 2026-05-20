@@ -63,10 +63,18 @@ class SyncStripeAccountStatusJob implements ShouldBeUnique, ShouldQueue
         // Respect local disconnect — late events shouldn't silently re-activate an
         // account the brand explicitly disconnected from their side.
         if ($professional->stripe_connect_status === 'not_connected') {
+            Log::info('stripe.sync_account_status.skipped_not_connected', [
+                'professional_id' => $this->professionalId,
+            ]);
+
             return;
         }
 
         $service->syncAccountStatus($professional);
+
+        Log::info('stripe.sync_account_status.synced', [
+            'professional_id' => $this->professionalId,
+        ]);
     }
 
     public function failed(\Throwable $e): void

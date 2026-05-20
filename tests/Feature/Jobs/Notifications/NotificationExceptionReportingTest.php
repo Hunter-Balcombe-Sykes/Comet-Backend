@@ -7,6 +7,7 @@ use App\Services\Notifications\CommerceNotificationService;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // Verifies that per-record exceptions in notification sweeps are reported to
@@ -49,6 +50,16 @@ beforeEach(function () {
         status TEXT NULL,
         occurred_at TEXT NULL,
         commission_cents INTEGER NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_affiliate_invites (
+        id TEXT PRIMARY KEY,
+        brand_professional_id TEXT NULL,
+        email TEXT NULL,
+        first_name TEXT NULL,
+        status TEXT NULL,
+        expires_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
@@ -145,4 +156,52 @@ it('reports per-professional exception in SendWeeklyAnalyticsNotificationJob wit
     $job->handle($publisher);
 
     Exceptions::assertReported(\RuntimeException::class);
+});
+
+it('logs a completion summary after InviteExpirySweepJob runs', function () {
+    Log::spy();
+
+    $publisher = Mockery::mock(\App\Services\Notifications\NotificationPublisher::class);
+    $publisher->shouldReceive('publish')->andReturn(null);
+
+    $job = new \App\Jobs\Notifications\InviteExpirySweepJob;
+    $job->handle($publisher);
+
+    Log::shouldHaveReceived('info')
+        ->once()
+        ->with('invites.expiry_sweep.completed', \Mockery::on(
+            fn ($ctx) => array_key_exists('expired', $ctx) && array_key_exists('notified', $ctx)
+        ));
+});
+
+it('logs a completion summary after NudgeStuckOnboardingJob runs', function () {
+    Log::spy();
+
+    $publisher = Mockery::mock(\App\Services\Notifications\NotificationPublisher::class);
+    $publisher->shouldReceive('publish')->andReturn(null);
+
+    $job = new \App\Jobs\Notifications\NudgeStuckOnboardingJob;
+    $job->handle($publisher);
+
+    Log::shouldHaveReceived('info')
+        ->once()
+        ->with('onboarding.nudge_sweep.completed', \Mockery::on(
+            fn ($ctx) => array_key_exists('nudged', $ctx) && array_key_exists('sweep_date', $ctx)
+        ));
+});
+
+it('logs a completion summary after SendWeeklyAnalyticsNotificationJob runs', function () {
+    Log::spy();
+
+    $publisher = Mockery::mock(\App\Services\Notifications\NotificationPublisher::class);
+    $publisher->shouldReceive('publish')->andReturn(null);
+
+    $job = new \App\Jobs\Notifications\SendWeeklyAnalyticsNotificationJob;
+    $job->handle($publisher);
+
+    Log::shouldHaveReceived('info')
+        ->once()
+        ->with('analytics.weekly_notification.completed', \Mockery::on(
+            fn ($ctx) => array_key_exists('sent', $ctx) && array_key_exists('year_week', $ctx)
+        ));
 });

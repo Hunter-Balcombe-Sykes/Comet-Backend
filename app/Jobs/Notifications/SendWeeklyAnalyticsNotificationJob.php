@@ -41,6 +41,7 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
         // Window is [now-7d 00:00, now 00:00) so "last 7 days" never includes today.
         $windowStart = now()->subDays(7)->startOfDay();
         $windowEnd = now()->startOfDay();
+        $sent = 0;
 
         // Individuals have no commerce activity — exclude them at query level so
         // we never run the rollup query or publish a notification for them.
@@ -58,7 +59,7 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
                     });
             })
             ->orderBy('id')
-            ->chunkById(200, function ($professionals) use ($publisher, $yearWeek, $windowStart, $windowEnd): void {
+            ->chunkById(200, function ($professionals) use ($publisher, $yearWeek, $windowStart, $windowEnd, &$sent): void {
                 $ids = $professionals->pluck('id')->all();
 
                 // Per-affiliate weekly orders + commission_cents from
@@ -99,7 +100,9 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
                         }
 
                         $metrics = $metricsByPro->get($professional->id);
-                        $this->notifyProfessional($publisher, $professional, $metrics, $yearWeek);
+                        if ($this->notifyProfessional($publisher, $professional, $metrics, $yearWeek)) {
+                            $sent++;
+                        }
                     } catch (\Throwable $e) {
                         report($e);
                         Log::warning('Weekly analytics notification failed', [
@@ -109,6 +112,11 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
                     }
                 }
             });
+
+        Log::info('analytics.weekly_notification.completed', [
+            'year_week' => $yearWeek,
+            'sent' => $sent,
+        ]);
     }
 
     public function failed(\Throwable $e): void
@@ -125,12 +133,12 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
         object $professional,
         ?object $metrics,
         string $yearWeek,
-    ): void {
+    ): bool {
         $orders = (int) ($metrics?->orders ?? 0);
         $commissionCents = (int) ($metrics?->commission_cents ?? 0);
 
         if ($orders === 0 && $commissionCents === 0) {
-            return;
+            return false;
         }
 
         $body = "Last 7 days: {$orders} sale".($orders !== 1 ? 's' : '');
@@ -150,5 +158,7 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
             ctaUrl: '/account/store?section=analytics',
             retentionConfigKey: 'analytics_weekly',
         );
+
+        return true;
     }
 }

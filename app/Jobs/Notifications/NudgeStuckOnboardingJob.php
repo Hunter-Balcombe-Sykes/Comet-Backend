@@ -69,15 +69,22 @@ class NudgeStuckOnboardingJob implements ShouldQueue
 
     public function handle(NotificationPublisher $publisher): void
     {
+        $nudged = 0;
+
         foreach (self::MILESTONES as $milestone) {
-            $this->sweepMilestone($publisher, $milestone);
+            $nudged += $this->sweepMilestone($publisher, $milestone);
         }
+
+        Log::info('onboarding.nudge_sweep.completed', [
+            'sweep_date' => now()->toDateString(),
+            'nudged' => $nudged,
+        ]);
     }
 
     /**
      * @param  array{day: int, severity: string, title: string, body: string}  $milestone
      */
-    private function sweepMilestone(NotificationPublisher $publisher, array $milestone): void
+    private function sweepMilestone(NotificationPublisher $publisher, array $milestone): int
     {
         $day = $milestone['day'];
 
@@ -91,6 +98,8 @@ class NudgeStuckOnboardingJob implements ShouldQueue
         // LEFT JOIN brand_profiles: a freshly-signed-up brand may not have a
         // brand_profiles row yet (created lazily on first status sync). Treat
         // null as Onboarding — that cohort is exactly who we most want to nudge.
+        $nudged = 0;
+
         DB::table('core.professionals as p')
             ->leftJoin('brand.brand_profiles as bp', 'bp.professional_id', '=', 'p.id')
             // account_type is the source of truth; professional_type is the legacy
@@ -114,7 +123,7 @@ class NudgeStuckOnboardingJob implements ShouldQueue
             })
             ->select(['p.id', 'p.first_name', 'p.display_name'])
             ->orderBy('p.id')
-            ->chunkById(500, function ($chunk) use ($publisher, $day, $milestone) {
+            ->chunkById(500, function ($chunk) use ($publisher, $day, $milestone, &$nudged) {
                 $proIds = collect($chunk)->pluck('id')->filter()->all();
                 $pros = $proIds === []
                     ? collect()
@@ -151,6 +160,8 @@ class NudgeStuckOnboardingJob implements ShouldQueue
                             primaryActionLabel: 'Continue setup',
                             retentionConfigKey: 'profile_task',
                         );
+
+                        $nudged++;
                     } catch (\Throwable $e) {
                         report($e);
                         Log::warning('NudgeStuckOnboardingJob failed for professional', [
@@ -161,6 +172,8 @@ class NudgeStuckOnboardingJob implements ShouldQueue
                     }
                 }
             }, 'p.id', 'id');
+
+        return $nudged;
     }
 
     public function failed(\Throwable $e): void
