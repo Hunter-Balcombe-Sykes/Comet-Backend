@@ -30,7 +30,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
-| ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
+| ☑ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
 | ☑ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
 | ☑ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
 | ☑ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
@@ -230,7 +230,7 @@ Both in the KV write path.
 
 **Files:** `app/Jobs/Shopify/BackfillBrandHasEnabledVariantsJob.php`.
 
-## ☐ F11 — Bootstrap brand-attach coverage (STANDALONE — do not bundle)
+## ☑ F11 — Bootstrap brand-attach coverage (STANDALONE — do not bundle)
 **Tier:** P1 · **Effort:** L · **Item:** TEST-4
 **Implement:** Opus · **Review:** Sonnet · **Est. time:** ~1 day
 
