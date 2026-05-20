@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Enums\AccountType;
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
@@ -35,7 +35,7 @@ use Illuminate\Http\Request;
  * brand_slogan) which is layered in by the Hydrogen controller only.
  * Shop is always draft for individuals (no commerce surface).
  */
-class IndividualProfileController extends Controller
+class IndividualProfileController extends ApiController
 {
     public function __construct(
         private readonly CacheLockService $cache,
@@ -46,7 +46,7 @@ class IndividualProfileController extends Controller
     {
         $handleLc = strtolower(trim($handle));
         if ($handleLc === '') {
-            return response()->json(['message' => 'Not found.'], 404);
+            return $this->error('Not found.', 404);
         }
 
         $ttl = max(1, (int) config('partna.public_profile.cache_ttl_seconds', 60));
@@ -55,7 +55,7 @@ class IndividualProfileController extends Controller
         // without paying full payload assembly on every hit.
         $pro = Professional::query()->where('handle_lc', $handleLc)->first();
         if (! $pro || ! $this->isIndividualLike($pro)) {
-            return response()->json(['message' => 'Not found.'], 404);
+            return $this->error('Not found.', 404);
         }
 
         $site = Site::query()->where('professional_id', $pro->id)->first();
@@ -96,7 +96,10 @@ class IndividualProfileController extends Controller
             ))->resolve();
         });
 
-        return response()->json(['data' => $payload]);
+        // Wrap in the standard envelope. ApiController::success() passes $data
+        // directly to response()->json() — so we keep the {'data': ...} wrapper
+        // that the Astro Worker subrequest expects.
+        return $this->success(['data' => $payload]);
     }
 
     /**

@@ -75,6 +75,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
             'is_active' => ['sometimes', 'boolean'],
             'settings' => ['sometimes', 'array'],
             'settings.highlight' => ['sometimes', 'boolean'],
+            'settings.live_check_enabled' => ['sometimes', 'boolean'],
             'settings.note' => ['sometimes', 'string', 'max:140'],
             // Defense-in-depth: even though the controller overwrites settings.category
             // with the top-level category before save, enum-validate the nested form
@@ -159,8 +160,38 @@ class StoreLinkBlockRequest extends BaseFormRequest
                 }
             }
 
-            // Settings allowlist (existing behaviour)
+            // Per-site cap on live_check_enabled blocks — mirrors UpdateLinkBlockRequest.
+            // On creation there's no "current block" to exclude from the count.
             $settings = $this->input('settings');
+            if (is_array($settings) && array_key_exists('live_check_enabled', $settings) && (bool) $settings['live_check_enabled']) {
+                $pro = $this->route('professional') ?? $this->attributes->get('professional');
+                $proId = $pro instanceof \App\Models\Core\Professional\Professional ? $pro->id : null;
+
+                if ($proId !== null) {
+                    // Resolve site_id from the professional so we cap per-site, not per-professional.
+                    $siteId = \App\Models\Core\Site\Site::query()
+                        ->where('professional_id', $proId)
+                        ->value('id');
+
+                    if ($siteId) {
+                        $cap = (int) config('partna.streaming.max_live_check_per_site', 5);
+                        $existing = \App\Models\Core\Site\Block::query()
+                            ->where('site_id', $siteId)
+                            ->where('block_group', 'links')
+                            ->whereRaw("settings->>'live_check_enabled' = 'true'")
+                            ->count();
+
+                        if ($existing >= $cap) {
+                            $validator->errors()->add(
+                                'settings.live_check_enabled',
+                                "You can enable live status checking on at most {$cap} link blocks per site."
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Settings allowlist (existing behaviour)
             if (is_array($settings)) {
                 $allowed = config('partna.link_block_settings_keys', []);
                 $extra = array_diff(array_keys($settings), $allowed);
