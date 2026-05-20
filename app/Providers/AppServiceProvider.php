@@ -143,8 +143,18 @@ class AppServiceProvider extends ServiceProvider
         // VerifySupabaseJwt falls open (accepts unverified JWTs) when JWKS fetch
         // fails unless `SUPABASE_JWKS_FAIL_CLOSED=true`. Production must opt-in
         // explicitly; refuse to boot if the flag is false.
-        if (app()->isProduction() && ! (bool) config('supabase.jwks_fail_closed', false)) {
+        if (app()->isProduction() && ! (bool) config('supabase.jwks_fail_closed', true)) {
             throw new \RuntimeException('SUPABASE_JWKS_FAIL_CLOSED must be true in production (auth fails open without it).');
+        }
+
+        // F2 AUTH-1 — JWT issuer/audience must be configured outside local/testing.
+        // VerifySupabaseJwt::claimsMatchConfig() fails closed on a blank issuer or
+        // audience (a blank value would otherwise let cross-project tokens pass),
+        // so an unset SUPABASE_JWT_ISSUER / SUPABASE_JWT_AUD would silently 401
+        // every authenticated request. Crash loudly at boot instead.
+        if (! app()->environment('local', 'testing')
+            && (empty(config('supabase.jwt_issuer')) || empty(config('supabase.jwt_audience')))) {
+            throw new \RuntimeException('SUPABASE_JWT_ISSUER and SUPABASE_JWT_AUD must be configured (JWT auth fails closed without them).');
         }
 
         // Auth::user() is always null in this app (Supabase JWT), so a user-based

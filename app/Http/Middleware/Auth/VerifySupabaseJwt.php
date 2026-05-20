@@ -2,12 +2,14 @@
 
 namespace App\Http\Middleware\Auth;
 
+use App\Exceptions\Auth\JwksUnavailableException;
 use App\Services\Cache\CacheLockService;
 use Closure;
 use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
@@ -83,11 +85,20 @@ class VerifySupabaseJwt
                 'ip' => $request->ip(),
             ]);
 
-            // Fail-closed mode: refuse to fall back to Auth-Server during JWKS outage.
-            // Set SUPABASE_JWKS_FAIL_CLOSED=true in production if you prefer hard failures
-            // over the reduced-security fallback path.
-            if (config('supabase.jwks_fail_closed', false)) {
-                return response()->json(['message' => 'Service unavailable'], 503);
+            // Fail-closed mode (default): refuse to fall back to Auth-Server
+            // during a JWKS outage. Set SUPABASE_JWKS_FAIL_CLOSED=false only to
+            // re-enable the reduced-security Auth-Server fallback (legacy
+            // shared-secret projects); production refuses to boot when false.
+            if (config('supabase.jwks_fail_closed', true)) {
+                // A JWKS infrastructure outage is genuinely "service
+                // unavailable" → 503 so the client retries. A token-level
+                // failure (expired, bad signature, malformed) is the client's
+                // fault → 401 so it re-authenticates instead of retrying.
+                if ($e instanceof JwksUnavailableException) {
+                    return response()->json(['message' => 'Service unavailable'], 503);
+                }
+
+                return response()->json(['message' => 'Invalid token'], 401);
             }
 
             // 2) Fallback for legacy/shared-secret setups:
@@ -220,8 +231,19 @@ class VerifySupabaseJwt
 
         // Cold path: parseKeySet is the 150-300ms ES256 cost we're trying to avoid.
         $jwks = $this->fetchJwks();
-        $parsed = JWK::parseKeySet($jwks);
 
+        // A JWKS body that fetched + parsed as JSON but carries malformed key
+        // material (bad n/e, unsupported kty) is still an infrastructure
+        // failure, not a token problem — classify it as a JWKS outage so the
+        // caller answers 503, not 401.
+        try {
+            $parsed = JWK::parseKeySet($jwks);
+        } catch (\Throwable $e) {
+            throw $this->jwksOutage($e);
+        }
+
+        // A token presenting a kid absent from the current JWKS is token-level
+        // (forged kid, or a token signed by an already-retired key) — stays 401.
         if (! isset($parsed[$kid])) {
             throw new \RuntimeException('No matching JWKS key for kid');
         }
@@ -252,6 +274,40 @@ class VerifySupabaseJwt
      * @return array{keys?: array<int, array<string, mixed>>}
      */
     private function fetchJwks(): array
+    {
+        try {
+            return $this->fetchJwksOrThrow();
+        } catch (\Throwable $e) {
+            throw $this->jwksOutage($e);
+        }
+    }
+
+    /**
+     * Classify a JWKS infrastructure failure (fetch, network, bad response, or
+     * malformed key material) as a typed exception, and report it to Nightwatch.
+     *
+     * Distinct from a bad/forged/expired token — those fail later at signature
+     * or claims verification and stay 401. report() surfaces the outage to
+     * Nightwatch as an alert (the Log::warning in handle() is breadcrumb-only
+     * and would not); throttled to one report per minute so a sustained outage
+     * doesn't flood the exception pipeline. The caller throws the result so
+     * handle() can answer 503 instead of 401.
+     */
+    private function jwksOutage(\Throwable $cause): JwksUnavailableException
+    {
+        $outage = new JwksUnavailableException($cause);
+
+        if (Cache::add('jwt:jwks-failure-reported', true, 60)) {
+            report($outage);
+        }
+
+        return $outage;
+    }
+
+    /**
+     * @return array{keys?: array<int, array<string, mixed>>}
+     */
+    private function fetchJwksOrThrow(): array
     {
         $jwksUrl = config('supabase.jwks_url');
         if (! $jwksUrl) {
@@ -382,21 +438,26 @@ class VerifySupabaseJwt
         $issExpected = (string) config('supabase.jwt_issuer');
         $audExpected = (string) config('supabase.jwt_audience');
 
-        if ($issExpected && (($claims['iss'] ?? null) !== $issExpected)) {
+        // Fail closed on misconfiguration. A blank expected issuer or audience
+        // means the Supabase config is missing/unloaded; the old behaviour
+        // (skip the check when blank) let a token from ANY Supabase project
+        // authenticate. AppServiceProvider::boot() also guards this at boot —
+        // this is the defence-in-depth runtime check.
+        if ($issExpected === '' || $audExpected === '') {
+            return false;
+        }
+
+        if (($claims['iss'] ?? null) !== $issExpected) {
             return false;
         }
 
         $aud = $claims['aud'] ?? null;
-        if ($audExpected) {
-            if (is_array($aud)) {
-                if (! in_array($audExpected, $aud, true)) {
-                    return false;
-                }
-            } else {
-                if ($aud !== $audExpected) {
-                    return false;
-                }
+        if (is_array($aud)) {
+            if (! in_array($audExpected, $aud, true)) {
+                return false;
             }
+        } elseif ($aud !== $audExpected) {
+            return false;
         }
 
         return true;
