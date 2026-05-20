@@ -167,18 +167,81 @@ it('SendBrandStatusNotificationJob: skips publish when affiliate lacks receives_
 it('SendBrandStatusNotificationJob: publishes when affiliate has receives_brand_status_notifications', function () {
     // Partner has receives_brand_status_notifications = true (§9 matrix)
     $proId = insertPro('partner');
+    $brandId = insertPro('brand');
 
     $publisher = Mockery::mock(NotificationPublisher::class);
     $publisher->shouldReceive('publish')->once();
 
     $job = new SendBrandStatusNotificationJob(
         affiliateProfessionalId: $proId,
-        brandProfessionalId: (string) Str::uuid(),
+        brandProfessionalId: $brandId,
         brandName: 'Test Brand',
-        brandStatus: 'live',
+        brandStatus: \App\Enums\BrandStatus::ReadyForAffiliates->value,
         yearWeek: now()->format('o-W'),
     );
     $job->handle($publisher);
+});
+
+it('SendBrandStatusNotificationJob: Onboarding status sends the "paused" notification (BRAND-1)', function () {
+    $proId = insertPro('partner');
+    $brandId = insertPro('brand');
+
+    $publisher = Mockery::mock(NotificationPublisher::class);
+    $publisher->shouldReceive('publish')
+        ->once()
+        ->withArgs(fn (...$args) => in_array('Brand program paused', $args, true));
+
+    $job = new SendBrandStatusNotificationJob(
+        affiliateProfessionalId: $proId,
+        brandProfessionalId: $brandId,
+        brandName: 'Test Brand',
+        brandStatus: \App\Enums\BrandStatus::Onboarding->value,
+        yearWeek: now()->format('o-W'),
+    );
+    $job->handle($publisher);
+});
+
+it('SendBrandStatusNotificationJob: skips and warns on an unrecognised status (BRAND-2)', function () {
+    Log::spy();
+    $proId = insertPro('partner');
+    $brandId = insertPro('brand');
+
+    $publisher = Mockery::mock(NotificationPublisher::class);
+    $publisher->shouldNotReceive('publish');
+
+    $job = new SendBrandStatusNotificationJob(
+        affiliateProfessionalId: $proId,
+        brandProfessionalId: $brandId,
+        brandName: 'Test Brand',
+        brandStatus: 'totally_bogus_status',
+        yearWeek: now()->format('o-W'),
+    );
+    $job->handle($publisher);
+
+    Log::shouldHaveReceived('warning')
+        ->atLeast()->once()
+        ->withArgs(fn (string $msg) => str_contains($msg, 'unrecognised brand status'));
+});
+
+it('SendBrandStatusNotificationJob: skips when the brand was soft-deleted after fan-out (BRAND-3)', function () {
+    Log::spy();
+    $proId = insertPro('partner');
+
+    $publisher = Mockery::mock(NotificationPublisher::class);
+    $publisher->shouldNotReceive('publish');
+
+    $job = new SendBrandStatusNotificationJob(
+        affiliateProfessionalId: $proId,
+        brandProfessionalId: (string) Str::uuid(), // never inserted
+        brandName: 'Test Brand',
+        brandStatus: \App\Enums\BrandStatus::ReadyForAffiliates->value,
+        yearWeek: now()->format('o-W'),
+    );
+    $job->handle($publisher);
+
+    Log::shouldHaveReceived('debug')
+        ->atLeast()->once()
+        ->withArgs(fn (string $msg) => str_contains($msg, 'brand not found'));
 });
 
 // ─── SendTransactionalNotificationEmailJob ────────────────────────────────────

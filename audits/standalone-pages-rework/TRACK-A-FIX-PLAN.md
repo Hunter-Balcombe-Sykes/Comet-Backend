@@ -22,7 +22,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 |---|---|-----|------|--------|-----------|--------|-----------|
 | ☑ | F1 | Shopify webhook tenant-spoofing + webhook hardening | P1 | M | Opus | Opus | ~3h |
 | ☑ | F2 | JWT auth fail-closed | P1 | S | Opus | Opus | ~1.5h |
-| ☐ | F3 | Brand-status notification correctness | P1 | S | Sonnet | Sonnet | ~1h |
+| ☑ | F3 | Brand-status notification correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
 | ☐ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
@@ -86,7 +86,7 @@ Both in `VerifySupabaseJwt.php`.
 **Files:** `app/Http/Middleware/Auth/VerifySupabaseJwt.php`,
 `app/Providers/AppServiceProvider.php`, `config/supabase.php`.
 
-## ☐ F3 — Brand-status notification correctness
+## ☑ F3 — Brand-status notification correctness
 **Tier:** P1 · **Effort:** S · **Items:** BRAND-1 (P1), BRAND-2 (P2), BRAND-3 (P3)
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~1h
 

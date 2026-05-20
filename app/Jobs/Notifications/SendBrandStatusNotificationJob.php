@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Enums\BrandStatus;
 use App\Models\Core\Professional\Professional;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
@@ -34,7 +35,7 @@ class SendBrandStatusNotificationJob implements ShouldQueue
         public readonly string $affiliateProfessionalId,
         public readonly string $brandProfessionalId,
         public readonly string $brandName,
-        public readonly string $brandStatus, // 'live' | 'building' | 'systems_down'
+        public readonly string $brandStatus, // BrandStatus::Onboarding | ReadyForAffiliates | SystemsDown ->value
         public readonly string $yearWeek,
     ) {
         $this->onQueue('notifications');
@@ -66,18 +67,31 @@ class SendBrandStatusNotificationJob implements ShouldQueue
             return;
         }
 
+        // Guard against the brand being soft-deleted between fan-out dispatch
+        // and this leaf job running — without it we'd send affiliates a
+        // notification for a brand that no longer exists.
+        $brand = Professional::find($this->brandProfessionalId);
+        if (! $brand) {
+            Log::debug('SendBrandStatusNotificationJob: brand not found, skipping', [
+                'affiliate_professional_id' => $this->affiliateProfessionalId,
+                'brand_professional_id' => $this->brandProfessionalId,
+            ]);
+
+            return;
+        }
+
         match ($this->brandStatus) {
-            'building' => $publisher->publish(
+            BrandStatus::Onboarding->value => $publisher->publish(
                 professionalId: $this->affiliateProfessionalId,
                 frontendType: 'Warning',
                 category: 'brand_status',
                 title: 'Brand program paused',
                 body: "{$this->brandName}'s affiliate program is no longer active.",
-                dedupeKey: "brand.building.{$this->brandProfessionalId}.{$this->yearWeek}",
+                dedupeKey: "brand.onboarding.{$this->brandProfessionalId}.{$this->yearWeek}",
                 ctaUrl: '/account/store',
                 retentionConfigKey: 'brand_status',
             ),
-            'systems_down' => $publisher->publish(
+            BrandStatus::SystemsDown->value => $publisher->publish(
                 professionalId: $this->affiliateProfessionalId,
                 frontendType: 'Warning',
                 category: 'brand_status',
@@ -87,16 +101,24 @@ class SendBrandStatusNotificationJob implements ShouldQueue
                 ctaUrl: '/account/store',
                 retentionConfigKey: 'brand_status',
             ),
-            default => $publisher->publish(
+            BrandStatus::ReadyForAffiliates->value => $publisher->publish(
                 professionalId: $this->affiliateProfessionalId,
                 frontendType: 'Info',
                 category: 'brand_status',
                 title: 'Brand program now active',
                 body: "{$this->brandName}'s affiliate program is now active.",
-                dedupeKey: "brand.live.{$this->brandProfessionalId}.{$this->yearWeek}",
+                dedupeKey: "brand.ready_for_affiliates.{$this->brandProfessionalId}.{$this->yearWeek}",
                 ctaUrl: '/account/store',
                 retentionConfigKey: 'brand_status',
             ),
+            // Fail loud, not silently wrong: an unrecognised status (e.g. a new
+            // enum case wired into the observer but not here) sends no
+            // notification and surfaces in logs instead of mislabelling.
+            default => Log::warning('SendBrandStatusNotificationJob: unrecognised brand status, no notification sent', [
+                'affiliate_professional_id' => $this->affiliateProfessionalId,
+                'brand_professional_id' => $this->brandProfessionalId,
+                'brand_status' => $this->brandStatus,
+            ]),
         };
     }
 
