@@ -90,9 +90,11 @@ class SendWeeklyAnalyticsNotificationJob implements ShouldQueue
                         // Defence-in-depth capability gate (§28.10 / §28.11). SQL
                         // already excludes individuals; this also drops anyone whose
                         // commission dashboard capability got revoked via override.
-                        // Missing model (test fixture) → fall through to send.
+                        //
+                        // FAIL-CLOSED: missing Professional row indicates a data-integrity
+                        // bug — skip rather than sending the digest to a phantom pro.
                         $proModel = $proModels->get($professional->id);
-                        if ($proModel && ! AccountCapabilities::for($proModel)->shows_commissions_dashboard) {
+                        if (! $proModel || ! AccountCapabilities::for($proModel)->shows_commissions_dashboard) {
                             continue;
                         }
 
