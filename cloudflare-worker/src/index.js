@@ -1,18 +1,19 @@
 /**
  * Partna subdomain router — Cloudflare Worker.
  *
- * Reads a per-subdomain routing entry from Workers KV and either:
- *   - Passes the request through to origin (brand storefronts hosted on Shopify), or
- *   - Returns a 301 redirect to the affiliate's site_url (brand.partna.au/handle).
+ * Reads a per-subdomain routing entry from Workers KV and dispatches to
+ * one of three render paths:
+ *   - { type: "brand" }                            → pass-through to origin (Hydrogen on Oxygen)
+ *   - { type: "affiliate", redirect: "https://…" } → 301 to brand.partna.au/handle (Hydrogen)
+ *   - { type: "individual" }                       → Service Binding to partna-pages (Astro),
+ *                                                    fronted by the edge Cache API
  *
- * KV format (JSON values keyed by lowercase subdomain handle):
- *   { "type": "brand" }                                  // pass-through to origin
- *   { "type": "affiliate", "redirect": "https://..." }   // 301 redirect
+ * Backend (Laravel) keeps the KV in sync via SyncSubdomainToKvJob — the
+ * SINGLE writer (CLAUDE.md non-negotiable rule). The job writes the
+ * `individual` entries since §28.6 (Comet-Backend PR #85).
  *
- * Backend (Laravel) keeps the KV in sync via SyncSubdomainToKvJob,
- * dispatched by Eloquent observers on handle / brand-link / site / domain changes.
- *
- * Reserved subdomains (api, www, admin, etc.) are passed through without a KV lookup.
+ * Reserved subdomains (api, www, admin, etc.) are passed through without
+ * a KV lookup.
  */
 
 const PARTNA_DOMAIN = "partna.au";
@@ -40,7 +41,7 @@ const RESERVED = new Set([
 ]);
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const hostname = url.hostname.toLowerCase();
 
@@ -88,6 +89,43 @@ export default {
           "Cache-Control": "max-age=0, must-revalidate",
         },
       });
+    }
+
+    // Individual sitepage — served by the `partna-pages` Astro Worker via
+    // Service Binding (plan §16, §29.1). The Cache API fronts the binding
+    // so repeat hits don't re-invoke the Astro Worker; CloudflareCachePurgeJob
+    // (Comet-Backend §28.7 / PR #86) drops the cache on profile mutation.
+    if (entry.type === "individual") {
+      // Fail-fast if the binding hasn't been deployed yet (operator action
+      // item — `[[services]]` entry in wrangler.toml below). Without this
+      // guard a missing binding would NPE on env.PARTNA_PAGES.fetch.
+      if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
+        console.error("PARTNA_PAGES service binding missing", { subdomain });
+        return new Response("Service Unavailable", {
+          status: 503,
+          headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" },
+        });
+      }
+
+      const cache = caches.default;
+      // Only GETs are cacheable. POST / PUT / DELETE flow through to the
+      // Astro Worker untouched so any future form-action paths in
+      // partna-pages can mutate state without hitting a stale cached body.
+      if (request.method === "GET") {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+      }
+
+      const response = await env.PARTNA_PAGES.fetch(request);
+
+      if (response.ok && request.method === "GET") {
+        // Clone before returning — the body is a one-shot stream and the
+        // cache.put copy reads it once asynchronously. ctx.waitUntil
+        // keeps the put alive past the response return so the next hit
+        // sees a populated cache.
+        ctx.waitUntil(cache.put(request, response.clone()));
+      }
+      return response;
     }
 
     // type === "brand" or anything else: pass through to the origin defined by DNS.

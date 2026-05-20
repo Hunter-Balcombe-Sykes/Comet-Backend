@@ -16,3 +16,19 @@ zone_name = "partna.au"
 binding = "SUBDOMAIN_KV"
 id = "ce726607804d41a296d6da150b0c537f"
 preview_id = "e6a8eecd305148f9a75b879aa6faf790"
+
+# Service Binding to the partna-pages Astro Worker (plan §16, §29.2).
+# Production wires to the production deployment of partna-pages; staging
+# overrides to the staging worker name. Bind name must stay `PARTNA_PAGES`
+# — the router reads `env.PARTNA_PAGES.fetch(request)` against this exact
+# identifier.
+[[services]]
+binding = "PARTNA_PAGES"
+service = "partna-pages"
+environment = "production"
+
+# Staging override — same router code, points at the staging Astro Worker.
+[env.staging]
+[[env.staging.services]]
+binding = "PARTNA_PAGES"
+service = "partna-pages-staging"
