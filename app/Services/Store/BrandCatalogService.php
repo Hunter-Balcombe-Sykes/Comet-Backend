@@ -762,6 +762,66 @@ GRAPHQL;
     }
 
     /**
+     * Batch-write the derived has_enabled_variants metafield across many products
+     * in a single metafieldsSet round-trip. Each MetafieldsSetInput carries its
+     * own ownerId + value, so a batch can mix true/false freely — no grouping by
+     * value is needed.
+     *
+     * Shopify caps the metafieldsSet input array at 25, so callers MUST pass <= 25
+     * entries. The chunking + cursor checkpointing lives in the caller
+     * (BackfillBrandHasEnabledVariantsJob) so a timeout mid-catalog still makes
+     * forward progress instead of replaying from zero.
+     *
+     * @param  array<string, bool>  $productValues  product GID => desired flag
+     * @return array{success: bool, userErrors: array}
+     */
+    public function writeHasEnabledVariantsBatch(ProfessionalIntegration $integration, array $productValues): array
+    {
+        if (empty($productValues)) {
+            return ['success' => true, 'userErrors' => []];
+        }
+
+        // Enforce the contract loudly: an over-cap batch would otherwise be
+        // rejected wholesale by Shopify as a userError and silently logged as
+        // a partial failure — a caller bug should crash, not degrade quietly.
+        if (count($productValues) > 25) {
+            throw new \InvalidArgumentException(
+                'writeHasEnabledVariantsBatch accepts at most 25 products per call; got '.count($productValues)
+            );
+        }
+
+        $resolved = $this->resolveCredentials($integration);
+
+        $metafields = [];
+        foreach ($productValues as $productGid => $value) {
+            $metafields[] = [
+                'namespace' => 'partna',
+                'key' => 'has_enabled_variants',
+                'value' => $value ? 'true' : 'false',
+                'type' => 'boolean',
+                'ownerId' => (string) $productGid,
+            ];
+        }
+
+        $response = $this->graphql($resolved['shop_domain'], $resolved['access_token'], self::METAFIELDS_SET, [
+            'metafields' => $metafields,
+        ]);
+
+        $userErrors = Arr::get($response->json(), 'data.metafieldsSet.userErrors', []);
+
+        // A has_enabled_variants change moves products in/out of the Active
+        // Products smart collection — bust both catalog views (and their :stale
+        // twins, or SWR keeps serving the pre-write state).
+        $this->bustCatalogKeyWithStale(CacheKeyGenerator::brandAdminCatalog((string) $integration->professional_id));
+        $this->bustCatalogKeyWithStale(CacheKeyGenerator::brandActiveCatalog((string) $integration->professional_id));
+
+        return [
+            'success' => empty($userErrors),
+            'userErrors' => $userErrors,
+        ];
+    }
+
+    /**
      * Set metafield values on a product.
      *
      * @param  array  $metafields  e.g. [['key' => 'active', 'value' => 'true', 'type' => 'boolean'], ...]
