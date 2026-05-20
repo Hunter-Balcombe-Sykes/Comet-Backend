@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Internal\HydrogenAffiliateController;
 use App\Http\Controllers\Api\Internal\HydrogenAffiliateProductsController;
 use App\Http\Controllers\Api\Internal\HydrogenBrandConfigController;
 use App\Services\Cache\CacheLockService;
+use App\Services\PublicSite\SitepageDataResolverService;
 use Mockery as M;
 
 // Master Pattern 15: the three Hydrogen controllers must call rememberLocked
@@ -20,7 +21,7 @@ it('HydrogenAffiliateController constructor accepts a CacheLockService dependenc
     // Smoke test: the constructor is wired up so the container can resolve it.
     // Validates the dep is non-nullable (the test would error on missing arg
     // if signature drifted back to required-without-default).
-    $controller = new HydrogenAffiliateController(new CacheLockService);
+    $controller = new HydrogenAffiliateController(new CacheLockService, new SitepageDataResolverService);
 
     expect($controller)->toBeInstanceOf(HydrogenAffiliateController::class);
 });
