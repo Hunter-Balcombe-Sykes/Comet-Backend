@@ -31,18 +31,52 @@ class SiteMediaObserver
     {
         $this->reevaluateIfRelevant($media);
         $this->bustHydrogenCaches($media);
+        $this->touchParentSite($media, 'save');
     }
 
     public function deleted(SiteMedia $media): void
     {
         $this->reevaluateIfRelevant($media);
         $this->bustHydrogenCaches($media);
+        $this->touchParentSite($media, 'delete');
     }
 
     public function restored(SiteMedia $media): void
     {
         $this->reevaluateIfRelevant($media);
         $this->bustHydrogenCaches($media);
+        $this->touchParentSite($media, 'restore');
+    }
+
+    /**
+     * Bump `sites.updated_at` so `SiteObserver::saved` fires and dispatches
+     * `CloudflareCachePurgeJob`. Without this, the Cloudflare edge cache for
+     * `<handle>.partna.au` (Astro Worker path for individuals + Hydrogen
+     * affiliate path for partners) would hold the pre-upload HTML for the
+     * full `s-maxage` window (~5 min) before refreshing — content image
+     * uploads then took 5–15 min to appear publicly.
+     *
+     * `touch()` only changes `updated_at`. SiteObserver's other dispatches
+     * (SyncSubdomainToKvJob, ProvisionBrandDnsJob, RetireBrandDnsJob) gate
+     * on `wasChanged('subdomain')` and stay inert. Cost is one UPDATE +
+     * one CF purge enqueue per media write.
+     */
+    private function touchParentSite(SiteMedia $media, string $action): void
+    {
+        try {
+            $site = $media->site;
+            if (! $site) {
+                return;
+            }
+            $site->touch();
+        } catch (\Throwable $e) {
+            Log::warning('Parent site touch() failed on SiteMedia '.$action, $this->logContext(__METHOD__, [
+                'site_media_id' => $media->id,
+                'site_id' => $media->site_id,
+                'pool' => $media->pool,
+                'message' => $e->getMessage(),
+            ]));
+        }
     }
 
     /**
