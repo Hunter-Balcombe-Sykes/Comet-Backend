@@ -10,8 +10,10 @@
 // immutability, no-self-edit on staff) get dedicated tests.
 
 use App\Models\Billing\Subscription;
+use App\Models\Brand\BrandStoreSettings;
 use App\Models\Commerce\AffiliateProductSelection;
 use App\Models\Core\FeatureFlag;
+use App\Models\Core\Gdpr\GdprRequest;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
@@ -78,10 +80,7 @@ describe('BrandResourcePolicy', function () {
     it('view: owner allowed, non-owner gets 404', function () {
         $owner = makePolicyTestPro('b-1', 'brand');
         $other = makePolicyTestPro('b-2', 'brand');
-        $resource = (new class extends \Illuminate\Database\Eloquent\Model
-        {
-            public ?string $professional_id = 'b-1';
-        });
+        $resource = (new BrandStoreSettings)->forceFill(['professional_id' => 'b-1']);
         expect($this->policy->view($owner, $resource))->toBeTrue();
         expect($this->policy->view($other, $resource))->toBeInstanceOf(\Illuminate\Auth\Access\Response::class)
             ->and($this->policy->view($other, $resource)->status())->toBe(404);
@@ -89,13 +88,16 @@ describe('BrandResourcePolicy', function () {
 
     it('update: pending_deletion blocked with 423', function () {
         $owner = makePolicyTestPro('b-1', 'brand', 'pending_deletion');
-        $resource = (new class extends \Illuminate\Database\Eloquent\Model
-        {
-            public ?string $professional_id = 'b-1';
-        });
+        $resource = (new BrandStoreSettings)->forceFill(['professional_id' => 'b-1']);
         $result = $this->policy->update($owner, $resource);
         expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class)
             ->and($result->status())->toBe(423);
+    });
+
+    it('create: a skeleton with the actor as owner is allowed', function () {
+        $owner = makePolicyTestPro('b-1', 'brand');
+        $skel = (new BrandStoreSettings)->forceFill(['professional_id' => 'b-1']);
+        expect($this->policy->create($owner, $skel))->toBeTrue();
     });
 });
 
@@ -106,19 +108,13 @@ describe('GdprPolicy', function () {
 
     it('view: owner allowed', function () {
         $actor = makePolicyTestPro('a-1');
-        $resource = (new class extends \Illuminate\Database\Eloquent\Model
-        {
-            public ?string $professional_id = 'a-1';
-        });
+        $resource = (new GdprRequest)->forceFill(['professional_id' => 'a-1']);
         expect($this->policy->view($actor, $resource))->toBeTrue();
     });
 
     it('view: non-owner gets 404 (no existence leak)', function () {
         $actor = makePolicyTestPro('z-1');
-        $resource = (new class extends \Illuminate\Database\Eloquent\Model
-        {
-            public ?string $professional_id = 'a-1';
-        });
+        $resource = (new GdprRequest)->forceFill(['professional_id' => 'a-1']);
         $result = $this->policy->view($actor, $resource);
         expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class)
             ->and($result->status())->toBe(404);
@@ -126,10 +122,7 @@ describe('GdprPolicy', function () {
 
     it('view: pending_deletion actor can still view their OWN GDPR records (deletion in progress)', function () {
         $actor = makePolicyTestPro('a-1', 'individual', 'pending_deletion');
-        $resource = (new class extends \Illuminate\Database\Eloquent\Model
-        {
-            public ?string $professional_id = 'a-1';
-        });
+        $resource = (new GdprRequest)->forceFill(['professional_id' => 'a-1']);
         expect($this->policy->view($actor, $resource))->toBeTrue();
     });
 });
