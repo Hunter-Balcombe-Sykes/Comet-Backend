@@ -742,6 +742,49 @@ return [
             'use_brand_affiliate_theme' => true,
             'use_brand_affiliate_products' => true,
         ],
+
+        // ── New 3-state account_type keys (§31.1) ─────────────────────────────
+        // The site-management controllers (links, sections, etc.) read
+        // `$pro->account_type?->value` (the canonical 3-state field) via the
+        // plain config() helper, which does NOT resolve `inherits`. So these
+        // entries must be flat (no inherits key) — values mirror the legacy
+        // 'professional' entry above for `individual` and `partner`, since
+        // both new types map onto what was the standalone-professional path.
+        // Partners get the brand 'affiliate' overlay applied separately on
+        // BrandPartnerLink create; that's handled in
+        // AccountTypeDefaultsService::applyAffiliateDefaults, not here.
+        //
+        // Without these keys, individuals + partners default-deny on every
+        // direct config lookup (custom_links_allowed, allowed_theme_count,
+        // etc.) — including the 403 on /api/links that surfaced this gap.
+        'individual' => [
+            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+            'default_sections' => ['shop', 'services', 'gallery'],
+            'is_published' => true,
+            'allowed_theme_count' => 3,
+            'custom_links_allowed' => true,
+            'default_contact' => [
+                'full_name' => 'Charlie',
+                'email' => 'charlie@ai.com',
+                'phone' => '1234 567 890',
+                'source' => 'system_default',
+                'subscribed' => true,
+            ],
+        ],
+        'partner' => [
+            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+            'default_sections' => ['shop', 'services', 'gallery'],
+            'is_published' => true,
+            'allowed_theme_count' => 3,
+            'custom_links_allowed' => true,
+            'default_contact' => [
+                'full_name' => 'Charlie',
+                'email' => 'charlie@ai.com',
+                'phone' => '1234 567 890',
+                'source' => 'system_default',
+                'subscribed' => true,
+            ],
+        ],
     ],
 
     'soft_delete_retention_days' => (int) env('PARTNA_SOFT_DELETE_RETENTION_DAYS', env('SOFT_DELETE_RETENTION_DAYS', 30)),
