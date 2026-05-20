@@ -98,7 +98,8 @@ function settingsRow(string $brandId, ?int $holdDays): ?BrandStoreSettings
     return BrandStoreSettings::where('professional_id', $brandId)->first();
 }
 
-function invokeDispatcher(string $brandId, ?BrandStoreSettings $settings, Professional $affiliate): void
+// DB-15: brand is now passed directly (already loaded) instead of re-fetched.
+function invokeDispatcher(string $brandId, ?BrandStoreSettings $settings, Professional $affiliate, Professional $brand): void
 {
     $job = new ProcessShopifyOrderWebhookJob(
         brandProfessionalId: $brandId,
@@ -109,7 +110,7 @@ function invokeDispatcher(string $brandId, ?BrandStoreSettings $settings, Profes
 
     $method = (new ReflectionClass($job))->getMethod('dispatchInstantPayoutIfEligible');
     $method->setAccessible(true);
-    $method->invoke($job, $settings, $affiliate);
+    $method->invoke($job, $settings, $affiliate, $brand);
 }
 
 it('dispatches the payout sweep when brand has hold=0 + PM and affiliate is active', function () {
@@ -117,7 +118,7 @@ it('dispatches the payout sweep when brand has hold=0 + PM and affiliate is acti
     $affiliate = instantAffiliate();
     $settings = settingsRow($brand->id, 0);
 
-    invokeDispatcher($brand->id, $settings, $affiliate);
+    invokeDispatcher($brand->id, $settings, $affiliate, $brand);
 
     Queue::assertPushed(ProcessCommissionPayoutsJob::class);
 });
@@ -127,7 +128,7 @@ it('does not dispatch when brand hold_days is 7', function () {
     $affiliate = instantAffiliate();
     $settings = settingsRow($brand->id, 7);
 
-    invokeDispatcher($brand->id, $settings, $affiliate);
+    invokeDispatcher($brand->id, $settings, $affiliate, $brand);
 
     Queue::assertNotPushed(ProcessCommissionPayoutsJob::class);
 });
@@ -136,7 +137,7 @@ it('does not dispatch when brand has no settings row at all', function () {
     $brand = instantBrand();
     $affiliate = instantAffiliate();
 
-    invokeDispatcher($brand->id, null, $affiliate);
+    invokeDispatcher($brand->id, null, $affiliate, $brand);
 
     Queue::assertNotPushed(ProcessCommissionPayoutsJob::class);
 });
@@ -146,7 +147,7 @@ it('does not dispatch when brand is missing a payment method even with hold=0', 
     $affiliate = instantAffiliate();
     $settings = settingsRow($brand->id, 0);
 
-    invokeDispatcher($brand->id, $settings, $affiliate);
+    invokeDispatcher($brand->id, $settings, $affiliate, $brand);
 
     Queue::assertNotPushed(ProcessCommissionPayoutsJob::class);
 });
@@ -156,7 +157,7 @@ it('does not dispatch when affiliate Connect is not active', function () {
     $affiliate = instantAffiliate(['stripe_connect_status' => 'onboarding']);
     $settings = settingsRow($brand->id, 0);
 
-    invokeDispatcher($brand->id, $settings, $affiliate);
+    invokeDispatcher($brand->id, $settings, $affiliate, $brand);
 
     Queue::assertNotPushed(ProcessCommissionPayoutsJob::class);
 });

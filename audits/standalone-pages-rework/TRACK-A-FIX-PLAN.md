@@ -36,7 +36,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
 | ☑ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
 | ☑ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
-| ☐ | F17 | Query micro-optimisations | P3 | S | Sonnet | Sonnet | ~1h |
+| ☑ | F17 | Query micro-optimisations | P3 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F18 | Test-suite fragility | P3 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F19 | Dead-code / cosmetic cleanup | P3 | S | Sonnet | Sonnet | ~1h |
 
@@ -334,7 +334,7 @@ Same anti-pattern across three billing actions — fix together.
 
 # Band 3 — Scale / cleanup (F17–F19)
 
-## ☐ F17 — Query micro-optimisations
+## ☑ F17 — Query micro-optimisations
 **Tier:** P3 · **Effort:** S · **Items:** DB-14, DB-15, SCALE-2
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~1h
 

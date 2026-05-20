@@ -253,7 +253,8 @@ class ProcessShopifyOrderWebhookJob implements ShouldQueue
             // payout prerequisites are met, kick the payout sweep now instead of
             // waiting up to an hour for the next scheduled cron. The sweep job
             // uses lockForUpdate so a concurrent hourly run won't double-batch.
-            $this->dispatchInstantPayoutIfEligible($brandSettings, $affiliate);
+            // DB-15: pass the already-loaded $brandProfessional to avoid a second fetch.
+            $this->dispatchInstantPayoutIfEligible($brandSettings, $affiliate, $brandProfessional);
         }
 
         // Capture the buyer as an affiliate contact — independent of commerce writes.
@@ -285,6 +286,10 @@ class ProcessShopifyOrderWebhookJob implements ShouldQueue
     private function dispatchInstantPayoutIfEligible(
         ?BrandStoreSettings $brandSettings,
         Professional $affiliate,
+        // DB-15: accept the already-loaded brand professional to avoid a second DB fetch.
+        // The caller already verified this is a brand ($brandProfessional->isBrand()),
+        // so it is the exact same row and has the same freshness as the guard above.
+        Professional $brand,
     ): void {
         if ($brandSettings?->payout_hold_days !== 0) {
             return;
@@ -294,17 +299,7 @@ class ProcessShopifyOrderWebhookJob implements ShouldQueue
             return;
         }
 
-        $brand = Professional::query()
-            ->whereKey($this->brandProfessionalId)
-            ->first([
-                'id',
-                'stripe_connect_account_id',
-                'stripe_connect_status',
-                'stripe_payment_method_id',
-            ]);
-
-        if (! $brand
-            || ! $brand->stripe_connect_account_id
+        if (! $brand->stripe_connect_account_id
             || $brand->stripe_connect_status !== 'active'
             || ! $brand->stripe_payment_method_id
         ) {

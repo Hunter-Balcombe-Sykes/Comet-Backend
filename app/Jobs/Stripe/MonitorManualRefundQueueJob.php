@@ -42,18 +42,26 @@ class MonitorManualRefundQueueJob implements ShouldQueue
 
     public function handle(): void
     {
-        $open = CommissionPayout::query()
+        $baseQuery = CommissionPayout::query()
             ->where('needs_manual_refund', true)
-            ->whereNotIn('status', ['cancelled', 'failed'])
-            ->with(['brandProfessional:id,display_name', 'affiliateProfessional:id,display_name'])
-            ->orderBy('updated_at')
-            ->get();
+            ->whereNotIn('status', ['cancelled', 'failed']);
 
-        if ($open->isEmpty()) {
+        // SCALE-2: separate count query for true backlog size, then cap the fetch
+        // at 200 rows so a large backlog doesn't OOM the job or flood the log line.
+        // The logged 'count' always reflects the real total, not the capped fetch.
+        $totalCount = (clone $baseQuery)->count();
+
+        if ($totalCount === 0) {
             Log::info('payout.manual_refund_digest.empty');
 
             return;
         }
+
+        $open = (clone $baseQuery)
+            ->with(['brandProfessional:id,display_name', 'affiliateProfessional:id,display_name'])
+            ->orderBy('updated_at')
+            ->limit(200)
+            ->get();
 
         $lines = $open->map(fn (CommissionPayout $p) => sprintf(
             '%s | %s → %s | status=%s gross=%d %s',
@@ -66,7 +74,7 @@ class MonitorManualRefundQueueJob implements ShouldQueue
         ))->all();
 
         Log::warning('payout.manual_refund_digest', [
-            'count' => $open->count(),
+            'count' => $totalCount,
             'payouts' => $lines,
         ]);
     }

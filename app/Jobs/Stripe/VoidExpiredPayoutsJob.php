@@ -77,26 +77,39 @@ class VoidExpiredPayoutsJob implements ShouldQueue
         // active affiliate too, so we evaluate routing per-payout.
         $brandSideCodes = ['brand_payment_method_missing', 'wallet_currency_mismatch'];
 
+        // DB-14: collapse the three per-tier queries (T-30/T-7/T-1) into a single
+        // query that covers the full window union, then group in-memory.
+        // Each tier window is [startOfDay(now+N), endOfDay(now+N)]; the union spans
+        // startOfDay(now+1) → endOfDay(now+30). Rows outside any exact tier window are
+        // filtered out in-memory, preserving identical tier assignment logic.
+        $windowStart = now()->addDay()->startOfDay();
+        $windowEnd = now()->addDays(30)->endOfDay();
+
+        $allCandidates = CommissionPayout::query()
+            ->where('status', 'pending')
+            ->whereBetween('void_at', [$windowStart, $windowEnd])
+            ->where(function ($q) use ($brandSideCodes) {
+                // Either: brand-side blocker (notify brand regardless of affiliate state)
+                // Or: affiliate-side issue with affiliate not yet active
+                $q->whereIn('failure_code', $brandSideCodes)
+                    ->orWhereDoesntHave('affiliateProfessional', fn ($a) => $a->where('stripe_connect_status', 'active'));
+            })
+            ->get();
+
         foreach ([30, 7, 1] as $daysOut) {
             $tag = 'T-'.$daysOut;
             // We want to fire the warning $daysOut days BEFORE void_at — i.e.
             // when void_at = now + $daysOut (within a 24h window for the cron's
             // daily cadence).
             $target = now()->addDays($daysOut);
-            $windowStart = $target->copy()->startOfDay();
-            $windowEnd = $target->copy()->endOfDay();
+            $tierStart = $target->copy()->startOfDay();
+            $tierEnd = $target->copy()->endOfDay();
 
-            $candidates = CommissionPayout::query()
-                ->where('status', 'pending')
-                ->whereBetween('void_at', [$windowStart, $windowEnd])
-                ->where(function ($q) use ($brandSideCodes) {
-                    // Either: brand-side blocker (notify brand regardless of affiliate state)
-                    // Or: affiliate-side issue with affiliate not yet active
-                    $q->whereIn('failure_code', $brandSideCodes)
-                        ->orWhereDoesntHave('affiliateProfessional', fn ($a) => $a->where('stripe_connect_status', 'active'));
-                })
-                ->get()
-                ->filter(fn ($p) => ! in_array($tag, $p->grace_notifications_sent ?? [], true));
+            $candidates = $allCandidates->filter(
+                fn ($p) => $p->void_at >= $tierStart
+                    && $p->void_at <= $tierEnd
+                    && ! in_array($tag, $p->grace_notifications_sent ?? [], true)
+            );
 
             foreach ($candidates as $payout) {
                 $isBrandSide = in_array($payout->failure_code, $brandSideCodes, true);
