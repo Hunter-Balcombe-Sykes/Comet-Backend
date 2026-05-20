@@ -37,11 +37,16 @@ class ProfessionalObserver
         // separate RetireSubdomainFromKvJob is no longer needed here — the old
         // subdomain keeps resolving via its alias entry. Retire is still
         // available for explicit single-handle deletions elsewhere.
-        if ($professional->wasChanged('handle')) {
+        // Dispatch on handle OR account_type change — the latter so any direct
+        // mutation that bypasses AccountTypeTransitionService (admin tooling,
+        // ops migrations) still keeps SUBDOMAIN_KV in sync. Job is ShouldBeUnique
+        // with a 45s window, so double-dispatch from the service + observer
+        // collapses to one KV write (audit #13).
+        if ($professional->wasChanged('handle') || $professional->wasChanged('account_type')) {
             try {
                 SyncSubdomainToKvJob::dispatch((string) $professional->id);
             } catch (\Throwable $e) {
-                Log::warning('ProfessionalObserver: KV sync dispatch failed on handle change', $this->logContext(__METHOD__, [
+                Log::warning('ProfessionalObserver: KV sync dispatch failed on handle/account_type change', $this->logContext(__METHOD__, [
                     'professional_id' => $professional->id,
                     'message' => $e->getMessage(),
                 ]));
