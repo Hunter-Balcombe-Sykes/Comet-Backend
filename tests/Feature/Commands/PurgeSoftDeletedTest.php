@@ -15,6 +15,7 @@ beforeEach(function () {
     setupMediaTables();
     setupCustomersTable();
     setupServicesTable();
+    setupBlocksTable();
 });
 
 // ─── Enquiry retention ────────────────────────────────────────────────────────

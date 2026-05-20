@@ -208,5 +208,22 @@ class AccountDeletionTestCase
             created_at TEXT,
             updated_at TEXT
         )');
+
+        // site.blocks — swept by the soft-delete GC since Block gained SoftDeletes.
+        // Empty schema is enough for the test (sweep returns zero rows).
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.blocks (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            site_id TEXT,
+            block_group TEXT,
+            block_type TEXT,
+            settings TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            is_enabled INTEGER DEFAULT 1,
+            deleted_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
     }
 }

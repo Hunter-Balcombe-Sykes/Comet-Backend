@@ -85,7 +85,7 @@ it('soft-deletes the newest excess blocks keeping the oldest cap worth', functio
     expect($surviving->all())->toBe($expectedKept->all());
 
     // The 2 newest are soft-deleted
-    $deleted = Block::query()
+    $deleted = Block::withTrashed()
         ->where('professional_id', $proId)
         ->whereNotNull('deleted_at')
         ->pluck('id');
@@ -125,7 +125,7 @@ it('is idempotent when run twice', function () {
 
     $surviving = Block::query()->where('professional_id', $proId)->whereNull('deleted_at')->count();
     expect($surviving)->toBe(7);
-    $deleted = Block::query()->where('professional_id', $proId)->whereNotNull('deleted_at')->count();
+    $deleted = Block::withTrashed()->where('professional_id', $proId)->whereNotNull('deleted_at')->count();
     expect($deleted)->toBe(2);
 });
 

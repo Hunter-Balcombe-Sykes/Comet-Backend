@@ -8,6 +8,7 @@ use App\Models\Core\Professional\Customer;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Professional\AccountDeletionService;
@@ -35,6 +36,7 @@ class PurgeSoftDeleted extends Command
         SiteMedia::class,
         Enquiry::class,
         ServiceCategory::class,
+        Block::class,
     ];
 
     /**
