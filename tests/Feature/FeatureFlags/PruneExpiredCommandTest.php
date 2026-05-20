@@ -3,6 +3,10 @@
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
+beforeEach(function () {
+    setupFeatureFlagsTable();
+});
+
 it('deletes expired overrides, keeps active ones', function () {
     $proId = (string) Str::uuid();
     $pro2Id = (string) Str::uuid();

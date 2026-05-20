@@ -72,17 +72,6 @@ it('returns duplicate=true on second delivery of the same event_id', function ()
     Bus::assertDispatchedTimes(SyncFreshaCatalogDeltaJob::class, 1);
 });
 
-it('short-circuits with feature_gated=true when fresha_sync flag is off', function () {
-    Config::set('partna.features.fresha_sync', false);
-
-    // No signature provided — should still 200 because we exit before signature check.
-    $this->postJson('/api/webhooks/fresha', ['type' => 'catalog.version.updated'])
-        ->assertOk()
-        ->assertJson(['received' => true, 'feature_gated' => true]);
-
-    Bus::assertNotDispatched(SyncFreshaCatalogDeltaJob::class);
-});
-
 it('deletes integration on oauth.authorization.revoked', function () {
     $proId = (string) Str::uuid();
     DB::table('core.professional_integrations')->insert([

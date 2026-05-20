@@ -21,10 +21,16 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     bootstrapMediaUploadFailureSchema();
+    setupFeatureFlagsTable();
 
+    // ProfessionalUploadController gates video uploads behind the video_uploads
+    // feature flag (FeatureFlagService::enabled). With an empty registry it
+    // resolves via the config fallback — enable it so these tests reach the
+    // actual upload-failure paths under test rather than a 403.
     config([
         'partna.media_disk' => 'local',
         'filesystems.disks.local.root' => storage_path('framework/testing/disks/media-upload-failure'),
+        'partna.features.video_uploads' => true,
     ]);
 
     if (! is_dir(config('filesystems.disks.local.root'))) {

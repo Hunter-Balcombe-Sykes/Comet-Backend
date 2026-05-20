@@ -1194,6 +1194,40 @@ function setupWebhookEventsTable(): void
     )');
 }
 
+/**
+ * core.feature_flags + core.feature_flag_overrides — needed by any test that
+ * exercises feature gating (the `feature:` middleware, FeatureFlagService, the
+ * flag-prune command). Schema mirrors tests/Feature/FeatureFlags/FeatureFlagTestCase.
+ */
+function setupFeatureFlagsTable(): void
+{
+    attachTestSchemas();
+    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flags (
+        key TEXT PRIMARY KEY,
+        description TEXT,
+        default_enabled INTEGER DEFAULT 0,
+        rollout_percent INTEGER DEFAULT 0,
+        deleted_at TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flag_overrides (
+        id TEXT PRIMARY KEY,
+        flag_key TEXT,
+        professional_id TEXT,
+        brand_id TEXT,
+        enabled INTEGER DEFAULT 0,
+        reason TEXT,
+        expires_at TEXT,
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )');
+}
+
 function setupCommerceOrdersTables(): void
 {
     attachTestSchemas();

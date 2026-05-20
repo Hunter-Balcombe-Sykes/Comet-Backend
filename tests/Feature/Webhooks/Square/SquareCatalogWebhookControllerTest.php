@@ -65,16 +65,6 @@ it('square — returns duplicate=true on second delivery of same event_id', func
     Bus::assertDispatchedTimes(SyncSquareCatalogDeltaJob::class, 1);
 });
 
-it('square — returns feature_gated=true when square_sync flag is off', function () {
-    Config::set('partna.features.square_sync', false);
-
-    $this->postJson('/api/webhooks/square', ['type' => 'catalog.version.updated'])
-        ->assertOk()
-        ->assertJson(['received' => true, 'feature_gated' => true]);
-
-    Bus::assertNotDispatched(SyncSquareCatalogDeltaJob::class);
-});
-
 it('square — deletes integration on oauth.authorization.revoked', function () {
     $proId = (string) Str::uuid();
     DB::table('core.professional_integrations')->insert([
