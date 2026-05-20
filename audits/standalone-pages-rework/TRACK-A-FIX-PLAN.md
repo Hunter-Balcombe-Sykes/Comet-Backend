@@ -37,7 +37,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
 | ☑ | F16 | Job observability / logging | P2 | M | Sonnet | Sonnet | ~2.5h |
 | ☑ | F17 | Query micro-optimisations | P3 | S | Sonnet | Sonnet | ~1h |
-| ☐ | F18 | Test-suite fragility | P3 | S | Sonnet | Sonnet | ~0.5h |
+| ☑ | F18 | Test-suite fragility | P3 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F19 | Dead-code / cosmetic cleanup | P3 | S | Sonnet | Sonnet | ~1h |
 
 **Totals** — Band 1 (F1–F11): ~3 working days · Band 2 (F12–F16): ~1.7 days · Band 3 (F17–F19): ~0.3 day · **Whole plan ≈ 5 working days.**
@@ -343,7 +343,7 @@ Same anti-pattern across three billing actions — fix together.
   `ProcessShopifyOrderWebhookJob`.
 - **SCALE-2** — Add `->limit(200)` + separate count to `MonitorManualRefundQueueJob`.
 
-## ☐ F18 — Test-suite fragility
+## ☑ F18 — Test-suite fragility
 **Tier:** P3 · **Effort:** S · **Items:** TEST-6, TEST-7
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~0.5h
 

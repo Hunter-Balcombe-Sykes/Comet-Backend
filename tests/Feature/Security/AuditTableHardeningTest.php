@@ -5,6 +5,10 @@
 // cannot be exercised against the SQLite test harness, so this test guards
 // the migration text itself — preventing the safety properties from being
 // silently downgraded in a later edit.
+//
+// Assertions use regex with \s+ instead of exact-whitespace string matching so
+// that incidental reformatting (extra newlines, indentation changes) doesn't
+// break the test while the semantic SQL content is unchanged.
 
 // Feature tests already extend Tests\TestCase via pest()->extend(...)->in('Feature').
 
@@ -20,26 +24,30 @@ it('enables RLS on all three audit tables', function () {
         'core.wallet_currency_switch_audit',
         'core.brand_status_history',
     ] as $table) {
-        expect($this->migration)->toContain("ALTER TABLE {$table} ENABLE ROW LEVEL SECURITY");
+        $escaped = preg_quote($table, '/');
+        expect($this->migration)->toMatch("/ALTER\s+TABLE\s+{$escaped}\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/");
     }
 });
 
 it('flips wallet + brand_status_history FKs to ON DELETE SET NULL', function () {
-    expect($this->migration)
-        ->toContain('FOREIGN KEY (professional_id) REFERENCES core.professionals(id) ON DELETE SET NULL');
+    expect($this->migration)->toMatch(
+        '/FOREIGN\s+KEY\s+\(professional_id\)\s+REFERENCES\s+core\.professionals\(id\)\s+ON\s+DELETE\s+SET\s+NULL/'
+    );
 
     // Both tables must drop their original CASCADE constraint before re-adding
     // it with SET NULL — guarded by DROP CONSTRAINT statements.
-    expect($this->migration)
-        ->toContain('DROP CONSTRAINT IF EXISTS wallet_currency_switch_audit_professional_id_fkey')
-        ->toContain('DROP CONSTRAINT IF EXISTS brand_status_history_professional_id_fkey');
+    expect($this->migration)->toMatch(
+        '/DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+wallet_currency_switch_audit_professional_id_fkey/'
+    );
+    expect($this->migration)->toMatch(
+        '/DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+brand_status_history_professional_id_fkey/'
+    );
 });
 
 it('adds professional_handle_snapshot to wallet + brand_status_history', function () {
-    expect($this->migration)
-        ->toContain('ALTER TABLE core.wallet_currency_switch_audit')
-        ->toContain('ALTER TABLE core.brand_status_history')
-        ->toContain('ADD COLUMN IF NOT EXISTS professional_handle_snapshot text');
+    expect($this->migration)->toMatch('/ALTER\s+TABLE\s+core\.wallet_currency_switch_audit/');
+    expect($this->migration)->toMatch('/ALTER\s+TABLE\s+core\.brand_status_history/');
+    expect($this->migration)->toMatch('/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+professional_handle_snapshot\s+text/');
 });
 
 it('grants app_backend FOR ALL with USING and WITH CHECK on every audit table', function () {
@@ -48,9 +56,9 @@ it('grants app_backend FOR ALL with USING and WITH CHECK on every audit table', 
         'wallet_currency_switch_audit_app_backend_all',
         'brand_status_history_app_backend_all',
     ] as $policy) {
-        expect($this->migration)
-            ->toContain("CREATE POLICY {$policy}")
-            ->toContain('TO app_backend');
+        $escaped = preg_quote($policy, '/');
+        expect($this->migration)->toMatch("/CREATE\s+POLICY\s+{$escaped}/");
+        expect($this->migration)->toContain('TO app_backend');
     }
 });
 
@@ -60,18 +68,17 @@ it('exposes staff-only SELECT policies filtered on partna_staff role', function 
         'wallet_currency_switch_audit_staff_select',
         'brand_status_history_staff_select',
     ] as $policy) {
-        expect($this->migration)->toContain("CREATE POLICY {$policy}");
+        $escaped = preg_quote($policy, '/');
+        expect($this->migration)->toMatch("/CREATE\s+POLICY\s+{$escaped}/");
     }
 
-    expect($this->migration)
-        ->toContain("ps.role IN ('admin', 'support')")
-        ->toContain('FROM core.partna_staff ps');
+    expect($this->migration)->toMatch("/ps\.role\s+IN\s+\('admin',\s*'support'\)/");
+    expect($this->migration)->toMatch('/FROM\s+core\.partna_staff\s+ps/');
 });
 
 it('grants tenant SELECT on financial + lifecycle audit tables only', function () {
-    expect($this->migration)
-        ->toContain('CREATE POLICY wallet_currency_switch_audit_tenant_select')
-        ->toContain('CREATE POLICY brand_status_history_tenant_select');
+    expect($this->migration)->toMatch('/CREATE\s+POLICY\s+wallet_currency_switch_audit_tenant_select/');
+    expect($this->migration)->toMatch('/CREATE\s+POLICY\s+brand_status_history_tenant_select/');
 
     // Deletion audit has no tenant policy — by the time a row matters, the
     // tenant is gone or going. Confirm we have not accidentally added one.

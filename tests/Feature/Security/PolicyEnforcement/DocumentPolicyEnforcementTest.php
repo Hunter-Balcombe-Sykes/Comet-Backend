@@ -68,6 +68,18 @@ it('blocks a pending-deletion owner from updating a document with 423', function
     }
 });
 
+it('allows the owner to delete their own document', function () {
+    Storage::fake(config('partna.media_disk'));
+
+    $owner = createTenant('doc-destroy-owner-self');
+    $document = createDocumentFor($owner);
+    $req = tenantRequestAs($owner, [], 'DELETE');
+
+    $response = app(ProfessionalDocumentController::class)->destroy($req, $document);
+
+    expect($response->getStatusCode())->toBe(200);
+});
+
 it('blocks a non-owner from deleting a document with 404', function () {
     $owner = createTenant('doc-destroy-owner');
     $intruder = createTenant('doc-destroy-intruder');
