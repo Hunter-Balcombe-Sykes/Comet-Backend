@@ -54,6 +54,77 @@ function buildRsaJwkForAlgWarmingTest(string $kid, \OpenSSLAsymmetricKey $privKe
     ];
 }
 
+function buildEs256JwkForAlgWarmingTest(string $kid, \OpenSSLAsymmetricKey $privKey): array
+{
+    $details = openssl_pkey_get_details($privKey);
+
+    return [
+        'kty' => 'EC',
+        'kid' => $kid,
+        'use' => 'sig',
+        'alg' => 'ES256',
+        'crv' => 'P-256',
+        'x' => rtrim(strtr(base64_encode($details['ec']['x']), '+/', '-_'), '='),
+        'y' => rtrim(strtr(base64_encode($details['ec']['y']), '+/', '-_'), '='),
+    ];
+}
+
+it('warms a TRUE mixed-alg JWKS (RS256 + ES256) with each kid carrying its own alg (SEC-3)', function () {
+    // The original SEC-3 bug only manifests on a JWKS containing kids of
+    // different algorithms — the cold path warmed every entry with $alg from
+    // the inbound JWT, poisoning the off-algorithm cache slot. This test
+    // exercises that exact scenario (vs the 2× RS256 test below which proves
+    // the structural fix but doesn't reproduce the original failure mode).
+
+    $kidRs = 'rs-'.uniqid();
+    $privRs = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    openssl_pkey_export($privRs, $privPemRs);
+
+    $kidEc = 'ec-'.uniqid();
+    // openssl_pkey_new for EC requires a writable openssl.cnf in this PHP build;
+    // wrap and skip cleanly if it can't generate. The 2× RS256 test below still
+    // proves the structural fix even when EC generation isn't available.
+    $privEc = @openssl_pkey_new([
+        'private_key_type' => OPENSSL_KEYTYPE_EC,
+        'curve_name' => 'prime256v1',
+    ]);
+    if (! $privEc) {
+        test()->markTestSkipped('OpenSSL EC keypair generation unavailable in this PHP build ('.((string) openssl_error_string()).')');
+    }
+
+    $jwks = ['keys' => [
+        buildRsaJwkForAlgWarmingTest($kidRs, $privRs),
+        buildEs256JwkForAlgWarmingTest($kidEc, $privEc),
+    ]];
+
+    // Build a JWT signed with the RS256 kid so the cold path runs with $alg='RS256'.
+    // Pre-fix: the EC kid would be cached with alg='RS256' (wrong) and any future
+    // ES256 JWT against this kid would fail signature verification.
+    $jwt = buildRs256JwtForAlgWarmingTest($kidRs, $privPemRs, [
+        'sub' => 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        'iss' => 'https://proj.supabase.co/auth/v1',
+        'aud' => 'authenticated',
+        'iat' => time(),
+        'exp' => time() + 3600,
+    ]);
+
+    $cacheLock = Mockery::mock(CacheLockService::class);
+    $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
+
+    $middleware = new VerifySupabaseJwt($cacheLock);
+    $request = Request::create('/test', 'GET', [], [], [], ['HTTP_AUTHORIZATION' => 'Bearer '.$jwt]);
+    $response = $middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
+    expect($response->getStatusCode())->toBe(200);
+
+    $ref = new \ReflectionClass(VerifySupabaseJwt::class);
+    $prop = $ref->getProperty('keysByKid');
+    $prop->setAccessible(true);
+    $warmed = $prop->getValue();
+
+    expect($warmed[$kidRs]->getAlgorithm())->toBe('RS256')
+        ->and($warmed[$kidEc]->getAlgorithm())->toBe('ES256');
+});
+
 it('warms self::$keysByKid with each parsed Key having its OWN declared algorithm (SEC-3)', function () {
     $kidRs = 'rs-'.uniqid();
     $privRs = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);

@@ -204,3 +204,36 @@ it('continues processing other payouts when one retrieve fails', function () {
 
     reconcileJobWithStripeMock($stripeMock)->handle($payoutService);
 });
+
+// §28.17 OBS-3 — the per-PaymentIntent retrieve catch must call report($e)
+// so Nightwatch surfaces individual Stripe degradation incidents (not only
+// whole-job retry exhaustion via failed()).
+it('reports per-payout Stripe retrieve failures via report() (OBS-3)', function () {
+    \Illuminate\Support\Facades\Exceptions::fake();
+
+    reconcileSeedPayout([
+        'id' => 'pay_retrieve_fails',
+        'payment_intent_id' => 'pi_throws',
+        'status' => 'processing',
+        'updated_at' => now()->subDays(4)->toDateTimeString(),
+    ]);
+
+    $paymentIntentsMock = Mockery::mock();
+    $paymentIntentsMock->shouldReceive('retrieve')
+        ->once()
+        ->with('pi_throws')
+        ->andThrow(new \RuntimeException('Stripe API timeout'));
+
+    $stripeMock = Mockery::mock(StripeClient::class)->makePartial();
+    $stripeMock->paymentIntents = $paymentIntentsMock;
+
+    // Sweep continues despite the per-payout throw — markPaymentIntentSucceeded
+    // never fires for this PI but the job itself completes.
+    $payoutService = Mockery::mock(CommissionPayoutService::class);
+    $payoutService->shouldNotReceive('markPaymentIntentSucceeded');
+    $payoutService->shouldNotReceive('markPaymentIntentFailed');
+
+    reconcileJobWithStripeMock($stripeMock)->handle($payoutService);
+
+    \Illuminate\Support\Facades\Exceptions::assertReported(\RuntimeException::class);
+});
