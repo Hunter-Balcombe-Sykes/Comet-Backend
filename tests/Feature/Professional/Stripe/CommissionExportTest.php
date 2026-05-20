@@ -134,7 +134,10 @@ it('POST returns 202 with the expected envelope and Location header', function (
     $response = test()->postJson('/api/stripe/exports/transactions', [
         'format' => 'csv',
         'date_from' => '2026-01-01',
-        'date_to' => '2026-05-19',
+        // Tomorrow so this test doesn't date-flake on/after 2026-05-20 —
+        // seed payouts use now() as created_at and the original hard-coded
+        // 2026-05-19 excluded them once the clock crossed.
+        'date_to' => now()->addDay()->toDateString(),
     ]);
 
     $response->assertStatus(202)
