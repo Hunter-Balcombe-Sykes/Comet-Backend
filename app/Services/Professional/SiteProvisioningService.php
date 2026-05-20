@@ -66,7 +66,7 @@ class SiteProvisioningService
     public function ensureFreeSubscription(Professional $professional): void
     {
         // Brands must pay for the 'brands' plan — no free tier
-        if ($professional->professional_type === 'brand') {
+        if ($professional->isBrand()) {
             return;
         }
 

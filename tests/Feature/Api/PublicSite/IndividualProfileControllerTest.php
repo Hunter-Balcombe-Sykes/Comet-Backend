@@ -79,14 +79,14 @@ it('returns 200 with the full envelope shape for an individual', function () {
     $data = $res->json('data');
 
     expect($data)->toHaveKeys([
-        'handle', 'display_name', 'location', 'design',
+        'handle', 'display_name', 'design',
         'content_images', 'gallery', 'links', 'bio',
         'document', 'newsletter', 'services', 'booking', 'shop',
     ]);
+    expect($data)->not->toHaveKey('location');
 
     expect($data['handle'])->toBe('solo1');
     expect($data['display_name'])->toBe('Solo Pro');
-    expect($data['location'])->toEqual(['city' => 'Sydney', 'state' => 'NSW', 'country' => 'AU']);
     expect($data['design'])->toEqual(['theme' => 'midnight']);
 
     // Link block surfaces as a structured row in the `links` array — not as a

@@ -39,6 +39,7 @@ class IndividualProfileResource extends JsonResource
         'font_size',
         'layout',
         'border_radius',
+        'corner_radius',
         'border_thickness',
         'section_spacing',
         'brand_colors',
@@ -76,11 +77,6 @@ class IndividualProfileResource extends JsonResource
         return [
             'handle' => $this->handle,
             'display_name' => $this->display_name,
-            'location' => [
-                'city' => $this->location_city,
-                'state' => $this->location_state,
-                'country' => $this->location_country,
-            ],
             'design' => $this->design,
 
             // Section envelopes + arrays, mirroring HydrogenAffiliateController::show.

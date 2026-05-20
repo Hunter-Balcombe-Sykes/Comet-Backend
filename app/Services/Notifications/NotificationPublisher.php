@@ -4,6 +4,8 @@ namespace App\Services\Notifications;
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Professional\Professional;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Cache;
@@ -69,6 +71,20 @@ class NotificationPublisher
             Log::warning('NotificationPublisher: dropped notification — empty dedupe_key', [
                 'category' => $category,
                 'professional_id' => $professionalId,
+            ]);
+
+            return;
+        }
+
+        // Defence-in-depth capability gate (audit #6). The downstream email
+        // job already gates on the same map; checking here also stops the
+        // in-app bell row from being inserted for incapable recipients. Any
+        // caller that publishes directly (observers, services) automatically
+        // inherits this gate without needing its own AccountCapabilities call.
+        if (! self::passesCapabilityGate($category, $professionalId)) {
+            Log::info('NotificationPublisher: dropped — capability gate', [
+                'professional_id' => $professionalId,
+                'category' => $category,
             ]);
 
             return;
@@ -171,8 +187,21 @@ class NotificationPublisher
                 continue;
             }
 
-            $type = Notification::normalizeFrontendType((string) ($item['frontendType'] ?? ''));
             $category = (string) ($item['category'] ?? '');
+
+            // Defence-in-depth capability gate (audit #6) — see publish().
+            if (! self::passesCapabilityGate($category, $professionalId)) {
+                Log::info('NotificationPublisher::publishMany — dropped item, capability gate', [
+                    'index' => $index,
+                    'category' => $category,
+                    'professional_id' => $professionalId,
+                ]);
+                $skipped++;
+
+                continue;
+            }
+
+            $type = Notification::normalizeFrontendType((string) ($item['frontendType'] ?? ''));
             $retentionKey = $item['retentionConfigKey'] ?? 'default';
             $days = config("partna.notification_retention_days.{$retentionKey}")
                 ?? config('partna.notification_retention_days.default', 30);
@@ -228,6 +257,51 @@ class NotificationPublisher
             SendTransactionalNotificationEmailJob::dispatch($id, $category, $professionalId)
                 ->onQueue('mail');
         }
+    }
+
+    /**
+     * Defence-in-depth capability gate for outbound notifications (audit #6).
+     *
+     * Reuses SendTransactionalNotificationEmailJob's CAPABILITY_GATE_MAP so the
+     * publisher and the email job share one source of truth. Categories absent
+     * from the map are unrestricted (analytics_weekly, profile_tasks, etc.).
+     *
+     * Fail-open on missing Professional: the email job already fail-closes at
+     * send time. A missing pro row at the publisher layer typically means a
+     * test scaffold or a deleted account with no auth context — dropping the
+     * in-app notification silently would mask the underlying issue.
+     */
+    private static function passesCapabilityGate(string $category, string $professionalId): bool
+    {
+        $capabilityProperty = SendTransactionalNotificationEmailJob::capabilityGateMap()[$category] ?? null;
+        if ($capabilityProperty === null) {
+            return true;
+        }
+
+        try {
+            $pro = Professional::find($professionalId);
+        } catch (\Throwable $e) {
+            // DB outage / test scaffold without core.professionals attached.
+            // Fall open — email job will fail-close downstream if it matters.
+            Log::warning('NotificationPublisher: capability gate Professional lookup failed', [
+                'professional_id' => $professionalId,
+                'category' => $category,
+                'message' => $e->getMessage(),
+            ]);
+
+            return true;
+        }
+
+        if (! $pro) {
+            Log::warning('NotificationPublisher: capability gate could not load Professional', [
+                'professional_id' => $professionalId,
+                'category' => $category,
+            ]);
+
+            return true;
+        }
+
+        return (bool) AccountCapabilities::for($pro)->{$capabilityProperty};
     }
 
     /**

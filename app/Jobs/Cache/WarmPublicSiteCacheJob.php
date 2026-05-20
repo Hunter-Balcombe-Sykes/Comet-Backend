@@ -2,14 +2,26 @@
 
 namespace App\Jobs\Cache;
 
+use App\Models\Core\Professional\Professional;
+use App\Models\Core\Site\Site;
+use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 // V2: Pre-warms public site cache after publish events. Prevents cold-cache latency for first visitor.
+//
+// Audit #12: for individuals, the legacy SiteCacheService::warmSiteCache populates
+// a cache key that visitors of `<handle>.partna.au` never read — they hit the §28.8
+// endpoint (IndividualProfileController) which uses its own CacheLockService key.
+// This job now ALSO pre-fills that §28.8 key when the subdomain belongs to an
+// individual, sharing the canonical builder + cache-key helpers so the two paths
+// can't drift.
 class WarmPublicSiteCacheJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -29,9 +41,35 @@ class WarmPublicSiteCacheJob implements ShouldQueue
         $this->onQueue('default');
     }
 
-    public function handle(SiteCacheService $siteCache): void
-    {
-        $siteCache->warmSiteCache(strtolower($this->subdomain));
+    public function handle(
+        SiteCacheService $siteCache,
+        CacheLockService $cacheLock,
+        IndividualProfilePayloadBuilder $builder,
+    ): void {
+        $subdomain = strtolower($this->subdomain);
+        $siteCache->warmSiteCache($subdomain);
+
+        // §28.8 warm — best-effort. A miss here costs the first visitor full
+        // payload assembly but never breaks correctness; swallow errors so a
+        // transient Professional/Site lookup failure doesn't trip job retries.
+        try {
+            $pro = Professional::query()->where('handle_lc', $subdomain)->first();
+            if (! $pro || ! $pro->isIndividual()) {
+                return;
+            }
+
+            $site = Site::query()->where('professional_id', $pro->id)->first();
+            $cacheLock->rememberLocked(
+                $builder->cacheKey($subdomain, $site, $pro),
+                $builder->cacheTtl(),
+                fn () => $builder->build($pro, $site),
+            );
+        } catch (\Throwable $e) {
+            Log::warning('WarmPublicSiteCacheJob: §28.8 warm failed', [
+                'subdomain' => $subdomain,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function failed(\Throwable $e): void

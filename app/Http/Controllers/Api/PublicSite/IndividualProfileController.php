@@ -4,11 +4,10 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Enums\AccountType;
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheLockService;
-use App\Services\PublicSite\SitepageDataResolverService;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -39,7 +38,7 @@ class IndividualProfileController extends ApiController
 {
     public function __construct(
         private readonly CacheLockService $cache,
-        private readonly SitepageDataResolverService $resolver,
+        private readonly IndividualProfilePayloadBuilder $builder,
     ) {}
 
     public function show(Request $request, string $handle): JsonResponse
@@ -49,8 +48,6 @@ class IndividualProfileController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $ttl = max(1, (int) config('partna.public_profile.cache_ttl_seconds', 60));
-
         // Cheap pre-resolve so cache-key versioning sees the latest site updated_at
         // without paying full payload assembly on every hit.
         $pro = Professional::query()->where('handle_lc', $handleLc)->first();
@@ -59,42 +56,13 @@ class IndividualProfileController extends ApiController
         }
 
         $site = Site::query()->where('professional_id', $pro->id)->first();
-        // PROF-3: when no Site row exists yet (early-setup pros) fall back to
-        // the Professional's updated_at so block mutations roll the cache key
-        // forward instead of being stuck at a permanent stamp=0.
-        $stamp = $site?->updated_at?->timestamp
-            ?? $pro->updated_at?->timestamp
-            ?? 0;
-        $key = "public.profile:{$handleLc}:{$stamp}";
+        $key = $this->builder->cacheKey($handleLc, $site, $pro);
 
-        $payload = $this->cache->rememberLocked($key, $ttl, function () use ($pro, $site) {
-            // PROF-2: filter `settings.design` through DESIGN_KEYS allow-list so
-            // any non-display key that drifts into the design bag (admin tooling,
-            // future settings service) doesn't leak.
-            $rawDesign = (array) ($site?->settings['design'] ?? []);
-            $design = array_intersect_key($rawDesign, array_flip(IndividualProfileResource::DESIGN_KEYS));
-
-            // Pre-load section blocks once so each helper looks up its row
-            // without re-querying.
-            $sections = $this->resolver->loadSections($site);
-
-            // Booking has to be computed before links because the synthesised
-            // booking link is appended to the links array.
-            $booking = $this->resolver->getBooking($site, $sections);
-
-            return (new IndividualProfileResource(
-                $pro,
-                $design,
-                contentImages: $this->resolver->getContentImages($site),
-                gallery: $this->resolver->getGallery($site, $sections),
-                links: $this->resolver->getLinks($site, $booking),
-                bio: $this->resolver->getBio($pro, $sections),
-                document: $this->resolver->getDocument($site),
-                newsletter: $this->resolver->getNewsletter($sections),
-                services: $this->resolver->getServices($site, $pro->id, $sections),
-                booking: $booking,
-            ))->resolve();
-        });
+        $payload = $this->cache->rememberLocked(
+            $key,
+            $this->builder->cacheTtl(),
+            fn () => $this->builder->build($pro, $site),
+        );
 
         // Wrap in the standard envelope. ApiController::success() passes $data
         // directly to response()->json() — so we keep the {'data': ...} wrapper

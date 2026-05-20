@@ -1,7 +1,9 @@
 <?php
 
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
+use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Support\Facades\Queue;
 
 it('calls warmSiteCache with a lowercased subdomain', function () {
@@ -10,8 +12,16 @@ it('calls warmSiteCache with a lowercased subdomain', function () {
         ->once()
         ->with('my-site');
 
+    // §28.8 warm path (audit #12) is best-effort behind a try/catch. The
+    // Professional::where() lookup throws against the SQLite test fixture
+    // (no core.professionals table attached) and the job swallows it, so
+    // the builder/cacheLock mocks are never called — pass real container
+    // instances so the type signature is satisfied.
+    $cacheLock = app(CacheLockService::class);
+    $builder = app(IndividualProfilePayloadBuilder::class);
+
     $job = new WarmPublicSiteCacheJob('My-Site');
-    $job->handle($siteCache);
+    $job->handle($siteCache, $cacheLock, $builder);
 });
 
 it('runs on the default queue', function () {

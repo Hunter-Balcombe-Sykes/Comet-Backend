@@ -399,13 +399,12 @@ class CommissionVoidService
         ];
 
         foreach ($warningWindows as $key => $window) {
-            // Dual-read: legacy professional_type values ('influencer','professional') map to
-            // account_type 'partner' or 'individual' — both are non-brand. §28.1 migration window.
+            // Only partners have commission rows — individuals don't sell, brands
+            // don't receive commissions. The legacy professional_type dual-branch
+            // (pre-§28.1 backfill) was removed once dev DB confirmed zero
+            // NULL-account_type rows (audit #9).
             Professional::query()
-                ->where(fn ($q) => $q
-                    ->whereIn('account_type', ['partner', 'individual'])
-                    ->orWhere(fn ($q2) => $q2->whereNull('account_type')->whereIn('professional_type', ['influencer', 'professional']))
-                )
+                ->where('account_type', 'partner')
                 ->where('stripe_connect_status', '!=', 'active')
                 ->whereBetween('created_at', $window['created_range'])
                 ->chunkById(200, function ($affiliates) use (&$sent, $key, $window) {

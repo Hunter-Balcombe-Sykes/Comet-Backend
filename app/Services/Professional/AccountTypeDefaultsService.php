@@ -37,7 +37,10 @@ class AccountTypeDefaultsService
      */
     public function applyDefaults(Professional $professional, Site $site): void
     {
-        $defaults = $this->resolveDefaults($professional->professional_type);
+        // Prefer the canonical account_type when set; fall back to legacy
+        // professional_type only for pre-§28.1-backfill rows (audit #2).
+        $type = $professional->account_type?->value ?? $professional->professional_type;
+        $defaults = $this->resolveDefaults($type);
 
         // 1. Set is_published
         if (isset($defaults['is_published'])) {
