@@ -171,7 +171,7 @@ class ProfessionalIntegrationObserver
      * Synchronous bust — typical brands have <100 affiliates, and the bus is
      * a single Cache::deleteMultiple regardless of count. If brand fan-out
      * grows, dispatch the bust as a queued job mirroring
-     * InvalidateConnectedAffiliateCachesJob.
+     * InvalidateBrandAffiliatesCacheJob.
      */
     private function bustLinkedAffiliateProductCaches(ProfessionalIntegration $integration): void
     {

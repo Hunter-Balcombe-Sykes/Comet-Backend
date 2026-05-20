@@ -2,7 +2,7 @@
 
 namespace App\Services\Cache;
 
-use App\Jobs\Cache\InvalidateConnectedAffiliateCachesJob;
+use App\Jobs\Cache\InvalidateBrandAffiliatesCacheJob;
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Professional;
@@ -914,6 +914,80 @@ class SiteCacheService
     }
 
     /**
+     * Bust Hydrogen affiliate-page cache keys for every active affiliate linked to $brandId.
+     *
+     * Mirrors the (brand × slug) matrix that forgetHydrogenAffiliate() builds for a single
+     * affiliate, but inverts the query: given the brand, enumerate all linked affiliates,
+     * resolve each affiliate's current handle + aliases, then delete the primary
+     * hydrogenAffiliate(brandId, slug) key for each (the :stale twin is intentionally
+     * left intact so SWR absorbs the fan-out rebuild — see the loop comment below).
+     *
+     * Called from the brand branch of invalidateSite() so a brand design/config change
+     * propagates to every affiliate's Hydrogen page cache.
+     */
+    public function forgetHydrogenAffiliatesByBrand(string $brandId): void
+    {
+        if ($brandId === '') {
+            return;
+        }
+
+        $affiliateIds = BrandPartnerLink::query()
+            ->where('brand_professional_id', $brandId)
+            ->pluck('affiliate_professional_id')
+            ->filter(fn ($id): bool => is_string($id) && $id !== '')
+            ->all();
+
+        if (empty($affiliateIds)) {
+            return;
+        }
+
+        // Resolve current handles for all affiliates in one query.
+        $handlesByAffiliate = Professional::query()
+            ->whereIn('id', $affiliateIds)
+            ->pluck('handle', 'id')
+            ->all();
+
+        // Resolve active aliases for all affiliates in one query.
+        $aliasesByAffiliate = ProfessionalHandleAlias::query()
+            ->whereIn('professional_id', $affiliateIds)
+            ->get(['professional_id', 'handle'])
+            ->groupBy('professional_id')
+            ->map(fn ($rows) => $rows->pluck('handle')->all())
+            ->all();
+
+        $keys = [];
+        foreach ($affiliateIds as $affiliateId) {
+            $affiliateId = (string) $affiliateId;
+            $slugs = [];
+
+            $handle = $handlesByAffiliate[$affiliateId] ?? null;
+            if (is_string($handle) && $handle !== '') {
+                $slugs[] = strtolower($handle);
+            }
+
+            foreach ($aliasesByAffiliate[$affiliateId] ?? [] as $alias) {
+                if (is_string($alias) && $alias !== '') {
+                    $slugs[] = strtolower($alias);
+                }
+            }
+
+            $slugs = array_values(array_unique($slugs));
+
+            // Delete ONLY the primary key, not the :stale twin — a brand change
+            // can fan out to hundreds of affiliate pages; keeping :stale lets the
+            // SWR fast path serve last-good while one worker rebuilds, avoiding a
+            // synchronised cold-rebuild stampede across the affiliate roster.
+            foreach ($slugs as $slug) {
+                $keys[] = CacheKeyGenerator::hydrogenAffiliate($brandId, $slug);
+            }
+        }
+
+        if (! empty($keys)) {
+            Cache::deleteMultiple(array_values(array_unique($keys)));
+        }
+    }
+
+    /**
      * Bust the Hydrogen brand-config cache for a brand professional.
      *
      * The cache key is keyed by shop_domain (1:1 with brand professional via
@@ -1041,6 +1115,14 @@ class SiteCacheService
                     ->first(['professional_type']);
                 if ($owner?->isBrand()) {
                     $this->forgetHydrogenBrandConfig($professionalId);
+
+                    // CACHE-6: also clear Hydrogen affiliate-page caches for every
+                    // active partner linked to this brand. A brand design/config change
+                    // is reflected on each affiliate's Hydrogen page, so those keys must
+                    // be invalidated alongside the brand-config key.
+                    // Walk BrandPartnerLink rows and clear hydrogenAffiliate keys using
+                    // the same (brand, slug) matrix that forgetHydrogenAffiliate() builds.
+                    $this->forgetHydrogenAffiliatesByBrand($professionalId);
                 } else {
                     $this->forgetHydrogenAffiliate((string) $site->id);
                 }
@@ -1053,26 +1135,12 @@ class SiteCacheService
             }
         }
 
-        // CACHE-3: dispatch per-affiliate invalidations with a random 0–30s jitter so
-        // a brand edit (which may affect hundreds of affiliates) doesn't cold-miss every
-        // affiliate cache simultaneously and trigger a cache-rebuild stampede.
+        // SCALE-3: replace the inline O(N) per-subdomain dispatch loop with a single
+        // job that chunks BrandPartnerLink rows internally (500 per chunk). This avoids
+        // dispatching potentially thousands of individual jobs into the queue when a
+        // brand edit invalidates a large affiliate roster.
         if ($professionalId !== '') {
-            $connectedProfessionalIds = BrandPartnerLink::query()
-                ->where('brand_professional_id', $professionalId)
-                ->pluck('affiliate_professional_id')
-                ->all();
-
-            $connectedSubdomains = Site::query()
-                ->whereIn('professional_id', $connectedProfessionalIds)
-                ->pluck('subdomain')
-                ->filter(fn ($subdomain): bool => is_string($subdomain) && trim($subdomain) !== '')
-                ->map(fn ($subdomain): string => strtolower((string) $subdomain))
-                ->all();
-
-            foreach ($connectedSubdomains as $connectedSubdomain) {
-                InvalidateConnectedAffiliateCachesJob::dispatch($connectedSubdomain)
-                    ->delay(now()->addSeconds(random_int(0, 30)));
-            }
+            InvalidateBrandAffiliatesCacheJob::dispatch($professionalId);
         }
     }
 

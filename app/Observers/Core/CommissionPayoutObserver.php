@@ -4,7 +4,9 @@ namespace App\Observers\Core;
 
 use App\Models\Commerce\CommissionPayout;
 use App\Observers\Concerns\LogsWithRequestContext;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Notifications\NotificationPublisher;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 // V2: Core. Publishes payout lifecycle notifications — completion to the
@@ -26,6 +28,7 @@ class CommissionPayoutObserver
 
             // Successful completion — affiliate sees their money landed.
             if ($statusChanged && $payout->status === 'completed') {
+                $this->bustPayoutStateCache($payout);
                 $this->notifyCompleted($payout);
 
                 return;
@@ -35,6 +38,7 @@ class CommissionPayoutObserver
             // Connect onboarding, nobody usefully for brand_missing / system
             // transfer errors — support picks those up from the failure log).
             if ($statusChanged && $payout->status === 'failed') {
+                $this->bustPayoutStateCache($payout);
                 $this->notifyFailed($payout);
 
                 return;
@@ -49,6 +53,7 @@ class CommissionPayoutObserver
                 && $payout->getOriginal('failure_code') === null;
 
             if ($payout->status === 'pending' && $failureCodeJustSet) {
+                $this->bustPayoutStateCache($payout);
                 $this->notifyPending($payout);
 
                 return;
@@ -201,6 +206,23 @@ class CommissionPayoutObserver
                 retentionConfigKey: 'payout',
             );
         }
+    }
+
+    /**
+     * Clear both the primary and :stale affiliate payout-state cache keys.
+     * The analytics endpoint caches payout state under affiliatePayoutState;
+     * CacheLockService writes a :stale twin — forgetting only the primary
+     * leaves the SWR fast path serving the pre-change value until TTL expires.
+     */
+    private function bustPayoutStateCache(CommissionPayout $payout): void
+    {
+        $affiliateId = trim((string) ($payout->affiliate_professional_id ?? ''));
+        if ($affiliateId === '') {
+            return;
+        }
+
+        $key = CacheKeyGenerator::affiliatePayoutState($affiliateId);
+        Cache::deleteMultiple([$key, $key.':stale']);
     }
 
     private function formatAmount(int $cents, string $currencyCode): string

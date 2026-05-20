@@ -31,7 +31,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
 | ☐ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
-| ☐ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
+| ☑ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
 | ☐ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
 | ☐ | F14 | Billing atomicity (Stripe-in-transaction) | P2 | S | Opus | Sonnet | ~2h |
 | ☐ | F15 | Public-site API contract + coverage | P2 | M | Sonnet | Sonnet | ~3h |
@@ -246,7 +246,7 @@ session.
 
 # Band 2 — Pre-pilot polish (F12–F16)
 
-## ☐ F12 — Cache invalidation hygiene
+## ☑ F12 — Cache invalidation hygiene
 **Tier:** P2 · **Effort:** M · **Items:** CACHE-1, CACHE-2, CACHE-6, SCALE-3
 **Implement:** Sonnet · **Review:** Sonnet · **Est. time:** ~3h
 

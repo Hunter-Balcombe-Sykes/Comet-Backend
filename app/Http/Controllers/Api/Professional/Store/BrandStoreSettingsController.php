@@ -279,10 +279,11 @@ class BrandStoreSettingsController extends ApiController
             return $this->error('No Oxygen deployment token saved. Please complete Oxygen setup first.', 400);
         }
 
-        // Deploys flip the storefront from unreachable → live; clear the cache
-        // so the next show() probes fresh state instead of returning the
-        // pre-deploy answer for up to 60s.
-        Cache::forget(CacheKeyGenerator::brandStorefrontStatus($pro->id));
+        // Deploys flip the storefront from unreachable → live; clear both the
+        // primary and :stale twin so the SWR fast path in cachedStorefrontStatus()
+        // can't keep serving the pre-deploy answer for up to 10× the base TTL.
+        $deployKey = CacheKeyGenerator::brandStorefrontStatus($pro->id);
+        Cache::deleteMultiple([$deployKey, $deployKey.':stale']);
 
         $this->deployment->dispatchDeployment($pro->id);
 
