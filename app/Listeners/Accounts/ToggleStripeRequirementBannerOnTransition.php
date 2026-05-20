@@ -31,7 +31,10 @@ class ToggleStripeRequirementBannerOnTransition
 
         try {
             $caps = AccountCapabilities::for($pro);
-            $hasConnected = in_array((string) ($pro->stripe_connect_status ?? ''), ['active', 'enabled'], true);
+            // Normalise case — Stripe webhook payloads have written both
+            // 'active' and 'Active' historically (audit ACCT-4).
+            $status = strtolower(trim((string) ($pro->stripe_connect_status ?? '')));
+            $hasConnected = in_array($status, ['active', 'enabled'], true);
 
             if ($caps->requires_stripe_connect && ! $hasConnected) {
                 Cache::put($key, true, self::TTL_SECONDS);

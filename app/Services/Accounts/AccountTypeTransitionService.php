@@ -13,7 +13,6 @@ use App\Exceptions\InvalidAccountTypeTransition;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Professional\Professional;
-use App\Services\Professional\Brand\BrandPartnerLinkService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -33,17 +32,15 @@ use Illuminate\Support\Facades\DB;
  */
 class AccountTypeTransitionService
 {
-    public function __construct(private readonly BrandPartnerLinkService $brandPartnerLinks) {}
-
     /**
      * Transition a professional's account type.
      *
-     * @param  array{brand_id?: string}  $context  Optional context; `brand_id` is
-     *                                             required when transitioning TO partner.
+     * The BrandPartnerLink (if transitioning TO partner) is created by the
+     * caller before this method runs — this service only flips account_type.
      *
      * @throws InvalidAccountTypeTransition if the transition is forbidden.
      */
-    public function transition(Professional $pro, AccountType $to, array $context = []): void
+    public function transition(Professional $pro, AccountType $to): void
     {
         $from = $pro->account_type;
 
@@ -74,8 +71,13 @@ class AccountTypeTransitionService
         }
 
         // Perform the mutation inside a transaction — row-locked to prevent
-        // concurrent transitions racing on the same professional.
-        DB::transaction(function () use ($pro, $to): void {
+        // concurrent transitions racing on the same professional. The closure
+        // returns true only if account_type was actually flipped; false when a
+        // concurrent request already won the race (audit ACCT-1) — the
+        // post-commit dispatches MUST be skipped in that branch so a phantom
+        // AccountTypeTransitionEvent never fires for a transition that the
+        // losing request did not perform.
+        $mutated = DB::transaction(function () use ($pro, $to): bool {
             /** @var Professional $locked */
             $locked = Professional::query()
                 ->whereKey($pro->id)
@@ -83,12 +85,11 @@ class AccountTypeTransitionService
                 ->firstOrFail();
 
             // Re-check from inside the lock in case another request raced.
-            $currentType = $locked->account_type;
-            if ($currentType === $to) {
-                // Already at the desired state — bail out of the transaction.
-                // The outer $from variable retains the pre-lock value; callers
-                // do not see the after-commit dispatch in this branch.
-                return;
+            if ($locked->account_type === $to) {
+                // Already at the desired state — a concurrent request committed
+                // this transition first. Bail out so the caller skips the
+                // post-commit dispatches.
+                return false;
             }
 
             // Flip account_type. The DB trigger dual-writes professional_type
@@ -99,7 +100,21 @@ class AccountTypeTransitionService
             // Refresh $pro so post-commit callers see the new state.
             $pro->setRawAttributes($locked->getAttributes(), true);
             $pro->syncOriginal();
+
+            // setRawAttributes mutates $pro in place, so AccountCapabilities'
+            // WeakMap memo (keyed by object identity) still holds the pre-
+            // transition capability set. Drop it (audit ACCT-2) so the next
+            // AccountCapabilities::for($pro) rebuilds against the new type.
+            AccountCapabilities::flushCache();
+
+            return true;
         });
+
+        // A concurrent request already performed this transition — nothing to
+        // dispatch.
+        if (! $mutated) {
+            return;
+        }
 
         // ----------------------------------------------------------------
         // Post-commit dispatches — NEVER move these inside DB::transaction.

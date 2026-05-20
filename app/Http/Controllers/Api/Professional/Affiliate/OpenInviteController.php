@@ -63,8 +63,7 @@ class OpenInviteController extends ApiController
         try {
             $transitionService->transition(
                 $professional->fresh() ?? $professional,
-                AccountType::Partner,
-                ['brand_id' => (string) $invite->brand_professional_id]
+                AccountType::Partner
             );
         } catch (InvalidAccountTypeTransition $e) {
             return $this->error($e->getMessage(), 422);

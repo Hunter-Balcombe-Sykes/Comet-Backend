@@ -277,8 +277,7 @@ class BrandAffiliateInviteController extends ApiController
         try {
             $transitionService->transition(
                 $professional->fresh() ?? $professional,
-                AccountType::Partner,
-                ['brand_id' => (string) $claimedInvite->brand_professional_id]
+                AccountType::Partner
             );
         } catch (InvalidAccountTypeTransition $e) {
             return $this->error($e->getMessage(), 422);

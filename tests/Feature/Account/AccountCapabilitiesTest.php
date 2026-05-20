@@ -9,6 +9,7 @@
 // the has_historical_partner_links column + relationship, those rows get
 // updated to exercise the conditional branches.
 
+use App\Enums\AccountType;
 use App\Http\Resources\ProfessionalDashboardResource;
 use App\Http\Resources\ProfessionalResource;
 use App\Models\Core\Professional\Professional;
@@ -20,6 +21,8 @@ function makeProForCapabilities(string $accountType): Professional
 {
     return new Professional(['account_type' => $accountType]);
 }
+
+beforeEach(fn () => AccountCapabilities::flushCache());
 
 describe('AccountCapabilities — brand', function () {
     beforeEach(function () {
@@ -70,6 +73,15 @@ describe('AccountCapabilities — partner', function () {
         expect($this->caps->shows_commissions_dashboard)->toBeTrue();
         expect($this->caps->shows_orders_dashboard)->toBeTrue();
         expect($this->caps->shows_affiliates_dashboard)->toBeFalse();
+        expect($this->caps->shows_ex_partner_panel)->toBeFalse();
+    });
+
+    it('subscribes to the full commerce + payout notification stack', function () {
+        expect($this->caps->receives_order_notifications)->toBeTrue();
+        expect($this->caps->receives_payout_notifications)->toBeTrue();
+        expect($this->caps->receives_payout_settlement_notifications)->toBeTrue();
+        expect($this->caps->receives_commission_notifications)->toBeTrue();
+        expect($this->caps->notification_categories)->toBe('full');
     });
 
     it('inherits brand design (no per-affiliate overrides, plan rule #6)', function () {
@@ -99,6 +111,7 @@ describe('AccountCapabilities — individual', function () {
         expect($this->caps->shows_shop_section)->toBeFalse();
         expect($this->caps->shows_commissions_dashboard)->toBeFalse();
         expect($this->caps->shows_orders_dashboard)->toBeFalse();
+        expect($this->caps->shows_affiliates_dashboard)->toBeFalse();
     });
 
     it('keeps its own design editor and can connect to a brand', function () {
@@ -135,6 +148,48 @@ describe('AccountCapabilities — fallback', function () {
 
         expect($caps)->toBeInstanceOf(AccountCapabilitySet::class);
         expect($caps->worker_kv_type)->toBe('individual');
+    });
+});
+
+describe('AccountCapabilities — conditional individual flags', function () {
+    it('shows the ex-partner panel for an individual with historical partner links', function () {
+        $pro = makeProForCapabilities('individual');
+        $pro->has_historical_partner_links = true;
+
+        expect(AccountCapabilities::for($pro)->shows_ex_partner_panel)->toBeTrue();
+    });
+});
+
+describe('AccountCapabilities — per-instance memoization', function () {
+    it('returns the same memoized set for repeated lookups on one Professional', function () {
+        $pro = makeProForCapabilities('individual');
+
+        expect(AccountCapabilities::for($pro))->toBe(AccountCapabilities::for($pro));
+    });
+
+    it('keeps separate memo entries per Professional instance', function () {
+        $brand = makeProForCapabilities('brand');
+        $individual = makeProForCapabilities('individual');
+
+        expect(AccountCapabilities::for($brand)->worker_kv_type)->toBe('brand');
+        expect(AccountCapabilities::for($individual)->worker_kv_type)->toBe('individual');
+    });
+
+    it('flushCache() drops the memo so an in-place mutated Professional rebuilds (audit ACCT-2)', function () {
+        $pro = makeProForCapabilities('individual');
+        $stale = AccountCapabilities::for($pro);
+        expect($stale->worker_kv_type)->toBe('individual');
+
+        // Mutate in place — same object identity, so the WeakMap memo survives.
+        $pro->account_type = AccountType::Partner;
+        expect(AccountCapabilities::for($pro))->toBe($stale);
+
+        // flushCache forces a rebuild against the new account_type.
+        AccountCapabilities::flushCache();
+        $rebuilt = AccountCapabilities::for($pro);
+
+        expect($rebuilt)->not->toBe($stale);
+        expect($rebuilt->worker_kv_type)->toBe('affiliate');
     });
 });
 

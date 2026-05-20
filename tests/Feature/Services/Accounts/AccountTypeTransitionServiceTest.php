@@ -13,26 +13,15 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Professional\Professional;
 use App\Services\Accounts\AccountTypeTransitionService;
-use App\Services\Professional\Brand\BrandPartnerLinkService;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupProfessionalsTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_links (
-        id TEXT PRIMARY KEY,
-        affiliate_professional_id TEXT NOT NULL,
-        brand_professional_id TEXT NOT NULL,
-        slot INTEGER NOT NULL DEFAULT 0,
-        custom_photos_enabled INTEGER NULL,
-        site_url TEXT NULL,
-        created_at TEXT,
-        updated_at TEXT,
-        deleted_at TEXT NULL
-    )');
 
-    $this->service = new AccountTypeTransitionService(new BrandPartnerLinkService);
+    $this->service = new AccountTypeTransitionService;
 });
 
 function makeTransitionTestPro(string $accountType = 'individual', string $professionalType = 'professional'): Professional
@@ -67,9 +56,8 @@ describe('individual → partner', function () {
         Event::fake();
 
         $pro = makeTransitionTestPro('individual');
-        $brand = makeTransitionTestBrandPro();
 
-        $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
+        $this->service->transition($pro, AccountType::Partner);
 
         $fresh = Professional::query()->findOrFail($pro->id);
         expect($fresh->account_type)->toBe(AccountType::Partner);
@@ -80,9 +68,8 @@ describe('individual → partner', function () {
         Event::fake();
 
         $pro = makeTransitionTestPro('individual');
-        $brand = makeTransitionTestBrandPro();
 
-        $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
+        $this->service->transition($pro, AccountType::Partner);
 
         Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($job) => $job->professionalId === (string) $pro->id);
     });
@@ -92,9 +79,8 @@ describe('individual → partner', function () {
         Event::fake();
 
         $pro = makeTransitionTestPro('individual');
-        $brand = makeTransitionTestBrandPro();
 
-        $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
+        $this->service->transition($pro, AccountType::Partner);
 
         Bus::assertDispatched(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === strtolower($pro->handle));
     });
@@ -104,9 +90,8 @@ describe('individual → partner', function () {
         Event::fake();
 
         $pro = makeTransitionTestPro('individual');
-        $brand = makeTransitionTestBrandPro();
 
-        $this->service->transition($pro, AccountType::Partner, ['brand_id' => (string) $brand->id]);
+        $this->service->transition($pro, AccountType::Partner);
 
         Event::assertDispatched(AccountTypeTransitionEvent::class, function ($event) use ($pro) {
             return $event->professional->id === $pro->id
@@ -203,6 +188,32 @@ describe('same-state no-op', function () {
         $this->service->transition($pro, AccountType::Partner);
 
         Bus::assertNotDispatched(SyncSubdomainToKvJob::class);
+        Event::assertNotDispatched(AccountTypeTransitionEvent::class);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent-race bail-out (audit ACCT-1)
+// ---------------------------------------------------------------------------
+
+describe('concurrent-race bail-out', function () {
+    it('skips every post-commit dispatch when a concurrent request already transitioned the row', function () {
+        Bus::fake();
+        Event::fake();
+
+        // $pro is loaded as `individual`, but a concurrent request commits the
+        // individual→partner transition before our transaction takes the lock.
+        $pro = makeTransitionTestPro('individual');
+        DB::connection('pgsql')->table('core.professionals')
+            ->where('id', $pro->id)
+            ->update(['account_type' => 'partner']);
+
+        $this->service->transition($pro, AccountType::Partner);
+
+        // The in-lock re-check sees account_type === target and bails out, so
+        // no phantom jobs/event fire for a transition this request never made.
+        Bus::assertNotDispatched(SyncSubdomainToKvJob::class);
+        Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
         Event::assertNotDispatched(AccountTypeTransitionEvent::class);
     });
 });

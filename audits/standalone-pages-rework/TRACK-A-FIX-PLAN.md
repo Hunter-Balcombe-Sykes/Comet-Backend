@@ -23,7 +23,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F1 | Shopify webhook tenant-spoofing + webhook hardening | P1 | M | Opus | Opus | ~3h |
 | ☑ | F2 | JWT auth fail-closed | P1 | S | Opus | Opus | ~1.5h |
 | ☑ | F3 | Brand-status notification correctness | P1 | S | Sonnet | Sonnet | ~1h |
-| ☐ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
+| ☑ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
 | ☐ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
 | ☐ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
@@ -101,7 +101,7 @@ All three in `SendBrandStatusNotificationJob.php` — one file, one fix.
 
 **Files:** `app/Jobs/Notifications/SendBrandStatusNotificationJob.php`.
 
-## ☐ F4 — Account lifecycle correctness + coverage
+## ☑ F4 — Account lifecycle correctness + coverage
 **Tier:** P1 · **Effort:** M · **Items:** ACCT-1 (P1), ACCT-2 (P2), ACCT-3 (P3), ACCT-4 (P3), TEST-1 (P1), TEST-2 (P1)
 **Implement:** Opus · **Review:** Opus · **Est. time:** ~4h
 
