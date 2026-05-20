@@ -147,6 +147,16 @@ it('accepts a handle that exists neither in professionals nor in aliases', funct
     expect($errors)->toBeNull();
 });
 
+// PROF-4 — a colon in the handle would collide the Redis cache-key namespace
+// (handle_lc is interpolated into 'pro:handle:...' style keys). BootstrapRequest
+// must reject it at signup, mirroring UpdateSiteRequest / ReclaimHandleRequest.
+it('rejects a handle containing a colon', function () {
+    $errors = validateBootstrapRequest(validBootstrapPayload(['handle' => 'alice:bob']));
+
+    expect($errors)->not->toBeNull();
+    expect($errors)->toHaveKey('handle');
+});
+
 // ── Invite-only signup enforcement ────────────────────────────────────────────
 // A new non-brand professional must arrive with one of invite_token /
 // brand_partner_professional_id / join_brand_handle. Otherwise the bootstrap

@@ -669,15 +669,6 @@ function signSquareBody(string $notificationUrl, string $body, string $key): str
 }
 
 /**
- * Sign a body string with the Fresha HMAC scheme (currently mirrors Square).
- * Update if Fresha's docs reveal a different scheme.
- */
-function signFreshaBody(string $notificationUrl, string $body, string $key): string
-{
-    return base64_encode(hash_hmac('sha256', $notificationUrl.$body, $key, true));
-}
-
-/**
  * Generate a valid Stripe-Signature header for a raw body string.
  * Uses the official Stripe SDK so we exercise the real verification path,
  * not a hand-rolled approximation.

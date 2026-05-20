@@ -29,7 +29,6 @@ use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
 use App\Http\Controllers\Api\Shopify\ShopifyAppOAuthController;
-use App\Http\Controllers\Api\Webhooks\FreshaCatalogWebhookController;
 use App\Http\Controllers\Api\Webhooks\Shopify\ShopifyAppUninstalledWebhookController;
 use App\Http\Controllers\Api\Webhooks\Shopify\ShopifyGdprWebhookController;
 use App\Http\Controllers\Api\Webhooks\Shopify\ShopifyOrdersCancelledWebhookController;
@@ -63,8 +62,6 @@ Route::middleware('throttle:60,1')->group(function () {
 Route::middleware('throttle:webhooks')->group(function () {
     Route::post('/webhooks/square', SquareCatalogWebhookController::class);
     Route::post('/webhooks/square/catalog', SquareCatalogWebhookController::class);
-    Route::post('/webhooks/fresha', FreshaCatalogWebhookController::class);
-    Route::post('/webhooks/fresha/catalog', FreshaCatalogWebhookController::class);
     Route::post('/webhooks/stripe-connect', StripeConnectWebhookController::class);
     // Platform-scope destination-charge events. Snapshot route handles v1 events
     // (payment_intent.*, charge.*); thin route handles v2 account events.

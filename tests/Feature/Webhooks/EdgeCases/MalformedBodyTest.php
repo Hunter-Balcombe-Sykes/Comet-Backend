@@ -1,6 +1,5 @@
 <?php
 
-use App\Jobs\Fresha\SyncFreshaCatalogDeltaJob;
 use App\Jobs\Shopify\ProcessShopifyOrderWebhookJob;
 use App\Jobs\Square\SyncSquareCatalogDeltaJob;
 use App\Models\Core\Professional\ProfessionalIntegration;
@@ -16,11 +15,8 @@ beforeEach(function () {
     setupProfessionalIntegrationsTable();
 
     Config::set('services.shopify.webhook_secret', 'shop-secret');
-    Config::set('services.fresha.webhook_signature_key', 'fresha-key');
-    Config::set('services.fresha.webhook_notification_url', 'http://localhost/api/webhooks/fresha');
     Config::set('services.square.webhook_signature_key', 'square-key');
     Config::set('services.square.webhook_notification_url', 'http://localhost/api/webhooks/square');
-    Config::set('partna.features.fresha_sync', true);
     Config::set('partna.features.square_sync', true);
 });
 
@@ -72,18 +68,6 @@ it('shopify orders/paid — malformed JSON with valid HMAC returns 422 so Shopif
     ], $body)->assertStatus(422);
 
     Bus::assertNotDispatched(ProcessShopifyOrderWebhookJob::class);
-});
-
-it('fresha — JSON array (not object) body is gracefully ignored', function () {
-    $body = '[]';
-    $sig = signFreshaBody('http://localhost/api/webhooks/fresha', $body, 'fresha-key');
-
-    $this->call('POST', '/api/webhooks/fresha', [], [], [], [
-        'CONTENT_TYPE' => 'application/json',
-        'HTTP_X_FRESHA_SIGNATURE' => $sig,
-    ], $body)->assertOk();
-
-    Bus::assertNotDispatched(SyncFreshaCatalogDeltaJob::class);
 });
 
 it('square — payload that is not an array is gracefully ignored', function () {

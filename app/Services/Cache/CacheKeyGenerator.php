@@ -28,6 +28,10 @@ class CacheKeyGenerator
 
     public static function professionalByHandle(string $handle): string
     {
+        // Handle validation enforces [a-z0-9_-] on every write path
+        // (BootstrapRequest / UpdateSiteRequest / ReclaimHandleRequest), so
+        // colons cannot appear in $handle and key-namespace collisions are
+        // not possible.
         return 'pro:handle:'.strtolower($handle);
     }
 

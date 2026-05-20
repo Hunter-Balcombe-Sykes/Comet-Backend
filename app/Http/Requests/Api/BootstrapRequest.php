@@ -83,7 +83,11 @@ class BootstrapRequest extends BaseFormRequest
             : ['sometimes', 'nullable', 'string', 'max:50'];
 
         return [
-            'handle' => ['sometimes', 'nullable', 'string', 'max:40'],
+            // Restrict to [a-z0-9_-] (matches ReclaimHandleRequest). Beyond
+            // cosmetics, this keeps colons out of the handle: handle_lc is later
+            // interpolated into Redis cache keys, where ':' is the namespace
+            // separator — an unrestricted handle could collide key namespaces.
+            'handle' => ['sometimes', 'nullable', 'string', 'max:40', 'regex:/^[a-z0-9_-]+$/i'],
             'display_name' => ['required', 'string', 'max:80'],
             'primary_email' => [
                 'required', 'email:rfc', 'max:255',
