@@ -108,6 +108,62 @@ class ExportChunkJobTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
+    public function test_retry_of_already_completed_chunk_skips_fetch_and_dispatches_next(): void
+    {
+        // QUEUE-1: simulates a retry after markChunkCompleted committed but the
+        // next-chunk dispatch threw. chunks_completed is already 1, so re-running
+        // chunk 0 must NOT re-fetch (the cursor has advanced) — it must skip
+        // straight to dispatching chunk 1.
+        Bus::fake([ExportChunkJob::class, ExportFinalizerJob::class]);
+        Storage::fake('media');
+        config()->set('partna.media_disk', 'media');
+
+        $pro = $this->makeProfessional(['primary_email' => 'j@x.test']);
+        $this->seedPayouts($pro->id, count: 4, role: 'brand');
+        $audit = $this->makeAudit($pro, payoutsTotal: 4, chunksTotal: 2, chunkSize: 2);
+
+        // Chunk 0 already completed: cursor advanced, counter incremented.
+        $audit->forceFill(['chunks_completed' => 1, 'next_chunk_index' => 1])->save();
+
+        // Generator deliberately not mocked — the guard must return before it
+        // is ever resolved. A binding failure here would surface as a test error.
+        (new ExportChunkJob($audit->id, 0))->handle(
+            app(StripeRowGenerator::class),
+            app(JsonlPartWriter::class),
+        );
+
+        // No part file written for the already-completed chunk.
+        $this->assertFalse(
+            Storage::disk('media')->exists("exports/commissions/{$pro->id}/{$audit->id}/parts/chunk-0.jsonl")
+        );
+        // chunks_completed untouched — the guard does not double-count.
+        $this->assertSame(1, $audit->fresh()->chunks_completed);
+        // Hand-off proceeds to the next chunk.
+        Bus::assertDispatched(ExportChunkJob::class, fn ($j) => $j->chunkIndex === 1);
+        Bus::assertNotDispatched(ExportFinalizerJob::class);
+    }
+
+    public function test_retry_of_already_completed_final_chunk_dispatches_finalizer(): void
+    {
+        // QUEUE-1: same retry scenario but the completed chunk was the last one —
+        // the guard must route to the finalizer rather than a non-existent chunk.
+        Bus::fake([ExportChunkJob::class, ExportFinalizerJob::class]);
+        Storage::fake('media');
+        config()->set('partna.media_disk', 'media');
+
+        $pro = $this->makeProfessional(['primary_email' => 'j@x.test']);
+        $audit = $this->makeAudit($pro, payoutsTotal: 2, chunksTotal: 1, chunkSize: 2);
+        $audit->forceFill(['chunks_completed' => 1, 'next_chunk_index' => 1])->save();
+
+        (new ExportChunkJob($audit->id, 0))->handle(
+            app(StripeRowGenerator::class),
+            app(JsonlPartWriter::class),
+        );
+
+        Bus::assertDispatched(ExportFinalizerJob::class, fn ($j) => $j->auditId === $audit->id);
+        Bus::assertNotDispatched(ExportChunkJob::class);
+    }
+
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------

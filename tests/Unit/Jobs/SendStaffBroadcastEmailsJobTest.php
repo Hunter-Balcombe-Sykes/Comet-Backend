@@ -177,3 +177,11 @@ it('splits subscribers into batches of at most 200', function () {
 
     expect($sizes)->toBe([150, 200]);
 });
+
+it('sets a bounded uniqueFor so a crashed worker cannot leave a permanent lock', function () {
+    // QUEUE-3: ShouldBeUnique without $uniqueFor never expires; a SIGKILL'd
+    // worker would block every future broadcast for this notification.
+    $job = new SendStaffBroadcastEmailsJob((string) Str::uuid());
+
+    expect($job->uniqueFor)->toBe(600);
+});

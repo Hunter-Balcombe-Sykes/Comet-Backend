@@ -32,10 +32,16 @@ class SendStaffBroadcastEmailsJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 120;
 
+    // Cap on how long the uniqueness lock survives. Without this the lock has no
+    // expiry, so a SIGKILL'd/OOM'd worker that never reaches the normal release
+    // leaves a permanent lock — every future broadcast for that notification is
+    // then silently dropped by ShouldBeUnique. 600s comfortably exceeds the 120s
+    // timeout + retry/backoff window.
+    public int $uniqueFor = 600;
+
     // Prevent concurrent fan-out for the same notification. The leaf job's
     // broadcast_email_receipts PK already blocks duplicate sends, but without this
-    // a concurrent dispatch doubles the per-subscriber queue work. Lock auto-releases
-    // when the job finishes; no explicit uniqueFor needed beyond the default.
+    // a concurrent dispatch doubles the per-subscriber queue work.
     public function uniqueId(): string
     {
         return 'staff-broadcast:'.$this->notificationId;

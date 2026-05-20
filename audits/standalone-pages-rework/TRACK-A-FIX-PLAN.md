@@ -24,7 +24,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F2 | JWT auth fail-closed | P1 | S | Opus | Opus | ~1.5h |
 | ☑ | F3 | Brand-status notification correctness | P1 | S | Sonnet | Sonnet | ~1h |
 | ☑ | F4 | Account lifecycle correctness + coverage | P1 | M | Opus | Opus | ~4h |
-| ☐ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
+| ☑ | F5 | Job-queue correctness | P1 | M | Opus | Sonnet | ~3h |
 | ☐ | F6 | Redis DB collision + config hygiene | P1 | M | Sonnet | Sonnet | ~2.5h |
 | ☐ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☐ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
@@ -127,7 +127,7 @@ write the fixes and the tests that lock them in within one session.
 `app/Listeners/.../ToggleStripeRequirementBannerOnTransition.php`,
 `tests/Unit/Services/Accounts/*`.
 
-## ☐ F5 — Job-queue correctness
+## ☑ F5 — Job-queue correctness
 **Tier:** P1 · **Effort:** M · **Items:** QUEUE-1 (P1), QUEUE-2 (P2), QUEUE-3 (P2), QUEUE-4 (P2), QUEUE-5 (P3)
 **Implement:** Opus · **Review:** Sonnet · **Est. time:** ~3h
 

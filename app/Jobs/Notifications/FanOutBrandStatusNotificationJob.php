@@ -34,6 +34,13 @@ class FanOutBrandStatusNotificationJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 120;
 
+    // Cap on how long the uniqueness lock survives. Without this the lock has no
+    // expiry, so a SIGKILL'd/OOM'd worker that never reaches the normal release
+    // leaves a permanent lock — every future fan-out for that brand+status pair
+    // is then silently dropped by ShouldBeUnique. 600s comfortably exceeds the
+    // 120s timeout + retry/backoff window.
+    public int $uniqueFor = 600;
+
     // Prevent concurrent fan-out for the same brand+status transition. The leaf
     // job's dedupe key blocks duplicate notification rows, but without this a
     // concurrent dispatch doubles the per-affiliate queue work. Keyed on both

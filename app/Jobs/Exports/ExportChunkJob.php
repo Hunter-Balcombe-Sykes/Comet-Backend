@@ -21,15 +21,19 @@ use Throwable;
  * through StripeRowGenerator, writes a JSONL part file to R2, and either
  * dispatches the next chunk job or hands off to the finalizer.
  *
- * Idempotent: re-running the same chunk overwrites its part file. Cursor is
- * advanced only after a successful part upload, so a crash before upload
- * replays the same payouts on retry.
+ * Idempotent in both retry directions:
+ *  - Crash BEFORE the cursor advances → retry replays the same payouts (the
+ *    cursor still points at the previous chunk, part file is overwritten).
+ *  - Crash AFTER the cursor advances (e.g. the next-chunk dispatch throws) →
+ *    the `chunks_completed > chunkIndex` guard short-circuits the retry, so it
+ *    never re-fetches with the advanced cursor and never corrupts the part file.
  */
 class ExportChunkJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $timeout = 600;
 
     public function __construct(public string $auditId, public int $chunkIndex)
@@ -47,6 +51,24 @@ class ExportChunkJob implements ShouldQueue
     {
         $audit = CommissionExportAudit::find($this->auditId);
         if (! $audit || $audit->isTerminal()) {
+            return;
+        }
+
+        // Idempotent retry guard. `chunks_completed` is a monotonic counter, so
+        // `chunks_completed > chunkIndex` means this chunk's part file was already
+        // written and the cursor already advanced past it. A retry here (e.g. the
+        // next-chunk dispatch below threw after markChunkCompleted committed) must
+        // NOT re-fetch — fetchChunkPayouts would read from the advanced cursor and
+        // overwrite chunk-N.jsonl with chunk-N+1's payouts. Skip straight to the
+        // next dispatch / finalizer instead.
+        if ($audit->chunks_completed > $this->chunkIndex) {
+            Log::info('commission_export.chunk_already_completed', [
+                'audit_id' => $audit->id,
+                'chunk_index' => $this->chunkIndex,
+                'chunks_completed' => $audit->chunks_completed,
+            ]);
+            $this->dispatchNext($audit);
+
             return;
         }
 
@@ -71,6 +93,7 @@ class ExportChunkJob implements ShouldQueue
                     'audit_id' => $audit->id, 'chunk_index' => $this->chunkIndex,
                 ]);
                 ExportFinalizerJob::dispatch($audit->id);
+
                 return;
             }
 
@@ -100,12 +123,7 @@ class ExportChunkJob implements ShouldQueue
                 'duration_ms' => (int) ((microtime(true) - $start) * 1000),
             ]);
 
-            $fresh = $audit->fresh();
-            if ($fresh->chunks_completed >= $fresh->chunks_total) {
-                ExportFinalizerJob::dispatch($audit->id);
-            } else {
-                ExportChunkJob::dispatch($audit->id, $this->chunkIndex + 1);
-            }
+            $this->dispatchNext($audit);
         } catch (Throwable $e) {
             Log::error('commission_export.failed', [
                 'audit_id' => $audit->id,
@@ -114,6 +132,27 @@ class ExportChunkJob implements ShouldQueue
                 'error' => $e->getMessage(),
             ]);
             throw $e; // let queue retry per $tries/$backoff
+        }
+    }
+
+    /**
+     * Hand off to the next chunk or the finalizer based on current progress.
+     *
+     * Reads `chunks_completed` fresh from the DB and uses it as the next chunk
+     * index — this keeps the hand-off correct whether reached from the success
+     * path or the idempotent-retry guard.
+     */
+    private function dispatchNext(CommissionExportAudit $audit): void
+    {
+        $fresh = $audit->fresh();
+        if (! $fresh || $fresh->isTerminal()) {
+            return;
+        }
+
+        if ($fresh->chunks_completed >= $fresh->chunks_total) {
+            ExportFinalizerJob::dispatch($fresh->id);
+        } else {
+            ExportChunkJob::dispatch($fresh->id, $fresh->chunks_completed);
         }
     }
 
@@ -145,10 +184,10 @@ class ExportChunkJob implements ShouldQueue
             if ($cursor) {
                 $query->where(function ($q) use ($cursor) {
                     $q->where('created_at', '<', $cursor->created_at)
-                      ->orWhere(function ($qq) use ($cursor) {
-                          $qq->where('created_at', $cursor->created_at)
-                             ->where('id', '<', $cursor->id);
-                      });
+                        ->orWhere(function ($qq) use ($cursor) {
+                            $qq->where('created_at', $cursor->created_at)
+                                ->where('id', '<', $cursor->id);
+                        });
                 });
             }
         }

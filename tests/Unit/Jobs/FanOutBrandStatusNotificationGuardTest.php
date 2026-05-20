@@ -156,3 +156,11 @@ it('splits affiliates into batches of at most 200', function () {
 
     expect($sizes)->toBe([150, 200]);
 });
+
+it('sets a bounded uniqueFor so a crashed worker cannot leave a permanent lock', function () {
+    // QUEUE-2: ShouldBeUnique without $uniqueFor never expires; a SIGKILL'd
+    // worker would block every future fan-out for this brand+status pair.
+    $job = new FanOutBrandStatusNotificationJob((string) Str::uuid(), 'onboarding');
+
+    expect($job->uniqueFor)->toBe(600);
+});

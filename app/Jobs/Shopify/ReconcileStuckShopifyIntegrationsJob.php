@@ -73,8 +73,24 @@ class ReconcileStuckShopifyIntegrationsJob implements ShouldQueue
         $healed = 0;
         $healthy = 0;
         $transient = 0;
+        $inspected = 0;
+        $deadlineReached = false;
+
+        // Each candidate costs one Admin API round-trip (up to 10s). 200 × 10s
+        // far exceeds the 600s job timeout, so without a wall-clock guard a slow
+        // Shopify could let the worker get SIGKILL'd mid-loop. Stop at 80% of the
+        // timeout, leaving headroom for the trailing log writes; un-inspected
+        // rows are simply picked up by the next daily run.
+        $start = microtime(true);
+        $softDeadlineSeconds = $this->timeout * 0.8;
 
         foreach ($candidates as $integration) {
+            if (microtime(true) - $start > $softDeadlineSeconds) {
+                $deadlineReached = true;
+                break;
+            }
+
+            $inspected++;
             $check = $this->validateAccessToken($integration);
 
             if ($check['valid']) {
@@ -91,8 +107,19 @@ class ReconcileStuckShopifyIntegrationsJob implements ShouldQueue
             $healed++;
         }
 
+        $unprocessed = $candidates->count() - $inspected;
+
+        if ($deadlineReached) {
+            Log::warning('shopify.reconcile.deadline_reached', [
+                'inspected' => $inspected,
+                'unprocessed' => $unprocessed,
+                'soft_deadline_seconds' => (int) $softDeadlineSeconds,
+            ]);
+        }
+
         Log::info('shopify.reconcile.completed', [
-            'inspected' => $candidates->count(),
+            'inspected' => $inspected,
+            'unprocessed' => $unprocessed,
             'healed' => $healed,
             'healthy' => $healthy,
             'transient' => $transient,

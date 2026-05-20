@@ -283,3 +283,14 @@ Schedule::command('commission-exports:prune-expired')
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: commission-exports:prune-expired');
     });
+
+// QUEUE-5: hourly watchdog for SiteMedia rows orphaned in PROCESSING when an
+// image/video variant worker is SIGKILL'd inside its held Redis lock window.
+// Flips rows past the worst-case job duration to FAILED so the dashboard never
+// shows a permanently-spinning upload.
+Schedule::command('media:cleanup-stuck-processing')
+    ->hourly()
+    ->withoutOverlapping()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: media:cleanup-stuck-processing');
+    });
