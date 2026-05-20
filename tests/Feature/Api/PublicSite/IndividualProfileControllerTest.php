@@ -87,6 +87,78 @@ it('excludes brand-only and commerce fields (audit TEST-4)', function () {
     }
 });
 
+// PROF-1: per-block-type settings allow-list. Sensitive keys ("admin_token",
+// "private_note") stored in a block's JSONB MUST be filtered out before the
+// public payload renders. Unknown block_types return an empty settings bag.
+it('PROF-1: filters block settings through the per-type allow-list', function () {
+    $pro = seedIndividualProfile('solo3');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'professional_id' => $pro->id,
+        'block_type' => 'link',
+        'sort_order' => 0,
+        // url is allowed; admin_token + internal_note must NOT leak.
+        'settings' => json_encode([
+            'url' => 'https://example.test',
+            'admin_token' => 'sk_live_secret',
+            'internal_note' => 'staging only',
+        ]),
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo3')->assertOk()->json('data');
+    $linkSettings = $data['blocks'][0]['settings'];
+
+    expect($linkSettings)
+        ->toHaveKey('url', 'https://example.test')
+        ->and($linkSettings)->not->toHaveKey('admin_token')
+        ->and($linkSettings)->not->toHaveKey('internal_note');
+});
+
+it('PROF-1: unknown block_type gets an empty settings bag (strict default)', function () {
+    $pro = seedIndividualProfile('solo4');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'professional_id' => $pro->id,
+        'block_type' => 'experimental_unknown_type',
+        'sort_order' => 0,
+        'settings' => json_encode(['public_thing' => 'visible', 'secret_thing' => 'hidden']),
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo4')->assertOk()->json('data');
+
+    expect($data['blocks'][0]['settings'])->toBe([]);
+});
+
+// PROF-2: design key allow-list. Keys not in IndividualProfileResource::DESIGN_KEYS
+// drop out — even if they end up adjacent to design keys in site.settings.design.
+it('PROF-2: filters design through DESIGN_KEYS allow-list', function () {
+    seedIndividualProfile('solo5', 'individual', [
+        'theme' => 'midnight',
+        'accent_color' => '#FF00AA',
+        // Not in DESIGN_KEYS — must NOT leak.
+        'internal_flag' => 'experimental',
+        'admin_token' => 'shouldnt_be_here',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo5')->assertOk()->json('data');
+
+    expect($data['design'])
+        ->toHaveKey('theme', 'midnight')
+        ->and($data['design'])->toHaveKey('accent_color', '#FF00AA')
+        ->and($data['design'])->not->toHaveKey('internal_flag')
+        ->and($data['design'])->not->toHaveKey('admin_token');
+});
+
 it('returns 404 when the handle does not exist', function () {
     $this->getJson('/api/public/profiles/missing')->assertNotFound();
 });
