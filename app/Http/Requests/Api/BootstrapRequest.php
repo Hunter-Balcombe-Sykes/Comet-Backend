@@ -110,6 +110,14 @@ class BootstrapRequest extends BaseFormRequest
             // Optional even for invite-only signups; the controller resolves it after invite_token fails.
             'brand_signup_code' => ['sometimes', 'nullable', 'string', 'max:32'],
             'shopify_setup_token' => ['sometimes', 'nullable', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/'],
+            // Brand-only signup field. Nullable per plan §6.1 D10 — brand may
+            // skip and set later from /account/settings; BrandSetupController
+            // already flags missing industries for the post-signup setup_complete
+            // gate. Constrained to the canonical taxonomy at
+            // config('partna.brand_industries'); max 3 entries, matching
+            // BrandProfileController validation verbatim.
+            'industries' => ['sometimes', 'nullable', 'array', 'max:3'],
+            'industries.*' => ['string', 'distinct', Rule::in(array_keys(config('partna.brand_industries', [])))],
             'professional_type' => [
                 ...$professionalTypeRules,
                 'string',
@@ -170,15 +178,17 @@ class BootstrapRequest extends BaseFormRequest
         ]);
         $this->sanitizeEmails(['primary_email']);
 
-        // For brands: force handle to match display_name
-        $professionalType = mb_strtolower(trim((string) ($this->professional_type ?? '')));
-        $isBrand = $professionalType === 'brand';
-
+        // Brand handle source order — matches signup-form §4.7 D8:
+        //   1. handle the user typed on the username step (preserved verbatim).
+        //   2. derived from display_name (brand name) when nothing was typed —
+        //      same fallback the individual path uses.
+        //
+        // The pre-§6.1 plan behaviour was to always-override brand handle from
+        // display_name, which would clobber the user-typed handle (and its
+        // pushpull.com / myshopify_domain pre-fill from the Shopify setup
+        // token). Fall through to the generic empty-handle fallback now.
         $handle = $this->handle;
-        if ($isBrand) {
-            // Brand handle always derived from display_name to prevent duplicate brand names
-            $handle = $this->generateHandleFromDisplayName($this->display_name ?? '');
-        } elseif (! is_string($handle) || $handle === '') {
+        if (! is_string($handle) || trim($handle) === '') {
             $handle = $this->generateHandleFromDisplayName($this->display_name ?? '');
         }
 

@@ -47,6 +47,16 @@ class BrandProfile extends BaseModel
         'signup_code',
         'signup_code_active',
         'signup_code_rotated_at',
+        // Shopify-sourced brand-identity fields. Populated by
+        // ShopProfileAutoFillService (fill-empty-only) for locale/shopify_plan/
+        // money_format and by SyncShopifyBrandDesignJob (dual-write with
+        // site.settings.design.slogan, overwrite-on-sync) for slogan and
+        // short_description.
+        'slogan',
+        'short_description',
+        'locale',
+        'shopify_plan',
+        'money_format',
     ];
 
     protected $casts = [

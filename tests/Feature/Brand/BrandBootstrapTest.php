@@ -125,6 +125,11 @@ beforeEach(function () {
         signup_code TEXT,
         signup_code_active INTEGER NOT NULL DEFAULT 1,
         signup_code_rotated_at TEXT,
+        slogan TEXT,
+        short_description TEXT,
+        locale TEXT,
+        shopify_plan TEXT,
+        money_format TEXT,
         created_at TEXT,
         updated_at TEXT
     )');

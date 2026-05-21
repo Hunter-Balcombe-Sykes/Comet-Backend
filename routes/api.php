@@ -58,6 +58,17 @@ Route::middleware('throttle:60,1')->group(function () {
         ->middleware('throttle:10,15');
 });
 
+// Signup-context Shopify install kickoff. Behind supabase.jwt so we know which
+// authenticated user is starting the install — that uid binds the setup token
+// to prevent another caller from claiming the integration. require.email_verified
+// because the brand has just OTP-verified their email earlier in the signup flow;
+// gating the install here matches the same security posture as /bootstrap.
+// Returns JSON with install_url; frontend navigates the browser to it.
+Route::middleware(['supabase.jwt', 'require.email_verified', 'throttle:60,1'])->post(
+    '/shopify/install-from-signup',
+    [ShopifyAppOAuthController::class, 'installFromSignup'],
+);
+
 // Webhooks (no auth middleware — signature validated in controller)
 Route::middleware('throttle:webhooks')->group(function () {
     Route::post('/webhooks/square', SquareCatalogWebhookController::class);

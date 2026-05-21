@@ -246,9 +246,19 @@ class BootstrapController extends ApiController
                     $accountTypeDefaultsService->applyDefaults($professional, $site);
 
                     if ($professional->isBrand()) {
+                        // Industries arrive from the signup form's brand-only
+                        // "what kind of brand" step. Nullable per plan §6.1 D10
+                        // (brand can skip and set later from /account/settings);
+                        // BrandSetupController already flags missing industries
+                        // for the post-signup setup_complete gate.
+                        $industries = is_array($data['industries'] ?? null) ? array_values($data['industries']) : [];
+
                         BrandProfile::firstOrCreate(
                             ['professional_id' => (string) $professional->id],
-                            ['setup_complete' => false]
+                            [
+                                'setup_complete' => false,
+                                'industries' => $industries,
+                            ]
                         );
                     }
                 }
@@ -379,6 +389,22 @@ class BootstrapController extends ApiController
                     $shopifyData = app(ShopifySetupTokenService::class)->peek($shopifySetupToken);
                     if ($shopifyData === null) {
                         throw new RuntimeException('Shopify setup session is invalid or expired. Please reinstall the app from Shopify.');
+                    }
+
+                    // Signup-context install tokens are bound to a specific
+                    // supabase_uid at OAuth-callback time. The calling uid MUST
+                    // match — otherwise a token leak (URL sharing, browser
+                    // history) could let a different account claim the
+                    // integration. Tokens minted from the legacy embedded
+                    // wizard path have bound_uid=null and skip this check.
+                    $boundUid = is_string($shopifyData['bound_uid'] ?? null) ? $shopifyData['bound_uid'] : null;
+                    if ($boundUid !== null && $boundUid !== $uid) {
+                        Log::warning('Bootstrap rejected: setup token bound to a different supabase_uid', [
+                            'uid' => $uid,
+                            'bound_uid' => $boundUid,
+                        ]);
+
+                        throw new RuntimeException('Shopify setup session does not belong to this account. Please restart the Shopify connect step.');
                     }
 
                     $shopDomain = $shopifyData['shop_domain'];
