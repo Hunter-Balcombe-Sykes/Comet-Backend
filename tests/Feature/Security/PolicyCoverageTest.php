@@ -17,8 +17,6 @@ use Symfony\Component\Finder\Finder;
 
 const POLICY_EXEMPT = [
     // Catalog & system tables — no tenant ownership; admin-only or read-only.
-    \App\Models\Billing\Plan::class,
-    \App\Models\Billing\WebhookEvent::class,
     \App\Models\Core\MediaVariant::class,           // owned via parent SiteMedia
     \App\Models\Core\Waitlist\WaitlistSignup::class, // public submission, no actor
 
