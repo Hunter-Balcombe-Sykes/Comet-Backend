@@ -111,6 +111,15 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.design.border_thickness' => ['sometimes', 'nullable', 'string', Rule::in(['hairline', 'default', 'bold'])],
             'settings.design.section_spacing' => ['sometimes', 'nullable', 'string', Rule::in(['tight', 'default', 'spacious'])],
             'settings.design.theme_mode' => ['sometimes', 'nullable', 'string', Rule::in(['light', 'dark'])],
+            // Theme preset picker. Individuals (and brands when the
+            // dashboard surfaces a per-sitepage override) pick which @partnaau/themes
+            // layout renders their public profile. `theme-1` is the default
+            // frosted-card layout; `theme-2` is the Apple-style long-scroll.
+            // Allowlist enforced here so the public profile API never
+            // surfaces a value that maps to a non-existent layout — the
+            // Astro/Hydrogen resolvers floor anything outside this set to
+            // theme-1 as a defence-in-depth measure.
+            'settings.design.theme' => ['sometimes', 'nullable', 'string', Rule::in(['theme-1', 'theme-2'])],
             // Logos are downloaded from Shopify into our own storage so the URLs
             // are stable even if Shopify CDN tokens rotate.
             'settings.design.logo' => ['prohibited'],
