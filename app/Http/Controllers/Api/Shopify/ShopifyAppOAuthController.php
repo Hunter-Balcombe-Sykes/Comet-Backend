@@ -63,6 +63,56 @@ class ShopifyAppOAuthController extends ApiController
         return redirect()->away($authUrl);
     }
 
+    /**
+     * Signup-context install kickoff. Used when a brand picks "Continue with
+     * Shopify" on the Partna signup form (POST from app.partna.au, behind
+     * supabase.jwt middleware so we know who initiated). Mints an OAuth nonce
+     * AND a sibling "meta" cache entry binding the install to the calling
+     * supabase_uid. The callback uses that binding to (a) decide to redirect
+     * back to /sign-up instead of the embedded wizard, and (b) bind the
+     * setup token so only the same uid can consume it at /bootstrap.
+     *
+     * Returns JSON `{ install_url }` rather than a 302; the browser navigates
+     * client-side via window.location.href to avoid CORS preflight issues on
+     * a cross-origin POST+JSON.
+     */
+    public function installFromSignup(Request $request): JsonResponse
+    {
+        $shop = $this->normalizeShopDomain((string) $request->input('shop', ''));
+        $supabaseUid = (string) $request->attributes->get('supabase_uid', '');
+
+        if ($shop === '') {
+            return $this->error('Missing shop parameter.', 400);
+        }
+
+        if (! $this->isValidShopDomain($shop)) {
+            return $this->error('Invalid shop domain.', 400);
+        }
+
+        if ($supabaseUid === '') {
+            return $this->error('Authentication required.', 401);
+        }
+
+        $apiKey = (string) config('services.shopify.api_key');
+        $redirectUri = rtrim((string) config('app.url'), '/').'/api/shopify/callback';
+        $nonce = bin2hex(random_bytes(16));
+
+        cache()->put("shopify_oauth_nonce_{$shop}", $nonce, now()->addMinutes(10));
+        cache()->put(
+            "shopify_oauth_nonce_meta_{$shop}",
+            ['signup_context' => true, 'supabase_uid' => $supabaseUid],
+            now()->addMinutes(10),
+        );
+
+        $authUrl = 'https://'.$shop.'/admin/oauth/authorize?'.http_build_query([
+            'client_id' => $apiKey,
+            'redirect_uri' => $redirectUri,
+            'state' => $nonce,
+        ]);
+
+        return $this->success(['install_url' => $authUrl]);
+    }
+
     public function callback(Request $request): RedirectResponse|JsonResponse
     {
         $shop = $this->normalizeShopDomain((string) $request->query('shop', ''));
@@ -152,8 +202,32 @@ class ShopifyAppOAuthController extends ApiController
             // is a Shopify-controlled, editable string and cannot prove ownership of a
             // Partna account. Every non-reinstall install now uses the setup-token flow
             // below — the merchant must Supabase-authenticate inside the setup wizard
+            // (legacy path) or already has a Supabase session (signup-context path)
             // before BootstrapController attaches the integration to a Professional.
-            $setupToken = $this->setupTokens->create($shop, $accessToken, $shopData, $scopes, $shopEmail);
+
+            // Signup-context branch: this OAuth flight was kicked off by
+            // POST /api/shopify/install-from-signup (the brand picked "Continue
+            // with Shopify" on app.partna.au/account/sign-up). Bind the setup
+            // token to that supabase_uid and redirect the brand back to /sign-up
+            // instead of into the embedded admin wizard, so they can finish
+            // creating their Partna account with the prefilled Shopify data.
+            $nonceMeta = cache()->pull("shopify_oauth_nonce_meta_{$shop}");
+            $isSignupContext = is_array($nonceMeta) && ($nonceMeta['signup_context'] ?? false) === true;
+            $boundUid = $isSignupContext && is_string($nonceMeta['supabase_uid'] ?? null)
+                ? (string) $nonceMeta['supabase_uid']
+                : null;
+
+            $setupToken = $this->setupTokens->create($shop, $accessToken, $shopData, $scopes, $shopEmail, $boundUid);
+
+            if ($isSignupContext) {
+                Log::info('Shopify OAuth: signup-context install, redirecting to Partna sign-up', [
+                    'shop_domain' => $shop,
+                ]);
+
+                $frontendUrl = rtrim((string) config('services.partna.frontend_url', 'https://app.partna.au'), '/');
+
+                return redirect()->away("{$frontendUrl}/account/sign-up?shopify_setup_token={$setupToken}");
+            }
 
             Log::info('Shopify OAuth: fresh install, redirecting to setup', [
                 'shop_domain' => $shop,

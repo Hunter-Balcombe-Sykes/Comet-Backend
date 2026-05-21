@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     $conn = DB::connection('pgsql');
-    foreach (['core', 'site'] as $schema) {
+    foreach (['core', 'site', 'brand'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
         } catch (\Throwable) {
@@ -45,6 +45,25 @@ beforeEach(function () {
         created_at TEXT,
         updated_at TEXT,
         deleted_at TEXT
+    )');
+
+    // brand_profiles table needed because the job dual-writes slogan +
+    // short_description from the Storefront Brand object onto BrandProfile
+    // per PARTNA-SIGNUP-OVERHAUL-PLAN.md §8.5.
+    $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
+        id TEXT PRIMARY KEY,
+        professional_id TEXT UNIQUE,
+        slogan TEXT,
+        short_description TEXT,
+        locale TEXT,
+        shopify_plan TEXT,
+        money_format TEXT,
+        setup_complete INTEGER DEFAULT 0,
+        signup_code TEXT,
+        signup_code_active INTEGER NOT NULL DEFAULT 1,
+        signup_code_rotated_at TEXT,
+        created_at TEXT,
+        updated_at TEXT
     )');
 
     // The job resolves its disk via mediaDiskName(), which defaults to 'media'

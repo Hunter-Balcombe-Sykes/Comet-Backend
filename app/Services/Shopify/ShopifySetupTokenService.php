@@ -10,12 +10,29 @@ class ShopifySetupTokenService
 
     private const TTL_MINUTES = 60;
 
+    /**
+     * Cache the Shopify OAuth result keyed by a one-shot setup token returned to
+     * the merchant. The token is then consumed by BootstrapController during the
+     * signup-completion POST, which writes the access token into a
+     * ProfessionalIntegration row inside the same DB transaction as the
+     * Professional creation.
+     *
+     * @param  string|null  $boundUid  Optional Supabase uid this setup token is
+     *   bound to. When set, BootstrapController must verify the calling uid
+     *   matches before consuming. Used for the signup-flow Shopify install
+     *   (POST /api/shopify/install-from-signup) where we know upfront which
+     *   Supabase user kicked off the OAuth — prevents another caller who
+     *   obtains the token from binding the integration to a different account.
+     *   Null for the legacy/manual flow (Shopify App Store install) where the
+     *   merchant authenticates inside the embedded wizard.
+     */
     public function create(
         string $shopDomain,
         string $accessToken,
         array $shopData,
         array $scopes,
         string $shopEmail,
+        ?string $boundUid = null,
     ): string {
         $token = bin2hex(random_bytes(32));
 
@@ -25,6 +42,7 @@ class ShopifySetupTokenService
             'shop_data' => $shopData,
             'scopes' => $scopes,
             'shop_email' => $shopEmail,
+            'bound_uid' => $boundUid,
             'created_at' => now()->toIso8601String(),
         ], now()->addMinutes(self::TTL_MINUTES));
 

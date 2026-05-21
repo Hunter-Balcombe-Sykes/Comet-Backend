@@ -138,6 +138,7 @@ class SyncShopifyBrandDesignJob implements ShouldBeUnique, ShouldQueue
         $design['border_thickness'] = $imported['border_thickness'] ?? ($design['border_thickness'] ?? null);
         $design['section_spacing'] = $imported['section_spacing'] ?? ($design['section_spacing'] ?? null);
         $design['slogan'] = $imported['slogan'] ?? ($design['slogan'] ?? null);
+        $design['short_description'] = $imported['short_description'] ?? ($design['short_description'] ?? null);
 
         // Strip the legacy logo subtree if any older row still has it. The
         // backfill migration cleans existing rows; this keeps us idempotent
@@ -147,6 +148,32 @@ class SyncShopifyBrandDesignJob implements ShouldBeUnique, ShouldQueue
         $settings['design'] = $design;
         $site->settings = $settings;
         $site->save();
+
+        // Dual-write slogan + short_description to BrandProfile per plan §6.1a /
+        // §8.5. BrandProfile is the new canonical home for brand-identity
+        // fields (queryable, exportable); site.settings.design.slogan stays for
+        // existing Hydrogen / theme rendering consumers. Both kept in sync each
+        // run. Overwrite semantics for design — Shopify is source of truth.
+        $brandProfile = \App\Models\Core\Professional\BrandProfile::query()
+            ->where('professional_id', $integration->professional_id)
+            ->first();
+        if ($brandProfile !== null) {
+            $brandProfileDirty = false;
+
+            if (is_string($imported['slogan'] ?? null) && $imported['slogan'] !== '') {
+                $brandProfile->slogan = $imported['slogan'];
+                $brandProfileDirty = true;
+            }
+
+            if (is_string($imported['short_description'] ?? null) && $imported['short_description'] !== '') {
+                $brandProfile->short_description = $imported['short_description'];
+                $brandProfileDirty = true;
+            }
+
+            if ($brandProfileDirty) {
+                $brandProfile->save();
+            }
+        }
 
         // Mirror the shape to a shop metafield. Best-effort — a failure here
         // doesn't invalidate the DB write.
@@ -159,6 +186,7 @@ class SyncShopifyBrandDesignJob implements ShouldBeUnique, ShouldQueue
                     'border_thickness' => $design['border_thickness'],
                     'section_spacing' => $design['section_spacing'],
                     'slogan' => $design['slogan'],
+                    'short_description' => $design['short_description'],
                     'synced_at' => now()->toIso8601String(),
                 ]);
             } catch (\Throwable $e) {

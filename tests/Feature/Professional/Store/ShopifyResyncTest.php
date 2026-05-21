@@ -33,6 +33,7 @@ beforeEach(function () {
         first_name TEXT,
         last_name TEXT,
         primary_email TEXT,
+        public_contact_email TEXT,
         phone TEXT,
         professional_type TEXT DEFAULT "professional",
         account_type TEXT NULL,
@@ -58,6 +59,11 @@ beforeEach(function () {
         signup_code TEXT,
         signup_code_active INTEGER NOT NULL DEFAULT 1,
         signup_code_rotated_at TEXT,
+        slogan TEXT,
+        short_description TEXT,
+        locale TEXT,
+        shopify_plan TEXT,
+        money_format TEXT,
         created_at TEXT,
         updated_at TEXT
     )');
@@ -178,17 +184,22 @@ function makeResyncRequest(string $type = 'brand', ?Professional $pro = null): R
 }
 
 // ---------- ShopProfileAutoFillService::resyncFromShopData unit tests ----------
-// Option B: Shopify wins when it has a value; local is preserved only when
-// Shopify returns empty. No "was this manually edited" check — local DB is
-// treated as a cache, Shopify is the source of truth.
+// Fill-empty-only semantic: Shopify provides defaults for blanks only.
+// Non-empty local values are PRESERVED regardless of what Shopify returns.
+// Brand-typed values are the source of truth for non-design fields; only
+// design fields (logo, colours, slogan, short_description) overwrite freely,
+// and those flow through SyncShopifyBrandDesignJob, not this service.
+// See PARTNA-SIGNUP-OVERHAUL-PLAN.md §6.1a.
 
-it('overwrites all Shopify-sourced fields when Shopify has values', function () {
+it('preserves all non-empty local Shopify-sourced fields on resync (fill-empty-only)', function () {
+    // createResyncBrand seeds every non-design field with non-empty values, so
+    // every FIELD_MAP entry should end up in 'preserved'.
     [$brand, $brandProfile, $integration] = createResyncBrand();
 
     $service = app(ShopProfileAutoFillService::class);
     $result = $service->resyncFromShopData($integration, resyncFakeShopPayload());
 
-    expect($result['updated'])->toContain(
+    expect($result['preserved'])->toContain(
         'display_name',
         'primary_email',
         'phone',
@@ -202,25 +213,26 @@ it('overwrites all Shopify-sourced fields when Shopify has values', function () 
         'business_website',
         'shop_currency',
     );
-    expect($result['preserved'])->toBeEmpty();
+    expect($result['updated'])->toBeEmpty();
 
     $brand->refresh();
-    expect($brand->display_name)->toBe('Fresh Brand Name');
-    expect($brand->primary_email)->toBe('fresh@shop.example');
-    expect($brand->phone)->toBe('+61400000000');
-    expect($brand->location_city)->toBe('Sydney');
+    expect($brand->display_name)->toBe('Original Name');
+    expect($brand->primary_email)->toBe('original@example.com');
+    expect($brand->phone)->toBe('+61411111111');
+    expect($brand->location_city)->toBe('Melbourne');
     expect($brand->country_code)->toBe('AU');
 
     $brandProfile->refresh();
-    expect($brandProfile->business_website)->toBe('freshbrand.myshopify.com');
+    expect($brandProfile->business_website)->toBe('original.example.com');
 
     $integration->refresh();
-    expect($integration->provider_metadata['shop_currency'])->toBe('AUD');
+    expect($integration->provider_metadata['shop_currency'])->toBe('USD');
 });
 
-it('overwrites a manually edited field — local edits do not block Shopify resync', function () {
-    // Core Option B behavior: local value differs from what Shopify will
-    // return, and resync still overwrites. This is the whole point of the change.
+it('preserves a manually edited field — local edits win over Shopify resync', function () {
+    // Fill-empty-only: brand changed display_name locally; Shopify resync must
+    // NOT clobber it. This is the inverted regression test for the old
+    // Option-B semantic.
     [$brand, , $integration] = createResyncBrand([
         'display_name' => 'User Edited Name',
         'phone' => '+61499999999',
@@ -229,13 +241,102 @@ it('overwrites a manually edited field — local edits do not block Shopify resy
     $service = app(ShopProfileAutoFillService::class);
     $result = $service->resyncFromShopData($integration, resyncFakeShopPayload());
 
-    expect($result['updated'])->toContain('display_name', 'phone');
-    expect($result['preserved'])->not->toContain('display_name');
-    expect($result['preserved'])->not->toContain('phone');
+    expect($result['preserved'])->toContain('display_name', 'phone');
+    expect($result['updated'])->not->toContain('display_name');
+    expect($result['updated'])->not->toContain('phone');
 
     $brand->refresh();
-    expect($brand->display_name)->toBe('Fresh Brand Name');
+    expect($brand->display_name)->toBe('User Edited Name');
+    expect($brand->phone)->toBe('+61499999999');
+});
+
+it('fills empty local fields while preserving non-empty ones on resync (mixed)', function () {
+    // display_name kept (locally set); phone empty (will fill from Shopify).
+    [$brand, , $integration] = createResyncBrand([
+        'phone' => null,
+        'location_city' => null,
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $result = $service->resyncFromShopData($integration, resyncFakeShopPayload());
+
+    expect($result['updated'])->toContain('phone', 'location_city');
+    expect($result['preserved'])->toContain('display_name', 'primary_email');
+
+    $brand->refresh();
     expect($brand->phone)->toBe('+61400000000');
+    expect($brand->location_city)->toBe('Sydney');
+    expect($brand->display_name)->toBe('Original Name');
+});
+
+it('splits shop_owner into first_name + last_name when both are locally empty', function () {
+    [$brand, , $integration] = createResyncBrand([
+        'first_name' => null,
+        'last_name' => null,
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $result = $service->resyncFromShopData($integration, resyncFakeShopPayload([
+        'shop_owner' => 'Sarah Jones',
+    ]));
+
+    expect($result['updated'])->toContain('first_name', 'last_name');
+
+    $brand->refresh();
+    expect($brand->first_name)->toBe('Sarah');
+    expect($brand->last_name)->toBe('Jones');
+});
+
+it('preserves locally-set first_name/last_name even when shop_owner is present', function () {
+    [$brand, , $integration] = createResyncBrand([
+        'first_name' => 'Alex',
+        'last_name' => 'Owner',
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $result = $service->resyncFromShopData($integration, resyncFakeShopPayload([
+        'shop_owner' => 'Sarah Jones',
+    ]));
+
+    expect($result['preserved'])->toContain('first_name', 'last_name');
+
+    $brand->refresh();
+    expect($brand->first_name)->toBe('Alex');
+    expect($brand->last_name)->toBe('Owner');
+});
+
+it('fills public_contact_email from Shopify customer_email when local is empty', function () {
+    [$brand, , $integration] = createResyncBrand([
+        'public_contact_email' => null,
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $result = $service->resyncFromShopData($integration, resyncFakeShopPayload([
+        'customer_email' => 'customer@shop.example',
+    ]));
+
+    expect($result['updated'])->toContain('public_contact_email');
+
+    $brand->refresh();
+    expect($brand->public_contact_email)->toBe('customer@shop.example');
+});
+
+it('fills new BrandProfile columns (locale, shopify_plan, money_format) from Shopify when empty', function () {
+    [, $brandProfile, $integration] = createResyncBrand();
+
+    $service = app(ShopProfileAutoFillService::class);
+    $result = $service->resyncFromShopData($integration, resyncFakeShopPayload([
+        'primary_locale' => 'en-AU',
+        'plan_display_name' => 'Shopify Basic',
+        'money_format' => '${{ amount }}',
+    ]));
+
+    expect($result['updated'])->toContain('locale', 'shopify_plan', 'money_format');
+
+    $brandProfile->refresh();
+    expect($brandProfile->locale)->toBe('en-AU');
+    expect($brandProfile->shopify_plan)->toBe('Shopify Basic');
+    expect($brandProfile->money_format)->toBe('${{ amount }}');
 });
 
 it('preserves a field when Shopify returns empty string', function () {
@@ -294,7 +395,14 @@ it('preserves shop_currency when Shopify returns empty currency', function () {
 });
 
 it('normalizes currency and country_code to uppercase', function () {
-    [$brand, , $integration] = createResyncBrand();
+    // Clear the local values so the fill-empty-only rule lets Shopify write
+    // (and we can observe the uppercase normalization). country_code is also
+    // cleared so the AU normalization is real, not accidental.
+    [$brand, , $integration] = createResyncBrand(
+        ['country_code' => null],
+        [],
+        ['shop_currency' => ''],
+    );
 
     $service = app(ShopProfileAutoFillService::class);
     $service->resyncFromShopData($integration, resyncFakeShopPayload([
@@ -329,8 +437,12 @@ it('preserves a locked field when brand has opted out of Shopify overwrite for i
 });
 
 it('syncs non-locked fields while preserving locked ones', function () {
+    // Locked field stays locked; non-locked + locally-empty fields fill from Shopify.
+    // Non-locked + locally-non-empty fields are preserved by the fill-empty-only rule
+    // (see other tests). This test pivots on the lock list specifically — phone and
+    // location_city are nulled locally so we can observe the lock vs no-lock split.
     [$brand, , $integration] = createResyncBrand(
-        ['display_name' => 'My Custom Name'],
+        ['display_name' => 'My Custom Name', 'phone' => null, 'location_city' => null],
         [],
         ['shopify_sync_locked_fields' => ['display_name']],
     );
@@ -366,6 +478,89 @@ it('preserves multiple locked fields across professional and brand_profile targe
 
     $brandProfile->refresh();
     expect($brandProfile->business_website)->toBe('my-custom-site.com');
+});
+
+// ---------- ShopProfileAutoFillService::fillFromShopData unit tests ----------
+// fillFromShopData is the signup-time fill path (BootstrapController). Same
+// fill-empty-only semantic as resync. Pre-existing bug: the method used short-
+// ternary ($shopify ?: $existing) which OVERWROTE existing values when Shopify
+// had any. The docblock said the opposite. This block is the regression test.
+
+it('fillFromShopData preserves existing professional fields (regression for the overwrite bug)', function () {
+    [$brand, $brandProfile, ] = createResyncBrand([
+        'display_name' => 'Brand-Typed Name',
+        'phone' => '+61400000001',
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $site = new \App\Models\Core\Site\Site;
+    $site->id = 'site-fill-1';
+    // No save — fillFromShopData doesn't touch the Site row.
+
+    $service->fillFromShopData($brand, $site, $brandProfile, resyncFakeShopPayload());
+
+    $brand->refresh();
+    expect($brand->display_name)->toBe('Brand-Typed Name');
+    expect($brand->phone)->toBe('+61400000001');
+});
+
+it('fillFromShopData fills empty Professional fields from Shopify', function () {
+    [$brand, $brandProfile, ] = createResyncBrand([
+        'display_name' => '',
+        'phone' => null,
+        'public_contact_email' => null,
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $site = new \App\Models\Core\Site\Site;
+    $site->id = 'site-fill-2';
+
+    $service->fillFromShopData($brand, $site, $brandProfile, resyncFakeShopPayload([
+        'customer_email' => 'customer@shop.example',
+    ]));
+
+    $brand->refresh();
+    expect($brand->display_name)->toBe('Fresh Brand Name');
+    expect($brand->phone)->toBe('+61400000000');
+    expect($brand->public_contact_email)->toBe('customer@shop.example');
+});
+
+it('fillFromShopData splits shop_owner into first/last on empty Professional', function () {
+    [$brand, $brandProfile, ] = createResyncBrand([
+        'first_name' => null,
+        'last_name' => null,
+    ]);
+
+    $service = app(ShopProfileAutoFillService::class);
+    $site = new \App\Models\Core\Site\Site;
+    $site->id = 'site-fill-3';
+
+    $service->fillFromShopData($brand, $site, $brandProfile, resyncFakeShopPayload([
+        'shop_owner' => 'Sarah Jones',
+    ]));
+
+    $brand->refresh();
+    expect($brand->first_name)->toBe('Sarah');
+    expect($brand->last_name)->toBe('Jones');
+});
+
+it('fillFromShopData fills empty BrandProfile.locale, shopify_plan, money_format from Shopify', function () {
+    [$brand, $brandProfile, ] = createResyncBrand();
+
+    $service = app(ShopProfileAutoFillService::class);
+    $site = new \App\Models\Core\Site\Site;
+    $site->id = 'site-fill-4';
+
+    $service->fillFromShopData($brand, $site, $brandProfile, resyncFakeShopPayload([
+        'primary_locale' => 'en-AU',
+        'plan_display_name' => 'Shopify Basic',
+        'money_format' => '${{ amount }}',
+    ]));
+
+    $brandProfile->refresh();
+    expect($brandProfile->locale)->toBe('en-AU');
+    expect($brandProfile->shopify_plan)->toBe('Shopify Basic');
+    expect($brandProfile->money_format)->toBe('${{ amount }}');
 });
 
 // ---------- ShopifyDataResyncService integration tests ----------
@@ -438,7 +633,10 @@ it('preserves sibling provider_metadata keys across a resync (concurrency regres
     expect($fresh['publication_id'])->toBe('999');
 
     expect($fresh['last_resynced_at'])->toBe($result['last_resynced_at']);
-    expect($fresh['shop_currency'])->toBe('AUD');
+    // shop_currency was seeded as 'USD' in createResyncBrand and stays under
+    // fill-empty-only — the sibling-preservation test only cares about other
+    // keys surviving, not about Shopify overwriting shop_currency.
+    expect($fresh['shop_currency'])->toBe('USD');
 });
 
 it('rolls back multi-model writes when a post-API save fails', function () {

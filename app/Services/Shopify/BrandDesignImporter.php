@@ -90,6 +90,7 @@ class BrandDesignImporter
         id
         brand {
           slogan
+          shortDescription
           logo { image { url } }
           squareLogo { image { url } }
           colors {
@@ -126,6 +127,7 @@ class BrandDesignImporter
      *     section_spacing: ?string,
      *     logo: array{full_url: ?string, square_url: ?string},
      *     slogan: ?string,
+     *     short_description: ?string,
      *     shop_gid: ?string
      * }
      */
@@ -167,6 +169,7 @@ class BrandDesignImporter
                 'square_url' => Arr::get($brand, 'squareLogo.image.url'),
             ],
             'slogan' => Arr::get($brand, 'slogan'),
+            'short_description' => Arr::get($brand, 'shortDescription'),
             'shop_gid' => Arr::get($brand, 'shop_gid'),
         ];
     }
@@ -203,6 +206,7 @@ class BrandDesignImporter
 
         return [
             'slogan' => $response->json('data.shop.brand.slogan'),
+            'shortDescription' => $response->json('data.shop.brand.shortDescription'),
             'logo' => $response->json('data.shop.brand.logo') ?? [],
             'squareLogo' => $response->json('data.shop.brand.squareLogo') ?? [],
             'colors' => $response->json('data.shop.brand.colors') ?? [],
@@ -214,6 +218,7 @@ class BrandDesignImporter
     {
         return [
             'slogan' => null,
+            'shortDescription' => null,
             'logo' => [],
             'squareLogo' => [],
             'colors' => [],
