@@ -71,8 +71,6 @@ it('upserts waitlist submissions by normalized email', function () {
     expect($row->name)->toBe('Brand One Updated');
     expect($row->phone)->toBe('+61422222222');
     expect($row->industry)->toBe('services_and_software');
-    expect((int) $row->number_of_team_members)->toBe(7);
-    expect((int) $row->number_of_affiliates_ambassadors)->toBe(30);
     expect((int) $row->pilot_program_opt_in)->toBe(1);
 });
 

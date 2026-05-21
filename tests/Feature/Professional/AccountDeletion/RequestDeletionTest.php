@@ -33,27 +33,6 @@ function makeDeletionTestProfessional(array $overrides = []): Professional
     return Professional::query()->where('id', $id)->first();
 }
 
-it('rejects request when professional has pending commission payouts', function () {
-    $pro = makeDeletionTestProfessional();
-
-    DB::connection('pgsql')->table('commerce.commission_payouts')->insert([
-        'id' => (string) Str::uuid(),
-        'brand_professional_id' => $pro->id,
-        'affiliate_professional_id' => (string) Str::uuid(),
-        'status' => 'pending',
-        'amount_cents' => 500,
-        'created_at' => now()->toIso8601String(),
-    ]);
-
-    $service = new AccountDeletionService;
-    $request = Request::create('/', 'POST');
-
-    $result = $service->request($pro, $request);
-
-    expect($result['success'])->toBeFalse()
-        ->and($result['reasons'])->toContain('pending_payouts');
-});
-
 it('stores hashed token, sets requested_at, and sends confirmation mail', function () {
     $pro = makeDeletionTestProfessional();
 

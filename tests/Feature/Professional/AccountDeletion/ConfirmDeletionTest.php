@@ -57,28 +57,6 @@ it('confirms with valid token: flips status, snapshots previous status, nulls to
     Mail::assertSent(AccountDeletionScheduledMail::class);
 });
 
-it('deletes professional integrations at confirm time (security)', function () {
-    $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
-
-    DB::connection('pgsql')->table('core.professional_integrations')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'provider' => 'shopify',
-        'access_token' => 'shpat_secret_token',
-        'created_at' => now()->toIso8601String(),
-        'updated_at' => now()->toIso8601String(),
-    ]);
-
-    $service = new AccountDeletionService;
-    $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
-
-    $count = DB::connection('pgsql')->table('core.professional_integrations')
-        ->where('professional_id', $pro->id)->count();
-
-    expect($count)->toBe(0);
-});
-
 it('rejects with 410 when token is older than 24 hours', function () {
     $rawToken = 'raw-token-'.Str::random(54);
     $pro = seedRequestedProfessional($rawToken, [
@@ -248,31 +226,6 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
     $site = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->first();
     expect((bool) $site->is_published)->toBeFalse()
         ->and($site->unpublished_at)->not->toBeNull();
-});
-
-it('pseudonymises brand_profiles PII (abn, acn, legal_business_name) at confirm time', function () {
-    $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
-
-    DB::connection('pgsql')->table('brand.brand_profiles')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'abn' => '12 345 678 901',
-        'acn' => '123 456 789',
-        'legal_business_name' => 'Jane Doe Pty Ltd',
-    ]);
-
-    $service = new AccountDeletionService;
-    $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
-
-    $profile = DB::connection('pgsql')->table('brand.brand_profiles')
-        ->where('professional_id', $pro->id)
-        ->first();
-
-    expect($profile)->not->toBeNull()
-        ->and($profile->abn)->toBeNull()
-        ->and($profile->acn)->toBeNull()
-        ->and($profile->legal_business_name)->toBeNull();
 });
 
 it('pseudonymises professionals public_contact and about PII at confirm time', function () {

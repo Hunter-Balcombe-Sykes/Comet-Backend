@@ -8,21 +8,6 @@ it('registers documents pool with max 1', function () {
     expect(config('partna.image_pools.documents'))->toMatchArray(['max' => 1]);
 });
 
-it('allows documents for influencer (and therefore professional via inheritance)', function () {
-    expect(config('partna.account_type_defaults.influencer.allowed_sections'))
-        ->toContain('documents');
-});
-
-it('allows documents for professional account type', function () {
-    expect(config('partna.account_type_defaults.professional.allowed_sections'))
-        ->toContain('documents');
-});
-
-it('does NOT allow documents for brand accounts', function () {
-    expect(config('partna.account_type_defaults.brand.allowed_sections'))
-        ->not->toContain('documents');
-});
-
 it('exposes POOL_DOCUMENTS and MEDIA_TYPE_DOCUMENT constants', function () {
     expect(\App\Models\Core\Site\SiteMedia::POOL_DOCUMENTS)->toBe('documents');
     expect(\App\Models\Core\Site\SiteMedia::MEDIA_TYPE_DOCUMENT)->toBe('document');

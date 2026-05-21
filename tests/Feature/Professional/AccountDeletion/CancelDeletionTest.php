@@ -4,7 +4,6 @@ use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
-use App\Services\Stripe\StripeBillingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -136,27 +135,3 @@ it('does not re-publish a site that was manually unpublished before deletion was
     expect((bool) $site->is_published)->toBeFalse();
 });
 
-it('cancel path calls Stripe resume with the correct subscription ID from findStripeSubscription', function () {
-    $pro = seedPendingDeletionProfessional();
-
-    DB::connection('pgsql')->table('billing.subscriptions')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'stripe_subscription_id' => 'sub_dedup_test',
-        'status' => 'active',
-        'created_at' => now()->toIso8601String(),
-        'updated_at' => now()->toIso8601String(),
-    ]);
-
-    config(['services.stripe.secret_key' => 'test-key']);
-
-    $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldReceive('resumeSubscription')
-        ->once()
-        ->with('sub_dedup_test');
-
-    app()->instance(StripeBillingService::class, $billing);
-
-    $service = new AccountDeletionService;
-    $service->cancel($pro, Request::create('/', 'POST'));
-});

@@ -12,7 +12,6 @@ use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Waitlist\WaitlistSignup;
 use App\Services\Cache\ProfessionalCacheService;
-use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\SiteProvisioningService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +28,6 @@ class BootstrapController extends ApiController
 
     public function bootstrap(
         BootstrapRequest $request,
-        AccountTypeDefaultsService $accountTypeDefaultsService
     ) {
         $uid = $request->attributes->get('supabase_uid');
         if (! is_string($uid) || $uid === '') {
@@ -73,7 +71,7 @@ class BootstrapController extends ApiController
         $data = $request->validated();
 
         try {
-            $result = DB::transaction(function () use ($uid, $data, $accountTypeDefaultsService) {
+            $result = DB::transaction(function () use ($uid, $data) {
                 $createdProfessional = false;
 
                 $professional = Professional::query()->where('auth_user_id', $uid)->first();
@@ -147,10 +145,6 @@ class BootstrapController extends ApiController
                     $site = $this->siteProvisioning->createSiteWithRetry($professional->id, $base);
                 }
 
-                // Apply account-type defaults for new professionals
-                if ($createdProfessional) {
-                    $accountTypeDefaultsService->applyDefaults($professional, $site);
-                }
 
                 app(ProfessionalCacheService::class)->invalidateProfessional($professional);
 

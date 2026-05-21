@@ -43,6 +43,15 @@ const POLICY_EXEMPT = [
     // here because there is no controller action to gate.
     \App\Models\Core\Staff\StaffAuditEntry::class,
 
+    // GDPR request submissions — write-only via the GDPR submission endpoint;
+    // mutations are user-initiated, reads are staff-only via SQL. Parent
+    // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
+    \App\Models\Core\Gdpr\GdprRequest::class,
+
+    // Append-only audit log for wallet currency changes; staff-only reads,
+    // no controller action to gate at the row level.
+    \App\Models\Core\Professional\WalletCurrencySwitchAudit::class,
+
 ];
 
 it('every tenant-owned model has a registered policy', function () {

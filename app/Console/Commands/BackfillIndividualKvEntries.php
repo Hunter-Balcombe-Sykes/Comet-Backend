@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Professional;
 use Illuminate\Console\Command;
 
@@ -36,26 +35,11 @@ class BackfillIndividualKvEntries extends Command
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
-        // affiliate cohort = any pro with at least one active (non-soft-deleted) BrandPartnerLink.
-        $affiliateIds = BrandPartnerLink::query()
-            ->select('affiliate_professional_id')
-            ->distinct()
-            ->pluck('affiliate_professional_id')
-            ->all();
-
+        // All users are now individual type — query is unconditional.
         $query = Professional::query()
             ->whereNotNull('handle')
             ->where('handle', '!=', '')
-            // Exclude brands using the §28.1 dual-read pattern (account_type when set,
-            // professional_type as the legacy fallback).
-            ->where(function ($q) {
-                $q->where(function ($qa) {
-                    $qa->whereNotNull('account_type')->where('account_type', '!=', 'brand');
-                })->orWhere(function ($qb) {
-                    $qb->whereNull('account_type')->where('professional_type', '!=', 'brand');
-                });
-            })
-            ->whereNotIn('id', $affiliateIds);
+            ->where('account_type', 'individual');
 
         $total = (clone $query)->count();
         $this->info("Target cohort: {$total} individual professional(s).");
@@ -74,7 +58,7 @@ class BackfillIndividualKvEntries extends Command
                 }
                 $dispatched++;
             }
-            $this->line("  dispatched: {$dispatched}/{$pros->count()} in chunk");
+            $this->line("  dispatched: {$dispatched} in chunk");
         });
 
         $this->info("Backfill complete. Dispatched {$dispatched} job(s).");

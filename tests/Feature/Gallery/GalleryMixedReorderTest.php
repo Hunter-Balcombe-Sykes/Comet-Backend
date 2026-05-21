@@ -13,7 +13,7 @@ use App\Models\Core\Professional\Professional;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
-use App\Services\Media\BrandDesignMediaService;
+
 use App\Services\Media\ImageVariantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -63,7 +63,7 @@ function callReorderController(Professional $professional, array $body): \Illumi
     $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
     $controller = new ProfessionalUploadController(
         $mediaService,
-        new BrandDesignMediaService($mediaService),
+
         $videoVariant,
     );
 

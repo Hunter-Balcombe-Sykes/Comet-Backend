@@ -845,8 +845,6 @@ return [
         'incident' => 14,
         'feature_announcement' => 30,
         'default' => 30,
-        'analytics_weekly' => 30,
-        'analytics_milestones' => 90,
         'profile_task' => 180,
     ],
 
@@ -876,8 +874,6 @@ return [
          * No edits to the publisher, no edits to the email dispatch job.
          */
         'mailables' => [
-            'analytics_weekly' => \App\Mail\Notifications\AnalyticsWeeklyMail::class,
-            'analytics_milestones' => \App\Mail\Notifications\AnalyticsMilestoneMail::class,
             'profile_tasks' => \App\Mail\Notifications\ProfileTaskMail::class,
             'policy_update' => \App\Mail\Notifications\PolicyUpdateMail::class,
             'incident' => \App\Mail\Notifications\IncidentMail::class,

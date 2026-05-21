@@ -68,7 +68,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(VideoVariantService::class);
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $siteImage = SiteMedia::query()->findOrFail($mediaId);
 
     // Controller signature was changed to (Request, SiteMedia) — test was
@@ -125,7 +125,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
     // Probe passes so we reach the dispatch step (where the 503 originates).
     $videoVariant->shouldReceive('probeAndValidate')->once()->andReturn([]);
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(503);
@@ -168,7 +168,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
         ->once()
         ->andThrow(new \RuntimeException('File does not contain a recognisable video stream.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -206,7 +206,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
         ->once()
         ->andThrow(new \RuntimeException('Video is too long (400s). Maximum allowed duration is 300s.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -244,7 +244,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
         ->once()
         ->andThrow(new \RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);

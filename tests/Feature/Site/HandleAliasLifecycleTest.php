@@ -113,7 +113,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
         'handle_lc' => 'newh',
         'status' => 'active',
         'primary_email' => 'newh@example.test',
-        'professional_type' => 'brand',
+        'account_type' => 'individual',
         'created_at' => $now,
         'updated_at' => $now,
     ]);
@@ -129,7 +129,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
     ]);
 
     // Canonical entry — no expiry (null TTL).
-    $kv->shouldReceive('put')->once()->with('newh', ['type' => 'brand'], null);
+    $kv->shouldReceive('put')->once()->with('newh', ['type' => 'individual'], null);
 
     // Alias entry — type=alias, target=newh, TTL close to 90d.
     $kv->shouldReceive('put')->once()->withArgs(function ($key, $value, $ttl) {

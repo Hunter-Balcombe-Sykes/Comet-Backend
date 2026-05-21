@@ -160,16 +160,6 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
     Storage::disk('media')->assertExists($activeRows->first()->path);
 });
 
-it('POST /api/documents returns 403 for brand accounts', function () {
-    $pro = seedProfessional(type: 'brand');
-    $file = UploadedFile::fake()->create('x.pdf', 50, 'application/pdf');
-
-    $controller = app(ProfessionalDocumentController::class);
-    $response = $controller->store(uploadRequestFor($pro, $file, 'Brand Asset'));
-
-    expect($response->status())->toBe(403);
-    expect($response->getData(true)['message'] ?? '')->toContain('brand');
-});
 
 it('POST /api/documents returns 415 when finfo detects MIME mismatch', function () {
     $pro = seedProfessional();

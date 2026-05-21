@@ -41,12 +41,7 @@ class ProfessionalLinkBlockController extends ApiController
 
     private function authorizeCustomLinks(Professional $pro): void
     {
-        $type = $pro->account_type?->value ?? 'individual';
-        abort_unless(
-            (bool) config("partna.account_type_defaults.{$type}.custom_links_allowed", false),
-            403,
-            'Custom links are not available on your account type.'
-        );
+        // All individual users can manage custom links — no capability gate needed.
     }
 
     public function index(IndexLinkBlockRequest $request)

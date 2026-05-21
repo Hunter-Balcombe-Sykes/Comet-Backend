@@ -103,10 +103,7 @@ function validBootstrapPayload(array $overrides = []): array
         'primary_email' => 'testuser@example.com',
         'phone' => '0400000000',
         'first_name' => 'Test',
-        'professional_type' => 'professional',
-        // Satisfies the invite-only signup rule. Non-existent handle is harmless
-        // — BootstrapController silently skips when no matching brand exists.
-        'join_brand_handle' => 'no-such-brand-for-test',
+        'account_type' => 'individual',
     ], $overrides);
 }
 
@@ -155,110 +152,4 @@ it('rejects a handle containing a colon', function () {
 
     expect($errors)->not->toBeNull();
     expect($errors)->toHaveKey('handle');
-});
-
-// ── Invite-only signup enforcement ────────────────────────────────────────────
-// A new non-brand professional must arrive with one of invite_token /
-// brand_partner_professional_id / join_brand_handle. Otherwise the bootstrap
-// would create an orphaned affiliate with no brand link, no KV entry, and
-// no site.settings.brand_partner (this is exactly how the 'hjjh' bad state
-// happened in dev — see PR #66/67 and the inline comment in BootstrapRequest).
-
-it('rejects new affiliate signup with no invite/brand context', function () {
-    $errors = validateBootstrapRequest(array_merge(validBootstrapPayload([
-        'handle' => 'inviteless',
-    ]), ['join_brand_handle' => null]));
-
-    expect($errors)->not->toBeNull();
-    expect($errors)->toHaveKey('join_brand_handle');
-    expect($errors['join_brand_handle'][0] ?? '')->toContain('invitation');
-});
-
-it('rejects new influencer signup with no invite/brand context', function () {
-    $errors = validateBootstrapRequest(array_merge(validBootstrapPayload([
-        'handle' => 'inviteless2',
-        'professional_type' => 'influencer',
-    ]), ['join_brand_handle' => null]));
-
-    expect($errors)->not->toBeNull();
-    expect($errors)->toHaveKey('join_brand_handle');
-});
-
-it('accepts new affiliate signup with invite_token', function () {
-    $errors = validateBootstrapRequest(array_merge(
-        validBootstrapPayload(['handle' => 'withinvite']),
-        ['join_brand_handle' => null, 'invite_token' => 'some-test-invite-token']
-    ));
-
-    expect($errors)->toBeNull();
-});
-
-it('accepts new BRAND signup with no invite context', function () {
-    // Brands self-onboard; the invite-only rule must not apply to them.
-    $errors = validateBootstrapRequest(array_merge(
-        validBootstrapPayload([
-            'handle' => 'somebrand',
-            'professional_type' => 'brand',
-        ]),
-        ['join_brand_handle' => null]
-    ));
-
-    expect($errors)->toBeNull();
-});
-
-it('accepts new INDIVIDUAL signup with no invite context when account_type=individual', function () {
-    // §31.2 / §28.13 — Individuals self-onboard (same as brands). Frontend posts
-    // an explicit `account_type='individual'` alongside the legacy
-    // `professional_type='professional'`; the request must let it through
-    // without an invite_token / brand_partner / handle / signup-code.
-    $errors = validateBootstrapRequest(array_merge(
-        validBootstrapPayload([
-            'handle' => 'someindividual',
-            'professional_type' => 'professional',
-        ]),
-        ['join_brand_handle' => null, 'account_type' => 'individual']
-    ));
-
-    expect($errors)->toBeNull();
-});
-
-it('still rejects partner-intent signup with no invite when account_type=partner', function () {
-    // The invite gate must still fire when a client explicitly opts into the
-    // partner path — orphaned partner rows (no BrandPartnerLink) are the bug
-    // the gate was designed to prevent.
-    $errors = validateBootstrapRequest(array_merge(
-        validBootstrapPayload([
-            'handle' => 'partnerless',
-            'professional_type' => 'professional',
-        ]),
-        ['join_brand_handle' => null, 'account_type' => 'partner']
-    ));
-
-    expect($errors)->not->toBeNull();
-    expect($errors)->toHaveKey('join_brand_handle');
-});
-
-it('accepts re-bootstrap of existing professional without invite context', function () {
-    // An existing professional re-saving their profile must not be subject to
-    // the invite-only rule — they already passed it at signup.
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => '00000000-0000-0000-0000-00000000aaaa',
-        'auth_user_id' => 'existing-uid-rebootstrap',
-        'handle' => 'existingpro',
-        'handle_lc' => 'existingpro',
-        'professional_type' => 'professional',
-    ]);
-
-    $errors = validateBootstrapRequest(
-        array_merge(
-            validBootstrapPayload([
-                'handle' => 'existingpro',
-                'primary_email' => 'existingpro@example.com',
-            ]),
-            ['join_brand_handle' => null]
-        ),
-        uid: 'existing-uid-rebootstrap'
-    );
-
-    expect($errors)->toBeNull();
 });
