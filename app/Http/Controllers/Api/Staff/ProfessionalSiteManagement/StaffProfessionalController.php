@@ -9,7 +9,6 @@ use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateProfessionalRequest;
 use App\Http\Resources\ProfessionalStaffResource;
 use App\Models\Core\Professional\Professional;
-use App\Models\Core\Site\Block;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,12 +18,6 @@ use Illuminate\Support\Facades\Log;
 // V2: Staff browses, searches, and manages professionals (status updates, archive, restore, hard delete). Primary staff dashboard entry point.
 class StaffProfessionalController extends ApiController
 {
-    /** @return array<int, string> */
-    private function professionalOnlySectionTypes(): array
-    {
-        return config('partna.professional_only_section_types', []);
-    }
-
     use HandlesSearchQueries;
     use NormalizesPerPage;
     use ReturnsPaginatedResponse;
@@ -35,7 +28,6 @@ class StaffProfessionalController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status'); // optional: active|suspended
-        $professionalType = $request->query('professional_type'); // optional: professional|influencer|brand
         $perPage = $this->normalizePerPage($request, 25, 100);
         $searchLike = $this->prepareSearchLike($request, 'q');
 
@@ -45,11 +37,6 @@ class StaffProfessionalController extends ApiController
 
         if (is_string($status) && $status !== '') {
             $query->where('status', $status);
-        }
-
-        if (is_string($professionalType) && $professionalType !== '') {
-            $normalizedProfessionalType = strtolower(trim($professionalType));
-            $query->where('professional_type', $normalizedProfessionalType);
         }
 
         if ($searchLike) {
@@ -77,7 +64,6 @@ class StaffProfessionalController extends ApiController
                 'id' => $p->id,
                 'handle' => $p->handle,
                 'display_name' => $p->display_name,
-                'professional_type' => $p->professional_type,
                 'status' => $p->status,
                 'primary_email' => $p->primary_email,
                 'phone' => $p->phone,
@@ -200,37 +186,14 @@ class StaffProfessionalController extends ApiController
         StaffUpdateProfessionalRequest $request,
         Professional $professional,
     ) {
-        $previousProfessionalType = mb_strtolower(trim((string) ($professional->professional_type ?? '')));
-
-        DB::transaction(function () use ($professional, $request, $previousProfessionalType): void {
+        DB::transaction(function () use ($professional, $request): void {
             $professional->fill($request->validated());
             $professional->save();
-
-            $nextProfessionalType = mb_strtolower(trim((string) ($professional->professional_type ?? '')));
-            if ($previousProfessionalType !== 'influencer' && $nextProfessionalType === 'influencer') {
-                $this->disableProfessionalOnlySections($professional->id);
-            }
         });
 
         return $this->success([
             'professional' => new ProfessionalStaffResource($professional->fresh()),
         ]);
-    }
-
-    private function disableProfessionalOnlySections(string $professionalId): void
-    {
-        if ($professionalId === '') {
-            return;
-        }
-
-        Block::query()
-            ->where('professional_id', $professionalId)
-            ->where('block_group', 'sections')
-            ->whereIn('block_type', $this->professionalOnlySectionTypes())
-            ->where('is_active', true)
-            ->update([
-                'is_active' => false,
-            ]);
     }
 
     /**

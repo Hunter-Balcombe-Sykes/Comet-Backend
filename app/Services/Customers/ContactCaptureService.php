@@ -35,8 +35,7 @@ class ContactCaptureService
      *
      * Source preservation: the existing row's source is left untouched. Only new
      * rows or rows with an empty source get the incoming source value. This means
-     * the first capture point to see a given email wins — a customer who books
-     * first then buys keeps source='square_booking'.
+     * the first capture point to see a given email wins.
      *
      * full_name preservation: we only overwrite the stored full_name when the
      * incoming value is MORE substantial than the existing one (existing is

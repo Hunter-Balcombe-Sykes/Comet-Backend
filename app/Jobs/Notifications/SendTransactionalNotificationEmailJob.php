@@ -36,13 +36,9 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     // `incident`, `feature_announcement`, `integrations`, `analytics_*`,
     // and `profile_tasks` are intentionally absent — they apply to all
     // account types (or use a non-account-type policy elsewhere).
-    private const CAPABILITY_GATE_MAP = [
-        'payouts' => 'receives_payout_notifications',
-        'payout_settlement' => 'receives_payout_settlement_notifications',
-        'commissions' => 'receives_commission_notifications',
-        'brand_status' => 'receives_brand_status_notifications',
-        'invites' => 'receives_invite_notifications',
-    ];
+    // No commerce/brand notification gates — all categories gated here are
+    // only applicable to brand/partner accounts (dropped in standalone strip).
+    private const CAPABILITY_GATE_MAP = [];
 
     /**
      * Expose the capability gate map for the preference controller's category filter.

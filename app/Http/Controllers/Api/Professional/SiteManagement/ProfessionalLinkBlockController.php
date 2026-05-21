@@ -41,10 +41,7 @@ class ProfessionalLinkBlockController extends ApiController
 
     private function authorizeCustomLinks(Professional $pro): void
     {
-        // Read account_type->value when set (the canonical source); fall back to the legacy
-        // professional_type string during the §28.1 dual-write window. The config key is
-        // keyed on the string value ('brand', 'partner', 'individual', 'influencer', etc.).
-        $type = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
+        $type = $pro->account_type?->value ?? 'individual';
         abort_unless(
             (bool) config("partna.account_type_defaults.{$type}.custom_links_allowed", false),
             403,

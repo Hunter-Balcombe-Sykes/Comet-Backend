@@ -15,7 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Service CRUD + reorder. Integrates with Square/Fresha bidirectional sync via observers.
+// V2: Service CRUD + reorder for professional's mini-site.
 class ProfessionalServiceController extends ApiController
 {
     use ResolveCurrentProfessional;
@@ -48,12 +48,6 @@ class ProfessionalServiceController extends ApiController
 
         $servicesQuery = Service::query()
             ->where('professional_id', $pro->id);
-
-        if ($source === 'manual') {
-            $servicesQuery->whereNull('square_variation_id');
-        } elseif ($source === 'square' || $source === 'smart') {
-            $servicesQuery->whereNotNull('square_variation_id');
-        }
 
         if ($onlyArchived) {
             $servicesQuery->onlyTrashed();

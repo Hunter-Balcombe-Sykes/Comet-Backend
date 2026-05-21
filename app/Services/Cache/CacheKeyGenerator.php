@@ -155,10 +155,10 @@ class CacheKeyGenerator
 
     /**
      * Hydrated Eloquent model cache for the auth path. Holds the Professional
-     * with its `site` + `squareIntegration` relations preloaded so every
-     * authenticated request reuses one Redis hit instead of two Postgres
-     * round-trips. Keyed by professional id (immutable), so writes that
-     * change auth_user_id or handle do not need a key rewrite — only a bust.
+     * with its `site` relation preloaded so every authenticated request reuses
+     * one Redis hit instead of two Postgres round-trips. Keyed by professional
+     * id (immutable), so writes that change auth_user_id or handle do not need
+     * a key rewrite — only a bust.
      */
     public static function professionalModel(string $id): string
     {
@@ -168,14 +168,11 @@ class CacheKeyGenerator
     // @multi-site: needs site_id — summary aggregates site traffic, scoped to one site under current model
     public static function analyticsSummary(string $professionalId, string $startDate, string $endDate): string
     {
-        // q3: commerce fields now read from commerce.orders instead of commission_movements (Phase 3)
         return "analytics:summary:q3:{$professionalId}:{$startDate}:{$endDate}";
     }
 
     /**
      * Version token used to bust all analytics summary keys for a professional at once.
-     * Incrementing this key makes every date-range summary key for the professional stale
-     * without requiring a full key-space scan.
      *
      * @multi-site: needs site_id — if multi-site, version tokens must be per-site
      */
@@ -184,224 +181,8 @@ class CacheKeyGenerator
         return "analytics:summary:ver:{$professionalId}";
     }
 
-    public static function brandFontActive(string $brandProfessionalId): string
-    {
-        return "brand:{$brandProfessionalId}:font:active";
-    }
-
-    // @multi-site: needs site_id if booking widgets are ever per-site
-    public static function bookingAnalytics(string $professionalId, string $from, string $to, string $groupBy): string
-    {
-        return "analytics:booking:{$professionalId}:{$from}:{$to}:{$groupBy}";
-    }
-
-    /**
-     * Cache key for the per-professional affiliate projections payload.
-     * No date-range component — projections are always computed "as of now".
-     *
-     * Optional $windowDays argument: when null, the key is the adaptive default;
-     * when set (one of the allowlist tiers), it appends a `:wN` suffix so explicit
-     * overrides don't share cache state with the default. Bump v1 → v2 if the
-     * response shape changes.
-     */
-    public static function affiliateProjections(string $professionalId, ?int $windowDays = null): string
-    {
-        $base = "analytics:commerce:affiliate:projections:v1:{$professionalId}";
-
-        return $windowDays === null ? $base : "{$base}:w{$windowDays}";
-    }
-
-    // @multi-site: needs site_id — commerce traffic is tied to a site storefront
-    public static function affiliateCommerceAnalytics(string $professionalId, string $from, string $to): string
-    {
-        // v3: version token embedded so bumpAnalyticsVersion() busts every date-window variant atomically.
-        // v2 was unversioned — bumping the token was a silent no-op for windowed keys.
-        $version = \Illuminate\Support\Facades\Cache::get(self::analyticsSummaryVersion($professionalId), 0);
-
-        return "analytics:commerce:affiliate:v3:{$professionalId}:{$version}:{$from}:{$to}";
-    }
-
-    // Payout + grace state are current-state snapshots, not window-dependent.
-    // Cached per-professional so switching date ranges reuses the same entry.
-    public static function affiliatePayoutState(string $professionalId): string
-    {
-        return "analytics:commerce:affiliate:{$professionalId}:payout-state";
-    }
-
-    // @multi-site: needs site_id — commerce traffic is tied to a site storefront
-    public static function brandCommerceAnalytics(string $professionalId, string $from, string $to): string
-    {
-        // v7: timeseries entries gain commission_accrued_cents per bucket so the
-        // chart's Revenue ↔ Commissions toggle has both metrics on one x-axis.
-        // v6 added page_views per bucket; v5 added earned_cents + avg rates;
-        // v4 added the version token; v3 was unversioned.
-        $version = \Illuminate\Support\Facades\Cache::get(self::analyticsSummaryVersion($professionalId), 0);
-
-        return "analytics:commerce:brand:v7:{$professionalId}:{$version}:{$from}:{$to}";
-    }
-
-    public static function brandActiveCatalog(string $brandProfessionalId): string
-    {
-        return "brand:{$brandProfessionalId}:catalog:active";
-    }
-
-    public static function brandAdminCatalog(string $brandProfessionalId): string
-    {
-        return "brand:{$brandProfessionalId}:catalog:admin";
-    }
-
-    public static function brandCollectionGid(string $brandProfessionalId, string $handle): string
-    {
-        return "brand:{$brandProfessionalId}:collection_gid:{$handle}";
-    }
-
-    // Hydrogen brand-design response cache. Keyed by site_id (not professional)
-    // so BrandDesignMediaService can bust with just the site handle. The `v1`
-    // segment lets us bust every entry at once by bumping to v2 if the payload
-    // shape changes. TTL is intentionally tight (5s) so Hydrogen sees dashboard
-    // saves within its staleWhileRevalidate window — invalidation keeps the
-    // stale window near zero in practice.
-    public static function hydrogenBrandDesign(string $siteId): string
-    {
-        return "hydrogen:brand-design:v1:{$siteId}";
-    }
-
-    // Hydrogen affiliate-page response cache. Keyed by (brand_professional_id,
-    // affiliate_handle) — the two pieces of identity HydrogenAffiliateController
-    // resolves before assembling the 13-DB-query payload. The slug part is the
-    // request input (not affiliate->handle), so aliases populate separate cache
-    // entries; invalidation walks aliases to clear all variants. 60s TTL is the
-    // safety net; SiteCacheService::forgetHydrogenAffiliate is the fast path.
-    public static function hydrogenAffiliate(string $brandProfessionalId, string $affiliateHandle): string
-    {
-        return 'hydrogen:affiliate:v1:'.$brandProfessionalId.':'.strtolower($affiliateHandle);
-    }
-
-    // Hydrogen brand-config response cache. Keyed by shop_domain — the only
-    // request input, and 1:1 with brand_professional_id via integration row.
-    // Busted on writes to ProfessionalIntegration, BrandStoreSettings, the
-    // brand's Site (design tokens), and SiteMedia (pool=brand_gallery).
-    public static function hydrogenBrandConfig(string $shopDomain): string
-    {
-        return 'hydrogen:brand-config:v1:'.strtolower($shopDomain);
-    }
-
-    // Hydrogen affiliate-products response cache. Keyed by affiliate_id — the
-    // only request input. Busted on AffiliateProductSelection writes and on
-    // SiteMedia writes where pool=POOL_PRODUCT (custom product photos).
-    public static function hydrogenAffiliateProducts(string $affiliateId): string
-    {
-        return "hydrogen:affiliate-products:v1:{$affiliateId}";
-    }
-
-    public static function brandProductCustomPhotos(string $brandProfessionalId, string $productGid): string
-    {
-        return "brand:{$brandProfessionalId}:product:{$productGid}:custom_photos";
-    }
-
-    /**
-     * Cached BrandStoreSettings row for /api/me's dashboard payload. The model
-     * itself changes only when a brand edits store settings (rare), so a long
-     * TTL is safe — invalidation is observer-driven on any BrandStoreSettings
-     * write. Returns the row as an array (or sentinel-null) so the cache is
-     * portable across deploys that change Eloquent attribute order.
-     */
-    public static function brandStoreSettings(string $professionalId): string
-    {
-        return "pro:{$professionalId}:brand-store-settings";
-    }
-
-    /**
-     * Cached brand-partner status snapshot for /api/me when an affiliate has a
-     * configured brand_partner. Holds the (brand_status, display_name) tuple
-     * that the dashboard uses to render the affiliate's "linked brand" banner.
-     * Keyed by the brand's professional id (not the affiliate's), so one cache
-     * entry serves every affiliate connected to that brand. Busted by
-     * BrandProfileObserver on brand_status change and by ProfessionalObserver
-     * on display_name change.
-     */
-    public static function brandPartnerStatus(string $brandProfessionalId): string
-    {
-        return "pro:{$brandProfessionalId}:brand-partner-status";
-    }
-
-    /**
-     * Cached "is this brand's Hydrogen storefront serving requests?" probe
-     * result. The status check itself is a synchronous outbound HTTP GET
-     * with timeouts, so /api/brand/store-settings paid up to 8s of P95 on
-     * every read before this cache existed. The status only changes on
-     * deploy or domain reconfiguration — both write actions that bust this
-     * key. 60s TTL is short enough that brand operators see deploys reflect
-     * within a poll interval but long enough to absorb the dashboard's open-
-     * close-reopen pattern. Keyed by professional (1:1 with the brand).
-     */
-    public static function brandStorefrontStatus(string $professionalId): string
-    {
-        return "brand:{$professionalId}:storefront-status";
-    }
-
-    /**
-     * Booking-milestone totals snapshot. Caches the (lifetime bookings_count,
-     * lifetime total_spent_cents) tuple for the milestone-notification path so
-     * a burst of bookings doesn't re-scan analytics.booking_events for each one.
-     * Once a pro crosses the highest threshold, the same value is read from cache
-     * and the publisher's dedupe key suppresses the redundant notification.
-     */
-    public static function bookingMilestoneTotals(string $professionalId): string
-    {
-        return "pro:{$professionalId}:bookings:milestone-totals";
-    }
-
-    /**
-     * Cached overview payload for the embedded Shopify admin setup wizard.
-     * Covers affiliate_count, all-time + 30-day commission/revenue, and
-     * recent_sales — all derived from commerce.orders + brand_affiliate_rollup.
-     * Busted by AnalyticsCacheService::invalidateAnalytics() on any commerce write.
-     */
-    public static function embeddedSetupOverview(string $professionalId): string
-    {
-        return "embedded:setup:overview:v1:{$professionalId}";
-    }
-
-    /**
-     * Per-product analytics rollup shown in the embedded Shopify admin
-     * product-block extension (30-day units, revenue, commission, variant
-     * breakdown, recent sales). Keyed by (brand, Shopify product ID) so
-     * AnalyticsCacheService::invalidateProductAnalytics() can target just the
-     * products on a freshly-paid or refunded order.
-     */
-    public static function embeddedProductAnalytics(string $professionalId, string $productId): string
-    {
-        return "embedded:product-analytics:{$professionalId}:{$productId}";
-    }
-
-    /**
-     * Per-product sidest.active flag (1-product scope). Resolves the active
-     * boolean for a single product without re-fetching the whole brand catalog,
-     * avoiding a thundering-herd of paginated Admin GraphQL calls when many
-     * concurrent requests miss at once. Master Pattern 17 / DB-F#SCALE-6.
-     */
-    public static function embeddedProductActive(string $professionalId, string $productId): string
-    {
-        return "embedded:product-active:{$professionalId}:{$productId}";
-    }
-
-    /**
-     * Per-product full settings payload shown in the embedded Shopify admin
-     * product-settings extension (metafields + variants + collection membership
-     * + global settings). Mirrors embeddedProductAnalytics in shape; busted by
-     * EmbeddedProductSettingsController on every successful patch so the next
-     * mount sees the new value within a request, not a 5-minute TTL.
-     */
-    public static function embeddedProductSettings(string $professionalId, string $productId): string
-    {
-        return "embedded:product-settings:{$professionalId}:{$productId}";
-    }
-
     /**
      * Staff-facing analytics summary, keyed by professional + date range.
-     * Append ":v{analyticsSummaryVersion}" at call-site so busting the
-     * professional's own analytics version invalidates staff views too.
      */
     public static function staffAnalyticsSummary(string $professionalId, string $from, string $to): string
     {

@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
 use Illuminate\Bus\Queueable;
@@ -165,14 +164,6 @@ class ProcessImageVariantsJob implements ShouldQueue
                     'processing_error' => null,
                 ]);
 
-            // If this was a brand design asset, bust the Hydrogen brand-design
-            // cache so the compressed variants replace the pre-processing URL
-            // (listDesignMedia filters on processing_state=ready, so the
-            // payload changes the moment this row flips to ready).
-            if ($siteMedia->pool === SiteMedia::POOL_DESIGN && $siteMedia->site_id) {
-                app(SiteCacheService::class)->forgetBrandDesign((string) $siteMedia->site_id);
-            }
-
             Log::info('ProcessImageVariantsJob: completed.', ['image_id' => $this->imageId]);
         } catch (UnprocessableImageException $e) {
             // Permanent validation failure (e.g. pixel-count guard rejection).
@@ -245,18 +236,5 @@ class ProcessImageVariantsJob implements ShouldQueue
             ]);
         }
 
-        // Mirror the success-path cache bust (line 119-121): Hydrogen's
-        // listDesignMedia filters on ready, so a failed design row changes
-        // the payload shape — bust so the dashboard sees it immediately.
-        if ($siteMedia?->pool === SiteMedia::POOL_DESIGN && $siteMedia->site_id) {
-            try {
-                app(SiteCacheService::class)->forgetBrandDesign((string) $siteMedia->site_id);
-            } catch (Throwable $e) {
-                Log::warning('ProcessImageVariantsJob: failed-state cache bust failed.', [
-                    'image_id' => $this->imageId,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
     }
 }

@@ -3,14 +3,12 @@
 namespace App\Http\Requests\Api\Professional;
 
 use App\Http\Requests\BaseFormRequest;
-use App\Http\Requests\Concerns\NormalizesProfessionalType;
 use App\Http\Requests\Concerns\ValidatesProfessionalAbout;
 use Illuminate\Validation\Rule;
 
-// V2: Validates professional profile updates — display name, contact info, location, type normalization, and email/phone sanitization.
+// V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
 class UpdateProfessionalRequest extends BaseFormRequest
 {
-    use NormalizesProfessionalType;
     use ValidatesProfessionalAbout;
 
     public function rules(): array
@@ -37,13 +35,6 @@ class UpdateProfessionalRequest extends BaseFormRequest
             // tightened BootstrapRequest format.
             'country_code' => ['sometimes', 'nullable', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
             'timezone' => ['sometimes', 'nullable', 'string', 'max:64'],
-            'professional_type' => [
-                'sometimes',
-                'required',
-                'string',
-                Rule::in(array_keys(config('partna.professional_types', []))),
-            ],
-
             // Location
             'location_street_address' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_city' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -68,11 +59,6 @@ class UpdateProfessionalRequest extends BaseFormRequest
         $this->cleanText(['bio']);
 
         $merge = [];
-
-        if ($this->has('professional_type')) {
-            $professionalType = $this->input('professional_type');
-            $merge['professional_type'] = $this->normalizeProfessionalTypeInput($professionalType);
-        }
 
         // Upper-case country_code if supplied so the ISO alpha-2 validator
         // accepts lower-case input from older clients.

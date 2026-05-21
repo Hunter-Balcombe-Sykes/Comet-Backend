@@ -134,8 +134,7 @@ class NotificationPublisher
     /**
      * Bulk variant of {@see publish()}. One insertOrIgnore + one select-back to
      * identify genuinely-new rows, then a per-row email dispatch only for those.
-     * Use for fan-out (e.g. brand-affiliate invite batches) — single-shot
-     * callers should keep using publish().
+     * Use for fan-out — single-shot callers should keep using publish().
      *
      * Each item must supply the same keys as publish()'s named args (minus the
      * email-dispatch trigger). Items with empty professional_id, title, body,

@@ -125,7 +125,7 @@ class Notification extends BaseModel
     {
         return match (self::normalizeFrontendType($value)) {
             'Critical' => 'critical',
-            'Warning', 'BrandPartnerRemoved' => 'warning',
+            'Warning' => 'warning',
             'To do' => 'warning',
             'Success', 'Info', 'Invitation' => 'info',
             default => 'info',

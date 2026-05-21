@@ -46,7 +46,7 @@ class PurgeSoftDeleted extends Command
      */
     public const PURGE_EXEMPT = [
         FeatureFlag::class => 'Lifecycle managed by FeatureFlagService — flags are tombstoned for audit history and never auto-purged.',
-        BrandPartnerLink::class => 'Plan §28.16: ex-partner panel relies on indefinite tombstone retention. Hard-delete happens only as a cascade of Professional purge via brand_partner_link_events SET NULL.',
+        BrandPartnerLink::class => 'Pending deletion in Task 3 of the standalone-pages strip — model and table will be removed entirely.',
     ];
 
     /**

@@ -8,7 +8,6 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\UpsertSectionBlockRequest;
 use App\Models\Core\Site\Block;
-use App\Services\Professional\AccountTypeDefaultsService;
 use App\Services\Professional\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -21,7 +20,6 @@ class ProfessionalSectionBlockController extends ApiController
     use ResolveCurrentSite;
 
     public function __construct(
-        private readonly AccountTypeDefaultsService $defaultsService,
         private readonly SectionVisibilityService $visibilityService,
     ) {}
 
@@ -30,13 +28,10 @@ class ProfessionalSectionBlockController extends ApiController
         $pro = $this->currentProfessional($request);
         $site = $this->currentSite($pro);
 
-        // Read account_type->value when set (canonical); fall back to legacy professional_type
-        // during the §28.1 dual-write window. Used as a config-key lookup, not an identity check.
-        $professionalType = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
-        $defaults = $this->defaultsService->resolveDefaults($professionalType);
-        $allowedSections = $defaults['allowed_sections'] ?? config('partna.section_block_types', []);
-        $allSections = config('partna.section_block_types', []);
-        $unavailableSections = array_values(array_diff($allSections, $allowedSections));
+        // All accounts are individual; all configured section types are allowed.
+        $allowedSections = config('partna.section_block_types', []);
+        $allSections = $allowedSections;
+        $unavailableSections = [];
 
         // Read all section blocks once. We need every type (not just allowed)
         // to detect drift correctly — `syncAllowedSections` historically ran
@@ -115,11 +110,7 @@ class ProfessionalSectionBlockController extends ApiController
         $site = $this->currentSite($pro);
 
         $data = $request->validated();
-        $professionalType = mb_strtolower(trim((string) ($pro->professional_type ?? '')));
-
-        // ── Account-type section restrictions ────────────────────────────
-        $defaults = $this->defaultsService->resolveDefaults($professionalType);
-        $allowedSections = $defaults['allowed_sections'] ?? config('partna.section_block_types', []);
+        $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
             return $this->error('This section is not available for your account type.', 403);
         }
@@ -302,11 +293,7 @@ class ProfessionalSectionBlockController extends ApiController
     {
         $pro = $this->currentProfessional($request);
         $site = $this->currentSite($pro);
-        // Read account_type->value when set (canonical); fall back to legacy professional_type
-        // during the §28.1 dual-write window. Used as a config-key lookup, not an identity check.
-        $professionalType = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
-        $defaults = $this->defaultsService->resolveDefaults($professionalType);
-        $allowedSections = $defaults['allowed_sections'] ?? config('partna.section_block_types', []);
+        $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
             return $this->error('This section is not available for your account type.', 403);
         }

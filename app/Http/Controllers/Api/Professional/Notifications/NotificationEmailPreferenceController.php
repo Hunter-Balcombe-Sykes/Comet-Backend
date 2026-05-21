@@ -96,7 +96,6 @@ class NotificationEmailPreferenceController extends ApiController
         $updates = $request->validated()['preferences'];
 
         // Reject updates for categories the actor's account_type cannot receive.
-        // This prevents a partner silently enabling a brand-only category via direct API call.
         $caps = AccountCapabilities::for($pro);
         $gateMap = SendTransactionalNotificationEmailJob::capabilityGateMap();
         foreach ($updates as $update) {

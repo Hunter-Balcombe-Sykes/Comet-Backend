@@ -2,12 +2,10 @@
 
 namespace App\Http\Resources;
 
-use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 // Own-profile shape returned to the authenticated professional (dashboard show, update, bootstrap).
-// Square fields are only present when the `squareIntegration` relation has been eager-loaded by the caller.
 class ProfessionalDashboardResource extends JsonResource
 {
     public function toArray(Request $request): array
@@ -15,9 +13,6 @@ class ProfessionalDashboardResource extends JsonResource
         return [
             'id' => $this->id,
             'auth_user_id' => $this->auth_user_id,
-            'professional_type' => $this->professional_type,
-            // Track B's frontend account-capabilities.ts reads this for 3-state
-            // routing (brand / partner / individual). See plan §28.8a.
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
@@ -38,24 +33,8 @@ class ProfessionalDashboardResource extends JsonResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            // Plan §28.8a (audit API-1): individuals never see a meaningless
-            // stripe_connect_status. Field is omitted entirely for accounts
-            // whose capability set doesn't include Stripe Connect.
-            'stripe_connect_status' => $this->when(
-                AccountCapabilities::for($this->resource)->requires_stripe_connect,
-                fn () => $this->stripe_connect_status,
-            ),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
-            // Square — caller must eager-load 'squareIntegration' for these to appear
-            'square_connected' => $this->whenLoaded('squareIntegration', function () {
-                $integration = $this->squareIntegration;
-
-                return $integration !== null
-                    && ! empty($integration->access_token)
-                    && ! empty($integration->external_account_id);
-            }),
-            'square_merchant_id' => $this->whenLoaded('squareIntegration', fn () => $this->squareIntegration?->external_account_id),
         ];
     }
 }

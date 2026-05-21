@@ -40,9 +40,6 @@ class WaitlistSignup extends BaseModel
         'industry_other',
         'pilot_program_opt_in',
         'number_of_team_members',
-        'number_of_affiliates_ambassadors',
-        'is_brand_partner_or_ambassador',
-        'currently_sells_products',
         'consent_source',
         'consent_ip_hash',
         'consent_user_agent',
@@ -51,10 +48,7 @@ class WaitlistSignup extends BaseModel
 
     protected $casts = [
         'pilot_program_opt_in' => 'boolean',
-        'is_brand_partner_or_ambassador' => 'boolean',
-        'currently_sells_products' => 'boolean',
         'number_of_team_members' => 'integer',
-        'number_of_affiliates_ambassadors' => 'integer',
         'last_submitted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

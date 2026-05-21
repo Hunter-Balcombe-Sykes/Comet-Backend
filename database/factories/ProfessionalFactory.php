@@ -30,19 +30,10 @@ class ProfessionalFactory extends Factory
             'primary_email' => fake()->unique()->safeEmail(),
             'country_code' => 'AU',
             'timezone' => 'Australia/Sydney',
-            'professional_type' => 'affiliate',
+            'professional_type' => 'professional',
+            'account_type' => 'individual',
             'status' => 'active',
             'onboarding_step' => 0,
         ];
-    }
-
-    /** Pre-populate Stripe customer + masked card fields for billing tests. */
-    public function withCard(): static
-    {
-        return $this->state(fn () => [
-            'stripe_payment_method_id' => 'pm_'.fake()->bothify('?#?#?#?#'),
-            'stripe_payment_method_brand' => 'visa',
-            'stripe_payment_method_last4' => '4242',
-        ]);
     }
 }

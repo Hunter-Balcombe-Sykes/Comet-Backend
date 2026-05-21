@@ -54,7 +54,7 @@ class WarmPublicSiteCacheJob implements ShouldQueue
         // transient Professional/Site lookup failure doesn't trip job retries.
         try {
             $pro = Professional::query()->where('handle_lc', $subdomain)->first();
-            if (! $pro || ! $pro->isIndividual()) {
+            if (! $pro) {
                 return;
             }
 

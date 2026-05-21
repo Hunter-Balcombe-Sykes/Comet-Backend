@@ -2,11 +2,10 @@
  * Partna subdomain router — Cloudflare Worker.
  *
  * Reads a per-subdomain routing entry from Workers KV and dispatches to
- * one of three render paths:
- *   - { type: "brand" }                            → pass-through to origin (Hydrogen on Oxygen)
- *   - { type: "affiliate", redirect: "https://…" } → 301 to brand.partna.au/handle (Hydrogen)
+ * one of two render paths:
  *   - { type: "individual" }                       → Service Binding to partna-pages (Astro),
  *                                                    fronted by the edge Cache API
+ *   - { type: "alias", redirect: "https://…" }    → 301 to canonical subdomain URL
  *
  * Backend (Laravel) keeps the KV in sync via SyncSubdomainToKvJob — the
  * SINGLE writer (CLAUDE.md non-negotiable rule). The job writes the
@@ -76,15 +75,14 @@ export default {
       });
     }
 
-    if (entry.type === "affiliate" && typeof entry.redirect === "string") {
-      // Drop incoming path/query — Hydrogen only has $affiliateSlug.tsx (no nested
-      // affiliate routes), so preserving paths produces 404s. Redirect cleanly to
-      // the affiliate's brand-side page.
+    // Alias entries redirect old subdomains to the canonical URL.
+    // Written by SyncSubdomainToKvJob when a professional renames their handle.
+    if (entry.type === "alias" && typeof entry.redirect === "string") {
       return new Response(null, {
         status: 301,
         headers: {
           Location: entry.redirect,
-          // Without this, browsers cache 301s indefinitely. A primary-brand swap
+          // Without this, browsers cache 301s indefinitely. A handle rename
           // would leave stale redirects in client caches until users manually clear.
           "Cache-Control": "max-age=0, must-revalidate",
         },
@@ -128,7 +126,7 @@ export default {
       return response;
     }
 
-    // type === "brand" or anything else: pass through to the origin defined by DNS.
+    // Unknown type or unhandled entry — pass through to origin.
     return fetch(request);
   },
 };

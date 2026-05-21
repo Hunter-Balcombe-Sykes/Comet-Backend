@@ -8,10 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Platform-wide stats for the staff ops dashboard. Counts by account_type
-// (brand/partner/individual), active subscriptions, pending commissions.
-// Legacy `professional_type` breakdown was dropped in the §28.11 follow-up
-// cutover; consumers must read `professionals.by_account_type`.
+// V2: Platform-wide stats for the staff ops dashboard. Counts by account_type.
 class StaffStatsController extends ApiController
 {
     // Single shared cache key — these stats are platform-wide, not per-user.
@@ -37,8 +34,6 @@ class StaffStatsController extends ApiController
     /**
      * @return array{
      *     professionals: array{total: int, by_account_type: array<string, int>},
-     *     subscriptions: array{active_count: int},
-     *     commissions: array{pending_cents: int}
      * }
      */
     private function buildPayload(): array
@@ -53,24 +48,10 @@ class StaffStatsController extends ApiController
             ->pluck('total', 'account_type')
             ->all();
 
-        $activeSubscriptions = DB::table('billing.subscriptions')
-            ->whereNull('ended_at')
-            ->count();
-
-        $pendingCommissionCents = DB::table('commerce.commission_movements')
-            ->where('status', 'pending')
-            ->sum('amount_cents');
-
         return [
             'professionals' => [
                 'total' => array_sum($accountTypeCounts),
                 'by_account_type' => $accountTypeCounts,
-            ],
-            'subscriptions' => [
-                'active_count' => (int) $activeSubscriptions,
-            ],
-            'commissions' => [
-                'pending_cents' => (int) $pendingCommissionCents,
             ],
         ];
     }

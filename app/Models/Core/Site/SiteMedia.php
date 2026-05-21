@@ -27,10 +27,6 @@ class SiteMedia extends BaseModel
 
     public const POOL_CONTENT = 'content';
 
-    public const POOL_PRODUCT = 'product';
-
-    public const POOL_BRAND_GALLERY = 'brand_gallery';
-
     // One downloadable document per site (PDF/JPG/PNG). See
     // docs/superpowers/specs/2026-04-22-document-upload-design.md.
     public const POOL_DOCUMENTS = 'documents';
@@ -86,7 +82,6 @@ class SiteMedia extends BaseModel
         'original_size_bytes',
         'duration_ms',
         'poster_path',
-        'product_gid',
     ];
 
     protected $casts = [

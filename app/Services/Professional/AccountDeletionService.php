@@ -8,12 +8,10 @@ use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
-use App\Models\Core\Professional\ProfessionalIntegration;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
-use App\Services\Stripe\StripeBillingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -162,12 +160,6 @@ class AccountDeletionService
                 'deletion_token_hash' => null,
             ]);
 
-            // Defense-in-depth: revoke integration credentials immediately
-            // rather than leaving them in the DB for the 30-day grace period.
-            ProfessionalIntegration::query()
-                ->where('professional_id', $professional->id)
-                ->delete();
-
             // Immediately take the public storefront offline so a deleted brand's
             // shop stops serving requests for the full 30-day grace period.
             // SiteObserver::saved() handles cache invalidation automatically.
@@ -178,8 +170,6 @@ class AccountDeletionService
                 ]);
             }
         });
-
-        $this->cancelStripeAtPeriodEnd($professional);
 
         $cancelUrl = rtrim((string) config('app.frontend_url'), '/').'/account/deletion/cancel';
 
@@ -204,10 +194,7 @@ class AccountDeletionService
     }
 
     /**
-     * One-way pseudonymisation of live PII columns across core.professionals and
-     * brand.brand_profiles. Both tables are updated atomically so we never leave
-     * brand-profile identifiers (ABN, legal name) live while the professional row
-     * is already scrubbed.
+     * One-way pseudonymisation of live PII columns on core.professionals.
      *
      * The 30-day grace period only needs handle, display_name, and auth_user_id to
      * keep the "undo deletion" recovery path working; the original email is preserved
@@ -216,35 +203,21 @@ class AccountDeletionService
      */
     private function pseudonymiseAccountPii(Professional $professional): void
     {
-        DB::connection('pgsql')->transaction(function () use ($professional): void {
-            $professional->forceFill([
-                'phone' => 'redacted',
-                'primary_email' => "deleted+{$professional->id}@partna.au",
-                'first_name' => 'Deleted',
-                'last_name' => null,
-                'public_contact_email' => null,
-                'public_contact_number' => null,
-                'bio' => null,
-                'about' => (object) [], // empty JSON object — satisfies the jsonb_typeof = 'object' constraint
-                'location_street_address' => null,
-                'location_postcode' => null,
-                'location_city' => null,
-                'location_state' => null,
-                'location_country' => null,
-            ])->save();
-
-            // Scrub tax/legal identifiers from brand_profiles. ABN and ACN uniquely
-            // identify sole traders and companies under Australian law; legal_business_name
-            // is personally identifying for sole traders.
-            DB::connection('pgsql')
-                ->table('brand.brand_profiles')
-                ->where('professional_id', $professional->id)
-                ->update([
-                    'abn' => null,
-                    'acn' => null,
-                    'legal_business_name' => null,
-                ]);
-        });
+        $professional->forceFill([
+            'phone' => 'redacted',
+            'primary_email' => "deleted+{$professional->id}@partna.au",
+            'first_name' => 'Deleted',
+            'last_name' => null,
+            'public_contact_email' => null,
+            'public_contact_number' => null,
+            'bio' => null,
+            'about' => (object) [], // empty JSON object — satisfies the jsonb_typeof = 'object' constraint
+            'location_street_address' => null,
+            'location_postcode' => null,
+            'location_city' => null,
+            'location_state' => null,
+            'location_country' => null,
+        ])->save();
     }
 
     /**
@@ -360,8 +333,6 @@ class AccountDeletionService
             }
         });
 
-        $this->resumeStripeSubscription($professional);
-
         try {
             Mail::to($professional->primary_email)->send(
                 new AccountDeletionCancelledMail(
@@ -435,8 +406,6 @@ class AccountDeletionService
                 ]);
             }
         });
-
-        $this->resumeStripeSubscription($professional);
 
         try {
             Mail::to($professional->primary_email)->send(
@@ -536,95 +505,14 @@ class AccountDeletionService
     }
 
     /**
-     * Check for unsettled financial obligations. Returns reason codes.
+     * Check for unsettled obligations. Returns reason codes.
+     * (Commerce obligations removed — individuals have no payouts.)
      *
      * @return array<string>
      */
     private function checkObligations(Professional $professional): array
     {
-        $reasons = [];
-
-        $hasPendingPayouts = DB::connection('pgsql')
-            ->table('commerce.commission_payouts')
-            ->where(function ($q) use ($professional) {
-                $q->where('brand_professional_id', $professional->id)
-                    ->orWhere('affiliate_professional_id', $professional->id);
-            })
-            ->where('status', '!=', 'paid')
-            ->exists();
-
-        if ($hasPendingPayouts) {
-            $reasons[] = 'pending_payouts';
-        }
-
-        return $reasons;
-    }
-
-    /**
-     * Fetch the billing.subscriptions row with a Stripe subscription ID for this
-     * professional. Returns null when no such row exists.
-     */
-    private function findStripeSubscription(Professional $professional): ?object
-    {
-        return DB::connection('pgsql')
-            ->table('billing.subscriptions')
-            ->where('professional_id', $professional->id)
-            ->whereNotNull('stripe_subscription_id')
-            ->first();
-    }
-
-    /**
-     * Schedule Stripe subscription to cancel at the end of the current billing
-     * period. Best effort — log and continue on failure.
-     */
-    private function cancelStripeAtPeriodEnd(Professional $professional): void
-    {
-        try {
-            $subscription = $this->findStripeSubscription($professional);
-
-            if (! $subscription || empty($subscription->stripe_subscription_id)) {
-                return;
-            }
-
-            if (! config('services.stripe.secret_key')) {
-                return; // Stripe not configured (e.g. test env) — skip.
-            }
-
-            $billing = app(StripeBillingService::class);
-            $billing->cancelSubscriptionAtPeriodEnd($subscription->stripe_subscription_id);
-        } catch (\Throwable $e) {
-            Log::error('Stripe cancel-at-period-end failed during deletion confirm', [
-                'professional_id' => $professional->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Reverse Stripe subscription cancel-at-period-end. Best effort — if the
-     * billing period already ended, the subscription is gone and we log-and-continue.
-     */
-    private function resumeStripeSubscription(Professional $professional): void
-    {
-        try {
-            $subscription = $this->findStripeSubscription($professional);
-
-            if (! $subscription || empty($subscription->stripe_subscription_id)) {
-                return;
-            }
-
-            if (! config('services.stripe.secret_key')) {
-                return;
-            }
-
-            $billing = app(StripeBillingService::class);
-            $billing->resumeSubscription($subscription->stripe_subscription_id);
-        } catch (\Throwable $e) {
-            Log::error('Stripe subscription resume failed during deletion cancel', [
-                'professional_id' => $professional->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        return [];
     }
 
     /**

@@ -163,7 +163,6 @@ class StaffAnalyticsController extends ApiController
                     'id' => $professional->id,
                     'handle' => $professional->handle,
                     'display_name' => $professional->display_name,
-                    'professional_type' => $professional->professional_type,
                 ],
                 'site' => [
                     'id' => $site->id,

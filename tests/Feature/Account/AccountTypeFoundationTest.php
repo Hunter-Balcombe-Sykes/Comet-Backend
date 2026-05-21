@@ -107,34 +107,19 @@ describe('AccountType enum', function () {
 
 describe('Professional model cast', function () {
     it('round-trips account_type through the AccountType enum', function () {
-        $pro = new Professional(['account_type' => 'partner']);
+        $pro = new Professional(['account_type' => 'individual']);
 
         expect($pro->account_type)->toBeInstanceOf(AccountType::class);
-        expect($pro->account_type)->toBe(AccountType::Partner);
+        expect($pro->account_type)->toBe(AccountType::Individual);
     });
 
-    it('isBrand/isPartner/isIndividual read account_type as source of truth', function () {
-        $brand = new Professional(['account_type' => 'brand', 'professional_type' => 'brand']);
-        $partner = new Professional(['account_type' => 'partner', 'professional_type' => 'professional']);
-        $individual = new Professional(['account_type' => 'individual', 'professional_type' => 'professional']);
-
-        expect($brand->isBrand())->toBeTrue();
-        expect($brand->isPartner())->toBeFalse();
-        expect($brand->isIndividual())->toBeFalse();
-
-        expect($partner->isPartner())->toBeTrue();
-        expect($partner->isBrand())->toBeFalse();
-        expect($partner->isIndividual())->toBeFalse();
+    it('isIndividual returns true for individual account_type', function () {
+        $individual = new Professional(['account_type' => 'individual']);
 
         expect($individual->isIndividual())->toBeTrue();
+        // isBrand/isPartner are stubs that return false for all accounts (Task 3 will delete the methods)
         expect($individual->isBrand())->toBeFalse();
         expect($individual->isPartner())->toBeFalse();
-    });
-
-    it('isBrand falls back to professional_type when account_type is null (dual-write safety net)', function () {
-        $legacy = new Professional(['account_type' => null, 'professional_type' => 'brand']);
-
-        expect($legacy->isBrand())->toBeTrue();
     });
 });
 

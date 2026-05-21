@@ -2,18 +2,16 @@
 
 namespace App\Http\Resources;
 
-use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-// V2: API resource for professional profiles — transforms identity, contact, location, onboarding, and Stripe Connect status fields.
+// V2: API resource for professional profiles — transforms identity, contact, location, and onboarding fields.
 class ProfessionalResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
-            'professional_type' => $this->professional_type,
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
@@ -34,10 +32,6 @@ class ProfessionalResource extends JsonResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            'stripe_connect_status' => $this->when(
-                AccountCapabilities::for($this->resource)->requires_stripe_connect,
-                fn () => $this->stripe_connect_status,
-            ),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

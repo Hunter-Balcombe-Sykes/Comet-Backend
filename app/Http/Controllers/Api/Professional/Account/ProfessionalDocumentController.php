@@ -48,12 +48,6 @@ class ProfessionalDocumentController extends ApiController
         $pro->loadMissing('site');
         $site = $this->currentSite($pro);
 
-        // Brand accounts are excluded per product spec — they have Shopify
-        // for catalogue assets and don't get the generic document slot.
-        if ($pro->isBrand()) {
-            return $this->error('Documents section not available for brand accounts.', 403);
-        }
-
         // Double MIME-check via finfo — prevents Content-Type header spoofing
         // on top of the mimes: validation rule which trusts the client header.
         $file = $request->file('file');

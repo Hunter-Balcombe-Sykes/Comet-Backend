@@ -235,21 +235,6 @@ function setupProfessionalsTable(): void
         location_city TEXT NULL,
         location_state TEXT NULL,
         location_country TEXT NULL,
-        stripe_connect_account_id TEXT NULL,
-        stripe_connect_status TEXT NULL,
-        stripe_billing_customer_id TEXT NULL,
-        stripe_payment_method_id TEXT NULL,
-        stripe_payment_method_brand TEXT NULL,
-        stripe_payment_method_last4 TEXT NULL,
-        stripe_commission_funding_mode TEXT NULL,
-        payout_method TEXT NULL,
-        stripe_card_payment_method_id TEXT NULL,
-        stripe_card_brand TEXT NULL,
-        stripe_card_last4 TEXT NULL,
-        stripe_becs_payment_method_id TEXT NULL,
-        stripe_becs_bsb TEXT NULL,
-        stripe_becs_last4 TEXT NULL,
-        preferred_payout_method TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -343,54 +328,6 @@ function setupMediaTables(): void
         duration_ms INTEGER NULL,
         metadata TEXT NULL,
         content_hash TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * core.brand_partner_links + core.brand_affiliate_invites for brand connection tests.
- */
-function setupBrandLinkTables(): void
-{
-    attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.brand_partner_links (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        custom_photos_enabled INTEGER NULL,
-        status TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        deleted_at TEXT NULL
-    )');
-
-    // Production table lives in the brand schema (BrandPartnerLink model).
-    // core.brand_partner_links kept above for backward-compat with older tests.
-    $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_links (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        slot INTEGER NULL,
-        custom_photos_enabled INTEGER NULL,
-        status TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        deleted_at TEXT NULL
-    )');
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.brand_affiliate_invites (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        invite_type TEXT NULL,
-        token TEXT NULL,
-        handle TEXT NULL,
-        email TEXT NULL,
-        status TEXT NULL,
-        claimed_by_professional_id TEXT NULL,
-        expires_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
@@ -498,7 +435,6 @@ function tenantHelpersEnsureTables(): void
     attachTestSchemas();
     setupProfessionalsTable();
     setupSitesTable();
-    setupBrandLinkTables();
 }
 
 /**

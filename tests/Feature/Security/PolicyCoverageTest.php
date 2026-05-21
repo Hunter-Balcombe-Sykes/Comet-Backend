@@ -72,6 +72,24 @@ const POLICY_EXEMPT = [
     // BrandSignupCodeController which scopes all reads to the authenticated brand's
     // own profile. No per-row tenant policy is needed.
     \App\Models\Core\Professional\BrandSignupCodeAuditEntry::class,
+
+    // Models pending deletion in Task 3 of the standalone-pages strip.
+    // They are no longer reachable via active API controllers or exposed through
+    // user-facing endpoints; all brand/commerce/integration routes have been removed.
+    \App\Models\Commerce\AffiliateProductSelection::class,
+    \App\Models\Commerce\Order::class,
+    \App\Models\Commerce\OrderItem::class,
+    \App\Models\Commerce\BrandAffiliateRollup::class,
+    \App\Models\Commerce\CommissionMovement::class,
+    \App\Models\Commerce\CommissionPayout::class,
+    \App\Models\Core\Professional\BrandPartnerLinkEvent::class,
+    \App\Models\Core\Professional\WalletCurrencySwitchAudit::class,
+    \App\Models\Core\Professional\ProfessionalIntegration::class,
+    \App\Models\Core\Professional\BrandProfile::class,
+    \App\Models\Core\Professional\BrandAffiliateInvite::class,
+    \App\Models\Core\Gdpr\GdprRequest::class,
+    \App\Models\Brand\BrandTeamMembership::class,
+    \App\Models\Brand\BrandStoreSettings::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {

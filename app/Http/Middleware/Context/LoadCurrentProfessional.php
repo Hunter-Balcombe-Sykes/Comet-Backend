@@ -76,13 +76,8 @@ class LoadCurrentProfessional
         // serialized into every request/job/exception record (RecordsContext trait),
         // so these become searchable filters in the dashboard without extra plumbing.
         // No DB cost: $professional is already loaded above.
-        // Tag with both columns during the dual-write window. account_type is
-        // the source of truth for Phase 1 onward — Nightwatch dashboards
-        // should filter on it. professional_type kept until §28.13 finishes
-        // the read-migration sweep.
         Context::add([
             'professional_id' => (string) $professional->id,
-            'professional_type' => (string) ($professional->professional_type ?? ''),
             'account_type' => (string) ($professional->account_type?->value ?? ''),
         ]);
 

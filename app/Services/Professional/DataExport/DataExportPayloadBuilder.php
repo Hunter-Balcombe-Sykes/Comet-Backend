@@ -51,15 +51,6 @@ class DataExportPayloadBuilder
                 'category_preferences' => $this->collect($this->streamNotificationPreferences($professionalId)),
                 'staff_policy_overrides' => $this->collect($this->streamNotificationPolicies($professionalId)),
             ],
-            'bookings' => [
-                'booking_events' => $this->collect($this->streamBookingEvents($professionalId)),
-                'lead_submissions' => $this->collect($this->streamLeadSubmissions($professionalId)),
-            ],
-            'billing' => [
-                'subscription' => $this->billingSubscription($professionalId),
-                'commission_movements' => $this->collect($this->streamCommissionMovements($professionalId)),
-                'commission_payouts' => $this->collect($this->streamCommissionPayouts($professionalId)),
-            ],
             'audit' => ['data_export_audit' => $this->collect($this->streamAudit($professionalId))],
         ];
     }
@@ -147,40 +138,6 @@ class DataExportPayloadBuilder
         ];
 
         yield [
-            'name' => 'bookings.booking_events',
-            'kind' => 'rows',
-            'rows' => $this->streamBookingEvents($professionalId),
-            'csv_columns' => ['id', 'occurred_at', 'status', 'source', 'customer_name', 'customer_email', 'customer_phone', 'amount_paid_cents', 'currency_code', 'created_at'],
-        ];
-
-        yield [
-            'name' => 'bookings.lead_submissions',
-            'kind' => 'rows',
-            'rows' => $this->streamLeadSubmissions($professionalId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'billing.subscription',
-            'kind' => 'value',
-            'value' => $this->billingSubscription($professionalId),
-        ];
-
-        yield [
-            'name' => 'billing.commission_movements',
-            'kind' => 'rows',
-            'rows' => $this->streamCommissionMovements($professionalId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'billing.commission_payouts',
-            'kind' => 'rows',
-            'rows' => $this->streamCommissionPayouts($professionalId),
-            'csv_columns' => ['id', 'status', 'amount_cents', 'created_at'],
-        ];
-
-        yield [
             'name' => 'audit.data_export_audit',
             'kind' => 'rows',
             'rows' => $this->streamAudit($professionalId),
@@ -213,27 +170,8 @@ class DataExportPayloadBuilder
         $row = $p->toArray();
         unset($row['auth_user_id'], $row['deletion_token_hash']);
 
-        $brandProfile = DB::connection('pgsql')
-            ->table('brand.brand_profiles')
-            ->where('professional_id', $p->id)
-            ->first();
-
-        // brand_partner_links is bounded (a brand has O(100s) of affiliates,
-        // not millions) so eager materialisation here is acceptable. If a
-        // brand ever exceeds that, lift this into stream() as a rows section.
-        $brandPartnerLinks = $this->collect(
-            $this->lazyRows(
-                DB::connection('pgsql')
-                    ->table('brand.brand_partner_links')
-                    ->where('brand_professional_id', $p->id)
-                    ->orWhere('affiliate_professional_id', $p->id)
-            )
-        );
-
         return [
             'professional' => $row,
-            'brand_profile' => $brandProfile ? (array) $brandProfile : null,
-            'brand_partner_links' => $brandPartnerLinks,
         ];
     }
 
@@ -263,16 +201,6 @@ class DataExportPayloadBuilder
         ];
     }
 
-    private function billingSubscription(string $professionalId): ?array
-    {
-        $subscription = DB::connection('pgsql')
-            ->table('billing.subscriptions')
-            ->where('professional_id', $professionalId)
-            ->first();
-
-        return $subscription ? (array) $subscription : null;
-    }
-
     private function streamMedia(string $professionalId): Generator
     {
         return $this->lazyRows(
@@ -285,13 +213,8 @@ class DataExportPayloadBuilder
 
     private function streamIntegrations(string $professionalId): Generator
     {
-        // Strip access_token and refresh_token — credentials never go in an export.
-        return $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('core.professional_integrations')
-                ->select(['id', 'provider', 'shop_domain', 'last_sync_at', 'created_at', 'updated_at'])
-                ->where('professional_id', $professionalId)
-        );
+        // No integrations for individual-standalone accounts; yield nothing.
+        yield from [];
     }
 
     private function streamCustomers(string $professionalId): Generator
@@ -374,19 +297,6 @@ class DataExportPayloadBuilder
         );
     }
 
-    private function streamBookingEvents(string $professionalId): Generator
-    {
-        // raw_payload deliberately excluded — it is the full third-party API
-        // response (Square/Fresha) and may contain other parties' data
-        // (staff member who took the booking, etc.).
-        return $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('analytics.booking_events')
-                ->select(['id', 'occurred_at', 'status', 'source', 'customer_name', 'customer_email', 'customer_phone', 'amount_paid_cents', 'currency_code', 'created_at'])
-                ->where('professional_id', $professionalId)
-        );
-    }
-
     private function streamLeadSubmissions(string $professionalId): Generator
     {
         // Mirror the redaction in enquiries() — drop ip_hash + user_agent
@@ -396,26 +306,6 @@ class DataExportPayloadBuilder
                 ->table('analytics.lead_submissions')
                 ->select(['id', 'occurred_at', 'outcome', 'form_started_at_ms', 'customer_id', 'subdomain', 'site_id', 'referrer'])
                 ->where('professional_id', $professionalId)
-        );
-    }
-
-    private function streamCommissionMovements(string $professionalId): Generator
-    {
-        return $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('commerce.commission_movements')
-                ->where('affiliate_professional_id', $professionalId)
-                ->orWhere('brand_professional_id', $professionalId)
-        );
-    }
-
-    private function streamCommissionPayouts(string $professionalId): Generator
-    {
-        return $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('commerce.commission_payouts')
-                ->where('affiliate_professional_id', $professionalId)
-                ->orWhere('brand_professional_id', $professionalId)
         );
     }
 
