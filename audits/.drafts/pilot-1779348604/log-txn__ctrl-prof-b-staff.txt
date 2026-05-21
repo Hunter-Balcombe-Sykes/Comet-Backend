@@ -1,0 +1,10 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   440429 bytes (~110107 tokens)
+DeepSeek API returned HTTP 402
+{
+  "error": {
+    "message": "Insufficient Balance",
+    "type": "unknown_error",
+    "param": null,
+    "code": "invalid_request_error"
+  }
+}

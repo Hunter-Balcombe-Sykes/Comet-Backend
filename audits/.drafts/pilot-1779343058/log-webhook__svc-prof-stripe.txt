@@ -1,0 +1,11 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   434583 bytes (~108645 tokens)
+
+✓ Wrote audits/.drafts/pilot-1779343058/draft-webhook__svc-prof-stripe.md — 0
+0 findings, 97s elapsed
+
+Token usage:
+  prompt: 98791  output: 2379  reasoning: 2189  cache_hit: 1664/98791
+
+→ Next: adjudicate with Claude Sonnet. Feed audits/.drafts/pilot-1779343058/draft-webhook__svc-prof-stripe.md + the same scope to Sonnet
+  asking it to verify findings, refine tiers, fix wrong fix recommendations,
+  and emit audit-$(date +%F)-<lens>.md in the canonical format.

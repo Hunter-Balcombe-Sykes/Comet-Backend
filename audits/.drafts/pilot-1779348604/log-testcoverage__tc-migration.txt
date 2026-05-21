@@ -1,0 +1,11 @@
+WARNING: scope path not found: tests/Feature/Audit
+→ Firing deepseek-v4-pro (thinking: max) — payload   511619 bytes (~127904 tokens)
+DeepSeek API returned HTTP 402
+{
+  "error": {
+    "message": "Insufficient Balance",
+    "type": "unknown_error",
+    "param": null,
+    "code": "invalid_request_error"
+  }
+}

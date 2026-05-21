@@ -1,0 +1,1 @@
+I did not identify any scaling antipatterns in the provided files. The Shopify job implementations already reflect the post-rebuild patterns: append-only event logs, trigger-maintained rollups, push invalidation, LWW upserts, and chunked operations where needed. No findings to report.
