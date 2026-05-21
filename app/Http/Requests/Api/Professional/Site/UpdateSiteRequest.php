@@ -119,7 +119,7 @@ class UpdateSiteRequest extends BaseFormRequest
             // surfaces a value that maps to a non-existent layout — the
             // Astro/Hydrogen resolvers floor anything outside this set to
             // theme-1 as a defence-in-depth measure.
-            'settings.design.theme' => ['sometimes', 'nullable', 'string', Rule::in(['theme-1', 'theme-2'])],
+            'settings.design.theme' => ['sometimes', 'nullable', 'string', Rule::in(['theme-1', 'theme-2', 'theme-3', 'theme-4'])],
             // Logos are downloaded from Shopify into our own storage so the URLs
             // are stable even if Shopify CDN tokens rotate.
             'settings.design.logo' => ['prohibited'],
