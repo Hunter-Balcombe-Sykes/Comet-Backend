@@ -5,17 +5,13 @@ use App\Http\Middleware\AddPublicCacheHeaders;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\RequireAal2;
-use App\Http\Middleware\Auth\VerifyHydrogenApiKey;
 use App\Http\Middleware\Auth\RequireEmailVerified;
-use App\Http\Middleware\Auth\VerifyShopifySessionToken;
 use App\Http\Middleware\Auth\VerifySupabaseEmailHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
-use App\Http\Middleware\BrandFundingGate;
 use App\Http\Middleware\Context\LoadCurrentProfessional;
 use App\Http\Middleware\FeatureGate;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
-use App\Http\Middleware\RequirePlan;
 use App\Http\Middleware\SecureHeaders;
 use App\Http\Middleware\VerifyTurnstileCaptcha;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -69,17 +65,6 @@ return Application::configure(basePath: dirname(__DIR__))
             VerifySupabaseJwt::class,
         );
 
-        // Same priority pin for the embedded-app session-token verifier. The
-        // `embedded-by-shop` rate limiter reads `embedded_shop_domain` from the
-        // request attributes, which VerifyShopifySessionToken sets after decoding
-        // the JWT. Without this, ThrottleRequests fires before the JWT is parsed
-        // and the per-shop limiter collapses to per-IP (or whatever fallback
-        // the limiter uses).
-        $middleware->prependToPriorityList(
-            \Illuminate\Routing\Middleware\ThrottleRequests::class,
-            VerifyShopifySessionToken::class,
-        );
-
         $middleware->alias([
             'supabase.jwt' => VerifySupabaseJwt::class,
             'require.email_verified' => RequireEmailVerified::class,
@@ -88,15 +73,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'staff.admin' => EnsurePartnaAdmin::class,
             'staff.audit' => RecordStaffAuditEntry::class,
             'lead.log' => LogLeadRateLimits::class,
-            'plan' => RequirePlan::class,
-            'hydrogen.key' => VerifyHydrogenApiKey::class,
-            'shopify.session' => VerifyShopifySessionToken::class,
             'supabase.email-hook' => VerifySupabaseEmailHookSignature::class,
             'feature' => FeatureGate::class,
             'captcha' => VerifyTurnstileCaptcha::class,
-            'brand-funding-gate' => BrandFundingGate::class,
-            'brand.only' => \App\Http\Middleware\EnsureBrandAccount::class,
-            'affiliate.only' => \App\Http\Middleware\EnsureAffiliateAccount::class,
             'require.aal2' => RequireAal2::class,
         ]);
     })

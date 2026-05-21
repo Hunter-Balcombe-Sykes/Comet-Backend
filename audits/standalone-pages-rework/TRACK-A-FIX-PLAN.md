@@ -29,7 +29,7 @@ single-item fixes — a single-item P1 fix outranks a multi-item P2 bundle.
 | ☑ | F7 | Stale PL/pgSQL function reference | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F8 | `Block` model soft-deletes | P1 | S | Sonnet | Sonnet | ~0.5h |
 | ☑ | F9 | Cloudflare KV writer correctness | P1 | S | Sonnet | Sonnet | ~1h |
-| ☐ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
+| ☑ | F10 | Backfill job scaling (standalone) | P1 | L | Opus | Opus | ~1 day |
 | ☑ | F11 | Bootstrap brand-attach coverage (standalone) | P1 | L | Opus | Sonnet | ~1 day |
 | ☑ | F12 | Cache invalidation hygiene | P2 | M | Sonnet | Sonnet | ~3h |
 | ☑ | F13 | RLS policy gaps (schema sweep) | P2 | M | Sonnet | Opus | ~3h |
@@ -220,7 +220,7 @@ Both in the KV write path.
 **Files:** `app/Services/Cloudflare/CloudflareKvService.php`,
 `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php`.
 
-## ☐ F10 — Backfill job scaling (STANDALONE — do not bundle)
+## ☑ F10 — Backfill job scaling (STANDALONE — do not bundle)
 **Tier:** P1 · **Effort:** L · **Item:** SCALE-1 (= API-2)
 **Implement:** Opus · **Review:** Opus · **Est. time:** ~1 day
 
