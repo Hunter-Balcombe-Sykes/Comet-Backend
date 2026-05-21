@@ -26,25 +26,10 @@ const POLICY_EXEMPT = [
 
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
-    // API, gated by the parent Site/CommissionPolicy.
-    \App\Models\Analytics\CartEvent::class,
+    // API, gated by the parent Site policy.
     \App\Models\Analytics\LinkClick::class,
     \App\Models\Analytics\SectionView::class,
     \App\Models\Analytics\SiteVisit::class,
-
-    // Nested under CommissionPayout — gated transitively by CommissionPolicy.
-    \App\Models\Commerce\CommissionPayoutItem::class,
-
-    // Nested under Commerce\Order — append-only audit log; access flows through
-    // the parent Order's CommissionPolicy. Mirrors the CommissionPayoutItem pattern.
-    \App\Models\Commerce\OrderEvent::class,
-
-    // Nested under CommissionPayout — append-only Stripe-reversal log written
-    // server-side by CommissionPayoutRefundService. No user-facing CRUD; reads
-    // are gated by the parent CommissionPayout's CommissionPolicy (and at the
-    // DB layer by RLS policy `clawbacks_party_select` in
-    // 20260512200000_commission_clawbacks_enable_rls.sql).
-    \App\Models\Commerce\CommissionClawback::class,
 
     // Append-only audit log for handle/subdomain renames; readable by staff only — no per-row tenant policy.
     \App\Models\Core\HandleChangeLog::class,
@@ -58,17 +43,8 @@ const POLICY_EXEMPT = [
     // here because there is no controller action to gate.
     \App\Models\Core\Staff\StaffAuditEntry::class,
 
-    // Async export audit row. Created by the professional's own export request;
-    // read back only by the same professional via the export status endpoint.
-    // Access is gated at the controller level (professional_id scoping) — there
-    // is no cross-tenant resource access risk, and no policy-gated CRUD surface.
-    \App\Models\Commerce\CommissionExportAudit::class,
-
-    // Append-only audit log for brand signup code lifecycle events (generated, rotated,
-    // claimed, failed_claim, etc.). Written only by BrandSignupCodeService — never
-    // directly exposed over the API for write. Dashboard counts are aggregated via
-    // BrandSignupCodeController which scopes all reads to the authenticated brand's
-    // own profile. No per-row tenant policy is needed.
+    // Append-only audit log for brand signup code lifecycle events — deleted in Task 3 strip.
+    // Retained as exempt entry until full model deletion propagates through tests.
     \App\Models\Core\Professional\BrandSignupCodeAuditEntry::class,
 
     // Models pending deletion in Task 3 of the standalone-pages strip.
