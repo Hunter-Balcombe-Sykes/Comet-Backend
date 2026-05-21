@@ -63,7 +63,7 @@ export default {
     try {
       entry = await env.SUBDOMAIN_KV.get(subdomain, { type: "json" });
     } catch (err) {
-      // KV transient failure — fail open so brand traffic keeps working.
+      // KV transient failure — fail open to avoid blocking user traffic.
       console.error("KV lookup failed", { subdomain, err: String(err) });
       return fetch(request);
     }
