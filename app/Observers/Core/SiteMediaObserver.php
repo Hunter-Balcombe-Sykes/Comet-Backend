@@ -47,9 +47,8 @@ class SiteMediaObserver
      * uploads then took 5–15 min to appear publicly.
      *
      * `touch()` only changes `updated_at`. SiteObserver's other dispatches
-     * (SyncSubdomainToKvJob, ProvisionBrandDnsJob, RetireBrandDnsJob) gate
-     * on `wasChanged('subdomain')` and stay inert. Cost is one UPDATE +
-     * one CF purge enqueue per media write.
+     * (SyncSubdomainToKvJob) gate on `wasChanged('subdomain')` and stay
+     * inert. Cost is one UPDATE + one CF purge enqueue per media write.
      */
     private function touchParentSite(SiteMedia $media, string $action): void
     {

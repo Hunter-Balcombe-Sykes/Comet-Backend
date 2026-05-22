@@ -49,10 +49,9 @@ class BlockObserver
      *     for up to 5–15 min.
      *
      * `touch()` only changes `updated_at`. SiteObserver's other dispatches
-     * (SyncSubdomainToKvJob, ProvisionBrandDnsJob, RetireBrandDnsJob) gate
-     * on `wasChanged('subdomain')` and won't fire here — we pay the cost
-     * of exactly one extra UPDATE + one CF purge enqueue, no expensive
-     * KV / DNS side-effects.
+     * (SyncSubdomainToKvJob) gate on `wasChanged('subdomain')` and won't
+     * fire here — we pay the cost of exactly one extra UPDATE + one CF
+     * purge enqueue, no expensive KV side-effects.
      */
     private function onBlockMutated(Block $block, string $action): void
     {

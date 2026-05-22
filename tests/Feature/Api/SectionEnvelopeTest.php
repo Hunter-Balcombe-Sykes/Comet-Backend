@@ -4,10 +4,8 @@ use App\Models\Core\Site\Block;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Str;
 
-// Exercises the sectionEnvelope() helper on the shared resolver. The method
-// used to live on HydrogenAffiliateController; extracted to the service so
-// both the affiliate endpoint and the public §28.8 individual endpoint
-// produce identical envelope shapes.
+// Exercises the sectionEnvelope() helper on SitepageDataResolverService.
+// Produces the envelope shape consumed by the public §28.8 individual endpoint.
 function invokeEnvelope($sections, string $type, callable $data): array
 {
     return (new SitepageDataResolverService)->sectionEnvelope($sections, $type, $data);

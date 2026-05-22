@@ -636,7 +636,6 @@ return [
         'types' => [
             'influencer' => 'Influencer',
             'professional' => 'Professional',
-            'brand' => 'Brand',
             'other' => 'Other',
         ],
         'industries' => [

@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
-// V2: Sends category-specific transactional emails (invites, commissions, payouts). Respects feature flags and user email preferences.
+// V2: Sends category-specific transactional emails. Respects feature flags and user email preferences.
 // Categories with a capability gate are listed in CAPABILITY_GATE_MAP. Categories absent from the map bypass the gate
 // (e.g. analytics_weekly, profile_tasks) — they have no account_type restriction.
 class SendTransactionalNotificationEmailJob implements ShouldQueue

@@ -13,7 +13,7 @@ use Illuminate\Console\Command;
 class BackfillSubdomainKvCommand extends Command
 {
     protected $signature = 'partna:backfill-subdomain-kv
-                            {professional_id? : Single professional UUID to resync. Omit with --all to do every brand + affiliate.}
+                            {professional_id? : Single professional UUID to resync. Omit with --all to do every professional.}
                             {--all : Resync every professional with a handle. Mutually exclusive with professional_id.}
                             {--queue : Dispatch via the queue (default: synchronous).}';
 

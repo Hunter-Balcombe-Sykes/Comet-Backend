@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS core.users (
     CONSTRAINT users_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT users_status_check CHECK (status IN ('active', 'suspended', 'disabled', 'pending_deletion')),
     CONSTRAINT users_about_is_object CHECK (jsonb_typeof(about) = 'object'),
-    CONSTRAINT users_account_type_check CHECK (account_type IN ('brand', 'partner', 'individual'))
+    CONSTRAINT users_account_type_check CHECK (account_type = 'individual')
 );
 
 ALTER TABLE core.users OWNER TO postgres;
@@ -423,9 +423,6 @@ CREATE TABLE IF NOT EXISTS core.waitlist_signups (
     industry_other text NULL,
     pilot_program_opt_in boolean NOT NULL DEFAULT false,
     number_of_team_members integer NULL,
-    number_of_affiliates_ambassadors integer NULL,
-    is_brand_partner_or_ambassador boolean NULL,
-    currently_sells_products boolean NULL,
     consent_source text NOT NULL DEFAULT 'waitlist_form',
     consent_ip_hash text NULL,
     consent_user_agent text NULL,
@@ -433,12 +430,11 @@ CREATE TABLE IF NOT EXISTS core.waitlist_signups (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT waitlist_signups_pkey PRIMARY KEY (id),
-    CONSTRAINT waitlist_signups_type_check CHECK (applicant_type IN ('influencer', 'professional', 'brand', 'other')),
+    CONSTRAINT waitlist_signups_type_check CHECK (applicant_type IN ('influencer', 'professional', 'other')),
     CONSTRAINT waitlist_signups_industry_check CHECK (
         industry IN ('mens_grooming', 'womens_haircare', 'beauty_products', 'vitamins_and_supplements', 'services_and_software', 'other')
     ),
     CONSTRAINT waitlist_signups_team_members_non_negative CHECK (number_of_team_members IS NULL OR number_of_team_members >= 0),
-    CONSTRAINT waitlist_signups_affiliates_non_negative CHECK (number_of_affiliates_ambassadors IS NULL OR number_of_affiliates_ambassadors >= 0),
     CONSTRAINT waitlist_signups_type_other_required CHECK (
         (applicant_type = 'other' AND applicant_type_other IS NOT NULL AND btrim(applicant_type_other) <> '')
         OR (applicant_type <> 'other' AND applicant_type_other IS NULL)
@@ -446,11 +442,6 @@ CREATE TABLE IF NOT EXISTS core.waitlist_signups (
     CONSTRAINT waitlist_signups_industry_other_required CHECK (
         (industry = 'other' AND industry_other IS NOT NULL AND btrim(industry_other) <> '')
         OR (industry <> 'other' AND industry_other IS NULL)
-    ),
-    CONSTRAINT waitlist_signups_conditional_fields_check CHECK (
-        (applicant_type = 'brand' AND number_of_team_members IS NOT NULL AND number_of_affiliates_ambassadors IS NOT NULL AND is_brand_partner_or_ambassador IS NULL AND currently_sells_products IS NULL)
-        OR (applicant_type IN ('influencer', 'professional') AND number_of_team_members IS NULL AND number_of_affiliates_ambassadors IS NULL AND is_brand_partner_or_ambassador IS NOT NULL AND currently_sells_products IS NOT NULL)
-        OR (applicant_type = 'other' AND number_of_team_members IS NULL AND number_of_affiliates_ambassadors IS NULL AND is_brand_partner_or_ambassador IS NULL AND currently_sells_products IS NULL)
     )
 );
 
@@ -749,7 +740,7 @@ CREATE TABLE IF NOT EXISTS site.blocks (
     CONSTRAINT link_blocks_block_group_check CHECK (block_group = ANY (ARRAY['links', 'sections'])),
     CONSTRAINT blocks_block_type_check CHECK (block_type IN (
         'link',
-        'gallery', 'services', 'shop', 'booking', 'contacts_collection',
+        'gallery', 'services', 'booking', 'contacts_collection',
         'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter',
         'countdown', 'contact', 'credentials', 'experience', 'bio'
     ))

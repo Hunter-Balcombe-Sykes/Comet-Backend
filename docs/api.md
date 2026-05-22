@@ -259,7 +259,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | phone                     | string   | yes      | `+61411111111`         | Max 40                                                                      |
 | notes                     | string   | yes      | `Prefers Fridays`      | Max 5000                                                                    |
 | source                    | string   | yes      | `manual`               | manual, site, or other; staff can set when creating/updating               |
-| external_id               | string   | yes      | `square:cus_123`       | Max 255; external system reference                                         |
+| external_id               | string   | yes      | `manual:abc123`        | Max 255; external system reference                                         |
 | marketing_opt_in_cached   | boolean  | no       | `true`                 | Cache of EmailSubscription status (defaults to true). Source of truth is EmailSubscription. Set to false if customer explicitly opts-out. |
 | created_at                | datetime | yes      | `2026-01-12T05:12:00Z` |                                                                             |
 | updated_at                | datetime | yes      | `2026-01-12T05:12:00Z` |                                                                             |
@@ -281,16 +281,6 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | created_at      | datetime | yes      | `2026-01-12T05:12:00Z` |                         |
 | updated_at      | datetime | yes      | `2026-01-12T05:12:00Z` |                         |
 | deleted_at      | datetime | yes      | `2026-01-20T05:12:00Z` | Soft delete timestamp   |
-| square_catalog_object_id | string | yes | `ITEM_ABC`           | Square catalog item ID  |
-| square_variation_id      | string | yes | `VAR_123`            | Square item variation ID |
-| square_service_version   | integer| yes | `1`                  | Square object version (optimistic locking) |
-| square_last_synced_at    | datetime| yes| `2026-02-20T12:00:00Z` | Last Square sync timestamp |
-| square_sync_error        | string | yes | `null`               | Last Square sync error message |
-| fresha_service_id        | string | yes | `svc_789`            | Fresha service ID       |
-| fresha_variation_id      | string | yes | `var_012`            | Fresha service variation ID |
-| fresha_service_version   | integer| yes | `1`                  | Fresha object version (optimistic locking) |
-| fresha_last_synced_at    | datetime| yes| `2026-02-20T12:00:00Z` | Last Fresha sync timestamp |
-| fresha_sync_error        | string | yes | `null`               | Last Fresha sync error message |
 
 ### ServiceCategory
 | Name            | Type     | Nullable | Example                | Constraints / Notes     |

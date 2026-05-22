@@ -27,21 +27,19 @@ class ProfessionalServiceController extends ApiController
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
         $grouped = $request->boolean('grouped');
-        $source = strtolower((string) $request->query('source', 'all'));
 
         // Hot path: dashboard's default services list (no archive toggle, no
-        // grouping, source=all). Served from ProfessionalCacheService —
-        // 30-min TTL, single-flight, busted by ServiceObserver on any write.
+        // grouping). Served from ProfessionalCacheService — 30-min TTL,
+        // single-flight, busted by ServiceObserver on any write.
         // Filtered or grouped views fall through to the raw query because
-        // their cache keys would either explode in cardinality (per-source)
-        // or duplicate the categories join logic.
-        if (! $includeArchived && ! $onlyArchived && ! $grouped && $source === 'all') {
+        // their cache keys would either explode in cardinality or duplicate
+        // the categories join logic.
+        if (! $includeArchived && ! $onlyArchived && ! $grouped) {
             return $this->success([
                 'services' => app(ProfessionalCacheService::class)->getDashboardServices($pro->id),
                 'filters' => [
                     'include_archived' => false,
                     'only_archived' => false,
-                    'source' => 'all',
                 ],
             ]);
         }
@@ -63,7 +61,6 @@ class ProfessionalServiceController extends ApiController
                 'filters' => [
                     'include_archived' => $includeArchived,
                     'only_archived' => $onlyArchived,
-                    'source' => $source,
                 ],
             ]);
         }
@@ -71,21 +68,6 @@ class ProfessionalServiceController extends ApiController
         // Categories list (for grouped UI)
         $catQuery = ServiceCategory::query()
             ->where('professional_id', $pro->id);
-
-        if ($source !== 'all') {
-            $categoryIds = $services
-                ->pluck('category_id')
-                ->filter(fn ($id) => ! is_null($id))
-                ->unique()
-                ->values()
-                ->all();
-
-            if (empty($categoryIds)) {
-                $catQuery->whereRaw('1 = 0');
-            } else {
-                $catQuery->whereIn('id', $categoryIds);
-            }
-        }
 
         if ($onlyArchived) {
             $catQuery->onlyTrashed();
@@ -115,7 +97,6 @@ class ProfessionalServiceController extends ApiController
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
                 'grouped' => true,
-                'source' => $source,
             ],
         ]);
     }
