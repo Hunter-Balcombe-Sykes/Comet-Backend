@@ -120,7 +120,6 @@ class AnalyticsController extends ApiController
         $trackableSectionTypes = collect(config('partna.section_block_types', [
             'gallery',
             'services',
-            'shop',
             'booking',
         ]))
             ->filter(fn ($type) => is_string($type) && trim($type) !== '')

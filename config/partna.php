@@ -618,7 +618,7 @@ return [
         ],
     ],
 
-    'section_block_types' => ['gallery', 'services', 'shop', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+    'section_block_types' => ['gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
 
     // Platform-default subject dropdown options for the contact section block.
     // Merged with the affiliate's settings.subject_options at render and

@@ -23,7 +23,7 @@ it('exposes bio + documents in the section_block_types config', function (): voi
         ->values()
         ->all();
 
-    expect($types)->toContain('bio', 'documents', 'gallery', 'services', 'shop', 'booking');
+    expect($types)->toContain('bio', 'documents', 'gallery', 'services', 'booking');
 });
 
 it('records a click on a bio section block', function (): void {

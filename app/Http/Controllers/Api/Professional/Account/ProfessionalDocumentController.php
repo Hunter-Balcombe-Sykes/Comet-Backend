@@ -73,7 +73,7 @@ class ProfessionalDocumentController extends ApiController
         // previous doc row and inserts the new row with path:''. The empty
         // path is the claim token: concurrent uploads for the same site see
         // the row and the advisory lock serializes them. The R2 PUT then runs
-        // post-commit and the path is patched in. Mirrors BrandGalleryController.
+        // post-commit and the path is patched in.
         //
         // Extension is derived from the actual MIME — never from the
         // client-supplied filename (spoofable).

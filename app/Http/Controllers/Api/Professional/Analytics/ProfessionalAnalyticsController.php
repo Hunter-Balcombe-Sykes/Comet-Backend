@@ -317,7 +317,7 @@ class ProfessionalAnalyticsController extends ApiController
                 // ingest-side `partna.section_block_types` config so a block_type
                 // accepted on /public/analytics/clicks is also counted here.
                 $trackableSectionTypes = collect(config('partna.section_block_types', [
-                    'gallery', 'services', 'shop', 'booking',
+                    'gallery', 'services', 'booking',
                 ]))
                     ->filter(fn ($type) => is_string($type) && trim($type) !== '')
                     ->map(fn (string $type) => strtolower(trim($type)))
@@ -340,7 +340,6 @@ class ProfessionalAnalyticsController extends ApiController
                         $title = match ($sectionKey) {
                             'gallery' => 'Gallery of Work',
                             'services' => 'Services & Pricing',
-                            'shop' => 'Shop',
                             'booking' => 'Booking',
                             'bio' => 'About',
                             'documents' => 'File Preview',
@@ -410,11 +409,5 @@ class ProfessionalAnalyticsController extends ApiController
         });
 
         return $this->success($data);
-    }
-
-    /** @deprecated Commerce has been removed; returns empty payload for backward compatibility. */
-    public function shopSummary(Request $request): JsonResponse
-    {
-        return $this->success(['totals' => [], 'charts' => []]);
     }
 }

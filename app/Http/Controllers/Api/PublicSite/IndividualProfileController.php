@@ -19,19 +19,13 @@ use Illuminate\Http\Request;
  *
  * 404 rules (audit: avoid existence leak on public endpoints):
  *   - Handle not found
- *   - Professional is a brand   (served by Hydrogen at <handle>.partna.au)
- *   - Professional is a partner (Worker 301s to <brand>.partna.au/<handle>)
  *
  * Caching: 60s TTL (configurable) via CacheLockService::rememberLocked.
  * Cache key includes handle + site's updated_at so any SiteObserver-fired
  * mutation rolls the key forward; the CloudflareCachePurgeJob (§28.7)
  * separately drops the edge cache so the next request rebuilds from here.
  *
- * Payload shape mirrors the Hydrogen affiliate endpoint via the shared
- * `SitepageDataResolverService` — same envelope contract, minus brand-
- * fallback content (placeholders, fallback gallery, brand_logo,
- * brand_slogan) which is layered in by the Hydrogen controller only.
- * Shop is always draft for individuals (no commerce surface).
+ * Payload is assembled by IndividualProfilePayloadBuilder.
  */
 class IndividualProfileController extends ApiController
 {
