@@ -49,7 +49,7 @@ it('blocks a non-owner from updating a document with 404', function () {
 
 it('blocks a pending-deletion owner from updating a document with 423', function () {
     $owner = createTenant('doc-update-pending');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();

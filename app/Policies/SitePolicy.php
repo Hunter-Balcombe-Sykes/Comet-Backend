@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -21,14 +21,14 @@ use Illuminate\Database\Eloquent\Model;
  */
 class SitePolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
         return $this->ownerMatches($actor, $resource)
             ? true
             : $this->denyAsNotFound();
     }
 
-    public function update(Professional $actor, Model $resource): bool|Response
+    public function update(User $actor, Model $resource): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -39,12 +39,12 @@ class SitePolicy extends BasePolicy
             : $this->denyAsNotFound();
     }
 
-    public function delete(Professional $actor, Model $resource): bool|Response
+    public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
     }
 
-    public function create(Professional $actor, Model $skeleton): bool|Response
+    public function create(User $actor, Model $skeleton): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -53,7 +53,7 @@ class SitePolicy extends BasePolicy
         return $this->ownerMatches($actor, $skeleton);
     }
 
-    private function ownerMatches(Professional $actor, Model $resource): bool
+    private function ownerMatches(User $actor, Model $resource): bool
     {
         $ownerId = $this->resolveOwnerId($resource);
 

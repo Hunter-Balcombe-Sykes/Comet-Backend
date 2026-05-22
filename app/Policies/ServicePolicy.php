@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class ServicePolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
         if ((string) $resource->professional_id !== (string) $actor->id) {
             return $this->denyAsNotFound();
@@ -25,7 +25,7 @@ class ServicePolicy extends BasePolicy
         return true;
     }
 
-    public function create(Professional $actor, Model $skeleton): bool|Response
+    public function create(User $actor, Model $skeleton): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -34,7 +34,7 @@ class ServicePolicy extends BasePolicy
         return (string) $skeleton->professional_id === (string) $actor->id;
     }
 
-    public function update(Professional $actor, Model $resource): bool|Response
+    public function update(User $actor, Model $resource): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -47,7 +47,7 @@ class ServicePolicy extends BasePolicy
         return true;
     }
 
-    public function delete(Professional $actor, Model $resource): bool|Response
+    public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
     }

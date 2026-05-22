@@ -2,7 +2,7 @@
 
 namespace App\Services\Professional\DataExport;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Generator;
 use Illuminate\Support\Facades\DB;
 
@@ -145,15 +145,15 @@ class DataExportPayloadBuilder
         ];
     }
 
-    private function loadProfessional(string $professionalId): Professional
+    private function loadProfessional(string $professionalId): User
     {
-        return Professional::query()
+        return User::query()
             ->withTrashed()
             ->where('id', $professionalId)
             ->firstOrFail();
     }
 
-    private function metadata(Professional $p): array
+    private function metadata(User $p): array
     {
         return [
             'professional_id' => $p->id,
@@ -164,7 +164,7 @@ class DataExportPayloadBuilder
         ];
     }
 
-    private function profile(Professional $p): array
+    private function profile(User $p): array
     {
         // Strip secrets — never let auth or tokens leak into an export.
         $row = $p->toArray();

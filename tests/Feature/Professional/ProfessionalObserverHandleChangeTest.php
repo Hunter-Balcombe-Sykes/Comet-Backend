@@ -2,7 +2,7 @@
 
 use App\Jobs\Cloudflare\RetireSubdomainFromKvJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Observers\Professional\ProfessionalObserver;
 use App\Services\Cache\ProfessionalCacheService;
 use Illuminate\Support\Facades\Queue;
@@ -19,7 +19,7 @@ it('dispatches SyncSubdomainToKvJob when handle changes', function () {
     Queue::fake();
 
     $id = (string) Str::uuid();
-    $pro = new Professional;
+    $pro = new User;
     $pro->setRawAttributes(['id' => $id, 'handle' => 'old-handle']);
     $pro->syncOriginal();
     $pro->handle = 'new-handle';
@@ -39,7 +39,7 @@ it('dispatches SyncSubdomainToKvJob when handle changes', function () {
 it('does not dispatch retirement job when handle does not change', function () {
     Queue::fake();
 
-    $pro = new Professional;
+    $pro = new User;
     $pro->setRawAttributes(['id' => (string) Str::uuid(), 'handle' => 'same-handle', 'display_name' => 'Old Name']);
     $pro->syncOriginal();
     $pro->display_name = 'New Name';
@@ -54,7 +54,7 @@ it('does not dispatch retirement job when handle does not change', function () {
 it('does not dispatch retirement job when old handle is empty', function () {
     Queue::fake();
 
-    $pro = new Professional;
+    $pro = new User;
     $pro->setRawAttributes(['id' => (string) Str::uuid(), 'handle' => '']);
     $pro->syncOriginal();
     $pro->handle = 'new-handle';

@@ -17,13 +17,13 @@ function makePrunePro(string $handle): string
 {
     $proId = (string) Str::uuid();
     $now = now()->toDateTimeString();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id'               => $proId,
         'handle'           => $handle,
         'handle_lc'        => $handle,
         'status'           => 'active',
         'primary_email'    => $handle.'@example.test',
-        'professional_type'=> 'professional',
+        
         'created_at'       => $now,
         'updated_at'       => $now,
     ]);

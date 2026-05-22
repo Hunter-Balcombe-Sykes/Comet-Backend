@@ -1,7 +1,7 @@
 <?php
 
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Http\Request;
@@ -16,7 +16,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): Professional
+function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -32,9 +32,9 @@ function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long
         'deletion_requested_at' => now()->toIso8601String(),
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('confirms with valid token: flips status, snapshots previous status, nulls token', function () {
@@ -90,7 +90,7 @@ it('rejects with 404 when token does not match', function () {
 
 it('rejects with 404 when no deletion request exists', function () {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'auth_user_id' => (string) Str::uuid(),
         'handle' => 'plain',
@@ -99,7 +99,7 @@ it('rejects with 404 when no deletion request exists', function () {
         'primary_email' => 'plain@example.com',
         'status' => 'active',
     ]);
-    $pro = Professional::query()->where('id', $id)->first();
+    $pro = User::query()->where('id', $id)->first();
 
     $service = new AccountDeletionService;
     $result = $service->confirm($pro, 'any-token', Request::create('/', 'POST'));
@@ -216,7 +216,7 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
     ]);
 
     // Reload with site relation.
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));

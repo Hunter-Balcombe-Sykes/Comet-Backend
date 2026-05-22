@@ -3,7 +3,7 @@
 namespace App\Models\Core\Notifications;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -54,7 +54,7 @@ class Notification extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'professional_id');
     }
 
     public function receipts(): HasMany
@@ -62,14 +62,14 @@ class Notification extends BaseModel
         return $this->hasMany(NotificationReceipt::class, 'notification_id');
     }
 
-    public function scopeVisibleTo(Builder $query, Professional $professional): Builder
+    public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         $now = now();
 
         return $query
-            ->where(function (Builder $q) use ($professional): void {
+            ->where(function (Builder $q) use ($user): void {
                 $q->whereNull('professional_id')
-                    ->orWhere('professional_id', $professional->id);
+                    ->orWhere('professional_id', $user->id);
             })
             ->where(function (Builder $q) use ($now): void {
                 $q->whereNull('starts_at')->orWhere('starts_at', '<=', $now);

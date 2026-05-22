@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +25,7 @@ class StaffAnalyticsController extends ApiController
      * Cached for 60 s keyed by (professional_id, from, to) + analyticsSummaryVersion
      * so a cache-bust on the professional's own dashboard also refreshes this view.
      */
-    public function summary(Request $request, Professional $professional): JsonResponse
+    public function summary(Request $request, User $professional): JsonResponse
     {
         $days = (int) $request->query('days', 30);
         $days = max(1, min(365, $days));

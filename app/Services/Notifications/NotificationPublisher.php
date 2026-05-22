@@ -4,7 +4,7 @@ namespace App\Services\Notifications;
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -278,7 +278,7 @@ class NotificationPublisher
         }
 
         try {
-            $pro = Professional::find($professionalId);
+            $pro = User::find($professionalId);
         } catch (\Throwable $e) {
             // DB outage / test scaffold without core.professionals attached.
             // Fall open — email job will fail-close downstream if it matters.

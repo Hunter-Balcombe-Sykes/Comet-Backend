@@ -4,7 +4,7 @@ namespace App\Services\FeatureFlags;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Cache\CacheLockService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -46,7 +46,7 @@ class FeatureFlagService
 
     public function __construct(private CacheLockService $cacheLock) {}
 
-    public function enabled(string $key, ?Professional $pro = null): bool
+    public function enabled(string $key, ?User $pro = null): bool
     {
         try {
             [$registry, $proOverrides] = $this->loadAll($pro);
@@ -69,7 +69,7 @@ class FeatureFlagService
     /**
      * Return the full ['key' => bool, ...] map for the given scope.
      */
-    public function allFor(?Professional $pro = null): array
+    public function allFor(?User $pro = null): array
     {
         try {
             [$registry, $proOverrides] = $this->loadAll($pro);
@@ -200,7 +200,7 @@ class FeatureFlagService
     // Internal helpers
     // -------------------------------------------------------------------------
 
-    private function loadAll(?Professional $pro): array
+    private function loadAll(?User $pro): array
     {
         $cacheKey = $pro?->id ?? 'null';
 
@@ -225,7 +225,7 @@ class FeatureFlagService
         string $key,
         array $registry,
         array $proOverrides,
-        ?Professional $pro,
+        ?User $pro,
     ): bool {
         // 1. Pro override.
         if (isset($proOverrides[$key])) {
@@ -340,9 +340,9 @@ class FeatureFlagService
                 // (used in tests) doesn't support schema-qualified table names.
                 if (DB::getDriverName() === 'pgsql') {
                     $query->whereExists(fn ($q) => $q->select(DB::raw(1))
-                        ->from('core.professionals')
-                        ->whereColumn('core.professionals.id', 'core.feature_flag_overrides.professional_id')
-                        ->whereNull('core.professionals.deleted_at'));
+                        ->from('core.users')
+                        ->whereColumn('core.users.id', 'core.feature_flag_overrides.professional_id')
+                        ->whereNull('core.users.deleted_at'));
 
                     // Exclude overrides whose flag has been soft-deleted.
                     $query->whereExists(fn ($q) => $q->select(DB::raw(1))
@@ -363,7 +363,7 @@ class FeatureFlagService
      * Loads registry + pro overrides in 2 queries, then resolves the full map
      * from arrays — no N+1 per flag key.
      */
-    private function allForFromDb(?Professional $pro): array
+    private function allForFromDb(?User $pro): array
     {
         $registry = FeatureFlag::query()
             ->whereNull('deleted_at')
@@ -383,9 +383,9 @@ class FeatureFlagService
 
             if (DB::getDriverName() === 'pgsql') {
                 $query->whereExists(fn ($q) => $q->select(DB::raw(1))
-                    ->from('core.professionals')
-                    ->whereColumn('core.professionals.id', 'core.feature_flag_overrides.professional_id')
-                    ->whereNull('core.professionals.deleted_at'));
+                    ->from('core.users')
+                    ->whereColumn('core.users.id', 'core.feature_flag_overrides.professional_id')
+                    ->whereNull('core.users.deleted_at'));
 
                 $query->whereExists(fn ($q) => $q->select(DB::raw(1))
                     ->from('core.feature_flags')

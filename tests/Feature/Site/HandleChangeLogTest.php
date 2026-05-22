@@ -2,7 +2,7 @@
 
 use App\Services\Site\UpdateSiteAction;
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -19,20 +19,19 @@ beforeEach(function () {
  * Create a professional + site with the given subdomain using raw DB inserts
  * (no Eloquent factories; mirrors the project's test helper pattern).
  */
-function createProWithSite(string $subdomain): Professional
+function createProWithSite(string $subdomain): User
 {
     $proId  = (string) Str::uuid();
     $siteId = (string) Str::uuid();
     $now    = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id'                => $proId,
         'auth_user_id'      => 'auth-'.Str::random(12),
         'handle'            => $subdomain,
         'handle_lc'         => strtolower($subdomain),
         'display_name'      => ucfirst($subdomain),
         'primary_email'     => $subdomain.'@example.test',
-        'professional_type' => 'professional',
         'status'            => 'active',
         'created_at'        => $now,
         'updated_at'        => $now,
@@ -48,7 +47,7 @@ function createProWithSite(string $subdomain): Professional
         'updated_at'     => $now,
     ]);
 
-    return Professional::query()->with('site')->findOrFail($proId);
+    return User::query()->with('site')->findOrFail($proId);
 }
 
 it('writes a handle_change_log row on subdomain rename with rename reason and actor', function () {

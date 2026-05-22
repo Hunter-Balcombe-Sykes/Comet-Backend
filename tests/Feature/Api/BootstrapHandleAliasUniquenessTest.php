@@ -30,7 +30,7 @@ beforeEach(function () {
     )');
 
     // Schema-prefixed table used by the Professional Eloquent model.
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         auth_user_id TEXT NULL,
         handle TEXT NULL,
@@ -40,9 +40,7 @@ beforeEach(function () {
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,
-        professional_type TEXT NULL,
         account_type TEXT NULL,
-        has_historical_partner_links INTEGER NULL,
         status TEXT NULL,
         onboarding_step INTEGER NULL,
         country_code TEXT NULL,

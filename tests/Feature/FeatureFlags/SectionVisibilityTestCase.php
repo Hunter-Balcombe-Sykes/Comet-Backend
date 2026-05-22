@@ -29,7 +29,7 @@ class SectionVisibilityTestCase
             }
         }
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             handle TEXT,
             display_name TEXT,

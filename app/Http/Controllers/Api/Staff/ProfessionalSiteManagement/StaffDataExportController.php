@@ -6,7 +6,7 @@ use App\Exceptions\Gdpr\DataExportInProgressException;
 use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\RequestStaffDataExportRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Professional\DataExport\DataExportService;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +23,7 @@ class StaffDataExportController extends ApiController
 
     public function store(
         RequestStaffDataExportRequest $request,
-        Professional $professional,
+        User $professional,
     ): JsonResponse {
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');

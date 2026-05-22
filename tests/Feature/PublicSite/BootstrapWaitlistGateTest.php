@@ -12,7 +12,7 @@ beforeEach(function () {
     config(['partna.waitlist.enabled' => true]);
 
     // TestCase::setUp redirects 'pgsql' to in-memory SQLite. Use the shared
-    // helper to attach 'core' and create core.professionals.
+    // helper to attach 'core' and create core.users.
     setupProfessionalsTable();
 })->group('bootstrap-waitlist-gate');
 
@@ -33,7 +33,7 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
 });
 
 it('detects existing professionals by supabase auth user id', function () {
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => '00000000-0000-0000-0000-000000000001',
         'auth_user_id' => 'existing-user-uid',
     ]);

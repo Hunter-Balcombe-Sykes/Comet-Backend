@@ -4,7 +4,7 @@ use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffProfessionalC
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateProfessionalRequest;
 use App\Http\Resources\ProfessionalResource;
 use App\Http\Resources\ProfessionalStaffResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -15,13 +15,12 @@ beforeEach(function () {
     } catch (\Throwable) {
     }
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         handle TEXT,
         display_name TEXT,
         professional_type TEXT,
         account_type TEXT NULL,
-        has_historical_partner_links INTEGER NULL,
         status TEXT,
         admin_notes TEXT,
         about TEXT,
@@ -44,15 +43,14 @@ it('accepts admin_notes through the staff update form request', function () {
 });
 
 it('persists admin_notes when staff PATCHes the professional', function () {
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $id = (string) Str::uuid(),
         'handle' => 'test',
         'display_name' => 'Test Brand',
-        'professional_type' => 'brand',
         'status' => 'active',
     ]);
 
-    $professional = Professional::query()->findOrFail($id);
+    $professional = User::query()->findOrFail($id);
 
     $request = StaffUpdateProfessionalRequest::create('/', 'PATCH', [
         'admin_notes' => 'DMCA pending — flag any takedown requests',
@@ -63,12 +61,12 @@ it('persists admin_notes when staff PATCHes the professional', function () {
     $controller = new StaffProfessionalController;
     $controller->update($request, $professional);
 
-    $fresh = Professional::query()->findOrFail($id);
+    $fresh = User::query()->findOrFail($id);
     expect($fresh->admin_notes)->toBe('DMCA pending — flag any takedown requests');
 });
 
 it('exposes admin_notes in staff resource but not in self-service resource', function () {
-    $professional = new Professional;
+    $professional = new User;
     $professional->id = (string) Str::uuid();
     $professional->admin_notes = 'Internal: do not contact this brand directly';
     $professional->display_name = 'Test';

@@ -2,7 +2,7 @@
 
 namespace App\Services\Cache;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +23,7 @@ class ProfessionalCacheService
         return $this->cacheLock->rememberLockedNullable(
             CacheKeyGenerator::professionalIdByAuthId($authUserId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
-            fn () => Professional::query()
+            fn () => User::query()
                 ->where('auth_user_id', $authUserId)
                 ->value('id'),
             nullTtl: now()->addSeconds(30),
@@ -37,7 +37,7 @@ class ProfessionalCacheService
         return $this->cacheLock->rememberLockedNullable(
             CacheKeyGenerator::professionalIdByHandle($handleLc),
             (int) config('partna.cache.ttls.professional_handle_lookup'),
-            fn () => Professional::query()
+            fn () => User::query()
                 ->where('handle_lc', $handleLc)
                 ->value('id'),
             nullTtl: now()->addSeconds(30),
@@ -54,7 +54,7 @@ class ProfessionalCacheService
             CacheKeyGenerator::professionalPayloadById($id),
             (int) config('partna.cache.ttls.professional_handle_lookup'),
             function () use ($id) {
-                $pro = Professional::query()->with('site')->find($id);
+                $pro = User::query()->with('site')->find($id);
 
                 return $pro ? $this->toPayload($pro) : null;
             },
@@ -77,7 +77,7 @@ class ProfessionalCacheService
         return $id ? $this->getPayloadById($id) : null;
     }
 
-    private function toPayload(Professional $pro): array
+    private function toPayload(User $pro): array
     {
         // NOTE: your Professional model has protected $with = ['site'];
         $site = $pro->site;
@@ -142,7 +142,7 @@ class ProfessionalCacheService
      * (so `$pro->site` does not silently re-query). Bust both keys on profile writes
      * via `invalidateProfessional()`.
      */
-    public function getByAuthId(string $authUserId): ?Professional
+    public function getByAuthId(string $authUserId): ?User
     {
         $id = $this->getIdByAuthId($authUserId);
         if (! $id) {
@@ -155,7 +155,7 @@ class ProfessionalCacheService
         $professional = $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalModel($id),
             (int) config('partna.cache.ttls.professional_model'),
-            fn () => Professional::query()->with(['site'])->find($id),
+            fn () => User::query()->with(['site'])->find($id),
         );
         if (! $professional) {
             return null;
@@ -169,7 +169,7 @@ class ProfessionalCacheService
             Cache::forget($modelKey);
             Cache::forget($modelKey.':stale');
 
-            $freshId = Professional::query()
+            $freshId = User::query()
                 ->where('auth_user_id', $authUserId)
                 ->value('id');
 
@@ -179,7 +179,7 @@ class ProfessionalCacheService
 
             Cache::put($authIdKey, $freshId, (int) config('partna.cache.ttls.auth_id_lookup'));
 
-            return Professional::query()->with(['site'])->find($freshId);
+            return User::query()->with(['site'])->find($freshId);
         }
 
         return $professional;
@@ -242,7 +242,7 @@ class ProfessionalCacheService
         );
     }
 
-    public function invalidateProfessional(Professional $professional): void
+    public function invalidateProfessional(User $professional): void
     {
         $handleLc = strtolower($professional->handle);
 

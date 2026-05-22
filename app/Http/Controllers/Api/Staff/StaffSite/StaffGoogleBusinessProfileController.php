@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
@@ -17,7 +17,7 @@ class StaffGoogleBusinessProfileController extends ApiController
     /**
      * GET /staff/professionals/{professional}/site/google-business-profile
      */
-    public function show(Professional $professional): JsonResponse
+    public function show(User $professional): JsonResponse
     {
         $site = Site::query()
             ->where('professional_id', $professional->id)

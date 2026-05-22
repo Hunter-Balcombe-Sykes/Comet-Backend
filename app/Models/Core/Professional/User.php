@@ -27,12 +27,15 @@ use Illuminate\Notifications\Notifiable;
  * @property string|null $partna_url Trigger-managed vanity URL — never mass-assignable.
  */
 
-// V2: Central identity model. Both brands and affiliates are professionals distinguished by professional_type. Owns site, services, customers, integrations.
-class Professional extends BaseModel
+// Standalone user model — individual-only accounts. Owns site, services, customers.
+class User extends BaseModel
 {
     use HasFactory, HasUuids, Notifiable, SoftDeletes;
 
-    protected $table = 'core.professionals';
+    // DB table will be renamed from core.professionals to core.users in Task 7 (DB re-baseline).
+    // Until then, this points at the still-existing professionals table in production.
+    // SQLite test DDL (Pest.php) uses core.users to match this declaration.
+    protected $table = 'core.users';
 
     public $incrementing = false;
 
@@ -77,8 +80,8 @@ class Professional extends BaseModel
         'deletion_confirmed_at',
         'deletion_previous_status',
 
-        // Staff-only — surfaced through ProfessionalStaffResource. Never expose through
-        // ProfessionalResource (self-service /me).
+        // Staff-only — surfaced through UserStaffResource. Never expose through
+        // UserResource (self-service /me).
         'admin_notes',
     ];
 
@@ -93,14 +96,13 @@ class Professional extends BaseModel
         'deletion_confirmed_at' => 'datetime',
     ];
 
-    /** Route mail notifications to the professional's primary email address. */
+    /** Route mail notifications to the user's primary email address. */
     public function routeNotificationForMail(): string
     {
         return $this->primary_email;
     }
 
     // All accounts are individual in the standalone-only model.
-    // isBrand/isPartner stubs retained for call-sites in files yet to be edited (Step 11+).
     public function isIndividual(): bool
     {
         return true;
@@ -172,7 +174,7 @@ class Professional extends BaseModel
 
     public function serviceCategories()
     {
-        return $this->hasMany(ServiceCategory::class);
+        return $this->hasMany(ServiceCategory::class, 'professional_id');
     }
 
     public function emailSubscriptions(): HasMany

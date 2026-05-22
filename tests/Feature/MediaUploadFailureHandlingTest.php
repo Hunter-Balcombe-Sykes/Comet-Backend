@@ -5,7 +5,7 @@
 use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
 use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
@@ -255,7 +255,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
 
 function bootstrapMediaUploadFailureSchema(): void
 {
-    // Models reference schema-qualified tables (core.professionals, site.sites,
+    // Models reference schema-qualified tables (core.users, site.sites,
     // site.site_media). The shared helpers in tests/Pest.php attach the right
     // schemas and create tables under them.
     setupProfessionalsTable();
@@ -264,16 +264,15 @@ function bootstrapMediaUploadFailureSchema(): void
 }
 
 /**
- * @return array{0: Professional, 1: Site}
+ *  array{0: User, 1: Site}
  */
 function createProfessionalAndSiteForMediaUploadTests(): array
 {
     $professionalId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
-        'professional_type' => 'professional',
         'display_name' => 'Test Professional',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -288,7 +287,7 @@ function createProfessionalAndSiteForMediaUploadTests(): array
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($professionalId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

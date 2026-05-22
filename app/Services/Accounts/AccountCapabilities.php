@@ -2,7 +2,7 @@
 
 namespace App\Services\Accounts;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 
 /**
  * Runtime capability registry — answers "can this Professional access feature X right now?"
@@ -18,7 +18,7 @@ final class AccountCapabilities
      */
     private static ?\WeakMap $cache = null;
 
-    public static function for(Professional $pro): AccountCapabilitySet
+    public static function for(User $pro): AccountCapabilitySet
     {
         self::$cache ??= new \WeakMap;
         if (isset(self::$cache[$pro])) {
@@ -37,7 +37,7 @@ final class AccountCapabilities
         self::$cache = null;
     }
 
-    private static function individualCapabilities(Professional $pro): AccountCapabilitySet
+    private static function individualCapabilities(User $pro): AccountCapabilitySet
     {
         return new AccountCapabilitySet(
             requires_stripe_connect: false,

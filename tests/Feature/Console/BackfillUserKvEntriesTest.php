@@ -14,7 +14,7 @@ it('dispatches SyncSubdomainToKvJob for each individual professional', function 
 
     $individualId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $individualId,
         'handle' => 'solo1',
         'handle_lc' => 'solo1',
@@ -36,7 +36,7 @@ it('dispatches SyncSubdomainToKvJob for each individual professional', function 
 it('--dry-run reports the cohort and dispatches nothing', function () {
     Bus::fake();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => (string) Str::uuid(),
         'handle' => 'solo2',
         'handle_lc' => 'solo2',

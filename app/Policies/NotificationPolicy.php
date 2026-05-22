@@ -3,7 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class NotificationPolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
         // Global notifications (null professional_id) are visible to all.
         if ($resource instanceof Notification && $resource->professional_id === null) {
@@ -33,7 +33,7 @@ class NotificationPolicy extends BasePolicy
         return true;
     }
 
-    public function update(Professional $actor, Model $resource): bool|Response
+    public function update(User $actor, Model $resource): bool|Response
     {
         // Global notifications have no single owner — deny all mutations.
         if ($resource instanceof Notification && $resource->professional_id === null) {
@@ -51,7 +51,7 @@ class NotificationPolicy extends BasePolicy
         return true;
     }
 
-    public function delete(Professional $actor, Model $resource): bool|Response
+    public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
     }

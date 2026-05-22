@@ -5,14 +5,14 @@
 use App\Enums\AccountType;
 use App\Http\Resources\ProfessionalDashboardResource;
 use App\Http\Resources\ProfessionalResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
 use Illuminate\Http\Request;
 
-function makeProForCapabilities(string $accountType): Professional
+function makeProForCapabilities(string $accountType): User
 {
-    return new Professional(['account_type' => $accountType]);
+    return new User(['account_type' => $accountType]);
 }
 
 beforeEach(fn () => AccountCapabilities::flushCache());
@@ -57,7 +57,7 @@ describe('AccountCapabilities — individual', function () {
 
 describe('AccountCapabilities — fallback', function () {
     it('treats a null account_type as individual during the dual-write window', function () {
-        $pro = new Professional(['account_type' => null]);
+        $pro = new User(['account_type' => null]);
 
         $caps = AccountCapabilities::for($pro);
 
@@ -107,7 +107,7 @@ describe('AccountCapabilities — per-instance memoization', function () {
 
 describe('ProfessionalDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
-        $pro = new Professional([
+        $pro = new User([
             'account_type' => 'individual',
         ]);
 
@@ -119,7 +119,7 @@ describe('ProfessionalDashboardResource — stripe_connect_status absent for ind
 
 describe('ProfessionalResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status for individuals', function () {
-        $pro = new Professional([
+        $pro = new User([
             'account_type' => 'individual',
         ]);
 

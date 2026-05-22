@@ -2,7 +2,7 @@
 
 use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalSectionBlockController;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -18,7 +18,7 @@ beforeEach(function () {
     shimPgAdvisoryLockForSqlite();
 });
 
-function seedSectionBlock(Professional $pro, string $blockType, int $sortOrder): string
+function seedSectionBlock(User $pro, string $blockType, int $sortOrder): string
 {
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
@@ -40,7 +40,7 @@ function seedSectionBlock(Professional $pro, string $blockType, int $sortOrder):
     return $id;
 }
 
-function callSectionReorder(Professional $pro, array $ids)
+function callSectionReorder(User $pro, array $ids)
 {
     $plain = tenantRequestAs($pro, ['ids' => $ids], 'POST');
     $req = ReorderBlocksRequest::createFrom($plain);

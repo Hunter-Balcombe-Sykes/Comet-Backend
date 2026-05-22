@@ -31,6 +31,6 @@ class ProfessionalConfirmationPreference extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'professional_id');
     }
 }

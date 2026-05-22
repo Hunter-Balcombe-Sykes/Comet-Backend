@@ -31,13 +31,12 @@ it('stamps reclaim_until and expires_at on a new subdomain alias', function () {
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'oldhandle',
         'handle_lc' => 'oldhandle',
         'display_name' => 'Old Handle',
         'primary_email' => 'old@example.test',
-        'professional_type' => 'professional',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,
@@ -52,7 +51,7 @@ it('stamps reclaim_until and expires_at on a new subdomain alias', function () {
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\Professional::query()->findOrFail($proId);
+    $pro = \App\Models\Core\Professional\User::query()->findOrFail($proId);
 
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'newhandle']);
 
@@ -69,13 +68,12 @@ it('deletes the matching subdomain alias when a user renames back to a subdomain
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'a',
         'handle_lc' => 'a',
         'display_name' => 'Test Pro',
         'primary_email' => 'test@example.test',
-        'professional_type' => 'professional',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,
@@ -90,7 +88,7 @@ it('deletes the matching subdomain alias when a user renames back to a subdomain
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\Professional::query()->findOrFail($proId);
+    $pro = \App\Models\Core\Professional\User::query()->findOrFail($proId);
 
     // a → b (creates alias for 'a')
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'b']);

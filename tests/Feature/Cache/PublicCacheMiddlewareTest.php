@@ -97,7 +97,6 @@ function prewarmSiteCache(string $subdomain): void
             'id' => (string) Str::uuid(),
             'handle' => $subdomain,
             'display_name' => 'Test Pro',
-            'professional_type' => 'solo',
         ],
         'theme' => null,
         'services' => [],

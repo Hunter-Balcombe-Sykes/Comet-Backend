@@ -35,7 +35,7 @@ class NotifyHandleAliasExpiry extends Command
             ->chunkById(200, function ($aliases) use ($stampColumn, $bucket) {
                 foreach ($aliases as $alias) {
                     $email = DB::connection('pgsql')
-                        ->table('core.professionals')
+                        ->table('core.users')
                         ->where('id', $alias->professional_id)
                         ->value('primary_email');
 

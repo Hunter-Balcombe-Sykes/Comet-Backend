@@ -6,7 +6,7 @@ use App\Exceptions\Gdpr\DataExportInProgressException;
 use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Professional\RequestDataExportRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Professional\DataExport\DataExportService;
 use Illuminate\Http\JsonResponse;
 
@@ -21,7 +21,7 @@ class ProfessionalDataExportController extends ApiController
 
     public function store(RequestDataExportRequest $request): JsonResponse
     {
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         try {

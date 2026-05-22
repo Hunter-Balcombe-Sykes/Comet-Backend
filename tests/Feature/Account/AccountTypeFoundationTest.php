@@ -10,7 +10,7 @@
 
 use App\Enums\AccountType;
 use App\Http\Resources\ProfessionalDashboardResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 
 describe('account_type migration sequence', function () {
@@ -107,14 +107,14 @@ describe('AccountType enum', function () {
 
 describe('Professional model cast', function () {
     it('round-trips account_type through the AccountType enum', function () {
-        $pro = new Professional(['account_type' => 'individual']);
+        $pro = new User(['account_type' => 'individual']);
 
         expect($pro->account_type)->toBeInstanceOf(AccountType::class);
         expect($pro->account_type)->toBe(AccountType::Individual);
     });
 
     it('isIndividual returns true for individual account_type', function () {
-        $individual = new Professional(['account_type' => 'individual']);
+        $individual = new User(['account_type' => 'individual']);
 
         expect($individual->isIndividual())->toBeTrue();
         // isBrand/isPartner are stubs that return false for all accounts (Task 3 will delete the methods)
@@ -125,7 +125,7 @@ describe('Professional model cast', function () {
 
 describe('ProfessionalDashboardResource — Track B §28.8a unblock', function () {
     it('includes account_type as a string value', function () {
-        $pro = new Professional(['account_type' => 'individual']);
+        $pro = new User(['account_type' => 'individual']);
 
         $payload = (new ProfessionalDashboardResource($pro))->toArray(Request::create('/'));
 
@@ -134,7 +134,7 @@ describe('ProfessionalDashboardResource — Track B §28.8a unblock', function (
     });
 
     it('emits null for account_type when the column is unset (pre-backfill rows)', function () {
-        $pro = new Professional(['account_type' => null]);
+        $pro = new User(['account_type' => null]);
 
         $payload = (new ProfessionalDashboardResource($pro))->toArray(Request::create('/'));
 

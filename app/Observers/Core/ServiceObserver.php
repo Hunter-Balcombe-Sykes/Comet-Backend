@@ -2,7 +2,7 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Services\Cache\ProfessionalCacheService;
 use App\Services\Professional\SectionVisibilityService;
@@ -18,11 +18,11 @@ class ServiceObserver
         private readonly SectionVisibilityService $visibilityService,
     ) {}
 
-    private function bust(Service $service): ?Professional
+    private function bust(Service $service): ?User
     {
         $pro = null;
         try {
-            $pro = Professional::query()->with('site')->find($service->professional_id);
+            $pro = User::query()->with('site')->find($service->professional_id);
         } catch (\Throwable $e) {
             Log::warning('Professional lookup failed during cache bust', [
                 'service_id' => $service->id,
@@ -78,7 +78,7 @@ class ServiceObserver
         }
     }
 
-    private function reevaluateBooking(Service $service, ?Professional $pro): void
+    private function reevaluateBooking(Service $service, ?User $pro): void
     {
         try {
             $site = $pro?->site;

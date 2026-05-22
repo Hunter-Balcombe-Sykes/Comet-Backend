@@ -4,7 +4,7 @@ namespace App\Http\Requests\Api;
 
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Requests\BaseFormRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +21,7 @@ class BootstrapRequest extends BaseFormRequest
 
         $existingProfessionalId = null;
         if (is_string($uid) && $uid !== '') {
-            $existingProfessionalId = Professional::query()
+            $existingProfessionalId = User::query()
                 ->where('auth_user_id', $uid)
                 ->value('id');
         }
@@ -129,7 +129,7 @@ class BootstrapRequest extends BaseFormRequest
         // Check if handle is available, if not append numbers
         $handle = $base;
         $attempt = 1;
-        while (Professional::query()->where('handle_lc', strtolower($handle))->exists()) {
+        while (User::query()->where('handle_lc', strtolower($handle))->exists()) {
             $handle = $base.$attempt;
             $attempt++;
         }

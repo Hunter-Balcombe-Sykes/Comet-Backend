@@ -16,7 +16,7 @@ function insertBrandProfileRow(string $code): string
 {
     $proId = (string) Str::uuid();
     DB::statement(
-        "INSERT INTO core.professionals (id, auth_user_id, handle, handle_lc, display_name, primary_email, professional_type, status, onboarding_step)
+        "INSERT INTO core.users (id, auth_user_id, handle, handle_lc, display_name, primary_email, professional_type, status, onboarding_step)
          VALUES (?, ?, ?, ?, ?, ?, 'brand', 'active', 0)",
         [$proId, 'uid-'.Str::random(6), 'brand'.Str::random(4), 'brand'.Str::random(4), 'Brand', Str::random(6).'@example.com']
     );
@@ -65,7 +65,7 @@ it('audit claimed event with a valid joined_professional_id succeeds', function 
 
     $joinedProId = (string) Str::uuid();
     DB::statement(
-        "INSERT INTO core.professionals (id, auth_user_id, handle, handle_lc, display_name, primary_email, professional_type, status, onboarding_step)
+        "INSERT INTO core.users (id, auth_user_id, handle, handle_lc, display_name, primary_email, professional_type, status, onboarding_step)
          VALUES (?, ?, ?, ?, ?, ?, 'professional', 'active', 0)",
         [$joinedProId, 'uid-'.Str::random(6), 'p'.Str::random(4), 'p'.Str::random(4), 'Partner', Str::random(6).'@example.com']
     );

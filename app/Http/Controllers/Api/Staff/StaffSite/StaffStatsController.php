@@ -41,7 +41,7 @@ class StaffStatsController extends ApiController
         // Breakdown on account_type — bucket labels are brand|partner|individual.
         // NULL rows (pre-§28.1 backfill) fall into the 'unknown' bucket so total
         // never drifts away from the row count.
-        $accountTypeCounts = DB::table('core.professionals')
+        $accountTypeCounts = DB::table('core.users')
             ->whereNull('deleted_at')
             ->selectRaw("COALESCE(account_type::text, 'unknown') as account_type, count(*) as total")
             ->groupByRaw("COALESCE(account_type::text, 'unknown')")

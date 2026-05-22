@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\Professional\Account\ProfessionalDocumentController;
 use App\Http\Requests\Api\Professional\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\Professional\Documents\UploadDocumentRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -34,19 +34,19 @@ beforeEach(function () {
     app()->instance(SiteCacheService::class, $stub);
 });
 
-function seedProfessional(string $type = 'professional'): Professional
+function seedProfessional(string $type = 'professional'): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'p-'.substr($proId, 0, 8),
         'handle_lc' => 'p-'.substr($proId, 0, 8),
         'display_name' => 'Test Pro',
         'primary_email' => 'p-'.substr($proId, 0, 8).'@example.com',
         'status' => 'active',
-        'professional_type' => $type,
+        'account_type' => 'individual',
     ]);
 
     DB::connection('pgsql')->table('site.sites')->insert([
@@ -56,10 +56,10 @@ function seedProfessional(string $type = 'professional'): Professional
         'is_published' => 1,
     ]);
 
-    return Professional::query()->where('id', $proId)->first();
+    return User::query()->where('id', $proId)->first();
 }
 
-function uploadRequestFor(Professional $pro, UploadedFile $file, string $title, ?string $caption = null): UploadDocumentRequest
+function uploadRequestFor(User $pro, UploadedFile $file, string $title, ?string $caption = null): UploadDocumentRequest
 {
     $payload = ['title' => $title];
     if ($caption !== null) {

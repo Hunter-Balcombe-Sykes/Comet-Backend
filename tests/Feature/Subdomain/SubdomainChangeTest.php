@@ -2,7 +2,7 @@
 
 /** @phpstan-ignore-all */
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Carbon;
@@ -17,7 +17,7 @@ beforeEach(function () {
     DB::table('site.site_subdomain_aliases')->delete();
     DB::table('site.public_site_payload')->delete();
     DB::table('site.sites')->delete();
-    DB::table('core.professionals')->delete();
+    DB::table('core.users')->delete();
 })->group('subdomain');
 
 it('prevents professionals from changing subdomain within 30 days', function () {
@@ -26,7 +26,7 @@ it('prevents professionals from changing subdomain within 30 days', function () 
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
@@ -38,7 +38,7 @@ it('prevents professionals from changing subdomain within 30 days', function () 
         'subdomain_changed_at' => Carbon::now()->subDays(10)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
 
     $action = app(UpdateSiteAction::class);
 
@@ -52,7 +52,7 @@ it('stores old subdomain as alias after a valid change', function () {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
@@ -64,7 +64,7 @@ it('stores old subdomain as alias after a valid change', function () {
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
     $action = app(UpdateSiteAction::class);
 
     $action->execute($professional, ['subdomain' => 'new']);
@@ -87,7 +87,7 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
         'handle' => 'old',
@@ -101,13 +101,13 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
     $action = app(UpdateSiteAction::class);
 
     $action->execute($professional, ['subdomain' => 'new']);
 
     // Site, professional, and alias rows must all reflect the new handle.
-    $proRow = DB::table('core.professionals')->where('id', $proId)->first();
+    $proRow = DB::table('core.users')->where('id', $proId)->first();
     expect($proRow->handle)->toBe('new');
     expect($proRow->handle_lc)->toBe('new');
 
@@ -128,7 +128,7 @@ it('redirects old subdomain to new site host', function () {
     $siteId = (string) Str::uuid();
     $aliasId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
@@ -170,7 +170,7 @@ function setupCoreSchema(): void
 
     if ($driver === 'sqlite') {
         // SQLite doesn't have schemas; fake them via ATTACH DATABASE so
-        // models that reference 'core.professionals' / 'site.public_site_payload'
+        // models that reference 'core.users' / 'site.public_site_payload'
         // resolve correctly.
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS core");
@@ -187,14 +187,12 @@ function setupCoreSchema(): void
         // Permissive professionals table — only the columns this test (and
         // soft-delete scopes added by Eloquent) need. Everything nullable
         // because we don't care about prod constraints in tests.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             display_name TEXT NULL,
             handle TEXT NULL,
             handle_lc TEXT NULL,
-            professional_type TEXT NULL,
             account_type TEXT NULL,
-            has_historical_partner_links INTEGER NULL,
             status TEXT NULL,
             deleted_at TEXT NULL,
             created_at TEXT NULL,
@@ -268,7 +266,7 @@ function setupCoreSchema(): void
 
     DB::statement('CREATE SCHEMA IF NOT EXISTS core');
 
-    DB::statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    DB::statement('CREATE TABLE IF NOT EXISTS core.users (
         id uuid PRIMARY KEY,
         display_name varchar(255) NULL
     )');

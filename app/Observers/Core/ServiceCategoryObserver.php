@@ -2,7 +2,7 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ServiceCategory;
 use App\Services\Cache\ProfessionalCacheService;
 use Illuminate\Support\Facades\Log;
@@ -46,7 +46,7 @@ class ServiceCategoryObserver
         }
 
         try {
-            $pro = Professional::query()->find($professionalId);
+            $pro = User::query()->find($professionalId);
         } catch (\Throwable $e) {
             Log::warning('Professional lookup failed during ServiceCategory bust', [
                 'category_id' => $category->id,

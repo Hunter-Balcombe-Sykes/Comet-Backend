@@ -19,10 +19,9 @@ it('SectionVisibilityService rejects documents section when no document is uploa
     $proId = (string) \Illuminate\Support\Str::uuid();
     $siteId = (string) \Illuminate\Support\Str::uuid();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
         'primary_email' => 'p@example.com', 'status' => 'active',
-        'professional_type' => 'professional',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
@@ -41,10 +40,9 @@ it('SectionVisibilityService allows documents section when a document exists', f
     $proId = (string) \Illuminate\Support\Str::uuid();
     $siteId = (string) \Illuminate\Support\Str::uuid();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
         'primary_email' => 'p@example.com', 'status' => 'active',
-        'professional_type' => 'professional',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,

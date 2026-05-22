@@ -47,7 +47,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(\App\Models\Analytics\LeadSubmission::class, \App\Policies\SitePolicy::class);
         Gate::policy(\App\Models\Core\Professional\Service::class, \App\Policies\ServicePolicy::class);
         Gate::policy(\App\Models\Core\Professional\ServiceCategory::class, \App\Policies\ServicePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\Professional::class, \App\Policies\ProfessionalSelfPolicy::class);
+        Gate::policy(\App\Models\Core\Professional\User::class, \App\Policies\ProfessionalSelfPolicy::class);
         Gate::policy(\App\Models\Core\Professional\ProfessionalConfirmationPreference::class, \App\Policies\ProfessionalSelfPolicy::class);
         Gate::policy(\App\Models\Core\Professional\ProfessionalDeletionAuditEntry::class, \App\Policies\ProfessionalSelfPolicy::class);
         Gate::policy(\App\Models\Core\Notifications\Notification::class, \App\Policies\NotificationPolicy::class);

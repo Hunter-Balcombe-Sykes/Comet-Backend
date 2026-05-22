@@ -14,13 +14,12 @@ it('does not resolve sites via expired subdomain aliases', function () {
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'newhandle',
         'handle_lc' => 'newhandle',
         'status' => 'active',
         'primary_email' => 'newhandle@example.test',
-        'professional_type' => 'professional',
         'created_at' => $now,
         'updated_at' => $now,
     ]);
@@ -107,7 +106,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
     $now = now()->toDateTimeString();
     $expiry = now()->addSeconds(7776000)->toDateTimeString(); // 90d
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'newh',
         'handle_lc' => 'newh',
@@ -154,13 +153,12 @@ it('walks a subdomain alias through grace → redirect → released states', fun
     $siteId = (string) \Illuminate\Support\Str::uuid();
     $start = '2026-06-01 12:00:00';
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'new-handle',
         'handle_lc' => 'new-handle',
         'status' => 'active',
         'primary_email' => 'lifecycle@example.test',
-        'professional_type' => 'professional',
         'created_at' => $start,
         'updated_at' => $start,
     ]);

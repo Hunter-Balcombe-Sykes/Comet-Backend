@@ -2,7 +2,7 @@
 
 namespace App\Services\Audit;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use Illuminate\Support\Facades\Log;
@@ -20,7 +20,7 @@ class StaffAuditService
     public function record(
         ?PartnaStaff $staff,
         ?PartnaStaff $impersonator,
-        ?Professional $professional,
+        ?User $professional,
         string $route,
         string $httpMethod,
         int $statusCode,

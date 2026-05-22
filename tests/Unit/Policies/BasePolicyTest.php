@@ -1,20 +1,20 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Policies\BasePolicy;
 use Illuminate\Auth\Access\Response;
 
 // Concrete subclass purely for testing the protected helper.
 class FakePolicy extends BasePolicy
 {
-    public function callDenyIfPendingDeletion(Professional $professional): ?Response
+    public function callDenyIfPendingDeletion(User $professional): ?Response
     {
         return $this->denyIfPendingDeletion($professional);
     }
 }
 
 it('returns null when the professional is active', function () {
-    $pro = new Professional(['status' => 'active']);
+    $pro = new User(['status' => 'active']);
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 
@@ -22,7 +22,7 @@ it('returns null when the professional is active', function () {
 });
 
 it('returns a 423 deny response when the professional is pending deletion', function () {
-    $pro = new Professional(['status' => 'pending_deletion']);
+    $pro = new User(['status' => 'pending_deletion']);
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 
@@ -32,7 +32,7 @@ it('returns a 423 deny response when the professional is pending deletion', func
 });
 
 it('returns null when the professional has any other status', function () {
-    $pro = new Professional(['status' => 'suspended']);
+    $pro = new User(['status' => 'suspended']);
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 

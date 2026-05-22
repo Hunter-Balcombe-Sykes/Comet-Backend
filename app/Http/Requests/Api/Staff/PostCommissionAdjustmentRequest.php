@@ -19,8 +19,8 @@ class PostCommissionAdjustmentRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'brand_professional_id' => ['required', 'uuid', 'exists:core.professionals,id'],
-            'affiliate_professional_id' => ['required', 'uuid', 'different:brand_professional_id', 'exists:core.professionals,id'],
+            'brand_professional_id' => ['required', 'uuid', 'exists:core.users,id'],
+            'affiliate_professional_id' => ['required', 'uuid', 'different:brand_professional_id', 'exists:core.users,id'],
             'amount_cents' => ['required', 'integer', 'not_in:0', 'between:-100000000,100000000'],
             'currency_code' => ['sometimes', 'string', 'size:3', Rule::in(['AUD'])],
             'reason' => ['required', 'string', 'min:20', 'max:1000'],

@@ -231,12 +231,11 @@ it('store override creates a professional override', function () {
     FeatureFlag::create(['key' => 'override_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
 
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'override-pro',
         'display_name' => 'Override Pro',
         'primary_email' => 'override@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
@@ -268,12 +267,11 @@ it('destroy override removes the override', function () {
     FeatureFlag::create(['key' => 'destroy_ov_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
 
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'destroy-pro',
         'display_name' => 'Destroy Pro',
         'primary_email' => 'destroy@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 

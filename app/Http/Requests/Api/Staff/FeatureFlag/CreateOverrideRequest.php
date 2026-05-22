@@ -14,7 +14,7 @@ class CreateOverrideRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'professional_id' => ['required', 'uuid', 'exists:core.professionals,id'],
+            'professional_id' => ['required', 'uuid', 'exists:core.users,id'],
             'enabled' => ['required', 'boolean'],
             'reason' => ['nullable', 'string', 'max:500'],
             'expires_at' => ['nullable', 'date', 'after:now'],

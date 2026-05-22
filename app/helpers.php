@@ -1,16 +1,15 @@
 <?php
 
-use App\Models\Core\Professional\BrandProfile;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\FeatureFlags\FeatureFlagService;
 
 if (! function_exists('feature')) {
     /**
-     * Check whether a feature flag is enabled for an optional professional/brand context.
+     * Check whether a feature flag is enabled for an optional user context.
      * Null context falls back to the flag's default_enabled + rollout_percent.
      */
-    function feature(string $key, ?Professional $pro = null, ?BrandProfile $brand = null): bool
+    function feature(string $key, ?User $user = null): bool
     {
-        return app(FeatureFlagService::class)->enabled($key, $pro, $brand);
+        return app(FeatureFlagService::class)->enabled($key, $user);
     }
 }

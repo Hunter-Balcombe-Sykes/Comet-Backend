@@ -8,7 +8,7 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateProfessionalRequest;
 use App\Http\Resources\ProfessionalStaffResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,7 +31,7 @@ class StaffProfessionalController extends ApiController
         $perPage = $this->normalizePerPage($request, 25, 100);
         $searchLike = $this->prepareSearchLike($request, 'q');
 
-        $query = Professional::query()
+        $query = User::query()
             ->with(['site.theme'])
             ->orderByDesc('created_at');
 
@@ -56,7 +56,7 @@ class StaffProfessionalController extends ApiController
         $page = $query->paginate($perPage);
 
         // Keep response light for list-view
-        $professionals = $page->getCollection()->map(function (Professional $p) {
+        $professionals = $page->getCollection()->map(function (User $p) {
             $site = $p->site;
             $theme = $site?->theme;
 
@@ -92,7 +92,7 @@ class StaffProfessionalController extends ApiController
     /**
      * GET /api/staff/professionals/{professional}
      */
-    public function show(Professional $professional): JsonResponse
+    public function show(User $professional): JsonResponse
     {
         $professional->load(['site.theme', 'services', 'blocks']);
 
@@ -115,7 +115,7 @@ class StaffProfessionalController extends ApiController
      * PATCH /api/staff/professionals/{professional}/status
      * Body: { "status": "active" | "suspended" }
      */
-    public function updateStatus(Request $request, Professional $professional): JsonResponse
+    public function updateStatus(Request $request, User $professional): JsonResponse
     {
         $data = $request->validate([
             'status' => ['required', 'string', 'in:active,suspended'],
@@ -153,11 +153,11 @@ class StaffProfessionalController extends ApiController
         $missing = [];
 
         DB::transaction(function () use ($ids, $status, &$updated, &$missing): void {
-            $existing = Professional::query()->whereIn('id', $ids)->get(['id'])->pluck('id')->all();
+            $existing = User::query()->whereIn('id', $ids)->get(['id'])->pluck('id')->all();
             $missing = array_values(array_diff($ids, $existing));
 
             if (! empty($existing)) {
-                Professional::query()
+                User::query()
                     ->whereIn('id', $existing)
                     ->update(['status' => $status]);
                 $updated = $existing;
@@ -184,7 +184,7 @@ class StaffProfessionalController extends ApiController
 
     public function update(
         StaffUpdateProfessionalRequest $request,
-        Professional $professional,
+        User $professional,
     ) {
         DB::transaction(function () use ($professional, $request): void {
             $professional->fill($request->validated());
@@ -200,7 +200,7 @@ class StaffProfessionalController extends ApiController
      * Soft delete - Normal staff operation
      * DELETE /api/staff/professionals/{professional}
      */
-    public function destroy(Professional $professional): JsonResponse
+    public function destroy(User $professional): JsonResponse
     {
         // Soft delete (sets deleted_at)
         if (! $professional->trashed()) {
@@ -213,7 +213,7 @@ class StaffProfessionalController extends ApiController
         ]);
     }
 
-    public function restore(Professional $professional): JsonResponse
+    public function restore(User $professional): JsonResponse
     {
         if ($professional->trashed()) {
             $professional->restore();
@@ -225,7 +225,7 @@ class StaffProfessionalController extends ApiController
         ]);
     }
 
-    public function forceDestroy(Professional $professional): JsonResponse
+    public function forceDestroy(User $professional): JsonResponse
     {
 
         // Hard delete - PERMANENT

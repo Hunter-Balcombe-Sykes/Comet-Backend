@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Console\Command;
 
 // One-off backfill for individual (user) KV entries in the Cloudflare routing table.
@@ -29,7 +29,7 @@ class BackfillUserKvEntries extends Command
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
-        $query = Professional::query()
+        $query = User::query()
             ->whereNotNull('handle')
             ->where('handle', '!=', '')
             ->where('account_type', 'individual');

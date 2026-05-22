@@ -3,7 +3,7 @@
 namespace App\Observers\Professional;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Observers\Concerns\LogsWithRequestContext;
 use App\Services\Cache\ProfessionalCacheService;
 use Illuminate\Support\Facades\Log;
@@ -20,7 +20,7 @@ class ProfessionalObserver
         private ProfessionalCacheService $professionalCache,
     ) {}
 
-    public function updated(Professional $professional): void
+    public function updated(User $professional): void
     {
         try {
             $this->professionalCache->invalidateProfessional($professional);
@@ -48,7 +48,7 @@ class ProfessionalObserver
         }
     }
 
-    public function deleted(Professional $professional): void
+    public function deleted(User $professional): void
     {
         try {
             $this->professionalCache->invalidateProfessional($professional);
@@ -60,7 +60,7 @@ class ProfessionalObserver
         }
     }
 
-    public function restored(Professional $professional): void
+    public function restored(User $professional): void
     {
         try {
             $this->professionalCache->invalidateProfessional($professional);

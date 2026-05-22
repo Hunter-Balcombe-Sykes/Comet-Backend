@@ -3,7 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
@@ -100,7 +100,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             // professional is treated as incapable. Otherwise a deleted
             // account could still receive a payouts/commissions email if
             // the row vanishes between dispatch and run.
-            $pro = Professional::find($this->professionalId);
+            $pro = User::find($this->professionalId);
             if (! $pro || ! AccountCapabilities::for($pro)->{$capabilityProperty}) {
                 Log::debug('Transactional email skipped: capability gate', [
                     'professional_id' => $this->professionalId,
@@ -140,7 +140,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             return; // already sent or notification deleted
         }
 
-        $email = DB::table('core.professionals')
+        $email = DB::table('core.users')
             ->where('id', $this->professionalId)
             ->whereNull('deleted_at')
             ->value('primary_email');

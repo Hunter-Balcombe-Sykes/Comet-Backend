@@ -32,7 +32,7 @@ it('writes {type:"individual"} for an individual professional (§28.6)', functio
     setupHandleAliasesTable();
 
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'soloact',
         'handle_lc' => 'soloact',

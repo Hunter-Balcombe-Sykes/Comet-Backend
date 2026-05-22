@@ -1,7 +1,7 @@
 <?php
 
 use App\Mail\Notifications\AccountDeletionCancelledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Http\Request;
@@ -15,7 +15,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedPendingDeletionProfessional(array $overrides = []): Professional
+function seedPendingDeletionProfessional(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -30,9 +30,9 @@ function seedPendingDeletionProfessional(array $overrides = []): Professional
         'deletion_confirmed_at' => now()->toIso8601String(),
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('restores previous status on cancel', function () {
@@ -101,7 +101,7 @@ it('re-publishes the site when cancelling a deletion that had programmatically u
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -125,7 +125,7 @@ it('does not re-publish a site that was manually unpublished before deletion was
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $service->cancel($pro, Request::create('/', 'POST'));

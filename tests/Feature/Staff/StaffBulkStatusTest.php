@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffProfessionalController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,13 +14,12 @@ beforeEach(function () {
     } catch (\Throwable) {
     }
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         handle TEXT,
         display_name TEXT,
         professional_type TEXT,
         account_type TEXT NULL,
-        has_historical_partner_links INTEGER NULL,
         status TEXT,
         admin_notes TEXT,
         about TEXT,
@@ -35,11 +34,10 @@ function seedProfessionals(int $n, string $status = 'active'): array
     $ids = [];
     for ($i = 0; $i < $n; $i++) {
         $id = (string) Str::uuid();
-        DB::table('core.professionals')->insert([
+        DB::table('core.users')->insert([
             'id' => $id,
             'handle' => "bulk-{$i}",
             'display_name' => "Bulk Pro {$i}",
-            'professional_type' => 'brand',
             'status' => $status,
         ]);
         $ids[] = $id;
@@ -67,7 +65,7 @@ it('bulk-suspends a wave of professionals', function () {
         ->and($data['missing_ids'])->toBe([]);
 
     // Every row should now be suspended
-    expect(Professional::query()->whereIn('id', $ids)->where('status', 'suspended')->count())->toBe(5);
+    expect(User::query()->whereIn('id', $ids)->where('status', 'suspended')->count())->toBe(5);
 
     // One audit log per professional
     Log::shouldHaveReceived('info')->times(5);

@@ -8,7 +8,7 @@ use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Resources\ProfessionalDashboardResource;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Waitlist\WaitlistSignup;
 use App\Services\Cache\ProfessionalCacheService;
@@ -74,13 +74,13 @@ class BootstrapController extends ApiController
             $result = DB::transaction(function () use ($uid, $data) {
                 $createdProfessional = false;
 
-                $professional = Professional::query()->where('auth_user_id', $uid)->first();
+                $professional = User::query()->where('auth_user_id', $uid)->first();
 
                 if (! $professional) {
                     // Defensive: a different Supabase user already owns this email.
                     $emailLc = strtolower(trim((string) $data['primary_email']));
                     if ($emailLc !== '') {
-                        $existingByEmail = Professional::query()
+                        $existingByEmail = User::query()
                             ->whereRaw('lower(primary_email) = ?', [$emailLc])
                             ->where('auth_user_id', '!=', $uid)
                             ->exists();
@@ -91,7 +91,7 @@ class BootstrapController extends ApiController
                     }
 
                     $createdProfessional = true;
-                    $professional = new Professional([
+                    $professional = new User([
                         'handle' => $data['handle'],
                         'display_name' => $data['display_name'],
                         'bio' => null,
@@ -219,7 +219,7 @@ class BootstrapController extends ApiController
         $sub->save();
     }
 
-    private function createWelcomeNotification(Professional $professional): void
+    private function createWelcomeNotification(User $professional): void
     {
         Notification::query()->firstOrCreate(
             [
@@ -244,7 +244,7 @@ class BootstrapController extends ApiController
 
     private function hasExistingProfessional(string $uid): bool
     {
-        return Professional::query()
+        return User::query()
             ->where('auth_user_id', $uid)
             ->exists();
     }

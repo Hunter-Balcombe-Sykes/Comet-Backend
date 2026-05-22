@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Professional\AccountDeletionService;
@@ -27,7 +27,7 @@ class StaffAccountDeletionController extends ApiController
      */
     public function initiate(
         StaffInitiateDeletionRequest $request,
-        Professional $professional,
+        User $professional,
     ): JsonResponse {
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
@@ -56,7 +56,7 @@ class StaffAccountDeletionController extends ApiController
     /**
      * POST /staff/professionals/{professional}/deletion/cancel
      */
-    public function cancel(Request $request, Professional $professional): JsonResponse
+    public function cancel(Request $request, User $professional): JsonResponse
     {
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
@@ -84,7 +84,7 @@ class StaffAccountDeletionController extends ApiController
      * staff (not just admin) so support can answer "where is my erasure
      * request" questions without elevated privileges.
      */
-    public function show(Professional $professional): JsonResponse
+    public function show(User $professional): JsonResponse
     {
         $deletesAt = null;
         if ($professional->deletion_confirmed_at) {

@@ -2,7 +2,7 @@
 
 namespace App\Services\Professional;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\SiteMedia;
@@ -175,7 +175,7 @@ class SectionVisibilityService
         // SectionVisibilityService is only called on the pgsql connection in
         // production, so dialect portability lives at the Eloquent layer above.
         if ($needsCredentials) {
-            $subqueries['has_credential'] = Professional::query()
+            $subqueries['has_credential'] = User::query()
                 ->select(DB::raw('1'))
                 ->where('id', $professionalId)
                 ->whereNull('deleted_at')
@@ -188,7 +188,7 @@ class SectionVisibilityService
         }
 
         if ($needsExperience) {
-            $subqueries['has_experience'] = Professional::query()
+            $subqueries['has_experience'] = User::query()
                 ->select(DB::raw('1'))
                 ->where('id', $professionalId)
                 ->whereNull('deleted_at')
@@ -472,7 +472,7 @@ class SectionVisibilityService
 
     private function professionalHasCredential(string $professionalId): bool
     {
-        return Professional::query()
+        return User::query()
             ->where('id', $professionalId)
             ->whereNull('deleted_at')
             ->whereNotNull('about->credentials')
@@ -485,7 +485,7 @@ class SectionVisibilityService
 
     private function professionalHasExperience(string $professionalId): bool
     {
-        return Professional::query()
+        return User::query()
             ->where('id', $professionalId)
             ->whereNull('deleted_at')
             ->whereNotNull('about->experience')

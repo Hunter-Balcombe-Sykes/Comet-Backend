@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Enums\AccountType;
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
@@ -50,7 +50,7 @@ class IndividualProfileController extends ApiController
 
         // Cheap pre-resolve so cache-key versioning sees the latest site updated_at
         // without paying full payload assembly on every hit.
-        $pro = Professional::query()->where('handle_lc', $handleLc)->first();
+        $pro = User::query()->where('handle_lc', $handleLc)->first();
         if (! $pro || ! $this->isIndividualLike($pro)) {
             return $this->error('Not found.', 404);
         }
@@ -74,7 +74,7 @@ class IndividualProfileController extends ApiController
      * An "individual-like" pro is anyone whose account_type is Individual, or who
      * has no account_type set (transition window) and is not a brand.
      */
-    private function isIndividualLike(Professional $pro): bool
+    private function isIndividualLike(User $pro): bool
     {
         if ($pro->isBrand() || $pro->isPartner()) {
             return false;

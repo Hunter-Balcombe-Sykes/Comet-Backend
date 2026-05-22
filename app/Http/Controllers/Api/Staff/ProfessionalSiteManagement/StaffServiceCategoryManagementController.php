@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceCategoryRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffStoreServiceCategoryRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffUpdateServiceCategoryRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 // V2: Staff manages service categories with full CRUD, reordering, and hard delete.
 class StaffServiceCategoryManagementController extends ApiController
 {
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
@@ -41,7 +41,7 @@ class StaffServiceCategoryManagementController extends ApiController
         ]);
     }
 
-    public function store(StaffStoreServiceCategoryRequest $request, Professional $professional): JsonResponse
+    public function store(StaffStoreServiceCategoryRequest $request, User $professional): JsonResponse
     {
         $this->authorizeForUser($professional, 'create', new ServiceCategory(['professional_id' => $professional->id]));
         $data = $request->validated();
@@ -69,7 +69,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['category' => $category], 201);
     }
 
-    public function show(Request $request, Professional $professional, ServiceCategory $category): JsonResponse
+    public function show(Request $request, User $professional, ServiceCategory $category): JsonResponse
     {
         $this->authorizeForUser($professional, 'view', $category);
 
@@ -81,7 +81,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['category' => $category]);
     }
 
-    public function update(StaffUpdateServiceCategoryRequest $request, Professional $professional, ServiceCategory $category): JsonResponse
+    public function update(StaffUpdateServiceCategoryRequest $request, User $professional, ServiceCategory $category): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $category);
         if ($category->trashed()) {
@@ -94,7 +94,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['category' => $category->fresh()]);
     }
 
-    public function destroy(Professional $professional, ServiceCategory $category): JsonResponse
+    public function destroy(User $professional, ServiceCategory $category): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $category);
         if ($category->trashed()) {
@@ -138,7 +138,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['deleted' => true]);
     }
 
-    public function reorder(StaffReorderServiceCategoryRequest $request, Professional $professional): JsonResponse
+    public function reorder(StaffReorderServiceCategoryRequest $request, User $professional): JsonResponse
     {
         $ids = array_values(array_unique($request->validated()['ids']));
 
@@ -174,7 +174,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function forceDestroy(Professional $professional, ServiceCategory $category): JsonResponse
+    public function forceDestroy(User $professional, ServiceCategory $category): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $category);
 
@@ -184,7 +184,7 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['deleted' => true, 'hard' => true]);
     }
 
-    public function restore(Professional $professional, ServiceCategory $category): JsonResponse
+    public function restore(User $professional, ServiceCategory $category): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $category);
 

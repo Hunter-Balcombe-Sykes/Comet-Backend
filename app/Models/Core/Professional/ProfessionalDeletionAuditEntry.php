@@ -78,6 +78,6 @@ class ProfessionalDeletionAuditEntry extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class);
+        return $this->belongsTo(User::class);
     }
 }

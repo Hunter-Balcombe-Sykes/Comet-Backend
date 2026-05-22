@@ -3,7 +3,7 @@
 namespace App\Models\Analytics;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -42,7 +42,7 @@ class LinkClick extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'professional_id');
     }
 
     public function site(): BelongsTo

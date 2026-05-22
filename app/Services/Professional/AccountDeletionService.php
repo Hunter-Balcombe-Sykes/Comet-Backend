@@ -6,7 +6,7 @@ use App\Jobs\DeleteMediaArtifactsJob;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -32,7 +32,7 @@ class AccountDeletionService
      *
      * @return array{success: bool, code: int, error?: string, reasons?: array<string>}
      */
-    public function request(Professional $professional, Request $request): array
+    public function request(User $professional, Request $request): array
     {
         $obligations = $this->checkObligations($professional);
         if (! empty($obligations)) {
@@ -93,7 +93,7 @@ class AccountDeletionService
      *
      * @return array{success: bool, code: int, error?: string, deletes_at?: string}
      */
-    public function confirm(Professional $professional, string $rawToken, Request $request): array
+    public function confirm(User $professional, string $rawToken, Request $request): array
     {
         // No deletion request on file?
         if (! $professional->deletion_token_hash || ! $professional->deletion_requested_at) {
@@ -142,7 +142,7 @@ class AccountDeletionService
      * is intentionally deferred to a separate call so the EVENT_CONFIRMED /
      * EVENT_ADMIN_INITIATED audit row captures the real email first.
      */
-    private function executeConfirmation(Professional $professional): Carbon
+    private function executeConfirmation(User $professional): Carbon
     {
         $retentionDays = (int) config('partna.soft_delete_retention_days', 30);
         $deletesAt = now()->addDays($retentionDays);
@@ -201,7 +201,7 @@ class AccountDeletionService
      * in core.professional_deletion_audit.professional_email_snapshot so support can
      * re-identify the user if they email to cancel.
      */
-    private function pseudonymiseAccountPii(Professional $professional): void
+    private function pseudonymiseAccountPii(User $professional): void
     {
         $professional->forceFill([
             'phone' => 'redacted',
@@ -225,7 +225,7 @@ class AccountDeletionService
      * straight to scheduling the 30-day grace period. Used when a professional
      * emails support requesting erasure (e.g., GDPR Article 17 request).
      *
-     * @param  Professional  $professional  The user being deleted.
+     * @param  User  $professional  The user being deleted.
      * @param  string  $staffActorId  PartnaStaff.id of the admin invoking this.
      * @param  string  $staffActorHandle  Snapshot of staff name (or email) for audit.
      * @param  string  $reason  GDPR reason / support ticket reference (10–500 chars).
@@ -233,7 +233,7 @@ class AccountDeletionService
      * @return array{success: bool, code: int, error?: string, reasons?: array<string>, deletes_at?: string}
      */
     public function adminInitiate(
-        Professional $professional,
+        User $professional,
         string $staffActorId,
         string $staffActorHandle,
         string $reason,
@@ -288,7 +288,7 @@ class AccountDeletionService
      * @return array{success: bool, code: int, error?: string}
      */
     public function adminCancel(
-        Professional $professional,
+        User $professional,
         string $staffActorId,
         string $staffActorHandle,
         ?string $reason,
@@ -367,7 +367,7 @@ class AccountDeletionService
      *
      * @return array{success: bool, code: int}
      */
-    public function cancel(Professional $professional, Request $request): array
+    public function cancel(User $professional, Request $request): array
     {
         $previousStatus = $professional->deletion_previous_status;
         if (! is_string($previousStatus) || $previousStatus === '') {
@@ -430,7 +430,7 @@ class AccountDeletionService
      * PurgeSoftDeleted command. Returns false on any failure so the caller
      * can retry on the next daily run.
      */
-    public function purge(Professional $professional): bool
+    public function purge(User $professional): bool
     {
         $handleSnapshot = (string) ($professional->handle ?? '');
         $emailSnapshot = (string) ($professional->primary_email ?? '');
@@ -510,7 +510,7 @@ class AccountDeletionService
      *
      * @return array<string>
      */
-    private function checkObligations(Professional $professional): array
+    private function checkObligations(User $professional): array
     {
         return [];
     }
@@ -560,7 +560,7 @@ class AccountDeletionService
      * deleted synchronously (single file per record). Failures are logged and
      * skipped — a storage error must never block the DB deletion.
      */
-    private function purgeMediaArtifacts(Professional $professional): void
+    private function purgeMediaArtifacts(User $professional): void
     {
         $site = Site::query()->where('professional_id', $professional->id)->first();
 
@@ -623,7 +623,7 @@ class AccountDeletionService
      * confirm time. No-op when no confirmed snapshot exists (request → cancel
      * before confirmation never overwrote the live row).
      */
-    private function restoreEmailFromAuditSnapshot(Professional $professional): void
+    private function restoreEmailFromAuditSnapshot(User $professional): void
     {
         $snapshotEmail = DB::connection('pgsql')
             ->table('core.professional_deletion_audit')
@@ -644,7 +644,7 @@ class AccountDeletionService
      * a staff admin (support-initiated), or the system (daily purge command).
      */
     public function logAuditEvent(
-        Professional $professional,
+        User $professional,
         string $event,
         ?Request $request = null,
         array $metadata = [],

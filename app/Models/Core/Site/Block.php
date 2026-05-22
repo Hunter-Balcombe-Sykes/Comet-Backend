@@ -4,7 +4,7 @@ namespace App\Models\Core\Site;
 
 use App\Models\Analytics\LinkClick;
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -48,7 +48,7 @@ class Block extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'professional_id');
     }
 
     public function site(): BelongsTo

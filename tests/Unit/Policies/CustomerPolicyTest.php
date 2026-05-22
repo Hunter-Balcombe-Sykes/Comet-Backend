@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Policies\CustomerPolicy;
 
 beforeEach(function () {
@@ -11,14 +11,14 @@ beforeEach(function () {
 // --- view ---
 
 it('allows view when the actor owns the customer', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $customer))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the customer', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $customer);
@@ -30,21 +30,21 @@ it('denies view with 404 when the actor does not own the customer', function () 
 // --- create ---
 
 it('allows create when the actor owns the skeleton and is active', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $skeleton = new Customer(['professional_id' => 'pro-1']);
 
     expect($this->policy->create($actor, $skeleton))->toBeTrue();
 });
 
 it('denies create as false (not 404) when the skeleton targets another professional', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $skeleton = new Customer(['professional_id' => 'pro-other']);
 
     expect($this->policy->create($actor, $skeleton))->toBeFalse();
 });
 
 it('denies create with 423 when the actor is pending deletion', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
     $skeleton = new Customer(['professional_id' => 'pro-1']);
 
     $result = $this->policy->create($actor, $skeleton);
@@ -57,14 +57,14 @@ it('denies create with 423 when the actor is pending deletion', function () {
 // --- update ---
 
 it('allows update when the actor owns the customer and is active', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-1']);
 
     expect($this->policy->update($actor, $customer))->toBeTrue();
 });
 
 it('denies update with 404 when the actor does not own the customer', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-2']);
 
     $result = $this->policy->update($actor, $customer);
@@ -74,7 +74,7 @@ it('denies update with 404 when the actor does not own the customer', function (
 });
 
 it('denies update with 423 when the actor is pending deletion', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
     $customer = new Customer(['professional_id' => 'pro-1']);
 
     $result = $this->policy->update($actor, $customer);
@@ -87,14 +87,14 @@ it('denies update with 423 when the actor is pending deletion', function () {
 // --- delete (delegates to update) ---
 
 it('allows delete when the actor owns the customer', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-1']);
 
     expect($this->policy->delete($actor, $customer))->toBeTrue();
 });
 
 it('denies delete with 404 when the actor does not own the customer', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $customer = new Customer(['professional_id' => 'pro-2']);
 
     $result = $this->policy->delete($actor, $customer);
@@ -104,7 +104,7 @@ it('denies delete with 404 when the actor does not own the customer', function (
 });
 
 it('denies delete with 423 when the actor is pending deletion', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
     $customer = new Customer(['professional_id' => 'pro-1']);
 
     $result = $this->policy->delete($actor, $customer);

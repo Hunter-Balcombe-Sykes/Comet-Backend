@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffDataExportController;
 use App\Http\Requests\Api\Staff\RequestStaffDataExportRequest;
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -29,10 +29,10 @@ function seedStaff(string $role): PartnaStaff
     return PartnaStaff::find($id);
 }
 
-function seedProForStaff(string $email = 'jane@example.com'): Professional
+function seedProForStaff(string $email = 'jane@example.com'): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'jane',
         'handle_lc' => 'jane',
@@ -43,7 +43,7 @@ function seedProForStaff(string $email = 'jane@example.com'): Professional
         'updated_at' => '2026-01-01T00:00:00Z',
     ]);
 
-    return Professional::find($id);
+    return User::find($id);
 }
 
 function makeStaffExportRequest(PartnaStaff $staff, string $sendTo = 'professional'): RequestStaffDataExportRequest

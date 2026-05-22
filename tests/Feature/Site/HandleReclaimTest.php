@@ -21,13 +21,12 @@ function makeReclaimPro(string $handle = 'current'): array
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id'                => $proId,
         'handle'            => $handle,
         'handle_lc'         => $handle,
         'status'            => 'active',
         'primary_email'     => $handle.'@example.test',
-        'professional_type' => 'professional',
         'created_at'        => $now,
         'updated_at'        => $now,
     ]);
@@ -67,7 +66,7 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
         'created_at'    => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\Professional::find($proId);
+    $pro = \App\Models\Core\Professional\User::find($proId);
     app(ReclaimHandleAction::class)->execute($pro, 'old');
 
     // Alias should be gone (collapsed by UpdateSiteAction)
@@ -92,7 +91,7 @@ it('refuses to reclaim once the reclaim window has passed', function () {
         'updated_at'      => now()->subDays(15)->toDateTimeString(),
     ]);
 
-    $pro = \App\Models\Core\Professional\Professional::find($proId);
+    $pro = \App\Models\Core\Professional\User::find($proId);
 
     expect(fn () => app(ReclaimHandleAction::class)->execute($pro, 'oldexpired'))
         ->toThrow(ValidationException::class);
@@ -112,7 +111,7 @@ it('throws 404 for a handle alias that belongs to a different professional', fun
         'updated_at'      => now()->toDateTimeString(),
     ]);
 
-    $self = \App\Models\Core\Professional\Professional::find($proIdSelf);
+    $self = \App\Models\Core\Professional\User::find($proIdSelf);
 
     expect(fn () => app(ReclaimHandleAction::class)->execute($self, 'wantedhandle'))
         ->toThrow(NotFoundHttpException::class);

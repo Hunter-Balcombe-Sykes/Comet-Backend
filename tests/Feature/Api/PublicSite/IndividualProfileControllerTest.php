@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -22,18 +22,17 @@ beforeEach(function () {
     Config::set('partna.throttle.enabled', false);
 });
 
-function seedIndividualProfile(string $handle, array $design = []): Professional
+function seedIndividualProfile(string $handle, array $design = []): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => 'Solo Pro',
         'bio' => 'Hello world',
-        'professional_type' => 'affiliate',
         'account_type' => 'individual',
         'location_city' => 'Sydney',
         'location_state' => 'NSW',
@@ -53,7 +52,7 @@ function seedIndividualProfile(string $handle, array $design = []): Professional
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    return Professional::query()->findOrFail($proId);
+    return User::query()->findOrFail($proId);
 }
 
 it('returns 200 with the full envelope shape for an individual', function () {

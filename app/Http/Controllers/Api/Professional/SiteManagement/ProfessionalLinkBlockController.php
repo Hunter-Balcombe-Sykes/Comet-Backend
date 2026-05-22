@@ -10,7 +10,7 @@ use App\Http\Requests\Api\Professional\Site\IndexLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\SocialLinkNormalizer;
@@ -39,7 +39,7 @@ class ProfessionalLinkBlockController extends ApiController
         private readonly SocialLinkNormalizer $normalizer
     ) {}
 
-    private function authorizeCustomLinks(Professional $pro): void
+    private function authorizeCustomLinks(User $pro): void
     {
         // All individual users can manage custom links — no capability gate needed.
     }

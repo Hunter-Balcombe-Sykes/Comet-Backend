@@ -2,7 +2,7 @@
 
 namespace App\Services\Professional;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;

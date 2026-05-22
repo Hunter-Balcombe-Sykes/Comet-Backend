@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\Audit\StaffAuditService;
@@ -41,7 +41,7 @@ it('inserts a row capturing the staff, target, route, and method', function () {
     $staff->primary_email = 'support@partna.au';
     $staff->role = PartnaStaff::ROLE_SUPPORT;
 
-    $professional = new Professional();
+    $professional = new User();
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme-brand';
 

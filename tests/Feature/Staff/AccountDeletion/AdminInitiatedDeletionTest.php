@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Professional\AccountDeletionService;
@@ -36,7 +36,7 @@ function makeAdminStaff(array $overrides = []): PartnaStaff
     return PartnaStaff::query()->where('id', $id)->first();
 }
 
-function makeActiveProfessional(array $overrides = []): Professional
+function makeActiveProfessional(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -50,9 +50,9 @@ function makeActiveProfessional(array $overrides = []): Professional
         'stripe_manual_balance_cents' => 0,
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 function makeAdminRequest(PartnaStaff $staff, array $body = []): Request

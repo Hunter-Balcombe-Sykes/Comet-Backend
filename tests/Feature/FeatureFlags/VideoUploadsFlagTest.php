@@ -30,9 +30,8 @@ it('returns 403 when video_uploads flag is off for the professional', function (
     $professionalId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
-        'professional_type' => 'professional',
         'display_name' => 'Flag Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -47,7 +46,7 @@ it('returns 403 when video_uploads flag is off for the professional', function (
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\Professional\Professional::query()->findOrFail($professionalId);
+    $professional = \App\Models\Core\Professional\User::query()->findOrFail($professionalId);
     $professional->load('site');
 
     // Flag service returns false for video_uploads
@@ -86,9 +85,8 @@ it('allows image uploads regardless of video_uploads flag state', function () {
     $professionalId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
-        'professional_type' => 'professional',
         'display_name' => 'Flag Test Pro 2',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -103,7 +101,7 @@ it('allows image uploads regardless of video_uploads flag state', function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\Professional\Professional::query()->findOrFail($professionalId);
+    $professional = \App\Models\Core\Professional\User::query()->findOrFail($professionalId);
     $professional->load('site');
 
     // Flag service returns false, but image uploads should not be blocked

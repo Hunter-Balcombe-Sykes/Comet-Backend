@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 
 /**
  * Defensive deny-all policy for FeatureFlag and FeatureFlagOverride.
@@ -18,17 +18,17 @@ use App\Models\Core\Professional\Professional;
  */
 class FeatureFlagPolicy extends BasePolicy
 {
-    public function viewAny(Professional $pro): bool
+    public function viewAny(User $pro): bool
     {
         return false;
     }
 
-    public function view(Professional $pro, FeatureFlag|FeatureFlagOverride $resource): bool
+    public function view(User $pro, FeatureFlag|FeatureFlagOverride $resource): bool
     {
         return false;
     }
 
-    public function manage(Professional $pro, FeatureFlag|FeatureFlagOverride|null $resource = null): bool
+    public function manage(User $pro, FeatureFlag|FeatureFlagOverride|null $resource = null): bool
     {
         return false;
     }

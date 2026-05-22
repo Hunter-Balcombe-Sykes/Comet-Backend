@@ -1,18 +1,17 @@
 <?php
 
 use App\Http\Resources\ProfessionalResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 
-function buildPro(array $overrides = []): Professional
+function buildPro(array $overrides = []): User
 {
-    $pro = new Professional;
+    $pro = new User;
     $pro->setRawAttributes(array_merge([
         'id' => 'pro-1',
         'handle' => 'evo',
         'handle_lc' => 'evo',
         'display_name' => 'Evo',
-        'professional_type' => 'brand',
         'partna_url' => 'https://evo.partna.au',
         'first_name' => null,
         'last_name' => null,

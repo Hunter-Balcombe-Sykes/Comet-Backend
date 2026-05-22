@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -90,7 +90,7 @@ class StaffNotificationController extends ApiController
      * Mirror of NotificationController::index — same payload shape, same cache —
      * but keyed off the route-bound professional rather than the JWT subject.
      */
-    public function indexForProfessional(Request $request, Professional $professional): JsonResponse
+    public function indexForProfessional(Request $request, User $professional): JsonResponse
     {
         $limit = (int) $request->query('limit', 50);
         $limit = max(1, min($limit, 200));
@@ -103,7 +103,7 @@ class StaffNotificationController extends ApiController
     /**
      * POST /staff/professionals/{professional}/notifications/{notification}/read
      */
-    public function markReadForProfessional(Request $request, Professional $professional, Notification $notification): JsonResponse
+    public function markReadForProfessional(Request $request, User $professional, Notification $notification): JsonResponse
     {
         $this->assertVisibleTo($notification, $professional);
         $this->listing->assertActive($notification);
@@ -116,7 +116,7 @@ class StaffNotificationController extends ApiController
     /**
      * POST /staff/professionals/{professional}/notifications/{notification}/dismiss
      */
-    public function dismissForProfessional(Request $request, Professional $professional, Notification $notification): JsonResponse
+    public function dismissForProfessional(Request $request, User $professional, Notification $notification): JsonResponse
     {
         $this->assertVisibleTo($notification, $professional);
         $this->listing->assertActive($notification);
@@ -132,7 +132,7 @@ class StaffNotificationController extends ApiController
      * the ownership check inline: 404 if the notification is neither global
      * nor targeted at this professional.
      */
-    private function assertVisibleTo(Notification $notification, Professional $professional): void
+    private function assertVisibleTo(Notification $notification, User $professional): void
     {
         if (! $this->listing->visibleTo($notification, (string) $professional->id)) {
             abort(404);

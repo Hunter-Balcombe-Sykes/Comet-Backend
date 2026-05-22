@@ -3,7 +3,7 @@
 namespace App\Jobs\Cloudflare;
 
 use App\Jobs\Concerns\HasCloudflareRetryPolicy;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -42,7 +42,7 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(CloudflareKvService $kv): void
     {
-        $pro = Professional::query()->find($this->professionalId);
+        $pro = User::query()->find($this->professionalId);
 
         if (! $pro || ! $pro->handle) {
             return;

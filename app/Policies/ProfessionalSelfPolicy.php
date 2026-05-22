@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Professional\WalletCurrencySwitchAudit;
 use Illuminate\Auth\Access\Response;
@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class ProfessionalSelfPolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
         if ($this->resolveOwnerId($resource) !== (string) $actor->id) {
             return $this->denyAsNotFound();
@@ -28,7 +28,7 @@ class ProfessionalSelfPolicy extends BasePolicy
         return true;
     }
 
-    public function update(Professional $actor, Model $resource): bool|Response
+    public function update(User $actor, Model $resource): bool|Response
     {
         // Audit-log models are append-only — deny all mutations regardless of ownership.
         if ($resource instanceof WalletCurrencySwitchAudit || $resource instanceof ProfessionalDeletionAuditEntry) {
@@ -46,7 +46,7 @@ class ProfessionalSelfPolicy extends BasePolicy
         return true;
     }
 
-    public function delete(Professional $actor, Model $resource): bool|Response
+    public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
     }
@@ -57,7 +57,7 @@ class ProfessionalSelfPolicy extends BasePolicy
      */
     private function resolveOwnerId(Model $resource): string
     {
-        if ($resource instanceof Professional) {
+        if ($resource instanceof User) {
             return (string) $resource->id;
         }
 

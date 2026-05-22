@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Views\AllSiteData;
 use Illuminate\Http\JsonResponse;
 
@@ -58,7 +58,7 @@ class StaffSiteController extends ApiController
         ]);
     }
 
-    public function showByProfessional(Professional $professional): JsonResponse
+    public function showByProfessional(User $professional): JsonResponse
     {
         $row = AllSiteData::query()
             ->where('professional_id', $professional->id)
