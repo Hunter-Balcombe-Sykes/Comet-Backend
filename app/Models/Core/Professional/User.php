@@ -108,16 +108,6 @@ class User extends BaseModel
         return true;
     }
 
-    public function isBrand(): bool
-    {
-        return false;
-    }
-
-    public function isPartner(): bool
-    {
-        return false;
-    }
-
     // Account is in the post-confirm grace period: read-only HTTP, write-blocked
     // policies. Canonical predicate — middleware and Policies both consult this
     // so the literal status string lives in exactly one place.

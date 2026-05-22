@@ -372,8 +372,8 @@ class ProfessionalSectionBlockController extends ApiController
                 $block->sort_order = ++$maxSortOrder;
 
                 // Seed is_enabled honestly from current data state. One exists()
-                // per new block — only fires on first-time setup or a
-                // professional_type change, so the cost is one-shot, not hot-path.
+                // per new block — only fires on first-time setup, so the cost is
+                // one-shot, not hot-path.
                 [$canBeEnabled] = $this->visibilityService->checkVisibilityRequirements(
                     $professionalId,
                     $siteId,

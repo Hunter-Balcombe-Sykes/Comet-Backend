@@ -77,7 +77,6 @@ class BrandDesignMediaService
         return $media->refresh();
     }
 
-
     /**
      * Append a placeholder image. Throws PlaceholderLimitExceededException if
      * 5 active placeholders already exist for the site.
@@ -344,9 +343,8 @@ class BrandDesignMediaService
 
     /**
      * Resolve the optimized full-logo URL for a single site, or null if absent.
-     * Reads from site_media (pool=design, purpose=logo_full) — the same source
-     * BrandDesignResource exposes as logo.full_url. Use this anywhere the brand's
-     * full logo needs to be displayed (invites, partner cards, public pages).
+     * Reads from site_media (pool=design, purpose=logo_full). Use this anywhere
+     * the full logo needs to be displayed on public pages.
      */
     public function getLogoFullUrl(string $siteId): ?string
     {

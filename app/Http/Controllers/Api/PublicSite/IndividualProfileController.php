@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\PublicSite;
 
-use App\Enums\AccountType;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
@@ -51,7 +50,7 @@ class IndividualProfileController extends ApiController
         // Cheap pre-resolve so cache-key versioning sees the latest site updated_at
         // without paying full payload assembly on every hit.
         $pro = User::query()->where('handle_lc', $handleLc)->first();
-        if (! $pro || ! $this->isIndividualLike($pro)) {
+        if (! $pro) {
             return $this->error('Not found.', 404);
         }
 
@@ -68,18 +67,5 @@ class IndividualProfileController extends ApiController
         // directly to response()->json() — so we keep the {'data': ...} wrapper
         // that the Astro Worker subrequest expects.
         return $this->success(['data' => $payload]);
-    }
-
-    /**
-     * An "individual-like" pro is anyone whose account_type is Individual, or who
-     * has no account_type set (transition window) and is not a brand.
-     */
-    private function isIndividualLike(User $pro): bool
-    {
-        if ($pro->isBrand() || $pro->isPartner()) {
-            return false;
-        }
-
-        return ! ($pro->account_type instanceof AccountType) || $pro->account_type === AccountType::Individual;
     }
 }

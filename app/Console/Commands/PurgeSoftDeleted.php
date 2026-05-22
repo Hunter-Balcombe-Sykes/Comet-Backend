@@ -3,11 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Models\Core\FeatureFlag;
-use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
@@ -46,7 +45,6 @@ class PurgeSoftDeleted extends Command
      */
     public const PURGE_EXEMPT = [
         FeatureFlag::class => 'Lifecycle managed by FeatureFlagService — flags are tombstoned for audit history and never auto-purged.',
-        BrandPartnerLink::class => 'Pending deletion in Task 3 of the standalone-pages strip — model and table will be removed entirely.',
     ];
 
     /**

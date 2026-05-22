@@ -2,9 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
-use App\Models\Core\Professional\WalletCurrencySwitchAudit;
+use App\Models\Core\Professional\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -12,10 +11,10 @@ use Illuminate\Database\Eloquent\Model;
  * V2: Authorization for records where the actor can only access their own data.
  *
  * Covers Professional (id-based), ProfessionalConfirmationPreference (professional_id),
- * WalletCurrencySwitchAudit (read-only), and ProfessionalDeletionAuditEntry (read-only).
+ * and ProfessionalDeletionAuditEntry (read-only).
  *
- * Audit-log models (WalletCurrencySwitchAudit, ProfessionalDeletionAuditEntry) are
- * immutable — update/delete are blocked by the policy regardless of ownership.
+ * Audit-log models (ProfessionalDeletionAuditEntry) are immutable — update/delete
+ * are blocked by the policy regardless of ownership.
  */
 class ProfessionalSelfPolicy extends BasePolicy
 {
@@ -31,7 +30,7 @@ class ProfessionalSelfPolicy extends BasePolicy
     public function update(User $actor, Model $resource): bool|Response
     {
         // Audit-log models are append-only — deny all mutations regardless of ownership.
-        if ($resource instanceof WalletCurrencySwitchAudit || $resource instanceof ProfessionalDeletionAuditEntry) {
+        if ($resource instanceof ProfessionalDeletionAuditEntry) {
             return $this->denyAsNotFound();
         }
 

@@ -245,87 +245,6 @@ class SiteCacheService
     }
 
     /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function applyBrandImageFallbacks(array $payload): array
-    {
-        $professional = $payload['professional'] ?? null;
-        if (! is_array($professional) || ($professional['professional_type'] ?? null) === 'brand') {
-            return $payload;
-        }
-
-        $affiliateId = (string) ($professional['id'] ?? '');
-        if (empty($affiliateId)) {
-            return $payload;
-        }
-
-        // JSON column is affiliate-controlled; use it only as a hint for which brand is configured.
-        $brandPartner = $payload['site']['settings']['brand_partner'] ?? null;
-        if (! is_array($brandPartner) || empty($brandPartner['professional_id'])) {
-            return $payload;
-        }
-
-        $claimedBrandId = (string) $brandPartner['professional_id'];
-
-        // BrandPartnerLink is the consent record — verify before using any brand data.
-        $link = BrandPartnerLink::where('affiliate_professional_id', $affiliateId)
-            ->where('brand_professional_id', $claimedBrandId)
-            ->first();
-
-        if (! $link) {
-            Log::warning('Brand-partner enrichment skipped: no verified link in consent table.', [
-                'affiliate_id' => $affiliateId,
-                'brand_id' => $claimedBrandId,
-            ]);
-
-            return $payload;
-        }
-
-        // Resolve brand_id from the verified link record, never from the mutable JSON.
-        $brandId = (string) $link->brand_professional_id;
-        $brandSite = Site::query()
-            ->where('professional_id', $brandId)
-            ->first();
-
-        if (! $brandSite) {
-            return $payload;
-        }
-
-        // Brand placeholders now live in site_media (pool=design, purpose=placeholder).
-        // The service resolves variant URLs; we project them to { url, alt_text }
-        // to match the new Hydrogen brand-design response shape.
-        $designMedia = app(\App\Services\Media\BrandDesignMediaService::class)
-            ->listDesignMedia((string) $brandSite->id);
-
-        if (empty($designMedia['placeholders'])) {
-            return $payload;
-        }
-
-        $placeholderImages = array_map(
-            fn (array $p) => [
-                'url' => $p['url'],
-                'alt_text' => $p['alt_text'],
-            ],
-            $designMedia['placeholders']
-        );
-
-        $imageKeys = ['gallery', 'content_images'];
-
-        foreach ($imageKeys as $key) {
-            if (! isset($payload['site'][$key]) || ! is_array($payload['site'][$key])) {
-                continue;
-            }
-
-            if (empty($payload['site'][$key])) {
-                $payload['site'][$key] = $placeholderImages;
-            }
-        }
-
-        return $payload;
-    }
-
-    /**
      * @param  array<string, mixed>  $site
      * @return array<string, mixed>
      */
@@ -375,7 +294,6 @@ class SiteCacheService
 
         return $payload;
     }
-
 
     /**
      * @param  array<int, mixed>  $links
@@ -535,7 +453,6 @@ class SiteCacheService
 
         return $site;
     }
-
 
     /**
      * Returns both the primary key and its SWR stale copy so invalidation is

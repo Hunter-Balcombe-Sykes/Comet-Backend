@@ -48,10 +48,6 @@ const POLICY_EXEMPT = [
     // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
     \App\Models\Core\Gdpr\GdprRequest::class,
 
-    // Append-only audit log for wallet currency changes; staff-only reads,
-    // no controller action to gate at the row level.
-    \App\Models\Core\Professional\WalletCurrencySwitchAudit::class,
-
 ];
 
 it('every tenant-owned model has a registered policy', function () {
