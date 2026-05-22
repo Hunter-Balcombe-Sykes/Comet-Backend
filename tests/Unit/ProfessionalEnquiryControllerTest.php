@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalEnquiryController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,20 +39,19 @@ function setupContactInboxSchema(): void
     )');
 }
 
-function makeInboxProfessional(): Professional
+function makeInboxProfessional(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'inbox-'.substr($id, 0, 8),
         'handle_lc' => 'inbox-'.substr($id, 0, 8),
         'display_name' => 'Inbox Pro',
         'primary_email' => 'inbox-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
-    return Professional::query()->find($id);
+    return User::query()->find($id);
 }
 
 function seedInboxEnquiry(string $proId, string $siteId, array $overrides = []): string
@@ -73,7 +72,7 @@ function seedInboxEnquiry(string $proId, string $siteId, array $overrides = []):
     return $id;
 }
 
-function requestAs(Professional $pro, string $method = 'GET', array $data = []): Request
+function requestAs(User $pro, string $method = 'GET', array $data = []): Request
 {
     // Bypass the current.pro middleware by populating the attribute directly.
     // Mirrors how the middleware would set it after JWT + pro lookup.
@@ -101,13 +100,12 @@ it('does not leak other professionals enquiries', function () {
     $me = makeInboxProfessional();
 
     $otherId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $otherId,
         'handle' => 'other',
         'handle_lc' => 'other',
         'display_name' => 'Other',
         'primary_email' => 'other@e.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
     seedInboxEnquiry($otherId, (string) Str::uuid(), ['name' => 'Not mine']);
@@ -152,13 +150,12 @@ it('returns 404 when acting on another professionals enquiry', function () {
     $me = makeInboxProfessional();
 
     $otherId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $otherId,
         'handle' => 'other2',
         'handle_lc' => 'other2',
         'display_name' => 'Other 2',
         'primary_email' => 'other2@e.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
     $enquiryId = seedInboxEnquiry($otherId, (string) Str::uuid());

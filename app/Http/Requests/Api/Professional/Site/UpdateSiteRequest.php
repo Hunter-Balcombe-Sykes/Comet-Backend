@@ -84,9 +84,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.design.typography.logo_letter_spacing' => ['sometimes', 'nullable', 'string', 'max:32'],
             'settings.design.typography.logo_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'settings.design.media' => ['sometimes', 'array'],
-            'settings.design.media.brand_logo_name' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'settings.design.media.brand_logo_path' => ['sometimes', 'nullable', 'string', 'max:2048'],
-            'settings.design.media.brand_logo_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             'settings.design.media.placeholder_sitepage_images' => ['prohibited'],
             'settings.design.media.placeholder_sitepage_images.*' => ['prohibited'],
 
@@ -136,9 +133,6 @@ class UpdateSiteRequest extends BaseFormRequest
                 'nb_architekt',
                 'swiss_721',
             ])],
-            'settings.brand_partner' => ['prohibited'],
-            'settings.brandPartner' => ['prohibited'],
-            'settings.additional_brand_partners' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.charlieEnabled' => ['sometimes', 'boolean'],
@@ -149,7 +143,6 @@ class UpdateSiteRequest extends BaseFormRequest
                 Rule::in(['manual']),
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
-            'settings.selected_products' => ['prohibited'],
 
             // Subdomain: must be unique, not reserved, DNS-safe
             'subdomain' => [
@@ -265,10 +258,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.design.button_text_color.regex' => 'The button text color must be a valid hex color.',
             'settings.design.primary_color.regex' => 'The primary color must be a valid hex color.',
             'settings.design.secondary_color.regex' => 'The secondary color must be a valid hex color.',
-            'settings.brand_partner.prohibited' => 'Use brand partner endpoints to manage brand relationships.',
-            'settings.brandPartner.prohibited' => 'Use brand partner endpoints to manage brand relationships.',
-            'settings.additional_brand_partners.prohibited' => 'Use brand partner endpoints to manage brand relationships.',
-            'settings.selected_products.prohibited' => 'Use /api/store/featured-products for product selections.',
             'settings.design.typography.heading_font.prohibited' => 'Use settings.design.font_family for the unified font picker.',
             'settings.design.typography.body_font.prohibited' => 'Use settings.design.font_family for the unified font picker.',
             'settings.design.typography.font_file_name.prohibited' => 'Custom font uploads are no longer supported — use settings.design.font_family.',

@@ -1,7 +1,7 @@
 <?php
 
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Http\Request;
@@ -16,7 +16,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): Professional
+function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -32,9 +32,9 @@ function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long
         'deletion_requested_at' => now()->toIso8601String(),
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('confirms with valid token: flips status, snapshots previous status, nulls token', function () {
@@ -55,28 +55,6 @@ it('confirms with valid token: flips status, snapshots previous status, nulls to
         ->and($pro->deletion_confirmed_at)->not->toBeNull();
 
     Mail::assertSent(AccountDeletionScheduledMail::class);
-});
-
-it('deletes professional integrations at confirm time (security)', function () {
-    $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
-
-    DB::connection('pgsql')->table('core.professional_integrations')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'provider' => 'shopify',
-        'access_token' => 'shpat_secret_token',
-        'created_at' => now()->toIso8601String(),
-        'updated_at' => now()->toIso8601String(),
-    ]);
-
-    $service = new AccountDeletionService;
-    $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
-
-    $count = DB::connection('pgsql')->table('core.professional_integrations')
-        ->where('professional_id', $pro->id)->count();
-
-    expect($count)->toBe(0);
 });
 
 it('rejects with 410 when token is older than 24 hours', function () {
@@ -112,7 +90,7 @@ it('rejects with 404 when token does not match', function () {
 
 it('rejects with 404 when no deletion request exists', function () {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'auth_user_id' => (string) Str::uuid(),
         'handle' => 'plain',
@@ -121,7 +99,7 @@ it('rejects with 404 when no deletion request exists', function () {
         'primary_email' => 'plain@example.com',
         'status' => 'active',
     ]);
-    $pro = Professional::query()->where('id', $id)->first();
+    $pro = User::query()->where('id', $id)->first();
 
     $service = new AccountDeletionService;
     $result = $service->confirm($pro, 'any-token', Request::create('/', 'POST'));
@@ -238,7 +216,7 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
     ]);
 
     // Reload with site relation.
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
@@ -248,31 +226,6 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
     $site = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->first();
     expect((bool) $site->is_published)->toBeFalse()
         ->and($site->unpublished_at)->not->toBeNull();
-});
-
-it('pseudonymises brand_profiles PII (abn, acn, legal_business_name) at confirm time', function () {
-    $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
-
-    DB::connection('pgsql')->table('brand.brand_profiles')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'abn' => '12 345 678 901',
-        'acn' => '123 456 789',
-        'legal_business_name' => 'Jane Doe Pty Ltd',
-    ]);
-
-    $service = new AccountDeletionService;
-    $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
-
-    $profile = DB::connection('pgsql')->table('brand.brand_profiles')
-        ->where('professional_id', $pro->id)
-        ->first();
-
-    expect($profile)->not->toBeNull()
-        ->and($profile->abn)->toBeNull()
-        ->and($profile->acn)->toBeNull()
-        ->and($profile->legal_business_name)->toBeNull();
 });
 
 it('pseudonymises professionals public_contact and about PII at confirm time', function () {

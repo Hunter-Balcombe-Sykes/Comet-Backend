@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 // Sets ETag on cacheable public GET responses and returns 304 when the client's
-// If-None-Match header matches — saves bandwidth for Hydrogen worker / mobile revalidation.
+// If-None-Match header matches — saves bandwidth on revalidation.
 class AddETagHeaders
 {
     public function handle(Request $request, Closure $next): Response

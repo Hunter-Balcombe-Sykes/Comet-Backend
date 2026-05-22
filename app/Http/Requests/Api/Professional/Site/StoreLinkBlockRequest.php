@@ -143,7 +143,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
                 // to the auth-context professional placed on request attributes
                 // by Context\LoadCurrentProfessional (self path).
                 $pro = $this->route('professional') ?? $this->attributes->get('professional');
-                $proId = $pro instanceof \App\Models\Core\Professional\Professional ? $pro->id : null;
+                $proId = $pro instanceof \App\Models\Core\Professional\User ? $pro->id : null;
                 if ($proId !== null && $max > 0) {
                     $existing = \App\Models\Core\Site\Block::query()
                         ->where('professional_id', $proId)
@@ -165,7 +165,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
             $settings = $this->input('settings');
             if (is_array($settings) && array_key_exists('live_check_enabled', $settings) && (bool) $settings['live_check_enabled']) {
                 $pro = $this->route('professional') ?? $this->attributes->get('professional');
-                $proId = $pro instanceof \App\Models\Core\Professional\Professional ? $pro->id : null;
+                $proId = $pro instanceof \App\Models\Core\Professional\User ? $pro->id : null;
 
                 if ($proId !== null) {
                     // Resolve site_id from the professional so we cap per-site, not per-professional.

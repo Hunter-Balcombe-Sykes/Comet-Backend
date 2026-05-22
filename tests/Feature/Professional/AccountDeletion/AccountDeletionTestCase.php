@@ -33,7 +33,7 @@ class AccountDeletionTestCase
             }
         }
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             auth_user_id TEXT,
             handle TEXT,
@@ -42,7 +42,6 @@ class AccountDeletionTestCase
             primary_email TEXT,
             professional_type TEXT DEFAULT "professional",
             account_type TEXT NULL,
-            has_historical_partner_links INTEGER NULL,
             status TEXT DEFAULT "active",
             onboarding_step INTEGER DEFAULT 0,
             stripe_manual_balance_cents INTEGER DEFAULT 0,

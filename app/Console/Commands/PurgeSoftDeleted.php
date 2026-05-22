@@ -3,11 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Models\Core\FeatureFlag;
-use App\Models\Core\Professional\BrandPartnerLink;
 use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\Professional;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
@@ -46,7 +45,6 @@ class PurgeSoftDeleted extends Command
      */
     public const PURGE_EXEMPT = [
         FeatureFlag::class => 'Lifecycle managed by FeatureFlagService — flags are tombstoned for audit history and never auto-purged.',
-        BrandPartnerLink::class => 'Plan §28.16: ex-partner panel relies on indefinite tombstone retention. Hard-delete happens only as a cascade of Professional purge via brand_partner_link_events SET NULL.',
     ];
 
     /**
@@ -56,7 +54,7 @@ class PurgeSoftDeleted extends Command
     public const PURGE_OTHER_PATH = [
         // purgePendingDeletionProfessionals() — different lifecycle (Supabase
         // Admin API call + audit log).
-        Professional::class => 'purgePendingDeletionProfessionals() — uses AccountDeletionService::purge() instead of forceDelete().',
+        User::class => 'purgePendingDeletionProfessionals() — uses AccountDeletionService::purge() instead of forceDelete().',
     ];
 
     public function handle(AccountDeletionService $deletionService): int
@@ -149,7 +147,7 @@ class PurgeSoftDeleted extends Command
         $purged = 0;
         $failed = 0;
 
-        Professional::query()
+        User::query()
             ->where('status', 'pending_deletion')
             ->where('deletion_confirmed_at', '<', $cutoff)
             ->orderBy('deletion_confirmed_at')

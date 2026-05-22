@@ -136,49 +136,4 @@ it('records the guard error message in processing_error so the frontend can surf
     expect($error)->toContain('24000000');
 });
 
-it('busts the Hydrogen brand-design cache when a design-pool image fails', function () {
-    $siteId = (string) Str::uuid();
-    $imageId = seedJobTestMediaRow(SiteMedia::POOL_DESIGN, $siteId);
-    $originalPath = "images/test/{$imageId}/original.jpg";
-    Storage::disk('local')->put($originalPath, 'image-bytes');
 
-    $cache = Mockery::mock(SiteCacheService::class);
-    $cache->shouldReceive('forgetBrandDesign')
-        ->once()
-        ->with($siteId);
-    app()->instance(SiteCacheService::class, $cache);
-
-    $service = Mockery::mock(ImageVariantService::class);
-    $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
-    $service->shouldReceive('processVariants')->once()->andThrow(
-        new UnprocessableImageException('Bad image.')
-    );
-
-    $job = new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}");
-    $job->withFakeQueueInteractions();
-    $job->handle($service);
-
-    $job->assertFailed();
-});
-
-it('does not bust brand-design cache when a gallery-pool image fails', function () {
-    $imageId = seedJobTestMediaRow('gallery');
-    $originalPath = "images/test/{$imageId}/original.jpg";
-    Storage::disk('local')->put($originalPath, 'image-bytes');
-
-    $cache = Mockery::mock(SiteCacheService::class);
-    $cache->shouldNotReceive('forgetBrandDesign');
-    app()->instance(SiteCacheService::class, $cache);
-
-    $service = Mockery::mock(ImageVariantService::class);
-    $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
-    $service->shouldReceive('processVariants')->once()->andThrow(
-        new UnprocessableImageException('Bad image.')
-    );
-
-    $job = new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}");
-    $job->withFakeQueueInteractions();
-    $job->handle($service);
-
-    $job->assertFailed();
-});

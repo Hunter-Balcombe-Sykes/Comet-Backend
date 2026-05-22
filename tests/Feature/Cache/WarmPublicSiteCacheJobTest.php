@@ -13,8 +13,8 @@ it('calls warmSiteCache with a lowercased subdomain', function () {
         ->with('my-site');
 
     // §28.8 warm path (audit #12) is best-effort behind a try/catch. The
-    // Professional::where() lookup throws against the SQLite test fixture
-    // (no core.professionals table attached) and the job swallows it, so
+    // User::where() lookup throws against the SQLite test fixture
+    // (no core.users table attached) and the job swallows it, so
     // the builder/cacheLock mocks are never called — pass real container
     // instances so the type signature is satisfied.
     $cacheLock = app(CacheLockService::class);

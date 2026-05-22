@@ -4,7 +4,7 @@ use App\Http\Controllers\Api\Professional\Account\ProfessionalDataExportControll
 use App\Http\Requests\Api\Professional\RequestDataExportRequest;
 use App\Jobs\Gdpr\ExportProfessionalDataJob;
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -15,9 +15,9 @@ beforeEach(function () {
     Queue::fake();
 });
 
-function seedActivePro(string $id, string $email = 'jane@example.com', string $status = 'active'): Professional
+function seedActivePro(string $id, string $email = 'jane@example.com', string $status = 'active'): User
 {
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'jane',
         'handle_lc' => 'jane',
@@ -28,10 +28,10 @@ function seedActivePro(string $id, string $email = 'jane@example.com', string $s
         'updated_at' => '2026-01-01T00:00:00Z',
     ]);
 
-    return Professional::find($id);
+    return User::find($id);
 }
 
-function makeSelfServiceRequest(Professional $professional): RequestDataExportRequest
+function makeSelfServiceRequest(User $professional): RequestDataExportRequest
 {
     $request = RequestDataExportRequest::create('/', 'POST');
     $request->attributes->set('professional', $professional);
@@ -73,7 +73,7 @@ it('returns 409 when an export is in flight inside the 30-min dedup window', fun
 
 it('returns 422 when professional has no recipient email', function () {
     $pro = seedActivePro((string) Str::uuid());
-    DB::connection('pgsql')->table('core.professionals')->where('id', $pro->id)->update(['primary_email' => null]);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update(['primary_email' => null]);
 
     $controller = app(ProfessionalDataExportController::class);
     $response = $controller->store(makeSelfServiceRequest($pro->fresh()));

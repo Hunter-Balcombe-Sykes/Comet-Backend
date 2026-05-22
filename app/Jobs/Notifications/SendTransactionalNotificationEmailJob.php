@@ -3,7 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
@@ -36,13 +36,9 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     // `incident`, `feature_announcement`, `integrations`, `analytics_*`,
     // and `profile_tasks` are intentionally absent — they apply to all
     // account types (or use a non-account-type policy elsewhere).
-    private const CAPABILITY_GATE_MAP = [
-        'payouts' => 'receives_payout_notifications',
-        'payout_settlement' => 'receives_payout_settlement_notifications',
-        'commissions' => 'receives_commission_notifications',
-        'brand_status' => 'receives_brand_status_notifications',
-        'invites' => 'receives_invite_notifications',
-    ];
+    // No commerce/brand notification gates — all categories gated here are
+    // only applicable to brand/partner accounts (dropped in standalone strip).
+    private const CAPABILITY_GATE_MAP = [];
 
     /**
      * Expose the capability gate map for the preference controller's category filter.
@@ -104,7 +100,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             // professional is treated as incapable. Otherwise a deleted
             // account could still receive a payouts/commissions email if
             // the row vanishes between dispatch and run.
-            $pro = Professional::find($this->professionalId);
+            $pro = User::find($this->professionalId);
             if (! $pro || ! AccountCapabilities::for($pro)->{$capabilityProperty}) {
                 Log::debug('Transactional email skipped: capability gate', [
                     'professional_id' => $this->professionalId,
@@ -144,7 +140,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             return; // already sent or notification deleted
         }
 
-        $email = DB::table('core.professionals')
+        $email = DB::table('core.users')
             ->where('id', $this->professionalId)
             ->whereNull('deleted_at')
             ->value('primary_email');

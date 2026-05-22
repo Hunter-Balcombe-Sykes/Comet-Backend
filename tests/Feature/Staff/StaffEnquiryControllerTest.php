@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -29,20 +29,19 @@ beforeEach(function () {
     )');
 });
 
-function makeStaffEnquiryProfessional(): Professional
+function makeStaffEnquiryProfessional(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'enq-'.substr($id, 0, 8),
         'handle_lc' => 'enq-'.substr($id, 0, 8),
         'display_name' => 'Enq Pro',
         'primary_email' => 'enq-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
-    return Professional::query()->find($id);
+    return User::query()->find($id);
 }
 
 function seedStaffEnquiry(string $proId, array $overrides = []): void

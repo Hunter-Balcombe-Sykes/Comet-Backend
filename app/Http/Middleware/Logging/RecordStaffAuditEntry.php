@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware\Logging;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Audit\StaffAuditService;
 use Closure;
@@ -54,7 +54,7 @@ class RecordStaffAuditEntry
             $staff = $staff instanceof PartnaStaff ? $staff : null;
 
             $professionalParam = $request->route()?->parameter('professional');
-            $professional = $professionalParam instanceof Professional ? $professionalParam : null;
+            $professional = $professionalParam instanceof User ? $professionalParam : null;
             $professionalIdFromString = (is_string($professionalParam) && $professionalParam !== '')
                 ? $professionalParam
                 : null;
@@ -63,7 +63,7 @@ class RecordStaffAuditEntry
             // so the service can still record the professional_id FK. Handle is null
             // because we only have the UUID — snapshot will be null, which is fine.
             if ($professional === null && $professionalIdFromString !== null) {
-                $professional = new Professional;
+                $professional = new User;
                 $professional->id = $professionalIdFromString;
             }
 

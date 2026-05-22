@@ -69,7 +69,7 @@ it('blocks a non-owner from deleting another tenants customer with 404', functio
 
 it('blocks a pending-deletion owner from updating a customer with 423', function () {
     $owner = createTenant('pro-pending-update');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -91,7 +91,7 @@ it('blocks a pending-deletion owner from updating a customer with 423', function
 
 it('blocks a pending-deletion owner from deleting a customer with 423', function () {
     $owner = createTenant('pro-pending-destroy');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -110,7 +110,7 @@ it('blocks a pending-deletion owner from deleting a customer with 423', function
 
 it('blocks a pending-deletion owner from creating a customer with 423', function () {
     $owner = createTenant('pro-pending-store');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();

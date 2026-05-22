@@ -130,10 +130,10 @@ it('sets ETag on all cacheable path prefixes', function () {
     $middleware = new AddETagHeaders;
     $paths = [
         'api/public/site-by-slug/test',
-        'api/public/booking/config-by-slug/test',
-        'api/public/booking/services-by-slug/test',
-        'api/public/store/featured-products-by-slug/test',
-        'api/public/shopify/storefront-config',
+        
+        
+        
+        
     ];
 
     foreach ($paths as $path) {

@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rg *)",
+      "Bash(git -C /Users/tobiasbalcombeehrlich/Developer/Comet-Backend diff --stat HEAD)",
+      "Bash(git *)",
+      "Bash(smart_search --query \"class.*LifecycleService\" --file_pattern \"*.php\")",
+      "Bash(vendor/bin/pint --dirty)",
+      "Bash(php artisan *)",
+      "Bash(php *)",
+      "Read(//Users/tobiasbalcombeehrlich/**)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__laravel-boost__database-schema",
+      "Bash(sort -t'/' -k4,5)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FP=$(jq -r '.tool_input.file_path // \"\"'); case \"$FP\" in */app/Jobs/Notifications/*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Notification job — verify it consults AccountCapabilities::for(\\$pro)->receives_X_notifications before dispatching. Also: failed() method MUST call report(\\$e) — Nightwatch only sees exceptions via report. Run account-capability-audit skill. See plan §49 #10 and §28.10.\"}}' ;; */app/Http/Controllers/Api/Professional/*|*/app/Http/Controllers/Api/Staff/*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Authenticated API controller — verify capability gating via AccountCapabilities::for(\\$pro). Policies return 404 (not 403) for ineligible accounts per project doctrine. Defence-in-depth.\"}}' ;; */app/Models/Core/Professional/Professional.php|*/app/Models/Core/Professional/BrandPartnerLink.php) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Core model in plan blast-radius — run partna-plan-check skill. account_type is source-of-truth; BrandPartnerLink uses SoftDeletes after §28.16; brand transitions in either direction are forbidden. See plan §49.\"}}' ;; */app/Jobs/Cloudflare/*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Cloudflare job — SUBDOMAIN_KV writes/deletes only happen here (SyncSubdomainToKvJob, RetireSubdomainFromKvJob). Architecture test SubdomainKvWritersTest enforces. See plan §49 #9.\"}}' ;; */app/Services/Accounts/*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Accounts service — AccountTypeTransitionService rejects all transitions to/from brand; uses lockForUpdate() inside DB::transaction; jobs dispatch AFTER transaction closes (no dispatchSync inside). See plan §28.4.\"}}' ;; */supabase/migrations/*account_type*|*/supabase/migrations/*brand_partner_link*|*/supabase/migrations/*brand_signup_code*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Plan migration — verify safe patterns: NOT VALID + later VALIDATE (matches 20260515000001 precedent); CREATE INDEX CONCURRENTLY in dedicated file; -- To revert: header comment. See plan §28.1, §28.16.\"}}' ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

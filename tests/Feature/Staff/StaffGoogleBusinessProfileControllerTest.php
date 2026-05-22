@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffGoogleBusinessProfileController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -10,16 +10,15 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-function makeStaffGbpProfessional(?array $gbp = null): Professional
+function makeStaffGbpProfessional(?array $gbp = null): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'gbp-'.substr($id, 0, 8),
         'handle_lc' => 'gbp-'.substr($id, 0, 8),
         'display_name' => 'GBP Pro',
         'primary_email' => 'gbp-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
@@ -35,7 +34,7 @@ function makeStaffGbpProfessional(?array $gbp = null): Professional
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    return Professional::query()->find($id);
+    return User::query()->find($id);
 }
 
 it('returns null profile when the site has no google_business_profile key', function () {
@@ -75,17 +74,16 @@ it('returns the normalised profile when stored', function () {
 
 it('returns 404 when the professional has no site', function () {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'sole-'.substr($id, 0, 8),
         'handle_lc' => 'sole-'.substr($id, 0, 8),
         'display_name' => 'Sole',
         'primary_email' => 'sole-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
-    $pro = Professional::query()->find($id);
+    $pro = User::query()->find($id);
 
     $controller = new StaffGoogleBusinessProfileController;
     $response = $controller->show($pro);

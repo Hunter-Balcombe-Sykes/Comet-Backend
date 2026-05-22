@@ -1,0 +1,2 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   394006 bytes (~98501 tokens)
+curl: (56) Recv failure: Operation timed out

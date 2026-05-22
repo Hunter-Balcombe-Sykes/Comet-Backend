@@ -1,10 +1,9 @@
 <?php
 
 use App\Mail\Notifications\AccountDeletionCancelledMail;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
-use App\Services\Stripe\StripeBillingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -16,7 +15,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedPendingDeletionProfessional(array $overrides = []): Professional
+function seedPendingDeletionProfessional(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -31,9 +30,9 @@ function seedPendingDeletionProfessional(array $overrides = []): Professional
         'deletion_confirmed_at' => now()->toIso8601String(),
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('restores previous status on cancel', function () {
@@ -102,7 +101,7 @@ it('re-publishes the site when cancelling a deletion that had programmatically u
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -126,7 +125,7 @@ it('does not re-publish a site that was manually unpublished before deletion was
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    $pro = Professional::query()->with('site')->find($pro->id);
+    $pro = User::query()->with('site')->find($pro->id);
 
     $service = app(AccountDeletionService::class);
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -136,27 +135,3 @@ it('does not re-publish a site that was manually unpublished before deletion was
     expect((bool) $site->is_published)->toBeFalse();
 });
 
-it('cancel path calls Stripe resume with the correct subscription ID from findStripeSubscription', function () {
-    $pro = seedPendingDeletionProfessional();
-
-    DB::connection('pgsql')->table('billing.subscriptions')->insert([
-        'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'stripe_subscription_id' => 'sub_dedup_test',
-        'status' => 'active',
-        'created_at' => now()->toIso8601String(),
-        'updated_at' => now()->toIso8601String(),
-    ]);
-
-    config(['services.stripe.secret_key' => 'test-key']);
-
-    $billing = Mockery::mock(StripeBillingService::class);
-    $billing->shouldReceive('resumeSubscription')
-        ->once()
-        ->with('sub_dedup_test');
-
-    app()->instance(StripeBillingService::class, $billing);
-
-    $service = new AccountDeletionService;
-    $service->cancel($pro, Request::create('/', 'POST'));
-});

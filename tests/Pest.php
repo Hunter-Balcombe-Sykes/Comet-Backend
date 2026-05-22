@@ -77,7 +77,7 @@ function something()
  * Usage: actingAsProfessional($pro)->getJson('/api/stripe/payouts')
  */
 function actingAsProfessional(
-    \App\Models\Core\Professional\Professional $professional,
+    \App\Models\Core\Professional\User $professional,
     array $claims = [],
 ): \Pest\Support\HigherOrderTapProxy {
     $supabaseUid = $professional->auth_user_id ?? (string) \Illuminate\Support\Str::uuid();
@@ -130,7 +130,7 @@ function actingAsProfessional(
     app()->bind(\App\Http\Middleware\Context\LoadCurrentProfessional::class, function () use ($professional) {
         return new class($professional)
         {
-            public function __construct(private readonly \App\Models\Core\Professional\Professional $pro) {}
+            public function __construct(private readonly \App\Models\Core\Professional\User $pro) {}
 
             public function handle(\Illuminate\Http\Request $request, \Closure $next)
             {
@@ -199,13 +199,13 @@ function attachTestSchemas(): void
 }
 
 /**
- * Permissive core.professionals table — every column nullable. Just enough
+ * Permissive core.users table — every column nullable. Just enough
  * structure for tests that read/write professionals via the model or raw queries.
  */
 function setupProfessionalsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         auth_user_id TEXT NULL,
         handle TEXT NULL,
@@ -215,9 +215,7 @@ function setupProfessionalsTable(): void
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,
-        professional_type TEXT NULL,
         account_type TEXT NULL,
-        has_historical_partner_links INTEGER NULL,
         status TEXT NULL,
         bio TEXT NULL,
         about TEXT NULL,
@@ -235,21 +233,6 @@ function setupProfessionalsTable(): void
         location_city TEXT NULL,
         location_state TEXT NULL,
         location_country TEXT NULL,
-        stripe_connect_account_id TEXT NULL,
-        stripe_connect_status TEXT NULL,
-        stripe_billing_customer_id TEXT NULL,
-        stripe_payment_method_id TEXT NULL,
-        stripe_payment_method_brand TEXT NULL,
-        stripe_payment_method_last4 TEXT NULL,
-        stripe_commission_funding_mode TEXT NULL,
-        payout_method TEXT NULL,
-        stripe_card_payment_method_id TEXT NULL,
-        stripe_card_brand TEXT NULL,
-        stripe_card_last4 TEXT NULL,
-        stripe_becs_payment_method_id TEXT NULL,
-        stripe_becs_bsb TEXT NULL,
-        stripe_becs_last4 TEXT NULL,
-        preferred_payout_method TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -349,54 +332,6 @@ function setupMediaTables(): void
 }
 
 /**
- * core.brand_partner_links + core.brand_affiliate_invites for brand connection tests.
- */
-function setupBrandLinkTables(): void
-{
-    attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.brand_partner_links (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        custom_photos_enabled INTEGER NULL,
-        status TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        deleted_at TEXT NULL
-    )');
-
-    // Production table lives in the brand schema (BrandPartnerLink model).
-    // core.brand_partner_links kept above for backward-compat with older tests.
-    $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_links (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        slot INTEGER NULL,
-        custom_photos_enabled INTEGER NULL,
-        status TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        deleted_at TEXT NULL
-    )');
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.brand_affiliate_invites (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        invite_type TEXT NULL,
-        token TEXT NULL,
-        handle TEXT NULL,
-        email TEXT NULL,
-        status TEXT NULL,
-        claimed_by_professional_id TEXT NULL,
-        expires_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
  * core.waitlist_signups for waitlist tests.
  */
 function setupWaitlistTable(): void
@@ -405,7 +340,6 @@ function setupWaitlistTable(): void
     \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
         id TEXT PRIMARY KEY,
         email TEXT NULL,
-        professional_type TEXT NULL,
         industry TEXT NULL,
         first_name TEXT NULL,
         last_name TEXT NULL,
@@ -490,7 +424,7 @@ function setupNotificationPreferencesTable(): void
 | the live Eloquent model so tests can wire it to a Request.
 */
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 
 function tenantHelpersEnsureTables(): void
@@ -498,7 +432,6 @@ function tenantHelpersEnsureTables(): void
     attachTestSchemas();
     setupProfessionalsTable();
     setupSitesTable();
-    setupBrandLinkTables();
 }
 
 /**
@@ -506,7 +439,7 @@ function tenantHelpersEnsureTables(): void
  * with its Site eager-loaded. Handle namespaces records so sequential calls
  * never collide.
  */
-function createTenant(string $handle, string $type = 'professional'): Professional
+function createTenant(string $handle, string $type = 'professional'): User
 {
     tenantHelpersEnsureTables();
 
@@ -514,14 +447,14 @@ function createTenant(string $handle, string $type = 'professional'): Profession
     $siteId = (string) \Illuminate\Support\Str::uuid();
     $now = now()->toDateTimeString();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table("core.users")->insert([
         'id' => $proId,
         'auth_user_id' => 'auth-'.\Illuminate\Support\Str::random(12),
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
         'primary_email' => $handle.'@example.test',
-        'professional_type' => $type,
+        'account_type' => 'individual',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,
@@ -537,40 +470,40 @@ function createTenant(string $handle, string $type = 'professional'): Profession
         'updated_at' => $now,
     ]);
 
-    return Professional::query()->with('site')->findOrFail($proId);
+    return User::query()->with('site')->findOrFail($proId);
 }
 
-function createBrandTenant(string $handle = 'brand-a'): Professional
+function createBrandTenant(string $handle = 'brand-a'): User
 {
     $pro = createTenant($handle, 'brand');
     \Illuminate\Support\Facades\DB::connection('pgsql')
-        ->table('core.professionals')
+        ->table("core.users")
         ->where('id', $pro->id)
         ->update(['account_type' => 'brand']);
     \App\Services\Accounts\AccountCapabilities::flushCache();
 
-    return \App\Models\Core\Professional\Professional::query()->findOrFail($pro->id);
+    return \App\Models\Core\Professional\User::query()->findOrFail($pro->id);
 }
 
-function createAffiliateTenant(string $handle = 'affiliate-a'): Professional
+function createAffiliateTenant(string $handle = 'affiliate-a'): User
 {
     // A test "affiliate" is a partner (a brand-affiliated professional), not a
     // generic professional. Set account_type='partner' so AccountCapabilities
     // returns the partner capability set in dispatcher-gate tests.
     $pro = createTenant($handle, 'affiliate');
     \Illuminate\Support\Facades\DB::connection('pgsql')
-        ->table('core.professionals')
+        ->table("core.users")
         ->where('id', $pro->id)
         ->update(['account_type' => 'partner']);
     \App\Services\Accounts\AccountCapabilities::flushCache();
 
-    return \App\Models\Core\Professional\Professional::query()->findOrFail($pro->id);
+    return \App\Models\Core\Professional\User::query()->findOrFail($pro->id);
 }
 
 /**
  * Standard pair: two fully-independent tenants. Returns [$tenantA, $tenantB].
  *
- * @return array{0: Professional, 1: Professional}
+ * @return array{0: User, 1: User}
  */
 function createTwoTenants(string $type = 'brand'): array
 {
@@ -588,7 +521,7 @@ function createTwoTenants(string $type = 'brand'): array
  * Named tenantRequestAs() to avoid collision with the local requestAs() helper
  * declared in ProfessionalEnquiryControllerTest (different signature).
  */
-function tenantRequestAs(Professional $tenant, array $input = [], string $method = 'GET'): \Illuminate\Http\Request
+function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'): \Illuminate\Http\Request
 {
     $req = \Illuminate\Http\Request::create('/', $method, $input);
     $req->attributes->set('professional', $tenant);
@@ -900,7 +833,7 @@ function setupCustomersTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createCustomerFor(Professional $pro, array $overrides = []): \App\Models\Core\Professional\Customer
+function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\Professional\Customer
 {
     setupCustomersTable();
 
@@ -1004,7 +937,7 @@ function setupCommissionExportAuditTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createServiceFor(Professional $pro, array $overrides = []): \App\Models\Core\Professional\Service
+function createServiceFor(User $pro, array $overrides = []): \App\Models\Core\Professional\Service
 {
     setupServicesTable();
 
@@ -1033,7 +966,7 @@ function createServiceFor(Professional $pro, array $overrides = []): \App\Models
  *
  * @param  array<string, mixed>  $overrides
  */
-function createServiceCategoryFor(Professional $pro, array $overrides = []): \App\Models\Core\Professional\ServiceCategory
+function createServiceCategoryFor(User $pro, array $overrides = []): \App\Models\Core\Professional\ServiceCategory
 {
     setupServiceCategoriesTable();
 
@@ -1057,7 +990,7 @@ function createServiceCategoryFor(Professional $pro, array $overrides = []): \Ap
 /**
  * Insert a link-type Block row for $pro and return the Eloquent model.
  */
-function createLinkBlockFor(Professional $pro, array $overrides = []): \App\Models\Core\Site\Block
+function createLinkBlockFor(User $pro, array $overrides = []): \App\Models\Core\Site\Block
 {
     setupBlocksTable();
 
@@ -1126,7 +1059,7 @@ function setupNotificationsTable(): void
 /**
  * Insert a SiteMedia document-pool row for $pro's site and return the model.
  */
-function createDocumentFor(Professional $pro, array $overrides = []): \App\Models\Core\Site\SiteMedia
+function createDocumentFor(User $pro, array $overrides = []): \App\Models\Core\Site\SiteMedia
 {
     setupMediaTables();
 
@@ -1574,7 +1507,7 @@ function setupEnquiriesTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createEnquiryFor(Professional $pro, array $overrides = []): \App\Models\Core\Site\Enquiry
+function createEnquiryFor(User $pro, array $overrides = []): \App\Models\Core\Site\Enquiry
 {
     setupEnquiriesTable();
     setupSitesTable();

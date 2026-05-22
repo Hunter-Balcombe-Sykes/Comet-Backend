@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Auth\Access\Response;
 
 // V2: Base for all auth Policies. Provides the shared pending_deletion read-only
@@ -16,7 +16,7 @@ abstract class BasePolicy
      * otherwise null. Caller convention: any write-capable ability returns
      * this result early when non-null.
      */
-    protected function denyIfPendingDeletion(Professional $professional): ?Response
+    protected function denyIfPendingDeletion(User $professional): ?Response
     {
         if ($professional->isPendingDeletion()) {
             return Response::denyWithStatus(423, 'Account is pending deletion.');

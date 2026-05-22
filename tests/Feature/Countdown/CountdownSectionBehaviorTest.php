@@ -14,7 +14,7 @@ function seedCountdownProAndSite(): array
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'countdown-pro',
         'display_name' => 'Countdown Pro',

@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\PublicSite\PublicBookingController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
@@ -27,23 +26,6 @@ Route::group([
     Route::get('/site', [PublicSiteController::class, 'show'])
         ->middleware('throttle:public-site');
 
-    // Public booking flow — gated behind smart_booking feature flag
-    Route::middleware('feature:smart_booking')->group(function () {
-        Route::get('/booking/config', [PublicBookingController::class, 'config'])
-            ->middleware('throttle:public-site');
-        Route::get('/booking/services', [PublicBookingController::class, 'services'])
-            ->middleware('throttle:public-site');
-        Route::post('/booking/availability', [PublicBookingController::class, 'availability'])
-            ->middleware('throttle:public-site');
-        Route::post('/booking/checkout', [PublicBookingController::class, 'checkout'])
-            ->middleware('throttle:booking-checkout');
-    });
-
-    // Analytics routes moved to the top-level group in routes/api.php (api host has no
-    // site-subdomain to capture; Hydrogen storefronts proxy to dev-api.partna.au, which
-    // the {subdomain}.partna.au pattern greedy-matched as subdomain=dev-api, overwriting
-    // the payload subdomain in ResolvesPublicSiteSubdomain and 404'ing the site lookup).
-
     // Customer Leads
     Route::post('/customers', [PublicCustomerLeadController::class, 'store'])
         ->middleware(['lead.log', 'throttle:leads']);
@@ -61,8 +43,4 @@ Route::group([
 
     Route::post('/unsubscribe/{token}', [PublicMarketingPreferenceController::class, 'unsubscribe'])
         ->middleware('throttle:public-site');
-
-    // Resubscribe via token was removed — tokens rotate on unsubscribe to block
-    // email-link replay. Re-subscribing requires explicit opt-in via
-    // POST /api/public/subscribe (PublicEmailSubscriptionController).
 });

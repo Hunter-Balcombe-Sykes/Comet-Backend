@@ -3,7 +3,7 @@
 /** @phpstan-ignore-all */
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
-use App\Mail\Notifications\InviteNotificationMail;
+use App\Mail\Notifications\PolicyUpdateMail;
 use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Support\Facades\Config;
@@ -162,7 +162,7 @@ it('dispatches the mailable class resolved from config for the category', functi
         'id' => 'notif-1',
         'professional_id' => 'pro-1',
         'type' => 'Info',
-        'category' => 'invites',
+        'category' => 'policy_update',
         'title' => 'Welcome',
         'body' => 'You are invited',
         'cta_url' => '/x',
@@ -179,7 +179,7 @@ it('dispatches the mailable class resolved from config for the category', functi
 
     DB::connection('pgsql')->statement("ATTACH DATABASE ':memory:' AS core");
     DB::connection('pgsql')->statement(
-        'CREATE TABLE IF NOT EXISTS core.professionals (id TEXT PRIMARY KEY, primary_email TEXT, deleted_at TEXT NULL)'
+        'CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, deleted_at TEXT NULL)'
     );
     DB::connection('pgsql')->statement(
         'CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, professional_id TEXT, category_key TEXT, mode TEXT)'
@@ -187,11 +187,11 @@ it('dispatches the mailable class resolved from config for the category', functi
     DB::connection('pgsql')->statement(
         'CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, professional_id TEXT, category_key TEXT, enabled INTEGER)'
     );
-    DB::table('core.professionals')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
 
-    (new SendTransactionalNotificationEmailJob('notif-1', 'invites', 'pro-1'))->handle();
+    (new SendTransactionalNotificationEmailJob('notif-1', 'policy_update', 'pro-1'))->handle();
 
-    Mail::assertSent(InviteNotificationMail::class);
+    Mail::assertSent(PolicyUpdateMail::class);
 });
 
 it('skips email dispatch when category maps to null (in-app only)', function () {

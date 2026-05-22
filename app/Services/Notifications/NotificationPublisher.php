@@ -4,7 +4,7 @@ namespace App\Services\Notifications;
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -134,8 +134,7 @@ class NotificationPublisher
     /**
      * Bulk variant of {@see publish()}. One insertOrIgnore + one select-back to
      * identify genuinely-new rows, then a per-row email dispatch only for those.
-     * Use for fan-out (e.g. brand-affiliate invite batches) — single-shot
-     * callers should keep using publish().
+     * Use for fan-out — single-shot callers should keep using publish().
      *
      * Each item must supply the same keys as publish()'s named args (minus the
      * email-dispatch trigger). Items with empty professional_id, title, body,
@@ -279,7 +278,7 @@ class NotificationPublisher
         }
 
         try {
-            $pro = Professional::find($professionalId);
+            $pro = User::find($professionalId);
         } catch (\Throwable $e) {
             // DB outage / test scaffold without core.professionals attached.
             // Fall open — email job will fail-close downstream if it matters.

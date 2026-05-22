@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -11,20 +11,19 @@ beforeEach(function () {
     setupEmailSubscriptionsTable();
 });
 
-function makeStaffSubscriberProfessional(): Professional
+function makeStaffSubscriberProfessional(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'sub-'.substr($id, 0, 8),
         'handle_lc' => 'sub-'.substr($id, 0, 8),
         'display_name' => 'Subs Pro',
         'primary_email' => 'sub-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'brand',
         'status' => 'active',
     ]);
 
-    return Professional::query()->find($id);
+    return User::query()->find($id);
 }
 
 function seedSubscription(string $proId, array $overrides = []): void

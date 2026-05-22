@@ -6,7 +6,7 @@ use App\Exceptions\Gdpr\DataExportInProgressException;
 use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Jobs\Gdpr\ExportProfessionalDataJob;
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Facades\DB;
 
@@ -21,7 +21,7 @@ class DataExportService
      * @param  'professional'|'staff'  $sendTo
      */
     public function dispatch(
-        Professional $professional,
+        User $professional,
         string $triggeredBy,
         ?string $staffId,
         string $sendTo,
@@ -36,7 +36,7 @@ class DataExportService
             // Lock the professional row for the duration of the dedup check.
             // Two concurrent requests serialize through this — only one wins.
             DB::connection('pgsql')
-                ->table('core.professionals')
+                ->table('core.users')
                 ->where('id', $professional->id)
                 ->lockForUpdate()
                 ->first();
@@ -78,7 +78,7 @@ class DataExportService
             ->first();
     }
 
-    private function resolveRecipient(Professional $professional, ?string $staffId, string $sendTo): ?string
+    private function resolveRecipient(User $professional, ?string $staffId, string $sendTo): ?string
     {
         if ($sendTo === 'staff' && $staffId) {
             $staff = PartnaStaff::find($staffId);

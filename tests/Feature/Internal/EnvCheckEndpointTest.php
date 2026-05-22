@@ -48,14 +48,14 @@ it('returns 200 with status=ok JSON when token is correct and all required is se
 });
 
 it('returns status=fail with the missing keys listed when required is missing', function () {
-    Config::set('services.shopify.api_key', null);
+    Config::set('services.cloudflare.api_token', null);
 
     $response = $this->withHeader('X-Internal-Token', 'test-secret')
         ->getJson('/api/internal/env-check');
 
     $response->assertOk();
     expect($response->json('status'))->toBe('fail');
-    expect($response->json('required_missing'))->toContain('services.shopify.api_key');
+    expect($response->json('required_missing'))->toContain('services.cloudflare.api_token');
 });
 
 it('returns 403 when the token header is missing', function () {

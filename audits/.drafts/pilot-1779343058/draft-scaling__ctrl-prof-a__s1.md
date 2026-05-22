@@ -1,0 +1,1 @@
+- No findings identified in the provided scope.

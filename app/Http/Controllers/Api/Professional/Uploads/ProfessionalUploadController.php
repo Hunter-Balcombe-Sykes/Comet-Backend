@@ -5,10 +5,7 @@ namespace App\Http\Controllers\Api\Professional\Uploads;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
-use App\Http\Requests\Api\Professional\Uploads\ReorderBrandPlaceholdersRequest;
 use App\Http\Requests\Api\Professional\Uploads\ReorderPoolImagesRequest;
-use App\Http\Requests\Api\Professional\Uploads\UploadBrandLogoRequest;
-use App\Http\Requests\Api\Professional\Uploads\UploadBrandPlaceholderImageRequest;
 use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Jobs\ProcessImageVariantsJob;
@@ -16,10 +13,8 @@ use App\Jobs\ProcessVideoVariantsJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\FeatureFlags\FeatureFlagService;
-use App\Services\Media\BrandDesignMediaService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\VideoVariantService;
-use App\Services\Professional\Brand\BrandStatusService;
 use App\Services\Professional\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,7 +32,6 @@ class ProfessionalUploadController extends ApiController
 
     public function __construct(
         private readonly ImageVariantService $mediaService,
-        private readonly BrandDesignMediaService $brandDesign,
         private readonly VideoVariantService $videoVariant,
     ) {}
 
@@ -234,10 +228,6 @@ class ProfessionalUploadController extends ApiController
         }
 
         app(SiteCacheService::class)->invalidateSite($site);
-
-        if ($pool === SiteMedia::POOL_CONTENT) {
-            app(BrandStatusService::class)->sync($pro);
-        }
 
         // Refresh model state (sync mode may have updated processing_state to 'ready').
         $media->refresh();
@@ -488,190 +478,7 @@ class ProfessionalUploadController extends ApiController
 
         app(SiteCacheService::class)->invalidateSite($site);
 
-        if ($image->pool === SiteMedia::POOL_CONTENT) {
-            app(BrandStatusService::class)->sync($pro);
-        }
-
         return $this->success(['deleted' => true]);
-    }
-
-    /* ------------------------------------------------------------------ */
-    /*  Brand-only upload endpoints */
-    /* ------------------------------------------------------------------ */
-
-    /**
-     * POST /api/uploads/brand-logo  { logo: <image> }
-     */
-    public function uploadBrandLogo(UploadBrandLogoRequest $request): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        $variant = $request->validated('variant') ?? 'full';
-        $label = $variant === 'square' ? 'logo_square' : 'logo_full';
-
-        return $this->storeBrandDesignImage($pro, $site, $request->file('logo'), $label);
-    }
-
-    /**
-     * DELETE /api/uploads/brand-logo?variant=full|square
-     *
-     * Soft-deletes the matching logo row and busts the Hydrogen cache.
-     */
-    public function destroyBrandLogo(Request $request): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        $variant = $request->query('variant');
-        if (! in_array($variant, ['full', 'square'], true)) {
-            return $this->error('Variant must be "full" or "square".', 422);
-        }
-
-        // SitePolicy::delete gates pending_deletion (423). The brand-design service
-        // resolves the actual logo row from $site + $variant; ownership is enforced
-        // transitively via currentSite($pro).
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
-        $this->authorizeForUser($pro, 'delete', $skeleton);
-
-        $this->brandDesign->deleteLogo($site, $variant);
-
-        return $this->success(['deleted' => true]);
-    }
-
-    /**
-     * POST /api/uploads/brand-placeholder-image  { image: <image> }
-     */
-    public function uploadBrandPlaceholderImage(UploadBrandPlaceholderImageRequest $request): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        $response = $this->storeBrandDesignImage($pro, $site, $request->file('image'), 'placeholder');
-
-        if ($response->getStatusCode() < 300) {
-            app(BrandStatusService::class)->sync($pro);
-        }
-
-        return $response;
-    }
-
-    /**
-     * GET /api/uploads/brand-placeholder-images
-     *
-     * Returns the active placeholder list for the brand's site, ordered by
-     * sort_order. Each item: { id, alt_text, url, sort_order }.
-     */
-    public function listBrandPlaceholders(Request $request): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        $payload = $this->brandDesign->listDesignMedia($site->id);
-
-        return $this->success(['placeholders' => $payload['placeholders']]);
-    }
-
-    /**
-     * DELETE /api/uploads/brand-placeholder-images/{media}
-     *
-     * Soft-deletes a placeholder and repacks the remaining sort_order so the
-     * list has no gaps.
-     */
-    public function destroyBrandPlaceholder(Request $request, string $media): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        // SitePolicy::delete gates pending_deletion (423). The brand-design service
-        // verifies the placeholder belongs to $site, so transitive ownership holds.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
-        $this->authorizeForUser($pro, 'delete', $skeleton);
-
-        $this->brandDesign->deletePlaceholder($site, $media);
-        app(BrandStatusService::class)->sync($pro);
-
-        return $this->success(['deleted' => true]);
-    }
-
-    /**
-     * POST /api/uploads/brand-placeholder-images/reorder
-     *
-     * Body: { ids: [uuid, uuid, ...] }. The list must contain every active
-     * placeholder id for the site — extras or missing rows return 422.
-     */
-    public function reorderBrandPlaceholders(ReorderBrandPlaceholdersRequest $request): JsonResponse
-    {
-        $pro = $this->currentProfessional($request);
-        $pro->loadMissing('site');
-        $site = $this->currentSite($pro);
-
-        // SitePolicy::update gates pending_deletion (423) before reordering placeholders.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
-        $this->authorizeForUser($pro, 'update', $skeleton);
-
-        $orderedIds = $request->validated('ids') ?? [];
-        $this->brandDesign->reorderPlaceholders($site, $orderedIds);
-
-        return $this->success(['reordered' => true]);
-    }
-
-    private function storeBrandDesignImage(
-        \App\Models\Core\Professional\Professional $pro,
-        \App\Models\Core\Site\Site $site,
-        \Illuminate\Http\UploadedFile $file,
-        string $label,
-    ): JsonResponse {
-        // $label is one of: 'logo_full', 'logo_square', or 'placeholder'.
-        // The brand-logo and brand-placeholder routes both funnel through here
-        // so BrandDesignMediaService is the only writer.
-
-        // SitePolicy::create gates pending_deletion (423) before any brand-design
-        // media is created. Both upload entry points funnel through here, so one
-        // gate covers brand-logo and brand-placeholder uploads.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
-        $this->authorizeForUser($pro, 'create', $skeleton);
-
-        try {
-            $media = match ($label) {
-                'logo_full' => $this->brandDesign->upsertLogoFromUploadedFile($site, $pro->id, $file, 'full'),
-                'logo_square' => $this->brandDesign->upsertLogoFromUploadedFile($site, $pro->id, $file, 'square'),
-                'placeholder' => $this->brandDesign->addPlaceholder($site, $pro->id, $file),
-                default => throw new \InvalidArgumentException("Unknown brand design label: {$label}"),
-            };
-        } catch (\App\Services\Media\PlaceholderLimitExceededException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (\Throwable $e) {
-            Log::error("Brand {$label} upload failed.", [
-                'site_id' => $site->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return $this->error('Failed to upload brand design asset.', 500);
-        }
-
-        $media->load('mediaVariants');
-        $isReady = $media->processing_state === SiteMedia::PROCESSING_STATE_READY;
-        $variants = $isReady ? $media->variantUrls() : [];
-        $mediaDisk = $this->mediaService->resolvedDiskName();
-
-        return $this->success([
-            'path' => $media->path,
-            'url' => $variants['optimized'] ?? Storage::disk($mediaDisk)->url($media->path),
-            'name' => $file->getClientOriginalName(),
-            'disk' => $mediaDisk,
-            'site_id' => $site->id,
-            'media_id' => $media->id,
-            'media_purpose' => $media->purpose,
-            'sort_order' => (int) $media->sort_order,
-            'variants' => $variants,
-            'processing_state' => $media->processing_state,
-        ], 201);
     }
 
     /* ------------------------------------------------------------------ */

@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Http\Request;
@@ -14,7 +14,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function makeDeletionTestProfessional(array $overrides = []): Professional
+function makeDeletionTestProfessional(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -28,31 +28,10 @@ function makeDeletionTestProfessional(array $overrides = []): Professional
         'stripe_manual_balance_cents' => 0,
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
-
-it('rejects request when professional has pending commission payouts', function () {
-    $pro = makeDeletionTestProfessional();
-
-    DB::connection('pgsql')->table('commerce.commission_payouts')->insert([
-        'id' => (string) Str::uuid(),
-        'brand_professional_id' => $pro->id,
-        'affiliate_professional_id' => (string) Str::uuid(),
-        'status' => 'pending',
-        'amount_cents' => 500,
-        'created_at' => now()->toIso8601String(),
-    ]);
-
-    $service = new AccountDeletionService;
-    $request = Request::create('/', 'POST');
-
-    $result = $service->request($pro, $request);
-
-    expect($result['success'])->toBeFalse()
-        ->and($result['reasons'])->toContain('pending_payouts');
-});
 
 it('stores hashed token, sets requested_at, and sends confirmation mail', function () {
     $pro = makeDeletionTestProfessional();

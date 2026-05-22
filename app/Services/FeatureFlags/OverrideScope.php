@@ -7,24 +7,15 @@ use InvalidArgumentException;
 final class OverrideScope
 {
     private function __construct(
-        public readonly ?string $professionalId,
-        public readonly ?string $brandId,
+        public readonly string $professionalId,
     ) {
-        if ($professionalId === null && $brandId === null) {
-            throw new InvalidArgumentException('OverrideScope requires either professionalId or brandId');
-        }
-        if ($professionalId === '' || $brandId === '') {
-            throw new InvalidArgumentException('OverrideScope id must not be empty string');
+        if ($professionalId === '') {
+            throw new InvalidArgumentException('OverrideScope professionalId must not be empty string');
         }
     }
 
     public static function forProfessional(string $professionalId): self
     {
-        return new self(professionalId: $professionalId, brandId: null);
-    }
-
-    public static function forBrand(string $brandId): self
-    {
-        return new self(professionalId: null, brandId: $brandId);
+        return new self(professionalId: $professionalId);
     }
 }

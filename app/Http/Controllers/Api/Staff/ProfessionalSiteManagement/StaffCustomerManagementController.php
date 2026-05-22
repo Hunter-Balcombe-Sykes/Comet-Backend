@@ -8,7 +8,7 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateCustomerRequest;
 use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -22,7 +22,7 @@ class StaffCustomerManagementController extends ApiController
     /**
      * GET /api/staff/professionals/{professional}/customers?q=...&per_page=...&page=...
      */
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $perPage = $this->normalizePerPage($request, 25, 100);
         $searchLike = $this->prepareSearchLike($request, 'q')
@@ -62,10 +62,10 @@ class StaffCustomerManagementController extends ApiController
     /**
      * GET /api/staff/professionals/{professional}/customers/{id}
      */
-    public function show(Request $request, Professional $professional, Customer $customer): JsonResponse
+    public function show(Request $request, User $professional, Customer $customer): JsonResponse
     {
         // Defence in depth: route group already scopes via ->scopeBindings() and
-        // Professional::customers(). The explicit check survives a future refactor
+        // User::customers(). The explicit check survives a future refactor
         // that drops scopeBindings, and matches the pattern used by sibling staff
         // controllers (StaffServiceManagementController etc).
         $this->authorizeForUser($professional, 'view', $customer);
@@ -82,7 +82,7 @@ class StaffCustomerManagementController extends ApiController
     /**
      * PATCH /api/staff/professionals/{professional}/customers/{id}
      */
-    public function update(StaffUpdateCustomerRequest $request, Professional $professional, Customer $customer): JsonResponse
+    public function update(StaffUpdateCustomerRequest $request, User $professional, Customer $customer): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $customer);
 
@@ -99,7 +99,7 @@ class StaffCustomerManagementController extends ApiController
     /**
      * DELETE /api/staff/professionals/{professional}/customers/{id}
      */
-    public function destroy(Professional $professional, Customer $customer): JsonResponse
+    public function destroy(User $professional, Customer $customer): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $customer);
 
@@ -110,7 +110,7 @@ class StaffCustomerManagementController extends ApiController
         return $this->success(['archived' => true]);
     }
 
-    public function restore(Professional $professional, Customer $customer): JsonResponse
+    public function restore(User $professional, Customer $customer): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $customer);
 
@@ -121,7 +121,7 @@ class StaffCustomerManagementController extends ApiController
         return $this->success(['restored' => true, 'customer' => $customer->fresh()]);
     }
 
-    public function forceDestroy(Professional $professional, Customer $customer): JsonResponse
+    public function forceDestroy(User $professional, Customer $customer): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $customer);
 

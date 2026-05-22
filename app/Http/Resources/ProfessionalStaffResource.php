@@ -15,7 +15,6 @@ class ProfessionalStaffResource extends JsonResource
         return [
             'id' => $this->id,
             'auth_user_id' => $this->auth_user_id,
-            'professional_type' => $this->professional_type,
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,

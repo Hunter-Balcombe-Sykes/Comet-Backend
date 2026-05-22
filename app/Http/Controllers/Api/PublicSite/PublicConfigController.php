@@ -9,10 +9,10 @@ use Illuminate\Http\JsonResponse;
 /**
  * Public, unauthenticated endpoints that expose static frontend-facing config.
  *
- * Used by the affiliate dashboard and brand dashboard to drive UI affordances
- * that depend on backend config (currently: the social platform picker for link
- * blocks). The frontend caches these responses at app load and refreshes
- * occasionally — they're effectively static between deploys.
+ * Used by the professional dashboard to drive UI affordances that depend on
+ * backend config (currently: the social platform picker for link blocks). The
+ * frontend caches these responses at app load and refreshes occasionally —
+ * they're effectively static between deploys.
  *
  * Security:
  *   - All responses go through dedicated services that strip internal-only
@@ -30,7 +30,7 @@ class PublicConfigController extends ApiController
      *
      * Returns the list of supported platforms with frontend-facing metadata
      * (display name, icon key, placeholder, category) plus the canonical
-     * `categories` enum. Used by the affiliate dashboard to render the
+     * `categories` enum. Used by the professional dashboard to render the
      * platform picker grouped by category. See docs/social-links.md.
      */
     public function socialPlatforms(): JsonResponse
@@ -46,13 +46,13 @@ class PublicConfigController extends ApiController
     /**
      * GET /api/public/config/integrations
      *
-     * Client-safe third-party keys used by the Hydrogen storefront. Each key
-     * here must be HTTP-referrer-restricted (or equivalent) in its provider
-     * so exposing it publicly is safe — any bearer that isn't coming from
-     * an allowlisted domain gets rejected by the provider itself.
+     * Client-safe third-party keys for the frontend. Each key here must be
+     * HTTP-referrer-restricted (or equivalent) in its provider so exposing it
+     * publicly is safe — any bearer that isn't coming from an allowlisted
+     * domain gets rejected by the provider itself.
      *
      * Current consumers:
-     *   - Hydrogen checkout form → Google Places Autocomplete for addresses.
+     *   - Address autocomplete (Google Places) on the professional dashboard.
      *
      * @return JsonResponse{googleMapsApiKey: string|null}
      */

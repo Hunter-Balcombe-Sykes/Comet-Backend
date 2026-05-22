@@ -7,7 +7,7 @@ use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceLay
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffStoreServiceRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffUpdateServiceRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 // V2: Staff manages services with CRUD, complex reordering, and hard delete capability.
 class StaffServiceManagementController extends ApiController
 {
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
@@ -83,7 +83,7 @@ class StaffServiceManagementController extends ApiController
         ]);
     }
 
-    public function store(StaffStoreServiceRequest $request, Professional $professional): JsonResponse
+    public function store(StaffStoreServiceRequest $request, User $professional): JsonResponse
     {
         $this->authorizeForUser($professional, 'create', new Service(['professional_id' => $professional->id]));
         $data = $request->validated();
@@ -120,7 +120,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['service' => $service], 201);
     }
 
-    public function show(Request $request, Professional $professional, Service $service): JsonResponse
+    public function show(Request $request, User $professional, Service $service): JsonResponse
     {
         $this->authorizeForUser($professional, 'view', $service);
 
@@ -132,7 +132,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['service' => $service]);
     }
 
-    public function update(StaffUpdateServiceRequest $request, Professional $professional, Service $service): JsonResponse
+    public function update(StaffUpdateServiceRequest $request, User $professional, Service $service): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $service);
         if ($service->trashed()) {
@@ -161,7 +161,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['service' => $service->fresh()]);
     }
 
-    public function destroy(Professional $professional, Service $service): JsonResponse
+    public function destroy(User $professional, Service $service): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $service);
         if ($service->trashed()) {
@@ -173,7 +173,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['deleted' => true]);
     }
 
-    public function reorder(StaffReorderServiceRequest $request, Professional $professional): JsonResponse
+    public function reorder(StaffReorderServiceRequest $request, User $professional): JsonResponse
     {
         $ids = array_values(array_unique($request->validated()['ids'] ?? []));
 
@@ -210,7 +210,7 @@ class StaffServiceManagementController extends ApiController
     }
 
     // NEW: full layout reorder (categories + services)
-    public function reorderLayout(StaffReorderServiceLayoutRequest $request, Professional $professional): JsonResponse
+    public function reorderLayout(StaffReorderServiceLayoutRequest $request, User $professional): JsonResponse
     {
         $payload = $request->validated();
 
@@ -295,7 +295,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function forceDestroy(Professional $professional, Service $service): JsonResponse
+    public function forceDestroy(User $professional, Service $service): JsonResponse
     {
         $this->authorizeForUser($professional, 'delete', $service);
 
@@ -304,7 +304,7 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['deleted' => true, 'hard' => true]);
     }
 
-    public function restore(Professional $professional, Service $service): JsonResponse
+    public function restore(User $professional, Service $service): JsonResponse
     {
         $this->authorizeForUser($professional, 'update', $service);
 

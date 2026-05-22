@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\EnquiryResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +17,7 @@ class StaffEnquiryController extends ApiController
     /**
      * GET /staff/professionals/{professional}/enquiries
      */
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $page = Enquiry::query()
             ->where('professional_id', $professional->id)

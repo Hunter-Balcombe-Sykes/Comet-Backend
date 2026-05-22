@@ -10,7 +10,7 @@ use App\Http\Requests\Api\Professional\Site\IndexLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\SocialLinkNormalizer;
@@ -39,17 +39,9 @@ class ProfessionalLinkBlockController extends ApiController
         private readonly SocialLinkNormalizer $normalizer
     ) {}
 
-    private function authorizeCustomLinks(Professional $pro): void
+    private function authorizeCustomLinks(User $pro): void
     {
-        // Read account_type->value when set (the canonical source); fall back to the legacy
-        // professional_type string during the §28.1 dual-write window. The config key is
-        // keyed on the string value ('brand', 'partner', 'individual', 'influencer', etc.).
-        $type = $pro->account_type?->value ?? mb_strtolower(trim((string) ($pro->professional_type ?? '')));
-        abort_unless(
-            (bool) config("partna.account_type_defaults.{$type}.custom_links_allowed", false),
-            403,
-            'Custom links are not available on your account type.'
-        );
+        // All individual users can manage custom links — no capability gate needed.
     }
 
     public function index(IndexLinkBlockRequest $request)

@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -11,10 +11,10 @@ beforeEach(function () {
     AccountDeletionTestCase::boot();
 });
 
-function makeProWithStatus(string $status, ?string $confirmedAt = null): Professional
+function makeProWithStatus(string $status, ?string $confirmedAt = null): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'auth_user_id' => (string) Str::uuid(),
         'handle' => 'h-'.substr($id, 0, 6),
@@ -25,7 +25,7 @@ function makeProWithStatus(string $status, ?string $confirmedAt = null): Profess
         'deletion_confirmed_at' => $confirmedAt,
     ]);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('returns 423 on POST when status is pending_deletion', function () {

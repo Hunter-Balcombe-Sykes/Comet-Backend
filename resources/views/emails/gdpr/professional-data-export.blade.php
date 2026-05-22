@@ -17,9 +17,9 @@
 
     <p><a href="{{ $signedUrl }}" style="display: inline-block; background: #111; color: #fff; padding: 12px 20px; border-radius: 6px; text-decoration: none;">Download the export (.zip)</a></p>
 
-    <p>This link is valid for <strong>{{ $ttlDays }} days</strong>. The file contains roughly <strong>{{ number_format($totalRecords) }}</strong> records across your profile, customers, bookings, and billing history.</p>
+    <p>This link is valid for <strong>{{ $ttlDays }} days</strong>. The file contains roughly <strong>{{ number_format($totalRecords) }}</strong> records across your profile and enquiry history.</p>
 
-    <p><strong>What's inside:</strong> a <code>data.json</code> file with the full machine-readable export, plus per-table CSVs (<code>customers.csv</code>, <code>bookings.csv</code>, <code>enquiries.csv</code>) for the tables you'd typically open in Excel or Numbers.</p>
+    <p><strong>What's inside:</strong> a <code>data.json</code> file with the full machine-readable export, plus per-table CSVs (<code>customers.csv</code>, <code>enquiries.csv</code>) for the tables you'd typically open in Excel or Numbers.</p>
 
     @unless ($isStaff)
         <p>If you collected customer information through Partna, this export includes it. You're responsible for handling that information in accordance with applicable privacy law.</p>

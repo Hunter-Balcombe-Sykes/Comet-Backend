@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -11,7 +11,7 @@ beforeEach(function () {
     AccountDeletionTestCase::boot();
 });
 
-function seedPurgeableProfessional(array $overrides = []): Professional
+function seedPurgeableProfessional(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $authId = (string) Str::uuid();
@@ -26,9 +26,9 @@ function seedPurgeableProfessional(array $overrides = []): Professional
         'deletion_confirmed_at' => now()->subDays(31)->toIso8601String(),
     ], $overrides);
 
-    DB::connection('pgsql')->table('core.professionals')->insert($data);
+    DB::connection('pgsql')->table('core.users')->insert($data);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 it('calls Supabase Admin API and hard-deletes professional on success', function () {
@@ -43,7 +43,7 @@ it('calls Supabase Admin API and hard-deletes professional on success', function
 
     expect($result)->toBeTrue();
 
-    $stillExists = DB::connection('pgsql')->table('core.professionals')
+    $stillExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $pro->id)->exists();
     expect($stillExists)->toBeFalse();
 
@@ -65,7 +65,7 @@ it('treats Supabase 404 as success and still hard-deletes professional', functio
 
     expect($result)->toBeTrue();
 
-    $stillExists = DB::connection('pgsql')->table('core.professionals')
+    $stillExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $pro->id)->exists();
     expect($stillExists)->toBeFalse();
 });
@@ -82,7 +82,7 @@ it('skips hard delete and logs purge_failed when Supabase returns 500', function
 
     expect($result)->toBeFalse();
 
-    $stillExists = DB::connection('pgsql')->table('core.professionals')
+    $stillExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $pro->id)->exists();
     expect($stillExists)->toBeTrue();
 
@@ -132,9 +132,9 @@ it('command purges professionals past 30 days but skips within grace', function 
 
     \Illuminate\Support\Facades\Artisan::call('partna:purge-soft-deletes');
 
-    $purgeableExists = DB::connection('pgsql')->table('core.professionals')
+    $purgeableExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $purgeable->id)->exists();
-    $withinGraceExists = DB::connection('pgsql')->table('core.professionals')
+    $withinGraceExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $withinGrace->id)->exists();
 
     expect($purgeableExists)->toBeFalse()

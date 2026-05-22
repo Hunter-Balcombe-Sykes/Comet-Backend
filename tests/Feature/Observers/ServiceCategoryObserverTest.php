@@ -5,7 +5,7 @@
 // services cache doesn't serve stale category state for up to the
 // 30-min TTL after a rename / delete / reorder.
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ServiceCategory;
 use App\Services\Cache\ProfessionalCacheService;
 use Illuminate\Support\Facades\DB;
@@ -16,20 +16,19 @@ beforeEach(function () {
     setupServiceCategoriesTable();
 });
 
-function seedCategoryTestPro(): Professional
+function seedCategoryTestPro(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'cat-pro',
         'handle_lc' => 'cat-pro',
         'display_name' => 'Cat Pro',
-        'professional_type' => 'professional',
         'account_type' => 'individual',
         'status' => 'active',
     ]);
 
-    return Professional::query()->findOrFail($id);
+    return User::query()->findOrFail($id);
 }
 
 it('invalidates the Professional cache when a ServiceCategory is created', function () {

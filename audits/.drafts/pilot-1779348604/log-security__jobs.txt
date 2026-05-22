@@ -1,0 +1,10 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   419478 bytes (~104869 tokens)
+
+✓ Wrote audits/.drafts/pilot-1779348604/draft-security__jobs.md — 5 findings, 428s elapsed
+
+Token usage:
+  prompt: 95487  output: 11192  reasoning: 9007  cache_hit: 95360/95487
+
+→ Next: adjudicate with Claude Sonnet. Feed audits/.drafts/pilot-1779348604/draft-security__jobs.md + the same scope to Sonnet
+  asking it to verify findings, refine tiers, fix wrong fix recommendations,
+  and emit audit-$(date +%F)-<lens>.md in the canonical format.

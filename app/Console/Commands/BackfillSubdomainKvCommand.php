@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Console\Command;
 
 // Re-syncs the Cloudflare KV subdomain routing table for one professional
@@ -38,7 +38,7 @@ class BackfillSubdomainKvCommand extends Command
         }
 
         $ids = $all
-            ? Professional::query()
+            ? User::query()
                 ->whereNotNull('handle')
                 ->where('handle', '!=', '')
                 ->pluck('id')

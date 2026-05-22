@@ -33,7 +33,7 @@ class DataExportTestCase
             }
         }
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             auth_user_id TEXT,
             handle TEXT,
@@ -43,7 +43,6 @@ class DataExportTestCase
             public_contact_email TEXT,
             professional_type TEXT DEFAULT "professional",
             account_type TEXT NULL,
-            has_historical_partner_links INTEGER NULL,
             status TEXT DEFAULT "active",
             created_at TEXT,
             updated_at TEXT,

@@ -31,12 +31,11 @@ function seedTouchFixture(): array
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'touchtest',
         'handle_lc' => 'touchtest',
         'display_name' => 'Touch Test',
-        'professional_type' => 'professional',
         'account_type' => 'individual',
         'status' => 'active',
         'created_at' => '2020-01-01 00:00:00',

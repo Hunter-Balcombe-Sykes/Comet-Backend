@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\SvgWriter;
 use Illuminate\Http\Request;
@@ -18,7 +18,7 @@ class QrCodeController extends ApiController
      */
     public function svg(string $professionalId, Request $request): Response
     {
-        $professional = Professional::query()
+        $professional = User::query()
             ->whereKey($professionalId)
             ->first();
 

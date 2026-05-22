@@ -3,7 +3,7 @@
 namespace App\Services\PublicSite;
 
 use App\Http\Resources\PublicSite\IndividualProfileResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 
 /**
@@ -32,7 +32,7 @@ class IndividualProfilePayloadBuilder
      *
      * @return array<string, mixed>
      */
-    public function build(Professional $pro, ?Site $site): array
+    public function build(User $pro, ?Site $site): array
     {
         $rawDesign = (array) ($site?->settings['design'] ?? []);
         $design = array_intersect_key($rawDesign, array_flip(IndividualProfileResource::DESIGN_KEYS));
@@ -59,7 +59,7 @@ class IndividualProfilePayloadBuilder
      * naturally rolls the key forward. Falls back to the pro's updated_at
      * for early-setup individuals without a Site row.
      */
-    public function cacheKey(string $handleLc, ?Site $site, Professional $pro): string
+    public function cacheKey(string $handleLc, ?Site $site, User $pro): string
     {
         $stamp = $site?->updated_at?->timestamp
             ?? $pro->updated_at?->timestamp

@@ -4,7 +4,7 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,19 +49,18 @@ beforeEach(function () {
     $conn->statement('DELETE FROM notifications.notification_receipts');
 });
 
-function staffNotif_makeBrand(): Professional
+function staffNotif_makeBrand(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'primary_email' => 'brand@example.test',
-        'professional_type' => 'brand',
         'status' => 'active',
         'created_at' => now()->toIso8601String(),
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
 function staffNotif_seedNotificationForPro(string $professionalId, string $title = 'Stuck banner'): Notification

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\UpdateVisibilityRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
@@ -13,7 +13,7 @@ class SiteVisibilityController extends ApiController
 {
     public function update(UpdateVisibilityRequest $request): JsonResponse
     {
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         // Extra safety: if someone ever bypasses middleware, don't allow disabled accounts.

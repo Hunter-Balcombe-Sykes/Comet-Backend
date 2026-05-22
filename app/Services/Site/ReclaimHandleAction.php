@@ -4,7 +4,7 @@ namespace App\Services\Site;
 
 use App\Services\Site\UpdateSiteAction;
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\ProfessionalHandleAlias;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +19,7 @@ class ReclaimHandleAction
 {
     public function __construct(private readonly UpdateSiteAction $updateSiteAction) {}
 
-    public function execute(Professional $professional, string $handle, array $context = []): void
+    public function execute(User $professional, string $handle, array $context = []): void
     {
         $handle = strtolower($handle);
 

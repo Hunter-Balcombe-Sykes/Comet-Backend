@@ -1,0 +1,4 @@
+→ Adjudicating with claude --model sonnet ...
+
+✓ Wrote audits/.drafts/pilot-1779343058/audit-dbqueue.md — 27 findings, 522s elapsed
+Final audit ready: audits/.drafts/pilot-1779343058/audit-dbqueue.md

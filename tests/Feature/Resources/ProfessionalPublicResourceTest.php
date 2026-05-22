@@ -1,17 +1,16 @@
 <?php
 
 use App\Http\Resources\ProfessionalPublicResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\Request;
 
 it('returns display_name and partna_url, no PII', function () {
-    $pro = new Professional;
+    $pro = new User;
     $pro->setRawAttributes([
         'id' => 'pro-1',
         'handle' => 'evo',
         'handle_lc' => 'evo',
         'display_name' => 'Evo',
-        'professional_type' => 'brand',
         'partna_url' => 'https://evo.partna.au',
         'bio' => 'Hair and beauty',
         'public_contact_number' => null,

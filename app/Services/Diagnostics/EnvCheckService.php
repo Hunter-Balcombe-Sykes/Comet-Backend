@@ -51,18 +51,6 @@ class EnvCheckService
             'supabase.jwks_url' => 'SUPABASE_JWKS_URL',
             'supabase.service_role_key' => 'SUPABASE_SERVICE_ROLE_KEY',
         ],
-        'Shopify' => [
-            'services.shopify.api_key' => 'SHOPIFY_API_KEY',
-            'services.shopify.api_secret' => 'SHOPIFY_API_SECRET',
-            'services.shopify.webhook_secret' => 'SHOPIFY_WEBHOOK_SECRET',
-        ],
-        'Stripe' => [
-            'services.stripe.secret_key' => 'STRIPE_SECRET_KEY',
-            'services.stripe.publishable_key' => 'STRIPE_PUBLISHABLE_KEY',
-            'services.stripe.platform_webhook_secret' => 'STRIPE_PLATFORM_WEBHOOK_SECRET',
-            'services.stripe.platform_thin_webhook_secret' => 'STRIPE_PLATFORM_THIN_WEBHOOK_SECRET',
-            'services.stripe.connect_webhook_secret' => 'STRIPE_CONNECT_WEBHOOK_SECRET',
-        ],
         'Cloudflare (DNS + KV)' => [
             'services.cloudflare.zone_id' => 'CLOUDFLARE_ZONE_ID',
             'services.cloudflare.account_id' => 'CLOUDFLARE_ACCOUNT_ID',
@@ -85,11 +73,6 @@ class EnvCheckService
             'services.resend.key' => 'RESEND_API_KEY',
             'mail.from.address' => 'MAIL_FROM_ADDRESS',
             'mail.from.name' => 'MAIL_FROM_NAME',
-        ],
-        'Hydrogen storefront deploys' => [
-            'services.hydrogen.api_key' => 'HYDROGEN_API_KEY',
-            'partna.hydrogen.github_token' => 'PARTNA_HYDROGEN_GITHUB_TOKEN',
-            'partna.hydrogen.github_repo' => 'PARTNA_HYDROGEN_GITHUB_REPO',
         ],
         'Cloudflare Turnstile (captcha)' => [
             'services.turnstile.secret_key' => 'CLOUDFLARE_TURNSTILE_SECRET_KEY',

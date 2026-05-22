@@ -1,19 +1,19 @@
 <?php
 
 use App\Http\Resources\ProfessionalResource;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupProfessionalsTable();
 });
 
-function makeAboutProfessional(array $attrs = []): Professional
+function makeAboutProfessional(array $attrs = []): User
 {
     $id = (string) Str::uuid();
     $handle = 'about-'.substr($id, 0, 8);
 
-    return Professional::create(array_merge([
+    return User::create(array_merge([
         'id' => $id,
         'auth_user_id' => (string) Str::uuid(),
         'handle' => $handle,
@@ -22,7 +22,6 @@ function makeAboutProfessional(array $attrs = []): Professional
         'first_name' => 'About',
         'phone' => '+61400000000',
         'primary_email' => $handle.'@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ], $attrs));
 }
@@ -40,7 +39,7 @@ it('persists a full about payload and reads it back as an array', function () {
     ];
     $pro->save();
 
-    $fresh = Professional::query()->where('id', $pro->id)->first();
+    $fresh = User::query()->where('id', $pro->id)->first();
 
     expect($fresh->about)->toBeArray();
     expect($fresh->about['credentials'][0]['title'])->toBe('Advanced Colourist');

@@ -1,7 +1,7 @@
 <?php
 
 use App\Jobs\Gdpr\ExportProfessionalDataJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Professional\DataExport\DataExportService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -14,9 +14,9 @@ beforeEach(function () {
     Queue::fake();
 });
 
-function seedProForService(string $id, string $email = 'jane@example.com'): Professional
+function seedProForService(string $id, string $email = 'jane@example.com'): User
 {
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'jane',
         'handle_lc' => 'jane',
@@ -27,7 +27,7 @@ function seedProForService(string $id, string $email = 'jane@example.com'): Prof
         'updated_at' => '2026-01-01T00:00:00Z',
     ]);
 
-    return Professional::find($id);
+    return User::find($id);
 }
 
 it('inserts an audit row with status queued and dispatches the job', function () {
@@ -106,7 +106,7 @@ it('staff dispatch with send_to=professional resolves recipient to the professio
 
 it('throws NoRecipientEmailException when professional has no recipient email', function () {
     $pro = seedProForService((string) Str::uuid(), '');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $pro->id)->update(['primary_email' => null]);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update(['primary_email' => null]);
     $pro->refresh();
 
     $service = app(DataExportService::class);

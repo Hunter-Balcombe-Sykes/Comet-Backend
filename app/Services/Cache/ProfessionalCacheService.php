@@ -2,9 +2,7 @@
 
 namespace App\Services\Cache;
 
-use App\Models\Brand\BrandStoreSettings;
-use App\Models\Core\Professional\BrandProfile;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +23,7 @@ class ProfessionalCacheService
         return $this->cacheLock->rememberLockedNullable(
             CacheKeyGenerator::professionalIdByAuthId($authUserId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
-            fn () => Professional::query()
+            fn () => User::query()
                 ->where('auth_user_id', $authUserId)
                 ->value('id'),
             nullTtl: now()->addSeconds(30),
@@ -39,7 +37,7 @@ class ProfessionalCacheService
         return $this->cacheLock->rememberLockedNullable(
             CacheKeyGenerator::professionalIdByHandle($handleLc),
             (int) config('partna.cache.ttls.professional_handle_lookup'),
-            fn () => Professional::query()
+            fn () => User::query()
                 ->where('handle_lc', $handleLc)
                 ->value('id'),
             nullTtl: now()->addSeconds(30),
@@ -56,7 +54,7 @@ class ProfessionalCacheService
             CacheKeyGenerator::professionalPayloadById($id),
             (int) config('partna.cache.ttls.professional_handle_lookup'),
             function () use ($id) {
-                $pro = Professional::query()->with('site')->find($id);
+                $pro = User::query()->with('site')->find($id);
 
                 return $pro ? $this->toPayload($pro) : null;
             },
@@ -79,7 +77,7 @@ class ProfessionalCacheService
         return $id ? $this->getPayloadById($id) : null;
     }
 
-    private function toPayload(Professional $pro): array
+    private function toPayload(User $pro): array
     {
         // NOTE: your Professional model has protected $with = ['site'];
         $site = $pro->site;
@@ -98,7 +96,6 @@ class ProfessionalCacheService
                 'bio' => $pro->bio,
                 'country_code' => $pro->country_code,
                 'timezone' => $pro->timezone,
-                'professional_type' => $pro->professional_type,
                 'status' => $pro->status,
                 'onboarding_step' => $pro->onboarding_step,
 
@@ -145,20 +142,20 @@ class ProfessionalCacheService
      * (so `$pro->site` does not silently re-query). Bust both keys on profile writes
      * via `invalidateProfessional()`.
      */
-    public function getByAuthId(string $authUserId): ?Professional
+    public function getByAuthId(string $authUserId): ?User
     {
         $id = $this->getIdByAuthId($authUserId);
         if (! $id) {
             return null;
         }
 
-        // Cache the hydrated model for 60s with SWR + jitter. Eager-loading site +
-        // squareIntegration here makes them effectively free for every authenticated
-        // request — they ride along inside the cached model, paid once per 60s window.
+        // Cache the hydrated model for 60s with SWR + jitter. Eager-loading site
+        // here makes it effectively free for every authenticated request — it rides
+        // along inside the cached model, paid once per 60s window.
         $professional = $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalModel($id),
             (int) config('partna.cache.ttls.professional_model'),
-            fn () => Professional::query()->with(['site', 'squareIntegration'])->find($id),
+            fn () => User::query()->with(['site'])->find($id),
         );
         if (! $professional) {
             return null;
@@ -172,7 +169,7 @@ class ProfessionalCacheService
             Cache::forget($modelKey);
             Cache::forget($modelKey.':stale');
 
-            $freshId = Professional::query()
+            $freshId = User::query()
                 ->where('auth_user_id', $authUserId)
                 ->value('id');
 
@@ -182,7 +179,7 @@ class ProfessionalCacheService
 
             Cache::put($authIdKey, $freshId, (int) config('partna.cache.ttls.auth_id_lookup'));
 
-            return Professional::query()->with(['site', 'squareIntegration'])->find($freshId);
+            return User::query()->with(['site'])->find($freshId);
         }
 
         return $professional;
@@ -232,65 +229,6 @@ class ProfessionalCacheService
         );
     }
 
-    /**
-     * Cached BrandStoreSettings row for the dashboard /api/me payload. Returns
-     * the row as an associative array (or null when no row exists for this pro).
-     * 30-min TTL with a short null-TTL so a brand creating their first store
-     * settings doesn't see "missing" for the full window. BrandStoreSettingsObserver
-     * busts the key on any write.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function getBrandStoreSettings(string $professionalId): ?array
-    {
-        return $this->cacheLock->rememberLockedNullable(
-            CacheKeyGenerator::brandStoreSettings($professionalId),
-            (int) config('partna.cache.ttls.auth_id_lookup'),
-            fn () => BrandStoreSettings::query()
-                ->where('professional_id', $professionalId)
-                ->first()
-                ?->toArray(),
-            nullTtl: now()->addSeconds(30),
-        );
-    }
-
-    /**
-     * Cached (brand_status, display_name) tuple for an affiliate's linked brand
-     * partner. Used by /api/me to render the "your brand is live / building /
-     * down" banner without two extra Postgres lookups (BrandProfile + Professional)
-     * on every dashboard load. 5-min TTL because brand_status transitions are
-     * affiliate-facing and shouldn't lag noticeably; BrandProfileObserver and
-     * ProfessionalObserver bust this key on the underlying writes.
-     *
-     * @return array{brand_status: ?string, display_name: ?string}|null
-     */
-    public function getBrandPartnerStatus(string $brandProfessionalId): ?array
-    {
-        return $this->cacheLock->rememberLockedNullable(
-            CacheKeyGenerator::brandPartnerStatus($brandProfessionalId),
-            (int) config('partna.cache.ttls.analytics_short'),
-            function () use ($brandProfessionalId) {
-                $brandProfile = BrandProfile::query()
-                    ->where('professional_id', $brandProfessionalId)
-                    ->first(['brand_status']);
-                $professional = Professional::query()
-                    ->whereKey($brandProfessionalId)
-                    ->first(['display_name', 'handle']);
-
-                if (! $brandProfile && ! $professional) {
-                    return null;
-                }
-
-                return [
-                    'brand_status' => $brandProfile?->brand_status,
-                    'display_name' => $professional?->display_name,
-                    'handle' => $professional?->handle,
-                ];
-            },
-            nullTtl: now()->addSeconds(30),
-        );
-    }
-
     public function getCustomerCount(string $professionalId): int
     {
         // busts: customerCount + customerCount:stale (invalidateProfessional + CustomerObserver)
@@ -304,7 +242,7 @@ class ProfessionalCacheService
         );
     }
 
-    public function invalidateProfessional(Professional $professional): void
+    public function invalidateProfessional(User $professional): void
     {
         $handleLc = strtolower($professional->handle);
 
@@ -330,11 +268,6 @@ class ProfessionalCacheService
             CacheKeyGenerator::professionalDashboardServices($professional->id).':stale',
             CacheKeyGenerator::customerCount($professional->id),
             CacheKeyGenerator::customerCount($professional->id).':stale',
-
-            // brand-partner-status (CACHE-5): keyed by brand professional id, so
-            // when *this* professional's display_name changes, every affiliate
-            // pointing at this brand re-reads it. Cheap to bust unconditionally.
-            CacheKeyGenerator::brandPartnerStatus($professional->id),
         ];
 
         if ($professional->wasChanged('handle')) {

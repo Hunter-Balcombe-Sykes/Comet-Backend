@@ -17,7 +17,7 @@ beforeEach(function () {
     attachTestSchemas();
     $conn = DB::connection('pgsql');
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         handle TEXT NULL,
         handle_lc TEXT NULL,
@@ -72,7 +72,7 @@ beforeEach(function () {
     // reconcile path directly.
 
     $professionalId = (string) Str::uuid();
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $professionalId,
         'handle' => 'acme',
         'handle_lc' => 'acme',

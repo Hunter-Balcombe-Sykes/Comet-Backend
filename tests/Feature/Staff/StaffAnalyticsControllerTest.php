@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -17,7 +17,7 @@ beforeEach(function () {
     $this->professionalId = (string) Str::uuid();
     $this->siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $this->professionalId,
         'display_name' => 'Analytics Test Pro',
         'created_at' => now()->toDateTimeString(),
@@ -33,7 +33,7 @@ beforeEach(function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $this->professional = Professional::find($this->professionalId);
+    $this->professional = User::find($this->professionalId);
 });
 
 afterEach(function () {
@@ -119,14 +119,14 @@ it('summary() wraps all DB queries in CacheLockService::rememberLocked with a 60
 
 it('summary() returns 404 when professional has no site', function () {
     $professionalId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
         'display_name' => 'No Site Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::find($professionalId);
+    $professional = User::find($professionalId);
     $controller = new StaffAnalyticsController(new CacheLockService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET'),

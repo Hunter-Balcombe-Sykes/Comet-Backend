@@ -12,7 +12,6 @@ class FeatureFlagOverrideResource extends JsonResource
             'id' => $this->id,
             'flag_key' => $this->flag_key,
             'professional_id' => $this->professional_id,
-            'brand_id' => $this->brand_id,
             'enabled' => (bool) $this->enabled,
             'reason' => $this->reason,
             'expires_at' => $this->expires_at?->toIso8601String(),

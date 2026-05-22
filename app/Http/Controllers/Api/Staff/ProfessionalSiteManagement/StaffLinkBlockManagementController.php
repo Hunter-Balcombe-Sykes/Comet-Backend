@@ -7,7 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffReorderLinkRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffStoreLinkRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffUpdateLinkRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -17,14 +17,14 @@ class StaffLinkBlockManagementController extends ApiController
 {
     use ResolveCurrentSite;
 
-    public function index(Professional $professional): JsonResponse
+    public function index(User $professional): JsonResponse
     {
         return $this->success([
             'blocks' => $professional->linkBlocks()->orderBy('sort_order')->get(),
         ]);
     }
 
-    public function store(StaffStoreLinkRequest $request, Professional $professional): JsonResponse
+    public function store(StaffStoreLinkRequest $request, User $professional): JsonResponse
     {
         $professional->loadMissing('site');
         $site = $this->currentSite($professional);
@@ -61,7 +61,7 @@ class StaffLinkBlockManagementController extends ApiController
         return $this->success(['block' => $block], 201);
     }
 
-    public function update(StaffUpdateLinkRequest $request, Professional $professional, Block $linkBlock): JsonResponse
+    public function update(StaffUpdateLinkRequest $request, User $professional, Block $linkBlock): JsonResponse
     {
         // scoped binding guarantees ownership, but still enforce correct kind of block
         abort_unless(
@@ -77,7 +77,7 @@ class StaffLinkBlockManagementController extends ApiController
         return $this->success(['block' => $linkBlock->fresh()]);
     }
 
-    public function destroy(Professional $professional, Block $linkBlock): JsonResponse
+    public function destroy(User $professional, Block $linkBlock): JsonResponse
     {
         abort_unless(
             $linkBlock->professional_id === $professional->id &&
@@ -91,7 +91,7 @@ class StaffLinkBlockManagementController extends ApiController
         return $this->success(['deleted' => true]);
     }
 
-    public function reorder(StaffReorderLinkRequest $request, Professional $professional): JsonResponse
+    public function reorder(StaffReorderLinkRequest $request, User $professional): JsonResponse
     {
         $ids = array_values(array_unique($request->validated()['ids'] ?? []));
         $site = $this->currentSite($professional);

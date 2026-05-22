@@ -8,7 +8,7 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\StaffEmailSubscriptionResource;
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -26,7 +26,7 @@ class StaffEmailSubscriberController extends ApiController
      * GET /staff/professionals/{professional}/email-subscribers
      * Any-staff. Same query + paging shape as the brand sees on /api/email-subscribers.
      */
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $listKey = $request->query('list_key', 'marketing');
         $listKey = is_string($listKey) ? trim($listKey) : 'marketing';
@@ -76,7 +76,7 @@ class StaffEmailSubscriberController extends ApiController
      * GET /staff/professionals/{professional}/email-subscribers/export
      * Any-staff. CSV stream matching the brand-side export verbatim.
      */
-    public function export(Request $request, Professional $professional): StreamedResponse
+    public function export(Request $request, User $professional): StreamedResponse
     {
         $listKey = $request->query('list_key', 'marketing');
         $listKey = is_string($listKey) ? trim($listKey) : 'marketing';

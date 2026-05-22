@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\Notifications\UpdateNotificationEmailPoliciesRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -47,7 +47,7 @@ class StaffNotificationEmailPolicyController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function indexProfessional(Professional $professional): JsonResponse
+    public function indexProfessional(User $professional): JsonResponse
     {
         $policies = DB::table('notifications.notification_email_policies')
             ->where('professional_id', $professional->id)
@@ -62,7 +62,7 @@ class StaffNotificationEmailPolicyController extends ApiController
         return $this->success(['policies' => array_values($result)]);
     }
 
-    public function updateProfessional(UpdateNotificationEmailPoliciesRequest $request, Professional $professional): JsonResponse
+    public function updateProfessional(UpdateNotificationEmailPoliciesRequest $request, User $professional): JsonResponse
     {
         foreach ($request->validated()['policies'] as $update) {
             if ($update['mode'] === 'default') {

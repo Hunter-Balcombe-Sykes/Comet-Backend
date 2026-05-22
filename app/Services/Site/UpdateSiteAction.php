@@ -3,7 +3,7 @@
 namespace App\Services\Site;
 
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\ProfessionalHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -28,7 +28,7 @@ class UpdateSiteAction
      * $data should already be validated by a FormRequest.
      * $options can enable staff-only powers later without changing pro-behavior.
      */
-    public function execute(Professional $professional, array $data, array $options = []): Site
+    public function execute(User $professional, array $data, array $options = []): Site
     {
         $professional->loadMissing('site');
 
@@ -234,12 +234,6 @@ class UpdateSiteAction
                 }
                 throw $e;
             }
-
-            // Bust the Hydrogen brand-design cache so dashboard saves surface
-            // inside Hydrogen's 5s staleWhileRevalidate window. Deferred until
-            // commit so a rolled-back transaction doesn't wipe a warm cache.
-            $siteId = (string) $site->id;
-            DB::afterCommit(fn () => app(SiteCacheService::class)->forgetBrandDesign($siteId));
 
             return $site->fresh();
         });

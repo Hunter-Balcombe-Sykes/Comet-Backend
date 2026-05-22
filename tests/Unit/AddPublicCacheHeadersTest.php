@@ -40,9 +40,6 @@ it('adds cache headers to successful public get api responses', function () {
 it('adds Vary: X-Site-Subdomain to allow-listed public cacheable routes', function () {
     $cacheablePaths = [
         '/api/public/site-by-slug',
-        '/api/public/booking/config-by-slug',
-        '/api/public/booking/services-by-slug',
-        '/api/public/store/featured-products-by-slug',
     ];
 
     $middleware = new AddPublicCacheHeaders;
@@ -67,16 +64,6 @@ it('returns no-store for tokenized unsubscribe endpoint', function () {
     expect($cacheControl)->not->toContain('public');
 });
 
-it('returns no-store for tokenized brand-affiliate-invites endpoint', function () {
-    $request = Request::create('/api/public/brand-affiliate-invites/sometoken123', 'GET');
-
-    $middleware = new AddPublicCacheHeaders;
-    $response = $middleware->handle($request, fn () => new Response('ok', 200));
-
-    $cacheControl = (string) $response->headers->get('Cache-Control', '');
-    expect($cacheControl)->toContain('no-store');
-    expect($cacheControl)->not->toContain('public');
-});
 
 it('does not add public cache headers to non-allow-listed public paths', function () {
     $nonCacheablePaths = [

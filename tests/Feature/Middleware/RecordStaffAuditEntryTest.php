@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\Audit\StaffAuditService;
@@ -52,7 +52,7 @@ it('records a row for POST/PATCH/PUT/DELETE writes', function (string $method) {
     $staff->id = (string) Str::uuid();
     $staff->primary_email = 'support@partna.au';
 
-    $professional = new Professional();
+    $professional = new User();
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme';
 
@@ -135,7 +135,7 @@ it('serialises route bindings to scalar UUIDs in payload_summary', function () {
     $staff = new PartnaStaff();
     $staff->id = (string) Str::uuid();
 
-    $professional = new Professional();
+    $professional = new User();
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme';
 

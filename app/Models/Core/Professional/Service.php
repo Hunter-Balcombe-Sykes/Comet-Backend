@@ -29,22 +29,6 @@ class Service extends BaseModel
         'is_active',
         'sort_order',
 
-        // Square integration
-        'square_catalog_object_id',
-        'square_variation_id',
-        'square_catalog_version',
-        'square_last_synced_at',
-        'square_sync_error',
-
-        // Deletion origin: 'square' = sync-deleted (restorable); null = manually deleted (never auto-restore)
-        'deleted_origin',
-
-        // Fresha integration
-        'fresha_service_id',
-        'fresha_variation_id',
-        'fresha_service_version',
-        'fresha_last_synced_at',
-        'fresha_sync_error',
     ];
 
     protected $casts = [
@@ -53,15 +37,11 @@ class Service extends BaseModel
         'sort_order' => 'integer',
         'duration_minutes' => 'integer',
         'deleted_at' => 'datetime',
-        'square_catalog_version' => 'integer',
-        'square_last_synced_at' => 'datetime',
-        'fresha_service_version' => 'integer',
-        'fresha_last_synced_at' => 'datetime',
     ];
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class);
+        return $this->belongsTo(User::class);
     }
 
     public function category(): BelongsTo

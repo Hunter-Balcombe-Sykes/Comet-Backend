@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -22,19 +22,18 @@ beforeEach(function () {
     Config::set('partna.throttle.enabled', false);
 });
 
-function seedIndividualProfile(string $handle, string $accountType = 'individual', array $design = []): Professional
+function seedIndividualProfile(string $handle, array $design = []): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => 'Solo Pro',
         'bio' => 'Hello world',
-        'professional_type' => $accountType === 'brand' ? 'brand' : 'affiliate',
-        'account_type' => $accountType,
+        'account_type' => 'individual',
         'location_city' => 'Sydney',
         'location_state' => 'NSW',
         'location_country' => 'AU',
@@ -53,11 +52,11 @@ function seedIndividualProfile(string $handle, string $accountType = 'individual
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    return Professional::query()->findOrFail($proId);
+    return User::query()->findOrFail($proId);
 }
 
 it('returns 200 with the full envelope shape for an individual', function () {
-    $pro = seedIndividualProfile('solo1', 'individual', ['theme' => 'midnight']);
+    $pro = seedIndividualProfile('solo1', ['theme' => 'midnight']);
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
@@ -189,7 +188,7 @@ it('unknown block_type does not appear in the structured response', function () 
 // PROF-2: design key allow-list. Keys not in IndividualProfileResource::DESIGN_KEYS
 // drop out — even if they end up adjacent to design keys in site.settings.design.
 it('PROF-2: filters design through DESIGN_KEYS allow-list', function () {
-    seedIndividualProfile('solo5', 'individual', [
+    seedIndividualProfile('solo5', [
         'theme' => 'midnight',
         'accent_color' => '#FF00AA',
         // Not in DESIGN_KEYS — must NOT leak.
@@ -210,15 +209,8 @@ it('returns 404 when the handle does not exist', function () {
     $this->getJson('/api/public/profiles/missing')->assertNotFound();
 });
 
-it('returns 404 (not 403) when the handle belongs to a brand', function () {
-    seedIndividualProfile('brand1', 'brand');
-    $this->getJson('/api/public/profiles/brand1')->assertNotFound();
-});
-
-it('returns 404 (not 403) when the handle belongs to a partner', function () {
-    seedIndividualProfile('partner1', 'partner');
-    $this->getJson('/api/public/profiles/partner1')->assertNotFound();
-});
+// Brand and partner account types no longer exist — removed in the standalone strip.
+// The 404 guard for non-individual accounts is now exercised by the missing-handle case.
 
 it('is case-insensitive on the handle path param', function () {
     seedIndividualProfile('mixedcase');

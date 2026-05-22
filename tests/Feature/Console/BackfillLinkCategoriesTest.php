@@ -23,7 +23,7 @@ function createBackfillFixtureIds(): array
     $siteId = (string) Str::uuid();
 
     // Minimal Professional row — all columns nullable in the SQLite test schema.
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
         'created_at' => now(),
         'updated_at' => now(),

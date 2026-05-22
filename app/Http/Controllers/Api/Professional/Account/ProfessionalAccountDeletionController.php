@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Professional\Account;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\Professional\AccountDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,7 +24,7 @@ class ProfessionalAccountDeletionController extends ApiController
      */
     public function request(Request $request): JsonResponse
     {
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         if ($professional->status === 'pending_deletion') {
@@ -71,7 +71,7 @@ class ProfessionalAccountDeletionController extends ApiController
             'token' => ['required', 'string', 'min:32'],
         ]);
 
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         $result = $this->deletionService->confirm($professional, (string) $request->input('token'), $request);
@@ -92,7 +92,7 @@ class ProfessionalAccountDeletionController extends ApiController
      */
     public function cancel(Request $request): JsonResponse
     {
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         if ($professional->status !== 'pending_deletion') {

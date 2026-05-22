@@ -5,7 +5,7 @@
 use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
 use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
@@ -68,7 +68,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(VideoVariantService::class);
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $siteImage = SiteMedia::query()->findOrFail($mediaId);
 
     // Controller signature was changed to (Request, SiteMedia) — test was
@@ -125,7 +125,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
     // Probe passes so we reach the dispatch step (where the 503 originates).
     $videoVariant->shouldReceive('probeAndValidate')->once()->andReturn([]);
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(503);
@@ -168,7 +168,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
         ->once()
         ->andThrow(new \RuntimeException('File does not contain a recognisable video stream.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -206,7 +206,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
         ->once()
         ->andThrow(new \RuntimeException('Video is too long (400s). Maximum allowed duration is 300s.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -244,7 +244,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
         ->once()
         ->andThrow(new \RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -255,7 +255,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
 
 function bootstrapMediaUploadFailureSchema(): void
 {
-    // Models reference schema-qualified tables (core.professionals, site.sites,
+    // Models reference schema-qualified tables (core.users, site.sites,
     // site.site_media). The shared helpers in tests/Pest.php attach the right
     // schemas and create tables under them.
     setupProfessionalsTable();
@@ -264,16 +264,15 @@ function bootstrapMediaUploadFailureSchema(): void
 }
 
 /**
- * @return array{0: Professional, 1: Site}
+ *  array{0: User, 1: Site}
  */
 function createProfessionalAndSiteForMediaUploadTests(): array
 {
     $professionalId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
-        'professional_type' => 'professional',
         'display_name' => 'Test Professional',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -288,7 +287,7 @@ function createProfessionalAndSiteForMediaUploadTests(): array
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($professionalId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

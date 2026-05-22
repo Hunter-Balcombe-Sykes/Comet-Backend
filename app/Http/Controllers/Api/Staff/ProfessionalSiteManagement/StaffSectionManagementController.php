@@ -7,7 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\UpsertSectionBlockRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +18,7 @@ class StaffSectionManagementController extends ApiController
     use ResolveCurrentProfessional;
     use ResolveCurrentSite;
 
-    public function index(Professional $professional): JsonResponse
+    public function index(User $professional): JsonResponse
     {
         // Return ALL section blocks (active + inactive) so staff can toggle
         $sections = Block::query()
@@ -33,7 +33,7 @@ class StaffSectionManagementController extends ApiController
         ]);
     }
 
-    public function upsert(UpsertSectionBlockRequest $request, Professional $professional, string $blockType): JsonResponse
+    public function upsert(UpsertSectionBlockRequest $request, User $professional, string $blockType): JsonResponse
     {
         $site = $this->currentSite($professional);
 
@@ -95,7 +95,7 @@ class StaffSectionManagementController extends ApiController
 
     }
 
-    public function reorder(ReorderBlocksRequest $request, Professional $professional): JsonResponse
+    public function reorder(ReorderBlocksRequest $request, User $professional): JsonResponse
     {
         $ids = array_values(array_unique($request->validated()['ids'] ?? []));
         $site = $this->currentSite($professional);
@@ -151,7 +151,7 @@ class StaffSectionManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function remove(Professional $professional, string $blockType): JsonResponse
+    public function remove(User $professional, string $blockType): JsonResponse
     {
         $site = $professional->site;
         if (! $site) {

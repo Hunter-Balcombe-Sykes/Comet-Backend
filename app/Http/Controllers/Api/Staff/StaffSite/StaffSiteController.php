@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Views\AllSiteData;
 use Illuminate\Http\JsonResponse;
 
@@ -36,8 +36,7 @@ class StaffSiteController extends ApiController
                 'id' => $row->professional_id,
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
-                'professional_type' => $row->professional_type,
-                // account_type alongside legacy professional_type; staff dashboards may filter on either
+                // account_type is the authoritative field
                 // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
                 'account_type' => $row->account_type,
                 'bio' => $row->professional_bio,
@@ -59,7 +58,7 @@ class StaffSiteController extends ApiController
         ]);
     }
 
-    public function showByProfessional(Professional $professional): JsonResponse
+    public function showByProfessional(User $professional): JsonResponse
     {
         $row = AllSiteData::query()
             ->where('professional_id', $professional->id)
@@ -84,8 +83,7 @@ class StaffSiteController extends ApiController
                 'id' => $row->professional_id,
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
-                'professional_type' => $row->professional_type,
-                // account_type alongside legacy professional_type; staff dashboards may filter on either
+                // account_type is the authoritative field
                 // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
                 'account_type' => $row->account_type,
                 'bio' => $row->professional_bio,

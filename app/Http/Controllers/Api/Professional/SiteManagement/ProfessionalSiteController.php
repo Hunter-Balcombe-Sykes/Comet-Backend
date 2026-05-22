@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\UpdateSiteRequest;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,16 +19,12 @@ class ProfessionalSiteController extends ApiController
     use ResolveCurrentProfessional;
     use ResolveCurrentSite;
 
-    public function __construct(
-        private readonly SiteCacheService $siteCache,
-    ) {}
 
     public function show(Request $request)
     {
         $professional = $this->currentProfessional($request);
         $site = $this->currentSite($professional);
         $siteArray = $site->toArray();
-        $siteArray = $this->siteCache->enrichSiteWithBrandPartnerRadius($siteArray);
 
         return $this->success(['site' => $siteArray]);
     }
@@ -40,7 +35,6 @@ class ProfessionalSiteController extends ApiController
         $data = $request->validated();
         $site = $action->execute($professional, $data);
         $siteArray = $site->toArray();
-        $siteArray = $this->siteCache->enrichSiteWithBrandPartnerRadius($siteArray);
 
         return $this->success(['site' => $siteArray]);
     }
@@ -86,7 +80,6 @@ class ProfessionalSiteController extends ApiController
         $data = $request->validated();
         $site = $action->execute($professional, $data);
         $siteArray = $site->toArray();
-        $siteArray = $this->siteCache->enrichSiteWithBrandPartnerRadius($siteArray);
 
         return $this->success(['site' => $siteArray]);
     }

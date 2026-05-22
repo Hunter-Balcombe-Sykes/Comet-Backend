@@ -9,11 +9,11 @@
 
 use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
 use App\Http\Requests\Api\Professional\Uploads\ReorderPoolImagesRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
-use App\Services\Media\BrandDesignMediaService;
+
 use App\Services\Media\ImageVariantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,7 +49,7 @@ function seedGalleryMediaRow(string $siteId, string $mediaType, int $sortOrder):
     return $id;
 }
 
-function callReorderController(Professional $professional, array $body): \Illuminate\Http\JsonResponse
+function callReorderController(User $professional, array $body): \Illuminate\Http\JsonResponse
 {
     $request = Request::create('/api/images/reorder', 'POST', $body);
     $request->attributes->set('professional', $professional);
@@ -63,7 +63,7 @@ function callReorderController(Professional $professional, array $body): \Illumi
     $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
     $controller = new ProfessionalUploadController(
         $mediaService,
-        new BrandDesignMediaService($mediaService),
+
         $videoVariant,
     );
 
@@ -75,9 +75,8 @@ function seedProfessionalAndSite(): array
     $professionalId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $professionalId,
-        'professional_type' => 'professional',
         'display_name' => 'Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -92,7 +91,7 @@ function seedProfessionalAndSite(): array
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($professionalId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

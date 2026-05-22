@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\FeatureFlag;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -14,16 +14,16 @@ beforeEach(function () {
 /**
  * Insert a professional row and return the model.
  */
-function makePro(): Professional
+function makePro(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'pro-'.substr($id, 0, 8),
         'status' => 'active',
     ]);
 
-    return Professional::find($id);
+    return User::find($id);
 }
 
 it('same pro+key always buckets identically', function () {

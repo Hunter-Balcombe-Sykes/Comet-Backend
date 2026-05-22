@@ -9,7 +9,6 @@ use App\Services\Cache\SiteCacheService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 // V2: Single seam for brand design media — logo (full + square) and
@@ -71,47 +70,6 @@ class BrandDesignMediaService
             0,
             $originalPath,
         );
-
-        $this->dispatchVariantJob($media->id, $originalPath, $basePath, (string) $site->id);
-        $this->invalidateSiteCache($site);
-
-        return $media->refresh();
-    }
-
-    /**
-     * Upload a logo from raw bytes already in memory (Shopify CDN download path).
-     * Same singleton-replace semantics as upsertLogoFromUploadedFile.
-     */
-    public function upsertLogoFromBytes(Site $site, string $proId, string $bytes, string $mime, string $variant): SiteMedia
-    {
-        $purpose = $this->purposeForLogoVariant($variant);
-
-        // finfo against actual bytes — $mime comes from Shopify CDN headers, not verified.
-        $this->assertMimeAllowed((new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes));
-
-        // Store the file BEFORE inserting the row — see upsertLogoFromUploadedFile
-        // for the race rationale. Content-hash basePath gives deterministic dedupe.
-        $contentHash = hash('sha256', $bytes);
-        $basePath = "images/{$proId}/by-hash/{$contentHash}";
-        $ext = $this->extensionFromMime($mime);
-        $hash = substr($contentHash, 0, 16);
-        $originalPath = "{$basePath}/original_{$hash}.{$ext}";
-
-        try {
-            Storage::disk($this->images->resolvedDiskName())->put($originalPath, $bytes, 'public');
-        } catch (Throwable $e) {
-            Log::error('BrandDesignMediaService: failed to store logo bytes.', [
-                'request_id' => request()->header('X-Request-Id', ''),
-                'operation' => __METHOD__,
-                'site_id' => $site->id,
-                'professional_id' => (string) $site->professional_id,
-                'purpose' => $purpose,
-                'error' => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-
-        $media = $this->createDesignRow($site, $purpose, $mime, strlen($bytes), 0, $originalPath);
 
         $this->dispatchVariantJob($media->id, $originalPath, $basePath, (string) $site->id);
         $this->invalidateSiteCache($site);
@@ -385,9 +343,8 @@ class BrandDesignMediaService
 
     /**
      * Resolve the optimized full-logo URL for a single site, or null if absent.
-     * Reads from site_media (pool=design, purpose=logo_full) — the same source
-     * BrandDesignResource exposes as logo.full_url. Use this anywhere the brand's
-     * full logo needs to be displayed (invites, partner cards, public pages).
+     * Reads from site_media (pool=design, purpose=logo_full). Use this anywhere
+     * the full logo needs to be displayed on public pages.
      */
     public function getLogoFullUrl(string $siteId): ?string
     {

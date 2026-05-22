@@ -3,7 +3,7 @@
 namespace App\Models\Core\Gdpr;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\Professional\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -58,7 +58,7 @@ class GdprRequest extends BaseModel
 
     public function professional(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'professional_id');
     }
 
     public function markCompleted(): void

@@ -48,12 +48,6 @@ class ProfessionalDocumentController extends ApiController
         $pro->loadMissing('site');
         $site = $this->currentSite($pro);
 
-        // Brand accounts are excluded per product spec — they have Shopify
-        // for catalogue assets and don't get the generic document slot.
-        if ($pro->isBrand()) {
-            return $this->error('Documents section not available for brand accounts.', 403);
-        }
-
         // Double MIME-check via finfo — prevents Content-Type header spoofing
         // on top of the mimes: validation rule which trusts the client header.
         $file = $request->file('file');
@@ -79,7 +73,7 @@ class ProfessionalDocumentController extends ApiController
         // previous doc row and inserts the new row with path:''. The empty
         // path is the claim token: concurrent uploads for the same site see
         // the row and the advisory lock serializes them. The R2 PUT then runs
-        // post-commit and the path is patched in. Mirrors BrandGalleryController.
+        // post-commit and the path is patched in.
         //
         // Extension is derived from the actual MIME — never from the
         // client-supplied filename (spoofable).

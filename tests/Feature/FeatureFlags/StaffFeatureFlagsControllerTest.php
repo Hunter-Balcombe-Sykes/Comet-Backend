@@ -231,12 +231,11 @@ it('store override creates a professional override', function () {
     FeatureFlag::create(['key' => 'override_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
 
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'override-pro',
         'display_name' => 'Override Pro',
         'primary_email' => 'override@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
@@ -254,58 +253,6 @@ it('store override creates a professional override', function () {
     expect($payload['data']['enabled'])->toBeTrue();
 });
 
-it('store override creates a brand override', function () {
-    FeatureFlag::create(['key' => 'brand_override_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
-
-    $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => $proId, 'handle' => 'brand-ov-pro', 'display_name' => 'Brand Ov Pro',
-        'primary_email' => 'brandov@example.com', 'professional_type' => 'professional', 'status' => 'active',
-    ]);
-
-    $brandId = (string) Str::uuid();
-    DB::connection('pgsql')->table('brand.brand_profiles')->insert([
-        'id' => $brandId, 'professional_id' => $proId, 'brand_status' => 'active',
-    ]);
-
-    $formRequest = mockFormRequest(CreateOverrideRequest::class, [
-        'brand_id' => $brandId,
-        'enabled' => true,
-        'reason' => 'Brand-level override',
-    ], $this->staff);
-
-    $response = $this->overrideController->store($formRequest, 'brand_override_flag');
-    $payload = json_decode($response->getContent(), true);
-
-    expect($response->status())->toBe(201);
-    expect($payload['data']['brand_id'])->toBe($brandId);
-    expect($payload['data']['enabled'])->toBeTrue();
-});
-
-it('store override validation rejects when both professional_id and brand_id provided', function () {
-    $proId = (string) Str::uuid();
-    $brandId = (string) Str::uuid();
-
-    // Create the request with both fields so ->filled() returns true in the after-hook.
-    $formRequest = CreateOverrideRequest::create('/', 'POST', [
-        'professional_id' => $proId,
-        'brand_id' => $brandId,
-        'enabled' => true,
-    ]);
-
-    // Remove DB-backed exists: rules to avoid connection issues in test environment.
-    $rules = (new CreateOverrideRequest)->rules();
-    $rules['professional_id'] = array_filter($rules['professional_id'], fn ($r) => ! (is_string($r) && str_starts_with($r, 'exists:')));
-    $rules['brand_id'] = array_filter($rules['brand_id'], fn ($r) => ! (is_string($r) && str_starts_with($r, 'exists:')));
-
-    $validator = validator($formRequest->all(), $rules);
-
-    // withValidator registers an after-hook; we must call fails() to execute it.
-    $formRequest->withValidator($validator);
-    $validator->fails();
-
-    expect($validator->errors()->has('scope'))->toBeTrue();
-});
 
 // ── StaffFeatureFlagOverrideController::destroy ───────────────────────────────
 
@@ -320,12 +267,11 @@ it('destroy override removes the override', function () {
     FeatureFlag::create(['key' => 'destroy_ov_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
 
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'destroy-pro',
         'display_name' => 'Destroy Pro',
         'primary_email' => 'destroy@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
