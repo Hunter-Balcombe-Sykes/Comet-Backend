@@ -422,65 +422,6 @@ class SiteCacheService
     }
 
     /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function withStorePayload(array $payload, string $professionalId): array
-    {
-        $store = null;
-        $existingStore = $payload['store'] ?? null;
-
-        if (
-            is_array($existingStore)
-            && is_array($existingStore['selected_products'] ?? null)
-            && array_key_exists('default_commission_rate', $existingStore)
-            && array_key_exists('max_featured_products', $existingStore)
-        ) {
-            $store = [
-                'selected_products' => array_values($existingStore['selected_products']),
-                'default_commission_rate' => (float) $existingStore['default_commission_rate'],
-                'max_featured_products' => (int) $existingStore['max_featured_products'],
-                'checkout_mode' => in_array(($existingStore['checkout_mode'] ?? null), ['shopify', 'stripe'], true)
-                    ? $existingStore['checkout_mode']
-                    : 'shopify',
-            ];
-        }
-
-        if (
-            $store === null
-            && is_array($payload['selected_products'] ?? null)
-            && array_key_exists('default_commission_rate', $payload)
-            && array_key_exists('max_featured_products', $payload)
-        ) {
-            $store = [
-                'selected_products' => array_values($payload['selected_products']),
-                'default_commission_rate' => (float) $payload['default_commission_rate'],
-                'max_featured_products' => (int) $payload['max_featured_products'],
-                'checkout_mode' => in_array(($payload['checkout_mode'] ?? null), ['shopify', 'stripe'], true)
-                    ? $payload['checkout_mode']
-                    : 'shopify',
-            ];
-        }
-
-        if ($store === null) {
-            $store = [
-                'selected_products' => [],
-                'default_commission_rate' => (float) config('partna.store.default_commission_rate', 15),
-                'max_featured_products' => (int) config('partna.store.max_featured_products', 12),
-                'checkout_mode' => 'shopify',
-            ];
-        }
-
-        $payload['store'] = $store;
-        $payload['selected_products'] = $store['selected_products'];
-        $payload['default_commission_rate'] = $store['default_commission_rate'];
-        $payload['max_featured_products'] = $store['max_featured_products'];
-        $payload['checkout_mode'] = $store['checkout_mode'] ?? 'shopify';
-
-        return $payload;
-    }
-
-    /**
      * Resolve image variant paths to public URLs in the site payload.
      * The view returns storage paths; we need full URLs for the frontend.
      * Also resolves video variant/stream/poster paths in gallery_videos and content_videos.
