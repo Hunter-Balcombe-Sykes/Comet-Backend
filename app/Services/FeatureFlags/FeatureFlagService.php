@@ -13,22 +13,20 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Resolves feature flag state for a given professional/brand context.
+ * Resolves feature flag state for a given professional context.
  *
  * Resolution order (highest → lowest precedence):
- *   1. Brand-scoped override (if brand passed)
- *   2. Professional-scoped override
+ *   1. Professional-scoped override
  *   3. Percentage rollout — deterministic hash(key + pro.id) % 100
  *   4. Registry default (feature_flags.default_enabled)
  *   5. Config fallback — config('partna.features.{key}', false)
  *
  * All lookups are served from Redis (via CacheLockService) with a 5-minute TTL
- * and ±60s jitter. Three cache keys are used per context:
+ * and ±60s jitter. Two cache keys are used per context:
  *   - ff:registry          — all FeatureFlag rows (defaults + rollout %)
  *   - ff:pro:{proId}       — all active overrides for a professional
- *   - ff:brand:{brandId}   — all active overrides for a brand
  *
- * setOverride/clearOverride flush the relevant pro/brand key so the next
+ * setOverride/clearOverride flush the relevant pro key so the next
  * read rebuilds from DB immediately (push invalidation).
  *
  * On any cache failure, falls back to direct DB queries and logs a warning.
@@ -41,7 +39,7 @@ class FeatureFlagService
 
     private const REGISTRY_KEY = 'ff:registry';
 
-    /** @var array<string, array> Request-scoped memoization of loaded flag arrays, keyed by "{proId}:{brandId}". */
+    /** @var array<string, array> Request-scoped memoization of loaded flag arrays, keyed by proId. */
     private array $requestCache = [];
 
     public function __construct(private CacheLockService $cacheLock) {}
@@ -115,8 +113,8 @@ class FeatureFlagService
         ];
 
         FeatureFlagOverride::updateOrCreate(
-            ['flag_key' => $key, 'professional_id' => $scope->professionalId, 'brand_id' => null],
-            $attrs + ['professional_id' => $scope->professionalId, 'brand_id' => null],
+            ['flag_key' => $key, 'professional_id' => $scope->professionalId],
+            $attrs + ['professional_id' => $scope->professionalId],
         );
 
         // Bust request-level memoization so any subsequent enabled() calls in
@@ -148,7 +146,6 @@ class FeatureFlagService
     {
         FeatureFlagOverride::where('flag_key', $key)
             ->where('professional_id', $scope->professionalId)
-            ->whereNull('brand_id')
             ->delete();
 
         $this->requestCache = [];
@@ -177,8 +174,8 @@ class FeatureFlagService
     }
 
     /**
-     * Flush the registry cache key. Per-pro/brand override keys (ff:pro:{id}, ff:brand:{id})
-     * are NOT flushed here — call forgetPro/forgetBrand to invalidate individual scopes.
+     * Flush the registry cache key. Per-pro override keys (ff:pro:{id})
+     * are NOT flushed here — call forgetPro to invalidate individual scopes.
      *
      * SWR stale copies persist up to ~72 min worst case; natural expiry is the only guarantee.
      * Worst case math: base TTL 300s + ±60s service jitter = max 360s, then
@@ -219,7 +216,6 @@ class FeatureFlagService
      *
      * @param  array<string, array{default_enabled: bool, rollout_percent: int}>  $registry
      * @param  array<string, bool>  $proOverrides
-     * @param  array<string, bool>  $brandOverrides
      */
     private function resolveFromArrays(
         string $key,
@@ -320,7 +316,6 @@ class FeatureFlagService
         // capped — prevents overrides from being served past their expires_at.
         $nearestExpiry = FeatureFlagOverride::query()
             ->where('professional_id', $proId)
-            ->whereNull('brand_id')
             ->whereNotNull('expires_at')
             ->where('expires_at', '>', now())
             ->min('expires_at');
@@ -333,7 +328,6 @@ class FeatureFlagService
             function () use ($proId): array {
                 $query = FeatureFlagOverride::query()
                     ->where('professional_id', $proId)
-                    ->whereNull('brand_id')
                     ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
 
                 // Only apply the cross-schema soft-delete joins on PostgreSQL — SQLite
@@ -378,7 +372,6 @@ class FeatureFlagService
         if ($pro !== null) {
             $query = FeatureFlagOverride::query()
                 ->where('professional_id', $pro->id)
-                ->whereNull('brand_id')
                 ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
 
             if (DB::getDriverName() === 'pgsql') {

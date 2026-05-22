@@ -22,7 +22,6 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'industry_other_text' => $this->normalizeOptionalString($this->input('industry_other_text')),
             'pilot_program_opt_in' => $this->normalizeBoolean($this->input('pilot_program_opt_in')),
             'number_of_team_members' => $this->normalizeInteger($this->input('number_of_team_members')),
-            'currently_sells_products' => $this->normalizeBoolean($this->input('currently_sells_products')),
         ]);
     }
 
@@ -38,7 +37,6 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'industry_other_text' => ['nullable', 'string', 'max:200', 'required_if:industry,other', 'prohibited_unless:industry,other'],
             'pilot_program_opt_in' => ['nullable', 'boolean'],
             'number_of_team_members' => ['nullable', 'integer', 'min:0', 'max:1000000'],
-            'currently_sells_products' => ['nullable', 'boolean'],
         ];
     }
 
@@ -87,7 +85,6 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
         return match ($compact) {
             'professional', 'proffesional', 'profesisonal' => 'professional',
             'influencer' => 'influencer',
-            'brand' => 'brand',
             'other' => 'other',
             default => str_replace([' ', '-'], '_', $normalized),
         };

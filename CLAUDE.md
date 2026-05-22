@@ -99,7 +99,7 @@ routes/
   api.php                                             — bootstrap, health
   api/{user,publicSite,staff}.php                     — domain-specific routes
 config/
-  sidest.php                                           — all Partna feature config & limits
+  partna.php                                           — all Partna feature config & limits
 ```
 
 ### Patterns
@@ -107,7 +107,7 @@ config/
 - **Resource classes** for all API responses — never return raw Eloquent models.
 - **Form Request classes** for input validation.
 - **Observer pattern** for model lifecycle side-effects (auto-triggering jobs, cache invalidation).
-- **Feature flags** via env vars (e.g., `SIDEST_VIDEO_UPLOADS_ENABLED`). Check `config/sidest.php` for all flags.
+- **Feature flags** via env vars (e.g., `SIDEST_VIDEO_UPLOADS_ENABLED`). Check `config/partna.php` for all flags.
 - **UUID primary keys** on all tables.
 - **Soft deletes** with 30-day retention (configurable via `SOFT_DELETE_RETENTION_DAYS`).
 - **JSON columns** for flexible settings (site.settings, etc.).

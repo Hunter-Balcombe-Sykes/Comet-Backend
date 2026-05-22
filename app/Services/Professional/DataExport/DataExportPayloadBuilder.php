@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 // Memory model: unbounded sections (customers, bookings, ledger, etc.) are
 // exposed as Generators using ->lazy(LAZY_CHUNK_ROWS) so DataExportZipWriter
 // can stream rows row-by-row to disk without loading the full result set into
-// PHP memory. GDPR right-of-access must not OOM on a large brand. The
+// PHP memory. GDPR right-of-access must not OOM on large accounts. The
 // legacy build() entry point still materialises the full payload (used by
 // unit tests and any future small-export caller) — large callers should use
 // stream() + DataExportZipWriter::writeStreaming().
@@ -333,7 +333,7 @@ class DataExportPayloadBuilder
 
     /**
      * Materialise a generator to an array. Used only by build() and by the
-     * small-but-bounded sections (brand_partner_links, site.blocks) that
+     * small-but-bounded sections (site.blocks) that
      * never realistically grow into the OOM danger zone.
      */
     private function collect(Generator $rows): array

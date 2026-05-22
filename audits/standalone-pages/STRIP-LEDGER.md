@@ -648,13 +648,15 @@ keep `account_type` column itself per decision 10), `core.feature_flag_overrides
 (drop `brand_id` + the `scope_xor` constraint + 2 brand indexes; new constraint
 `professional_id IS NOT NULL`), `site.services` (drop 5 `square_*` + 5 `fresha_*`
 columns + their indexes/uniques — decision 1).
+Note: `core.professional_legal_contents` was dropped in a migration prior to this strip and is absent from the new baseline — no action required.
+
 **Review corrections 2026-05-22:** (a) `core.professionals.qr_slug` was already
 dropped in `20260508600000` — it won't be in the re-baseline column list, no
 action needed. (b) `core.feature_flag_overrides.created_by` FK was repointed to
 `core.partna_staff` in `20260519010001` — the re-baseline must use that target,
 NOT the v2-baseline `core.professionals` target.
 
-**KEEP (clean):** `core.{partna_staff, waitlist_signups, professional_legal_contents,
+**KEEP (clean):** `core.{partna_staff, waitlist_signups,
 professional_confirmation_preferences, data_export_audit, professional_deletion_audit,
 feature_flags, staff_audit_log, auth_factor_events, handle_change_log}`,
 `site.{themes, sites, blocks, site_media, media_variants, site_subdomain_aliases,

@@ -19,7 +19,6 @@ class WaitlistSignup extends BaseModel
     // PII + consent telemetry hidden from default model serialization. Controllers / Resources
     // hand-pick fields explicitly when responses need to include them; this guards against
     // accidental exposure via toArray() in queue payloads, broadcast events, or future endpoints.
-    // Mirrors the BrandAffiliateInvite deny-by-default posture.
     protected $hidden = [
         'name',
         'email',

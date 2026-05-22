@@ -615,45 +615,6 @@ function signStripeBody(string $body, string $secret, ?int $timestamp = null): s
     return 't='.$timestamp.',v1='.$signature;
 }
 
-/**
- * brand.brand_store_settings — minimal columns for Shopify connect/disconnect tests.
- */
-function setupBrandStoreSettingsTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_store_settings (
-        id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
-        default_commission_rate TEXT NULL,
-        payout_hold_days INTEGER NULL,
-        theme_id INTEGER NULL,
-        oxygen_deployment_token TEXT NULL,
-        oxygen_storefront_id TEXT NULL,
-        hydrogen_install_confirmed INTEGER NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * brand.brand_profiles — minimal columns for Shopify disconnect / brand setup tests.
- */
-function setupBrandProfilesTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
-        id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
-        brand_status TEXT NULL DEFAULT "building",
-        setup_complete INTEGER NULL,
-        business_website TEXT NULL,
-        signup_code TEXT NULL,
-        signup_code_active INTEGER NOT NULL DEFAULT 1,
-        signup_code_rotated_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
 
 /**
  * site.service_categories — minimal columns for Square sync tests.
@@ -707,103 +668,6 @@ function setupServicesTable(): void
     )');
 }
 
-/**
- * commerce.commission_movements — minimal columns for CommissionVoidService flush/void tests.
- */
-function setupCommissionLedgerEntriesTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.commission_movements (
-        id TEXT PRIMARY KEY,
-        payout_id TEXT NULL,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        entry_type TEXT NULL,
-        status TEXT NULL,
-        amount_cents INTEGER NULL,
-        currency_code TEXT NULL,
-        occurred_at TEXT NULL,
-        voided_at TEXT NULL,
-        void_reason TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * commerce.commission_payouts — minimal columns for affiliate analytics payout/grace summary.
- * Includes brand_professional_id so CommissionPolicy tests can assert brand-owner access.
- */
-function setupCommissionPayoutsTable(): void
-{
-    attachTestSchemas();
-    // Column list mirrors the production model's writes — every Stripe-v2 lifecycle
-    // column the service forceFill()s must exist here or test inserts fail.
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.commission_payouts (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        status TEXT NULL,
-        gross_commission_cents INTEGER NULL,
-        platform_fee_cents INTEGER NULL,
-        net_payout_cents INTEGER NULL,
-        charge_cents INTEGER NULL,
-        ledger_entry_count INTEGER NULL,
-        retry_count INTEGER NULL,
-        needs_manual_refund INTEGER NULL,
-        currency_code TEXT NULL,
-        payment_intent_id TEXT NULL,
-        charge_id TEXT NULL,
-        failure_code TEXT NULL,
-        failure_reason TEXT NULL,
-        failure_category TEXT NULL,
-        stripe_error_code TEXT NULL,
-        stripe_error_message TEXT NULL,
-        eligible_after TEXT NULL,
-        processed_at TEXT NULL,
-        transfer_completed_at TEXT NULL,
-        void_at TEXT NULL,
-        grace_notifications_sent TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * commerce.brand_commission_topups — minimal columns for brand wallet top-up tests.
- * Only the brand side; no affiliate_professional_id on these records.
- */
-function setupBrandCommissionTopupsTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.brand_commission_topups (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        amount_cents INTEGER NULL,
-        currency_code TEXT NULL,
-        notes TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * commerce.affiliate_product_selections — minimal columns for uninstall webhook tests.
- */
-function setupAffiliateProductSelectionsTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.affiliate_product_selections (
-        id TEXT PRIMARY KEY,
-        affiliate_professional_id TEXT NULL,
-        brand_professional_id TEXT NULL,
-        shopify_product_gid TEXT NULL,
-        sort_order INTEGER NULL,
-        deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
 
 /**
  * core.customers — all columns nullable, mirrors the production schema.
@@ -855,82 +719,6 @@ function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\P
     return \App\Models\Core\Professional\Customer::query()->findOrFail($id);
 }
 
-/**
- * brand.brand_partner_link_events — append-only audit log for link lifecycle events.
- */
-function setupBrandPartnerLinkEventsTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_link_events (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        affiliate_professional_id TEXT NULL,
-        actor_professional_id TEXT NULL,
-        event_type TEXT NULL,
-        metadata TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * brand.brand_affiliate_invites — invitation tokens for affiliate onboarding.
- * Mirrors the production table including both claimed_by_professional_id (legacy)
- * and claimed_professional_id (current FK column used by BrandAffiliateInvite model).
- */
-function setupBrandAffiliateInvitesTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS brand.brand_affiliate_invites (
-        id TEXT PRIMARY KEY,
-        brand_professional_id TEXT NULL,
-        invite_type TEXT NULL,
-        token TEXT NULL,
-        handle TEXT NULL,
-        email TEXT NULL,
-        first_name TEXT NULL,
-        last_name TEXT NULL,
-        status TEXT NULL,
-        claimed_by_professional_id TEXT NULL,
-        claimed_professional_id TEXT NULL,
-        expires_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
- * commerce.commission_export_audit — async export audit rows.
- * All columns nullable except id; mirrors the production table's write surface.
- */
-function setupCommissionExportAuditTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS commerce.commission_export_audit (
-        id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
-        role TEXT NULL,
-        format TEXT NULL,
-        filters TEXT NULL,
-        status TEXT NULL,
-        recipient_email TEXT NULL,
-        payouts_total INTEGER NULL,
-        payouts_processed INTEGER NULL DEFAULT 0,
-        chunk_size INTEGER NULL,
-        chunks_total INTEGER NULL,
-        chunks_completed INTEGER NULL DEFAULT 0,
-        last_processed_payout_id TEXT NULL,
-        next_chunk_index INTEGER NULL DEFAULT 0,
-        file_path TEXT NULL,
-        file_size_bytes INTEGER NULL,
-        file_sha256 TEXT NULL,
-        error_message TEXT NULL,
-        created_at TEXT NULL,
-        processing_at TEXT NULL,
-        completed_at TEXT NULL,
-        expires_at TEXT NULL
-    )');
-}
 
 /**
  * Insert a Service row for $pro and return the Eloquent model.
@@ -1087,38 +875,6 @@ function createDocumentFor(User $pro, array $overrides = []): \App\Models\Core\S
 }
 
 /**
- * commerce.orders + commerce.order_events + commerce.brand_affiliate_rollup + commerce.order_items
- * — minimal columns for Phase 3 webhook write-path and analytics read-path tests.
- * SQLite does not support INSERT ... ON CONFLICT WHERE (partial predicate), so tests that
- * exercise the LWW guard directly must call markTestSkipped() on non-pgsql connections.
- */
-/**
- * billing.webhook_events — the durable dedupe ledger written by every webhook controller
- * (Stripe + Shopify) via the DedupesShopifyWebhookEvent trait, firstOrCreate, or the
- * DB-level claimShopifyWebhookEvent / claimStripeWebhookEvent helpers.
- *
- * Provider distinguishes Stripe events from Shopify events; `stripe_event_id` is
- * historically named but semantically holds the external event ID for the provider.
- * The UNIQUE (provider, stripe_event_id) constraint is what makes the dedup race-safe.
- */
-function setupWebhookEventsTable(): void
-{
-    attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS billing.webhook_events (
-        id TEXT PRIMARY KEY,
-        provider TEXT NOT NULL DEFAULT \'stripe\',
-        stripe_event_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        payload TEXT,
-        received_at TEXT NOT NULL DEFAULT (datetime(\'now\')),
-        processed_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        UNIQUE (provider, stripe_event_id)
-    )');
-}
-
-/**
  * core.feature_flags + core.feature_flag_overrides — needed by any test that
  * exercises feature gating (the `feature:` middleware, FeatureFlagService, the
  * flag-prune command). Schema mirrors tests/Feature/FeatureFlags/FeatureFlagTestCase.
@@ -1142,7 +898,6 @@ function setupFeatureFlagsTable(): void
         id TEXT PRIMARY KEY,
         flag_key TEXT,
         professional_id TEXT,
-        brand_id TEXT,
         enabled INTEGER DEFAULT 0,
         reason TEXT,
         expires_at TEXT,
@@ -1152,96 +907,6 @@ function setupFeatureFlagsTable(): void
     )');
 }
 
-function setupCommerceOrdersTables(): void
-{
-    attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
-
-    // Shopify and Stripe webhook controllers all dedupe via billing.webhook_events.
-    // Auto-include the table so tests that hit those controllers don't have to.
-    setupWebhookEventsTable();
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS commerce.orders (
-        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-        shopify_order_id TEXT NOT NULL,
-        shopify_shop_domain TEXT NOT NULL,
-        brand_professional_id TEXT NOT NULL,
-        affiliate_professional_id TEXT NOT NULL,
-        customer_id TEXT NULL,
-        status TEXT NOT NULL DEFAULT \'pending\',
-        gross_cents INTEGER NOT NULL DEFAULT 0,
-        discount_cents INTEGER NOT NULL DEFAULT 0,
-        refund_cents INTEGER NOT NULL DEFAULT 0,
-        net_cents INTEGER NOT NULL DEFAULT 0,
-        commission_cents INTEGER NOT NULL DEFAULT 0,
-        commission_rate REAL NOT NULL DEFAULT 0,
-        rate_source TEXT NOT NULL DEFAULT \'pending\',
-        currency_code TEXT NOT NULL DEFAULT \'AUD\',
-        line_items TEXT NOT NULL DEFAULT \'[]\',
-        shopify_data TEXT NOT NULL DEFAULT \'{}\',
-        payout_id TEXT NULL,
-        payout_eligible_at TEXT NULL,
-        reconciled_at TEXT NULL,
-        shopify_updated_at TEXT NULL,
-        occurred_at TEXT NOT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        UNIQUE(shopify_shop_domain, shopify_order_id)
-    )');
-
-    $conn->statement('CREATE TABLE IF NOT EXISTS commerce.order_events (
-        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-        order_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        amount_delta_cents INTEGER NULL,
-        metadata TEXT NOT NULL DEFAULT \'{}\',
-        source TEXT NOT NULL DEFAULT \'webhook\',
-        shopify_event_id TEXT NULL UNIQUE,
-        shopify_triggered_at TEXT NOT NULL,
-        occurred_at TEXT NULL
-    )');
-    // UNIQUE on shopify_event_id simulates the PG partial unique index.
-    // SQLite UNIQUE with NULLs: multiple NULLs are treated as distinct (NOT equal),
-    // so reconciler-sourced events (NULL event_id) can coexist — matches PG partial-index behavior.
-
-    // Trigger-maintained rollup — manually seeded in tests since SQLite won't fire PG triggers.
-    $conn->statement('CREATE TABLE IF NOT EXISTS commerce.brand_affiliate_rollup (
-        brand_professional_id TEXT NOT NULL,
-        affiliate_professional_id TEXT NOT NULL,
-        day TEXT NOT NULL,
-        currency_code TEXT NOT NULL DEFAULT \'AUD\',
-        orders_count INTEGER NOT NULL DEFAULT 0,
-        gross_cents INTEGER NOT NULL DEFAULT 0,
-        refund_cents INTEGER NOT NULL DEFAULT 0,
-        net_cents INTEGER NOT NULL DEFAULT 0,
-        commission_cents INTEGER NOT NULL DEFAULT 0,
-        reversed_commission_cents INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NULL,
-        PRIMARY KEY (brand_professional_id, affiliate_professional_id, day, currency_code)
-    )');
-
-    // Normalized mirror of line_items JSONB — used by topProducts query.
-    $conn->statement('CREATE TABLE IF NOT EXISTS commerce.order_items (
-        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-        order_id TEXT NOT NULL,
-        shopify_line_item_id TEXT NOT NULL,
-        shopify_product_id TEXT NULL,
-        shopify_variant_id TEXT NULL,
-        sku TEXT NULL,
-        title TEXT NOT NULL DEFAULT \'\',
-        quantity INTEGER NOT NULL DEFAULT 1,
-        unit_price_cents INTEGER NOT NULL DEFAULT 0,
-        discount_cents INTEGER NOT NULL DEFAULT 0,
-        line_total_cents INTEGER NOT NULL DEFAULT 0,
-        commission_cents INTEGER NOT NULL DEFAULT 0,
-        commission_rate REAL NOT NULL DEFAULT 0,
-        brand_professional_id TEXT NOT NULL,
-        affiliate_professional_id TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        currency_code TEXT NOT NULL DEFAULT \'AUD\',
-        UNIQUE (order_id, shopify_line_item_id)
-    )');
-}
 
 /**
  * core.partna_staff — internal staff accounts, linked to Supabase auth users.

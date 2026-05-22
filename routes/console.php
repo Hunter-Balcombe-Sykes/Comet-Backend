@@ -64,6 +64,24 @@ Schedule::job(new \App\Jobs\Streaming\CheckStreamingLiveStatusJob)
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: check-streaming-live-status');
     });
 
+// Handle/subdomain alias lifecycle: hard-deletes expired alias rows daily.
+Schedule::command('handles:prune-expired-aliases')
+    ->dailyAt('03:15')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-expired-aliases');
+    });
+
+// Notifies alias holders of upcoming expiry (T-3/T-1 day warnings).
+Schedule::command('handles:notify-expiry')
+    ->dailyAt('09:00')
+    ->onOneServer()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: handles-notify-expiry');
+    });
+
 Schedule::command('feature-flags:prune-expired')
     ->dailyAt('03:30')
     ->withoutOverlapping()

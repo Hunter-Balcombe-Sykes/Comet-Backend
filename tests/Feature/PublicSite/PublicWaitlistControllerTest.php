@@ -19,8 +19,6 @@ it('stores a waitlist submission with normalized fields', function () {
         'type' => 'profesisonal',
         'industry' => 'mens grooming',
         'pilot_program_opt_in' => 'true',
-        'is_brand_partner_or_ambassador' => 'false',
-        'currently_sells_products' => 'true',
     ];
 
     $response = $this->postJson('/api/public/waitlist', $payload);
@@ -32,33 +30,29 @@ it('stores a waitlist submission with normalized fields', function () {
     expect($row->applicant_type)->toBe('professional');
     expect($row->industry)->toBe('mens_grooming');
     expect($row->phone)->toBe('+61412345678');
-    expect((int) $row->is_brand_partner_or_ambassador)->toBe(0);
-    expect((int) $row->currently_sells_products)->toBe(1);
 });
 
 it('upserts waitlist submissions by normalized email', function () {
-    $email = 'brand@example.com';
+    $email = 'upsert@example.com';
 
     $first = [
-        'name' => 'Brand One',
+        'name' => 'Pro One',
         'email' => $email,
         'phone' => '+61411111111',
-        'type' => 'brand',
+        'type' => 'professional',
         'industry' => 'beauty_products',
         'pilot_program_opt_in' => false,
         'number_of_team_members' => 5,
-        'number_of_affiliates_ambassadors' => 25,
     ];
 
     $second = [
-        'name' => 'Brand One Updated',
-        'email' => 'BRAND@example.com',
+        'name' => 'Pro One Updated',
+        'email' => 'UPSERT@example.com',
         'phone' => '+61422222222',
-        'type' => 'brand',
+        'type' => 'professional',
         'industry' => 'services_and_software',
         'pilot_program_opt_in' => true,
         'number_of_team_members' => 7,
-        'number_of_affiliates_ambassadors' => 30,
     ];
 
     $this->postJson('/api/public/waitlist', $first)->assertCreated();
@@ -68,7 +62,7 @@ it('upserts waitlist submissions by normalized email', function () {
     expect($count)->toBe(1);
 
     $row = DB::connection('pgsql')->table('core.waitlist_signups')->where('email_lc', $email)->first();
-    expect($row->name)->toBe('Brand One Updated');
+    expect($row->name)->toBe('Pro One Updated');
     expect($row->phone)->toBe('+61422222222');
     expect($row->industry)->toBe('services_and_software');
     expect((int) $row->pilot_program_opt_in)->toBe(1);
@@ -100,9 +94,6 @@ function setupWaitlistSchema(): void
         industry_other TEXT NULL,
         pilot_program_opt_in INTEGER NOT NULL DEFAULT 0,
         number_of_team_members INTEGER NULL,
-        number_of_affiliates_ambassadors INTEGER NULL,
-        is_brand_partner_or_ambassador INTEGER NULL,
-        currently_sells_products INTEGER NULL,
         consent_source TEXT NULL,
         consent_ip_hash TEXT NULL,
         consent_user_agent TEXT NULL,

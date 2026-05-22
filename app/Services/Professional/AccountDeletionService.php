@@ -88,8 +88,7 @@ class AccountDeletionService
 
     /**
      * Confirm deletion via token. Snapshots previous status, flips to
-     * pending_deletion, deletes integration credentials, schedules Stripe
-     * cancel-at-period-end, sends scheduled mail.
+     * pending_deletion, sends scheduled mail.
      *
      * @return array{success: bool, code: int, error?: string, deletes_at?: string}
      */
@@ -136,7 +135,6 @@ class AccountDeletionService
 
     /**
      * Apply the confirmed deletion: snapshot status, flip to pending_deletion,
-     * revoke integration credentials, schedule Stripe cancel-at-period-end,
      * send scheduled email. Shared by self-service confirm() and admin
      * adminInitiate(). Returns the deletes_at timestamp. PII pseudonymisation
      * is intentionally deferred to a separate call so the EVENT_CONFIRMED /
@@ -362,8 +360,7 @@ class AccountDeletionService
 
     /**
      * Cancel a pending deletion during the grace period. Restores previous
-     * status, clears deletion timestamps, attempts to reverse Stripe
-     * cancel-at-period-end, sends cancellation mail.
+     * status, clears deletion timestamps, sends cancellation mail.
      *
      * @return array{success: bool, code: int}
      */
