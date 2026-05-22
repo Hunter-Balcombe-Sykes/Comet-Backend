@@ -25,7 +25,7 @@ it('dispatches SyncSubdomainToKvJob for each individual professional', function 
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $this->artisan('partna:backfill-individual-kv-entries')
+    $this->artisan('partna:backfill-user-kv-entries')
         ->expectsOutputToContain('Target cohort: 1')
         ->assertSuccessful();
 
@@ -47,7 +47,7 @@ it('--dry-run reports the cohort and dispatches nothing', function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $this->artisan('partna:backfill-individual-kv-entries', ['--dry-run' => true])
+    $this->artisan('partna:backfill-user-kv-entries', ['--dry-run' => true])
         ->expectsOutputToContain('Target cohort: 1')
         ->assertSuccessful();
 

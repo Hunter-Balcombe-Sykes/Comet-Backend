@@ -97,11 +97,11 @@ describe('account_type migration sequence', function () {
 });
 
 describe('AccountType enum', function () {
-    it('has exactly three cases matching the DB CHECK constraint', function () {
+    it('has exactly one case — individual (brand and partner dropped in standalone strip)', function () {
         $values = array_map(fn (AccountType $c) => $c->value, AccountType::cases());
         sort($values);
 
-        expect($values)->toBe(['brand', 'individual', 'partner']);
+        expect($values)->toBe(['individual']);
     });
 });
 
