@@ -84,6 +84,68 @@ class SupabaseAdminService
     }
 
     /**
+     * Look up a Supabase auth user by email via the Admin API.
+     *
+     * Used by signup availability checks to detect orphan auth.users records
+     * (Supabase user exists, no Laravel mirror) so we can route visitors to
+     * sign-in instead of re-attempting a signUp that Supabase silently rejects
+     * with `user_repeated_signup` (anti-enumeration).
+     *
+     * Throws RuntimeException on transport/HTTP failure so callers can decide
+     * whether to fail-open or fail-closed.
+     *
+     * @return array{id: string, email: string, email_confirmed_at: ?string}|null
+     *                                                                            null when no exact-match user exists.
+     */
+    public function findUserByEmail(string $email): ?array
+    {
+        $email = strtolower(trim($email));
+
+        if ($email === '') {
+            return null;
+        }
+
+        $response = Http::withHeaders($this->headers())
+            ->timeout(10)
+            ->get("{$this->baseUrl}/auth/v1/admin/users", [
+                'email' => $email,
+                'per_page' => 1,
+            ]);
+
+        if (! $response->successful()) {
+            // Privacy: no raw email in logs — fingerprint correlates retries
+            // without persisting the address (same rationale as createUser).
+            Log::warning('Supabase admin: findUserByEmail failed', [
+                'email_fingerprint' => $this->emailFingerprint($email),
+                'status' => $response->status(),
+            ]);
+
+            throw new RuntimeException('Failed to query Supabase user by email.');
+        }
+
+        // The `email` query param is a substring filter on some GoTrue versions,
+        // so re-check exact match before returning a hit.
+        $users = $response->json('users') ?? [];
+
+        foreach ($users as $user) {
+            if (! is_array($user) || ! isset($user['email'])) {
+                continue;
+            }
+            if (strtolower((string) $user['email']) !== $email) {
+                continue;
+            }
+
+            return [
+                'id' => (string) ($user['id'] ?? ''),
+                'email' => (string) $user['email'],
+                'email_confirmed_at' => $user['email_confirmed_at'] ?? null,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * Remove an MFA factor from a Supabase user via the Admin API.
      *
      * Endpoint: DELETE /auth/v1/admin/users/{user_id}/factors/{factor_id}
