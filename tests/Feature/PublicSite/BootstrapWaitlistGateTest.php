@@ -2,9 +2,6 @@
 
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Requests\Api\BootstrapRequest;
-use App\Services\Professional\AccountTypeDefaultsService;
-use App\Services\Professional\Brand\BrandAffiliateInviteService;
-use App\Services\Professional\Brand\BrandPartnerLinkService;
 use App\Services\Professional\SiteProvisioningService;
 use Illuminate\Support\Facades\DB;
 
@@ -21,12 +18,7 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
     $request = BootstrapRequest::create('/api/bootstrap', 'POST');
     $request->attributes->set('supabase_uid', 'new-user-uid');
 
-    $response = $controller->bootstrap(
-        $request,
-        \Mockery::mock(BrandAffiliateInviteService::class),
-        \Mockery::mock(BrandPartnerLinkService::class),
-        \Mockery::mock(AccountTypeDefaultsService::class),
-    );
+    $response = $controller->bootstrap($request);
 
     expect($response->getStatusCode())->toBe(403);
     expect($response->getData(true)['errors']['code'] ?? null)->toBe('WAITLIST_ONLY');
@@ -40,7 +32,6 @@ it('detects existing professionals by supabase auth user id', function () {
 
     $controller = new BootstrapController(new SiteProvisioningService);
     $method = new ReflectionMethod(BootstrapController::class, 'hasExistingProfessional');
-    $method->setAccessible(true);
 
     expect($method->invoke($controller, 'existing-user-uid'))->toBeTrue();
     expect($method->invoke($controller, 'missing-user-uid'))->toBeFalse();
