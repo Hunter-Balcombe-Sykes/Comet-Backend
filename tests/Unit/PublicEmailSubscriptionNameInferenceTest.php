@@ -7,7 +7,6 @@ function infer_name_from_email(string $email): ?string
     $controller = new PublicEmailSubscriptionController;
     $reflection = new ReflectionClass($controller);
     $method = $reflection->getMethod('inferNameFromEmail');
-    $method->setAccessible(true);
 
     $value = $method->invoke($controller, $email);
 

@@ -11,7 +11,6 @@ function invokeBuildBlockFields(array $data): array
 {
     $controller = new ProfessionalLinkBlockController(new SocialLinkNormalizer);
     $method = (new ReflectionClass($controller))->getMethod('buildBlockFields');
-    $method->setAccessible(true);
 
     return $method->invoke($controller, $data);
 }

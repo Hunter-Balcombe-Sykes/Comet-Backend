@@ -19,7 +19,6 @@ beforeEach(function () {
     // Reset the in-process static key cache so each test starts cold.
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $prop->setValue(null, []);
 
     config([
@@ -118,7 +117,6 @@ it('warms a TRUE mixed-alg JWKS (RS256 + ES256) with each kid carrying its own a
 
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $warmed = $prop->getValue();
 
     expect($warmed[$kidRs]->getAlgorithm())->toBe('RS256')
@@ -164,7 +162,6 @@ it('warms self::$keysByKid with each parsed Key having its OWN declared algorith
     // declared by their JWK entry, NOT whatever $alg the inbound JWT had.
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $warmed = $prop->getValue();
 
     expect($warmed)->toHaveKey($kidRs)

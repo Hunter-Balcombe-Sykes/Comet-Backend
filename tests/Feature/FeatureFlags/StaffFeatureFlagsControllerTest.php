@@ -59,7 +59,6 @@ function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff
     // ->set() can be called on it. Use reflection to inject a fresh ParameterBag.
     $ref = new \ReflectionClass(\Symfony\Component\HttpFoundation\Request::class);
     $prop = $ref->getProperty('attributes');
-    $prop->setAccessible(true);
     $prop->setValue($mock, new \Symfony\Component\HttpFoundation\ParameterBag);
 
     $mock->attributes->set('partna_staff', $staff);

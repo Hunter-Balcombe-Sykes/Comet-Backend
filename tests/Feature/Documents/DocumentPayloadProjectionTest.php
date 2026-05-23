@@ -12,7 +12,6 @@ beforeEach(function () {
 it('resolves document.preview_url from path to full CDN URL', function () {
     $service = app(SiteCacheService::class);
     $method = (new ReflectionClass($service))->getMethod('resolveImageVariantUrlsInSite');
-    $method->setAccessible(true);
 
     $site = [
         'gallery' => [],
@@ -38,7 +37,6 @@ it('resolves document.preview_url from path to full CDN URL', function () {
 it('leaves document as null when no document exists', function () {
     $service = app(SiteCacheService::class);
     $method = (new ReflectionClass($service))->getMethod('resolveImageVariantUrlsInSite');
-    $method->setAccessible(true);
 
     $site = [
         'gallery' => [],
@@ -56,7 +54,6 @@ it('leaves document as null when no document exists', function () {
 it('does not break when document key is missing from site array', function () {
     $service = app(SiteCacheService::class);
     $method = (new ReflectionClass($service))->getMethod('resolveImageVariantUrlsInSite');
-    $method->setAccessible(true);
 
     $site = [
         'gallery' => [],
