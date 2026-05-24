@@ -497,6 +497,14 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: add `app()->environment('production', 'staging')` check inside the `! $this->configured` branch — throw `RuntimeException` (or `Log::critical`) instead of returning silently. Keep silent no-op for `local`/`testing`. Companion: add a deploy-time check (or extend `EnvCheckService`) asserting `services.cloudflare.account_id`, `kv_namespace_id`, `api_token`, `zone_id`, and `cache_purge_token` are all non-empty in production. **Adjacent to bundle B8 (KV lifecycle)** — same writer surface.
     - Models: impl=sonnet · review=opus
 
+### Concurrency & idempotency (B10 follow-up)
+
+- [ ] **#P2-43** Concurrent `confirm()` (and `cancel()` / `request()`) on AccountDeletion can persist duplicate audit rows + queue duplicate mails — Lens: `IDEMPOTENCY-1` (B10 follow-up)
+    - Where: `app/Services/Professional/AccountDeletionService.php:101` (confirm), `:401` (cancel), `:41` (request) · `app/Http/Controllers/Api/User/ProfessionalAccountDeletionController.php`
+    - What: B10 made `executeConfirmation()` transactional, but the token check at line 123 runs on a model loaded by the route resolver BEFORE the transaction starts. Two concurrent `confirm()` calls (browser refresh mid-request, mobile double-tap, two tabs) both pass the `hash_equals` check, both enter the transaction, Postgres serializes the row UPDATE — but BOTH commit a fresh `EVENT_CONFIRMED` audit row and BOTH queue an `AccountDeletionScheduledMail`. Final DB state is correct (status, PII, token all final after race resolves); the defect is forensic accuracy (audit log says the user confirmed twice when they clicked once) and user-facing duplicate emails. Same race exists on `cancel()` and `request()` paths. Window is narrow (~100ms between route-resolver load and transaction commit) but real.
+    - Fix: Bundle B27 — HTTP-layer `Idempotency-Key` middleware. Frontend sends a UUID per logical operation; middleware caches `{user_id, key} → response` in Redis with 24h TTL; replay returns cached response without re-entering the controller. Applies to all mutation endpoints, extensible beyond AccountDeletion. Per-service compare-and-set (`UPDATE … WHERE deletion_token_hash = ? RETURNING affected_rows`) is the cheaper local fix if the middleware is deferred.
+    - Models: impl=sonnet · review=opus
+
 ---
 
 ## P3 — nice to have
@@ -1306,6 +1314,44 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > 4. Run `composer test`. Report the result.
 >
 > Be paranoid. Silent production failure is what this fix is trying to prevent — don't reintroduce it via a wrong env check.
+
+### Bundle B27: Idempotency-key middleware (1 item — #P2-43) — Effort: M-L
+- [ ] Bundle status checkbox
+- Items: `#P2-43`
+- Models: impl=sonnet · review=opus
+- Rationale: HTTP-layer idempotency middleware closes the concurrent-double-submit class of bug across every mutation endpoint, not just AccountDeletion. Frontend sends `Idempotency-Key: <uuid>` per logical user action; middleware caches the first response in Redis (24h TTL) and replays on retries. Eliminates duplicate-audit-row + duplicate-mail risk on confirm/cancel/request today, and prevents future endpoints from re-introducing the same race. Discovered during B10 adversarial review — the unified transaction in B10 narrowed the race but doesn't eliminate it because the token check runs on a route-resolver-loaded model before the transaction starts.
+- Suggested approach:
+    1. `App\Http\Middleware\IdempotencyKey` middleware: read `Idempotency-Key` header (UUID v4 format); skip if absent (opt-in, backward-compatible).
+    2. Redis key: `idempotency:{user_id}:{key}` → JSON `{status, headers, body}`. TTL 24h.
+    3. On request: if key exists, return cached response immediately (add `Idempotency-Replayed: true` header). If absent, run handler, capture response, write to Redis, return.
+    4. Decide error-caching policy: cache 2xx/4xx only (NOT 5xx) so users can retry after transient failures without being stuck on the replayed error.
+    5. Apply to `confirm`, `cancel`, `request` routes on `ProfessionalAccountDeletionController` first; extend to other mutation endpoints in follow-up sweeps.
+    6. Coordinate with frontend: per-button-click UUID generation, refreshed on page navigation. Document the header contract in `docs/api.md`.
+- Dependencies: none (standalone middleware; frontend coordination required for full effect).
+
+**Session prompts** (paste with the bundle into a fresh session):
+
+*Implementation (plan-first — middleware design):*
+
+> Read Bundle B27 + #P2-43 above. Read existing middleware patterns in `app/Http/Middleware/` (`ResolvesSiteFromRequest`, `EnsurePartnaAdmin` for shape; `VerifySupabaseJwt` for header reading). Look at how AccountDeletionController routes are registered in `routes/api/user.php`.
+>
+> Show me a numbered plan: middleware class shape, Redis key scheme, TTL choice, replay header, route registration, handling of streaming/file responses, HTTP-method scope (POST/PUT/PATCH/DELETE only?), error-caching policy, test strategy. Wait for my approval.
+>
+> Then implement, run `composer test`, and summarise the diff.
+
+*Review (opus — concurrency + cache poisoning):*
+
+> The bundle above introduces HTTP-layer idempotency caching. Review with adversarial eye.
+>
+> 1. Does the middleware correctly serialize concurrent requests with the same key, or can the second request execute the handler before the first finishes writing to Redis?
+> 2. Cache poisoning: can a user replay a stale error forever? Is the error-caching policy actually enforced (no 5xx caching)?
+> 3. Key scope: is `{user_id, key}` adequate, or do we need to include the route name to prevent cross-endpoint collisions?
+> 4. Redis outage: fail-open (proceed without idempotency, accept race) or fail-closed (503)? Document the choice.
+> 5. Streaming responses, file downloads — does the middleware break them?
+> 6. TTL choice (24h) — too long (stale replays after user re-auth)? Too short (user retries from a tab opened yesterday)? Match to the longest legitimate user-retry window.
+> 7. Edge cases: idempotency key reuse across different request bodies (replay attack? user error?); empty `Idempotency-Key` header vs absent header; non-UUID keys.
+>
+> Run `composer test`. Be paranoid.
 
 ---
 
