@@ -42,6 +42,8 @@ class EnvCheckService
         'Cache / Queue / Session' => [
             'cache.default' => 'CACHE_STORE',
             'queue.default' => 'QUEUE_CONNECTION',
+            'queue.batching.database' => 'DB_CONNECTION',
+            'queue.failed.database' => 'DB_CONNECTION',
             'session.driver' => 'SESSION_DRIVER',
         ],
         'Supabase Auth' => [
@@ -68,6 +70,7 @@ class EnvCheckService
     public const RECOMMENDED = [
         'Observability' => [
             'nightwatch.token' => 'NIGHTWATCH_TOKEN',
+            'logging.channels.single.level' => 'LOG_LEVEL',
         ],
         'Mail' => [
             'services.resend.key' => 'RESEND_API_KEY',
