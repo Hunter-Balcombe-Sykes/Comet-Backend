@@ -7,6 +7,7 @@ use Closure;
 use DateTimeInterface;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Redis;
 use Throwable;
 
 /**
@@ -273,7 +274,7 @@ class CacheLockService
     private function recordLockReleaseFailure(): void
     {
         try {
-            \Illuminate\Support\Facades\Redis::incr('cache:lock_release_failures');
+            Redis::incr('cache:lock_release_failures');
         } catch (\Throwable) {
             // Swallow — a failure to count a failure must not cascade.
         }
