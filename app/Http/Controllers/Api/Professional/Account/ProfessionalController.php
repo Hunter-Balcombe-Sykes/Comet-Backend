@@ -66,6 +66,7 @@ class ProfessionalController extends ApiController
     public function update(UpdateProfessionalRequest $request)
     {
         $professional = $this->currentProfessional($request);
+        $this->authorizeForUser($professional, 'update', $professional);
         DB::transaction(function () use ($professional, $request): void {
             $professional->fill($request->validated());
             $professional->save();

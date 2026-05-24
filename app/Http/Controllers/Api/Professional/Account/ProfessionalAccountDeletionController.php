@@ -73,6 +73,8 @@ class ProfessionalAccountDeletionController extends ApiController
 
         /** @var User $professional */
         $professional = $request->attributes->get('professional');
+        // 'update' policy gates ownership + pending-deletion block; no separate 'confirm' ability needed.
+        $this->authorizeForUser($professional, 'update', $professional);
 
         $result = $this->deletionService->confirm($professional, (string) $request->input('token'), $request);
 
