@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Staff\ProfessionalSiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateSiteRequest;
+use App\Http\Resources\SiteResource;
 use App\Models\Core\Professional\User;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
@@ -23,8 +24,6 @@ class StaffSiteManagementController extends ApiController
             ]
         );
 
-        $siteArray = $site->toArray();
-
-        return $this->success(['site' => $siteArray]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 }

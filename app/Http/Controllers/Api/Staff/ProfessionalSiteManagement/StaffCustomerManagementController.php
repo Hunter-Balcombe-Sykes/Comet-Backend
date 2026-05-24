@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateCustomerRequest;
+use App\Http\Resources\CustomerResource;
 use App\Models\Core\Professional\Customer;
 use App\Models\Core\Professional\User;
 use Illuminate\Http\JsonResponse;
@@ -51,12 +52,15 @@ class StaffCustomerManagementController extends ApiController
 
         $page = $query->paginate($perPage)->appends($request->query());
 
-        return $this->success($this->paginatedResponse($page, 'customers', [
+        $payload = $this->paginatedResponse($page, 'customers', [
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
             ],
-        ]));
+        ]);
+        $payload['customers'] = CustomerResource::collection($page->items())->resolve();
+
+        return $this->success($payload);
     }
 
     /**
@@ -76,7 +80,7 @@ class StaffCustomerManagementController extends ApiController
             abort(404);
         }
 
-        return $this->success(['customer' => $customer]);
+        return $this->success(['customer' => new CustomerResource($customer)]);
     }
 
     /**
@@ -93,7 +97,7 @@ class StaffCustomerManagementController extends ApiController
         $customer->fill($request->validated());
         $customer->save();
 
-        return $this->success(['customer' => $customer->fresh()]);
+        return $this->success(['customer' => new CustomerResource($customer->fresh())]);
     }
 
     /**
@@ -118,7 +122,7 @@ class StaffCustomerManagementController extends ApiController
             $customer->restore();
         }
 
-        return $this->success(['restored' => true, 'customer' => $customer->fresh()]);
+        return $this->success(['restored' => true, 'customer' => new CustomerResource($customer->fresh())]);
     }
 
     public function forceDestroy(User $professional, Customer $customer): JsonResponse

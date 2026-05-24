@@ -10,6 +10,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Professional\Customer\StoreCustomerRequest;
 use App\Http\Requests\Api\Professional\Customer\UpdateCustomerRequest;
+use App\Http\Resources\CustomerResource;
 use App\Models\Core\Professional\Customer;
 use App\Services\Professional\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
@@ -71,8 +72,14 @@ class ProfessionalCustomerController extends ApiController
                 'marketing_opt_in' => $marketingOptIn,
             ],
         ]);
+        // P1-05: wrap items in the explicit CustomerResource allowlist instead
+        // of shipping raw Eloquent rows (would auto-leak future / hidden columns).
+        $payload['customers'] = CustomerResource::collection($paginator->items())->resolve();
+        // P1-06: dual-key `meta` + `pagination` for one release cycle. Staff
+        // mirror already uses `meta`; this brings professional in line while
+        // keeping current frontend reads working.
+        // TODO(B4): drop `pagination` key once frontend confirms it reads `meta`.
         $payload['pagination'] = $payload['meta'];
-        unset($payload['meta']);
 
         return $this->success($payload);
     }
@@ -106,7 +113,7 @@ class ProfessionalCustomerController extends ApiController
             $customer = $pro->customers()->create($data);
         }
 
-        return $this->success(['customer' => new \App\Http\Resources\CustomerResource($customer)], 201);
+        return $this->success(['customer' => new CustomerResource($customer)], 201);
     }
 
     public function show(Request $request, Customer $customer)
@@ -119,7 +126,7 @@ class ProfessionalCustomerController extends ApiController
             abort(404);
         }
 
-        return $this->success(['customer' => new \App\Http\Resources\CustomerResource($customer)]);
+        return $this->success(['customer' => new CustomerResource($customer)]);
     }
 
     public function update(UpdateCustomerRequest $request, Customer $customer)
@@ -134,7 +141,7 @@ class ProfessionalCustomerController extends ApiController
         $customer->fill($request->validated());
         $customer->save();
 
-        return $this->success(['customer' => new \App\Http\Resources\CustomerResource($customer->fresh())]);
+        return $this->success(['customer' => new CustomerResource($customer->fresh())]);
     }
 
     // Archive Soft Delete
@@ -167,7 +174,7 @@ class ProfessionalCustomerController extends ApiController
             $customer->restore();
         }
 
-        return $this->success(['restored' => true, 'customer' => $customer->fresh()]);
+        return $this->success(['restored' => true, 'customer' => new CustomerResource($customer->fresh())]);
     }
 
     private function shouldRememberConfirmationPreference(Request $request): bool

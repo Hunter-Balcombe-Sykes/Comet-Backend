@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\UpsertSectionBlockRequest;
+use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
 use App\Services\Professional\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
@@ -70,7 +71,10 @@ class ProfessionalSectionBlockController extends ApiController
 
         return $this->success([
             'sections' => $sections
-                ->map(fn (Block $section) => $this->serializeSection($section, $visibilityMap))
+                ->map(fn (Block $section) => new SectionBlockResource(
+                    $section,
+                    $visibilityMap[(string) $section->block_type] ?? [true, null],
+                ))
                 ->values(),
             'allowed_sections' => array_values($allowedSections),
             'unavailable_sections' => $unavailableSections,
@@ -213,7 +217,7 @@ class ProfessionalSectionBlockController extends ApiController
         }
 
         return $this->success([
-            'section' => $this->serializeSection($block->fresh()),
+            'section' => new SectionBlockResource($block->fresh()),
         ], $block->wasRecentlyCreated ? 201 : 200);
     }
 
@@ -317,7 +321,7 @@ class ProfessionalSectionBlockController extends ApiController
 
         return $this->success([
             'ok' => true,
-            'section' => $block ? $this->serializeSection($block->fresh()) : null,
+            'section' => $block ? new SectionBlockResource($block->fresh()) : null,
         ]);
     }
 
@@ -389,29 +393,4 @@ class ProfessionalSectionBlockController extends ApiController
         });
     }
 
-    /**
-     * Serialize a section block for API output.
-     *
-     * @param  array<string, array{0: bool, 1: ?string}>|null  $visibilityMap
-     *                                                                         Optional precomputed map of block_type → [canPublish, reason].
-     *                                                                         Supplied by the index action (one batched lookup for all sections);
-     *                                                                         upsert/remove pass null since they've already enforced visibility
-     *                                                                         at write time and the post-mutation response doesn't need the gate.
-     */
-    private function serializeSection(Block $section, ?array $visibilityMap = null): array
-    {
-        $payload = $section->toArray();
-        $isLive = (bool) ($section->is_active ?? false);
-        $payload['publication_state'] = $isLive ? 'live' : 'draft';
-        $payload['is_live'] = $isLive;
-
-        if ($visibilityMap !== null) {
-            $type = (string) $section->block_type;
-            [$canPublish, $reason] = $visibilityMap[$type] ?? [true, null];
-            $payload['can_publish'] = $canPublish;
-            $payload['requirement_reason'] = $reason;
-        }
-
-        return $payload;
-    }
 }

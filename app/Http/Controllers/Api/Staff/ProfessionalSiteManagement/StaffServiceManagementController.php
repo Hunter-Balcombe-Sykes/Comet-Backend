@@ -7,6 +7,8 @@ use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceLay
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffStoreServiceRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffUpdateServiceRequest;
+use App\Http\Resources\ServiceCategoryResource;
+use App\Http\Resources\ServiceResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
@@ -39,7 +41,7 @@ class StaffServiceManagementController extends ApiController
 
         if (! $grouped) {
             return $this->success([
-                'services' => $services,
+                'services' => ServiceResource::collection($services),
                 'filters' => [
                     'include_archived' => $includeArchived,
                     'only_archived' => $onlyArchived,
@@ -62,19 +64,15 @@ class StaffServiceManagementController extends ApiController
         $servicesByCategory = $services->groupBy(fn (Service $s) => $s->category_id ?? '__uncategorised__');
 
         $categoryPayload = $categories->map(function (ServiceCategory $c) use ($servicesByCategory) {
-            return [
-                'id' => $c->id,
-                'professional_id' => $c->professional_id,
-                'title' => $c->title,
-                'sort_order' => $c->sort_order,
-                'deleted_at' => $c->deleted_at,
-                'services' => $servicesByCategory->get($c->id, collect())->values(),
-            ];
+            return array_merge(
+                (new ServiceCategoryResource($c))->resolve(),
+                ['services' => ServiceResource::collection($servicesByCategory->get($c->id, collect())->values())->resolve()],
+            );
         })->values();
 
         return $this->success([
             'categories' => $categoryPayload,
-            'uncategorised_services' => $servicesByCategory->get('__uncategorised__', collect())->values(),
+            'uncategorised_services' => ServiceResource::collection($servicesByCategory->get('__uncategorised__', collect())->values()),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -117,7 +115,7 @@ class StaffServiceManagementController extends ApiController
             return $service->fresh();
         });
 
-        return $this->success(['service' => $service], 201);
+        return $this->success(['service' => new ServiceResource($service)], 201);
     }
 
     public function show(Request $request, User $professional, Service $service): JsonResponse
@@ -129,7 +127,7 @@ class StaffServiceManagementController extends ApiController
             abort(404);
         }
 
-        return $this->success(['service' => $service]);
+        return $this->success(['service' => new ServiceResource($service)]);
     }
 
     public function update(StaffUpdateServiceRequest $request, User $professional, Service $service): JsonResponse
@@ -158,7 +156,7 @@ class StaffServiceManagementController extends ApiController
         $service->fill($data);
         $service->save();
 
-        return $this->success(['service' => $service->fresh()]);
+        return $this->success(['service' => new ServiceResource($service->fresh())]);
     }
 
     public function destroy(User $professional, Service $service): JsonResponse
@@ -312,7 +310,7 @@ class StaffServiceManagementController extends ApiController
             $service->restore();
         }
 
-        return $this->success(['restored' => true, 'service' => $service->fresh()]);
+        return $this->success(['restored' => true, 'service' => new ServiceResource($service->fresh())]);
     }
 
     private function assertCategoryBelongsToProfessional(string $professionalId, ?string $categoryId): void
