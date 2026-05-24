@@ -7,8 +7,10 @@ use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use App\Mail\BaseTransactionalMail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -53,6 +55,21 @@ class SupabaseEmailHookController extends ApiController
             return $this->error('Invalid payload', 422);
         }
 
+        // Dedup against Supabase retries. webhook-id is the Standard Webhooks
+        // idempotency key and the surrounding middleware has already proven
+        // the signature is valid. TTL matches the signature verifier's
+        // TIMESTAMP_TOLERANCE (300s) — beyond that, replays fail signature
+        // verification anyway, so the cache entry is no longer load-bearing.
+        $webhookId = (string) $request->header('webhook-id', '');
+        if ($webhookId !== '') {
+            $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
+            if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
+                Log::info('supabase.email_hook.duplicate', ['webhook_id' => $webhookId]);
+
+                return response()->json(['ok' => true, 'handled' => false, 'duplicate' => true]);
+            }
+        }
+
         $verifyUrl = $this->buildConfirmUrl($tokenHash, $actionType, $redirectTo);
         $displayName = $this->resolveDisplayName($user);
 
@@ -66,7 +83,7 @@ class SupabaseEmailHookController extends ApiController
                 return response()->json(['ok' => true, 'handled' => false]);
             }
 
-            Mail::send($mailable);
+            Mail::queue($mailable);
 
             return response()->json(['ok' => true, 'handled' => true]);
         } catch (\Throwable $e) {
@@ -126,7 +143,7 @@ class SupabaseEmailHookController extends ApiController
         ?string $displayName,
         string $verifyUrl,
         ?string $code,
-    ): ?\App\Mail\BaseTransactionalMail {
+    ): ?BaseTransactionalMail {
         // Email-confirmation actions (signup, email change) use the 6-digit
         // OTP from email_data.token. The frontend's verify step prompts for
         // exactly this code, so a click-link would only confuse — the email
