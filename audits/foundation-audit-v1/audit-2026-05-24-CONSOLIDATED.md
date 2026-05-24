@@ -214,7 +214,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - **STANDALONE** — schema-level work, requires careful audit. Bundle B19.
     - Models: impl=opus · review=opus
 
-- [ ] **#P1-14** Mailables bypass `BaseTransactionalMail` (11 of 15 classes) — Lens: `MAIL-1`
+- [x] **#P1-14** Mailables bypass `BaseTransactionalMail` (11 of 15 classes) — Lens: `MAIL-1`
     - Where: `app/Mail/Notifications/*` · `app/Mail/Gdpr/ProfessionalDataExportMail.php` · `app/Mail/HandleAliasExpiringMail.php` · `app/Mail/SiteEnquiryNotification.php` · `app/Mail/StaffBroadcastMail.php`
     - What: Bypasses the canonical from/reply-to and the `X-Partna-Pipeline: transactional` header, breaking Resend bounce attribution. The 4 Auth mails are the correct pattern.
     - Fix: change `extends Mailable` → `extends BaseTransactionalMail` and call `buildEnvelope()` in each. Add a Pest arch test asserting every class under `app/Mail/` extends `BaseTransactionalMail`.
@@ -232,7 +232,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: add `streamWaitlistSignups($email)` querying `WHERE email_lc = lower($professional->email)`. Yield it from `stream()` under `'waitlist'`. Test with a seeded row.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-17** OTP code rendered in email subject AND preheader — shoulder-surfable on lock screen — Lens: `MAIL-4`
+- [x] **#P1-17** OTP code rendered in email subject AND preheader — shoulder-surfable on lock screen — Lens: `MAIL-4`
     - Where: `app/Mail/Auth/EmailConfirmMail.php:21` · `resources/views/emails/auth/email-confirm.blade.php:1`
     - What: `->subject("Your Partna verification code: {$this->code}")` plus `@section('preheader', "Your Partna verification code: {$code}")` puts the 6-digit OTP in iOS/Android push banners and lock-screen previews. Brief physical proximity to a locked device leaks the code.
     - Fix: change subject to `'Verify your Partna email address'`; change preheader to `'Open this email to get your verification code.'`. The code is already prominently rendered in-body — no UX loss.
@@ -351,17 +351,17 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Mail safety
 
-- [ ] **#P2-18** Unescaped notification title in email preheader (4 templates) — Lens: `MAIL-2`
+- [x] **#P2-18** Unescaped notification title in email preheader (4 templates) — Lens: `MAIL-2`
     - Where: `resources/views/emails/notifications/{feature_announcement,incident,policy_update,profile_tasks}.blade.php:2`
     - Fix: wrap title in `e()`: `@section('preheader', e($notification->title))`. Or move to shared `_partial-content.blade.php`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-19** `SiteEnquiryNotification` subject built from unsanitised user input — Lens: `MAIL-3`
+- [x] **#P2-19** `SiteEnquiryNotification` subject built from unsanitised user input — Lens: `MAIL-3`
     - Where: `app/Mail/SiteEnquiryNotification.php:24`
     - Fix: strip `\r\n` from `name` and `subject` before interpolation: `preg_replace('/[\r\n]+/', ' ', $value)`. Defense-in-depth — Symfony Mailer's strip is the only thing protecting today, and CVE-2026-45067 just confirmed that protection isn't bulletproof.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-20** `EventServiceProvider::boot()` doesn't call `parent::boot()` — Lens: `MAIL-5`
+- [x] **#P2-20** `EventServiceProvider::boot()` doesn't call `parent::boot()` — Lens: `MAIL-5`
     - Where: `app/Providers/EventServiceProvider.php:20–30`
     - Fix: add `parent::boot();` as first line. Future `$listen`/`$subscribe` registrations will silently no-op otherwise.
     - Models: impl=haiku · review=sonnet
@@ -784,7 +784,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be paranoid. The single-writer invariant must hold — try to find a way to break it.
 
 ### Bundle B9: BaseTransactionalMail migration + mail safety (5 items) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-14`, `#P1-17`, `#P2-18`, `#P2-19`, `#P2-20`
 - Models: impl=sonnet · review=sonnet
 - Rationale: all touch `app/Mail/*` or `resources/views/emails/*` or `EventServiceProvider`. The migration to `BaseTransactionalMail` is the structural fix; the others are localized hardening that's natural to do in the same pass.

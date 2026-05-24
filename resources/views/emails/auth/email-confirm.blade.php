@@ -1,6 +1,6 @@
 @extends('mail.layouts.partna')
 
-@section('preheader', "Your Partna verification code: {$code}")
+@section('preheader', 'Open this email to get your verification code.')
 
 @section('content')
     <h1 class="headline text-primary" style="margin: 0 0 16px 0; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,sans-serif; font-size: 32px; font-weight: 600; line-height: 1.125; letter-spacing: -0.022em; color: #1d1d1f;">

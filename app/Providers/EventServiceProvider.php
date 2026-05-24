@@ -25,6 +25,8 @@ class EventServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        parent::boot();
+
         User::observe(ProfessionalObserver::class);
         Site::observe(SiteObserver::class);
         Block::observe(BlockObserver::class);

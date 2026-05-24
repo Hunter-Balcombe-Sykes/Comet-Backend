@@ -2,14 +2,14 @@
 
 namespace App\Mail\Gdpr;
 
+use App\Mail\BaseTransactionalMail;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 // V2: Emails the recipient (professional or admin staff) a 7-day signed R2
 // URL pointing at the data-export zip. Two visual variants — self-service is
 // addressed to the professional; staff variant carries a PII-handling banner.
-class ProfessionalDataExportMail extends Mailable
+class ProfessionalDataExportMail extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -26,7 +26,7 @@ class ProfessionalDataExportMail extends Mailable
             ? "Partna data export — {$this->professionalHandle}"
             : 'Your Partna data export is ready';
 
-        return $this
+        return $this->buildEnvelope()
             ->subject($subject)
             ->view('emails.gdpr.professional-data-export', [
                 'signedUrl' => $this->signedUrl,

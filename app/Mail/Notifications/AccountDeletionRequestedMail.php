@@ -2,13 +2,13 @@
 
 namespace App\Mail\Notifications;
 
+use App\Mail\BaseTransactionalMail;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 // V2: Confirmation email sent when a professional requests account deletion.
 // Contains a token-bearing link that expires in 24 hours.
-class AccountDeletionRequestedMail extends Mailable
+class AccountDeletionRequestedMail extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -19,7 +19,7 @@ class AccountDeletionRequestedMail extends Mailable
 
     public function build(): self
     {
-        return $this
+        return $this->buildEnvelope()
             ->subject('Confirm your account deletion request')
             ->view('emails.account.deletion-requested');
     }
