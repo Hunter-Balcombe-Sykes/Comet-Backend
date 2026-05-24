@@ -2,7 +2,6 @@
 
 namespace App\Http\Resources;
 
-use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 
 // Staff admin shape for Professional — full profile including auth_user_id for identity verification.
@@ -37,7 +36,7 @@ class ProfessionalStaffResource extends ApiResource
             // Plan §28.8a: only emit stripe_connect_status for account types that use Stripe Connect.
             // Individuals never have a Connect account; omitting the field avoids a null confusion.
             'stripe_connect_status' => $this->when(
-                AccountCapabilities::for($this->resource)->requires_stripe_connect,
+                false, // Stripe Connect removed in 2026-05-22 standalone strip; reintegrate post-pilot
                 fn () => $this->stripe_connect_status,
             ),
             // Staff-only tribal knowledge — must NEVER appear in ProfessionalResource (/me).

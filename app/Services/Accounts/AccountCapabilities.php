@@ -40,21 +40,6 @@ final class AccountCapabilities
     private static function individualCapabilities(User $pro): AccountCapabilitySet
     {
         return new AccountCapabilitySet(
-            requires_stripe_connect: false,
-            requires_tax_info: false,
-            requires_payout_schedule: false,
-            shows_shop_section: false,
-            shows_commissions_dashboard: false,
-            shows_orders_dashboard: false,
-            shows_affiliates_dashboard: false,
-            shows_ex_partner_panel: false,
-            receives_order_notifications: false,
-            receives_payout_notifications: false,
-            receives_payout_settlement_notifications: false,
-            receives_commission_notifications: false,
-            receives_brand_status_notifications: false,
-            receives_invite_notifications: false,
-            can_have_brand_link: false,
             can_edit_design: true,
             notification_categories: 'profile,platform',
             worker_kv_type: 'individual',
