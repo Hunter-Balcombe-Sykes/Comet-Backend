@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffReorderLinkRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffStoreLinkRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffUpdateLinkRequest;
+use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,9 @@ class StaffLinkBlockManagementController extends ApiController
     public function index(User $professional): JsonResponse
     {
         return $this->success([
-            'blocks' => $professional->linkBlocks()->orderBy('sort_order')->get(),
+            'blocks' => LinkBlockResource::collection(
+                $professional->linkBlocks()->orderBy('sort_order')->get()
+            ),
         ]);
     }
 
@@ -58,7 +61,7 @@ class StaffLinkBlockManagementController extends ApiController
             return $block->fresh();
         });
 
-        return $this->success(['block' => $block], 201);
+        return $this->success(['block' => new LinkBlockResource($block)], 201);
     }
 
     public function update(StaffUpdateLinkRequest $request, User $professional, Block $linkBlock): JsonResponse
@@ -74,7 +77,7 @@ class StaffLinkBlockManagementController extends ApiController
         $linkBlock->fill($request->validated());
         $linkBlock->save();
 
-        return $this->success(['block' => $linkBlock->fresh()]);
+        return $this->success(['block' => new LinkBlockResource($linkBlock->fresh())]);
     }
 
     public function destroy(User $professional, Block $linkBlock): JsonResponse

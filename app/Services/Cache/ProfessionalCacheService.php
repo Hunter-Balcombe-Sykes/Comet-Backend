@@ -2,6 +2,7 @@
 
 namespace App\Services\Cache;
 
+use App\Http\Resources\ServiceResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use Illuminate\Support\Facades\Cache;
@@ -192,6 +193,9 @@ class ProfessionalCacheService
     public function getActiveServices(string $professionalId): array
     {
         // busts: professionalServices + professionalServices:stale (invalidateProfessional)
+        // Returns Resource-shaped arrays (P1-05 sister cache): the /me payload
+        // (ProfessionalController::show) serves services from this method, so
+        // without the wrap raw toArray() shape would still leak there.
         return $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalServices($professionalId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
@@ -201,7 +205,8 @@ class ProfessionalCacheService
                 ->whereNull('deleted_at')
                 ->orderBy('sort_order')
                 ->get()
-                ->toArray()
+                ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
+                ->all()
         );
     }
 
@@ -216,6 +221,9 @@ class ProfessionalCacheService
     public function getDashboardServices(string $professionalId): array
     {
         // busts: professionalDashboardServices + professionalDashboardServices:stale (invalidateProfessional)
+        // Returns Resource-shaped arrays (P1-05): without this the controller
+        // would return raw Eloquent toArray() output on cache hits, bypassing
+        // the ServiceResource allowlist.
         return $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalDashboardServices($professionalId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
@@ -225,7 +233,8 @@ class ProfessionalCacheService
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
                 ->get()
-                ->toArray()
+                ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
+                ->all()
         );
     }
 

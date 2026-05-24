@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Requests\Api\Professional\Services\ReorderServiceCategoryRequest;
 use App\Http\Requests\Api\Professional\Services\StoreServiceCategoryRequest;
 use App\Http\Requests\Api\Professional\Services\UpdateServiceCategoryRequest;
+use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
 use Illuminate\Http\JsonResponse;
@@ -37,7 +38,7 @@ class ProfessionalServiceCategoryController extends ApiController
         $categories = $q->orderBy('sort_order')->orderBy('created_at')->get();
 
         return $this->success([
-            'categories' => $categories,
+            'categories' => ServiceCategoryResource::collection($categories),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -71,7 +72,7 @@ class ProfessionalServiceCategoryController extends ApiController
             return $category->fresh();
         });
 
-        return $this->success(['category' => $category], 201);
+        return $this->success(['category' => new ServiceCategoryResource($category)], 201);
     }
 
     public function show(Request $request, ServiceCategory $category): JsonResponse
@@ -86,7 +87,7 @@ class ProfessionalServiceCategoryController extends ApiController
             abort(404);
         }
 
-        return $this->success(['category' => $category]);
+        return $this->success(['category' => new ServiceCategoryResource($category)]);
     }
 
     public function update(UpdateServiceCategoryRequest $request, ServiceCategory $category): JsonResponse
@@ -101,7 +102,7 @@ class ProfessionalServiceCategoryController extends ApiController
         $category->fill($request->validated());
         $category->save();
 
-        return $this->success(['category' => $category->fresh()]);
+        return $this->success(['category' => new ServiceCategoryResource($category->fresh())]);
     }
 
     public function destroy(Request $request, ServiceCategory $category): JsonResponse
@@ -194,7 +195,7 @@ class ProfessionalServiceCategoryController extends ApiController
         $this->authorizeForUser($pro, 'update', $category);
 
         if (! $category->trashed()) {
-            return $this->success(['restored' => true, 'category' => $category->fresh()]);
+            return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
         }
 
         DB::transaction(function () use ($pro, $category) {
@@ -208,6 +209,6 @@ class ProfessionalServiceCategoryController extends ApiController
             $category->save();
         });
 
-        return $this->success(['restored' => true, 'category' => $category->fresh()]);
+        return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
     }
 }

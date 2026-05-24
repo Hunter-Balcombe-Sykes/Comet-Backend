@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffReorderServiceCategoryRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffStoreServiceCategoryRequest;
 use App\Http\Requests\Api\Staff\ProfessionalSite\Services\StaffUpdateServiceCategoryRequest;
+use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
@@ -33,7 +34,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $categories = $q->orderBy('sort_order')->orderBy('created_at')->get();
 
         return $this->success([
-            'categories' => $categories,
+            'categories' => ServiceCategoryResource::collection($categories),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -66,7 +67,7 @@ class StaffServiceCategoryManagementController extends ApiController
             return $category->fresh();
         });
 
-        return $this->success(['category' => $category], 201);
+        return $this->success(['category' => new ServiceCategoryResource($category)], 201);
     }
 
     public function show(Request $request, User $professional, ServiceCategory $category): JsonResponse
@@ -78,7 +79,7 @@ class StaffServiceCategoryManagementController extends ApiController
             abort(404);
         }
 
-        return $this->success(['category' => $category]);
+        return $this->success(['category' => new ServiceCategoryResource($category)]);
     }
 
     public function update(StaffUpdateServiceCategoryRequest $request, User $professional, ServiceCategory $category): JsonResponse
@@ -91,7 +92,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $category->fill($request->validated());
         $category->save();
 
-        return $this->success(['category' => $category->fresh()]);
+        return $this->success(['category' => new ServiceCategoryResource($category->fresh())]);
     }
 
     public function destroy(User $professional, ServiceCategory $category): JsonResponse
@@ -199,6 +200,6 @@ class StaffServiceCategoryManagementController extends ApiController
             $category->save();
         }
 
-        return $this->success(['restored' => true, 'category' => $category->fresh()]);
+        return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
     }
 }

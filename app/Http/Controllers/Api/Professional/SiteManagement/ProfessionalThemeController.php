@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Professional\SiteManagement;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Resources\SiteResource;
+use App\Http\Resources\ThemeResource;
 use App\Models\Core\Site\Theme;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\Request;
@@ -22,7 +24,7 @@ class ProfessionalThemeController extends ApiController
             ->orderBy('name')
             ->get(['id', 'key', 'name', 'description', 'config', 'is_default']);
 
-        return $this->success(['themes' => $themes]);
+        return $this->success(['themes' => ThemeResource::collection($themes)]);
     }
 
     public function select(Request $request, Theme $theme, UpdateSiteAction $action)
@@ -33,6 +35,6 @@ class ProfessionalThemeController extends ApiController
             'theme_id' => $theme->id,
         ]);
 
-        return $this->success(['site' => $site]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 }

@@ -8,6 +8,8 @@ use App\Http\Requests\Api\Professional\Services\ReorderServiceLayoutRequest;
 use App\Http\Requests\Api\Professional\Services\ReorderServiceRequest;
 use App\Http\Requests\Api\Professional\Services\StoreServiceRequest;
 use App\Http\Requests\Api\Professional\Services\UpdateServiceRequest;
+use App\Http\Resources\ServiceCategoryResource;
+use App\Http\Resources\ServiceResource;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
 use App\Services\Cache\ProfessionalCacheService;
@@ -57,7 +59,7 @@ class ProfessionalServiceController extends ApiController
 
         if (! $grouped) {
             return $this->success([
-                'services' => $services,
+                'services' => ServiceResource::collection($services),
                 'filters' => [
                     'include_archived' => $includeArchived,
                     'only_archived' => $onlyArchived,
@@ -79,20 +81,19 @@ class ProfessionalServiceController extends ApiController
 
         $servicesByCategory = $services->groupBy(fn (Service $s) => $s->category_id ?? '__uncategorised__');
 
+        // Grouped payload: each category exposes the ServiceCategoryResource shape
+        // plus a nested `services` array of ServiceResource items. Hand-rolled
+        // arrays previously leaked raw model fields (audit P1-05).
         $categoryPayload = $categories->map(function (ServiceCategory $c) use ($servicesByCategory) {
-            return [
-                'id' => $c->id,
-                'professional_id' => $c->professional_id,
-                'title' => $c->title,
-                'sort_order' => $c->sort_order,
-                'deleted_at' => $c->deleted_at,
-                'services' => $servicesByCategory->get($c->id, collect())->values(),
-            ];
+            return array_merge(
+                (new ServiceCategoryResource($c))->resolve(),
+                ['services' => ServiceResource::collection($servicesByCategory->get($c->id, collect())->values())->resolve()],
+            );
         })->values();
 
         return $this->success([
             'categories' => $categoryPayload,
-            'uncategorised_services' => $servicesByCategory->get('__uncategorised__', collect())->values(),
+            'uncategorised_services' => ServiceResource::collection($servicesByCategory->get('__uncategorised__', collect())->values()),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -158,7 +159,7 @@ class ProfessionalServiceController extends ApiController
             throw $e;
         }
 
-        return $this->success(['service' => $service], 201);
+        return $this->success(['service' => new ServiceResource($service)], 201);
     }
 
     public function show(Request $request, Service $service): JsonResponse
@@ -167,7 +168,7 @@ class ProfessionalServiceController extends ApiController
 
         $this->authorizeForUser($pro, 'view', $service);
 
-        return $this->success(['service' => $service]);
+        return $this->success(['service' => new ServiceResource($service)]);
     }
 
     public function update(UpdateServiceRequest $request, Service $service): JsonResponse
@@ -185,7 +186,7 @@ class ProfessionalServiceController extends ApiController
         $service->fill($data);
         $service->save();
 
-        return $this->success(['service' => $service->fresh()]);
+        return $this->success(['service' => new ServiceResource($service->fresh())]);
     }
 
     public function destroy(Request $request, Service $service): JsonResponse
@@ -332,7 +333,7 @@ class ProfessionalServiceController extends ApiController
         $this->authorizeForUser($pro, 'update', $service);
 
         if (! $service->trashed()) {
-            return $this->success(['restored' => true, 'service' => $service->fresh()]);
+            return $this->success(['restored' => true, 'service' => new ServiceResource($service->fresh())]);
         }
 
         DB::transaction(function () use ($pro, $service) {
@@ -352,7 +353,7 @@ class ProfessionalServiceController extends ApiController
             $service->restore();
         });
 
-        return $this->success(['restored' => true, 'service' => $service->fresh()]);
+        return $this->success(['restored' => true, 'service' => new ServiceResource($service->fresh())]);
     }
 
     private function assertCategoryBelongsToProfessional(string $professionalId, ?string $categoryId): void

@@ -2,6 +2,7 @@
 
 namespace App\Services\Cache;
 
+use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
@@ -542,7 +543,8 @@ class SiteCacheService
                 ->active()
                 ->orderBy('sort_order')
                 ->get()
-                ->toArray()
+                ->map(fn (Block $b) => (new LinkBlockResource($b))->resolve())
+                ->all()
         );
     }
 

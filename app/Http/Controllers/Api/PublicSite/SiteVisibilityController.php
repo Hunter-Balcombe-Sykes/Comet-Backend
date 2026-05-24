@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\UpdateVisibilityRequest;
+use App\Http\Resources\SiteResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
@@ -29,7 +30,7 @@ class SiteVisibilityController extends ApiController
         $site->save();
 
         return $this->success([
-            'site' => $site->fresh(),
+            'site' => new SiteResource($site->fresh()),
         ]);
     }
 }

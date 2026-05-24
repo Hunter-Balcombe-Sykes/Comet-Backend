@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\UpsertSectionBlockRequest;
+use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use Illuminate\Http\JsonResponse;
@@ -29,7 +30,7 @@ class StaffSectionManagementController extends ApiController
 
         return $this->success([
             'professional_id' => $professional->id,
-            'sections' => $sections,
+            'sections' => SectionBlockResource::collection($sections),
         ]);
     }
 
@@ -90,7 +91,7 @@ class StaffSectionManagementController extends ApiController
         }
 
         return $this->success([
-            'section' => $block->fresh()],
+            'section' => new SectionBlockResource($block->fresh())],
             $block->wasRecentlyCreated ? 201 : 200);
 
     }

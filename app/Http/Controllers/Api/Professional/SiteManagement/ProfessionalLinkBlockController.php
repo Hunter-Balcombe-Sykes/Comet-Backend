@@ -10,6 +10,7 @@ use App\Http\Requests\Api\Professional\Site\IndexLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Services\Cache\SiteCacheService;
@@ -105,7 +106,7 @@ class ProfessionalLinkBlockController extends ApiController
             return $linkBlock->fresh();
         });
 
-        return $this->success(['block' => $linkBlock], 201);
+        return $this->success(['block' => new LinkBlockResource($linkBlock)], 201);
     }
 
     public function update(UpdateLinkBlockRequest $request, Block $linkBlock)
@@ -154,7 +155,7 @@ class ProfessionalLinkBlockController extends ApiController
 
         $linkBlock->save();
 
-        return $this->success(['block' => $linkBlock->fresh()]);
+        return $this->success(['block' => new LinkBlockResource($linkBlock->fresh())]);
     }
 
     /**

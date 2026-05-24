@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\Site\UpdateSiteRequest;
+use App\Http\Resources\SiteResource;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,9 +25,8 @@ class ProfessionalSiteController extends ApiController
     {
         $professional = $this->currentProfessional($request);
         $site = $this->currentSite($professional);
-        $siteArray = $site->toArray();
 
-        return $this->success(['site' => $siteArray]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 
     public function update(UpdateSiteRequest $request, UpdateSiteAction $action)
@@ -34,9 +34,8 @@ class ProfessionalSiteController extends ApiController
         $professional = $this->currentProfessional($request);
         $data = $request->validated();
         $site = $action->execute($professional, $data);
-        $siteArray = $site->toArray();
 
-        return $this->success(['site' => $siteArray]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 
     /**
@@ -79,8 +78,7 @@ class ProfessionalSiteController extends ApiController
         $professional = $this->currentProfessional($request);
         $data = $request->validated();
         $site = $action->execute($professional, $data);
-        $siteArray = $site->toArray();
 
-        return $this->success(['site' => $siteArray]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 }
