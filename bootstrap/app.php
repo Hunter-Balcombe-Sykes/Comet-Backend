@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use App\Contracts\HttpStatusCodeInterface;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -139,6 +140,17 @@ return Application::configure(basePath: dirname(__DIR__))
             // Preserve explicit response exceptions (e.g. throttle 429)
             elseif ($e instanceof HttpResponseException) {
                 $response = $e->getResponse();
+            }
+
+            // Domain exceptions that declare their own HTTP contract (e.g. 429, 409).
+            elseif ($e instanceof HttpStatusCodeInterface) {
+                $response = response()->json(
+                    ['message' => $e->getMessage()],
+                    $e->getHttpStatusCode()
+                );
+                foreach ($e->getHttpHeaders() as $header => $value) {
+                    $response->headers->set($header, (string) $value);
+                }
             }
 
             // Generic error handling
