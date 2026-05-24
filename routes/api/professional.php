@@ -163,7 +163,6 @@ Route::middleware(['supabase.jwt', 'require.email_verified', 'current.pro', Enfo
 
         // Image Gallery (gallery-pool ordering & legacy routes)
         Route::get('/gallery', [ProfessionalGalleryController::class, 'index']);
-        Route::post('/gallery', [ProfessionalGalleryController::class, 'store']); // deprecated → 410
         Route::patch('/gallery/{image}', [ProfessionalGalleryController::class, 'update'])
             ->whereUuid('image')
             ->middleware('throttle:30,1');

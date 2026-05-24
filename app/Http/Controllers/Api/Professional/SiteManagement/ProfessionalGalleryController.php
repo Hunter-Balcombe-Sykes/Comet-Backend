@@ -51,20 +51,6 @@ class ProfessionalGalleryController extends ApiController
         ]);
     }
 
-    /**
-     * Gallery uploads are now handled by POST /api/uploads with pool=gallery.
-     *
-     * @deprecated Use POST /api/uploads with pool=gallery instead.
-     */
-    public function store(): JsonResponse
-    {
-        return $this->error(
-            'Gallery image creation has moved to POST /api/uploads with pool=gallery. '
-            .'Upload the image file directly instead of passing bucket/path.',
-            410,
-        );
-    }
-
     public function reorder(ReorderGalleryImageRequest $request): JsonResponse
     {
         $pro = $this->currentProfessional(request());
