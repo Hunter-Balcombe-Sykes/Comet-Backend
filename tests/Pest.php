@@ -333,7 +333,7 @@ function setupMediaTables(): void
 
 /**
  * core.waitlist_signups for waitlist tests. Column list mirrors the production
- * baseline post-relaxation migration (20260524120000) — all columns nullable
+ * baseline post-relaxation migration (20260526010000) — all columns nullable
  * here for SQLite permissiveness, but every column name matches.
  */
 function setupWaitlistTable(): void

@@ -93,7 +93,7 @@ it('applies waitlist throttle middleware to the waitlist endpoint', function () 
 
 function setupWaitlistSchema(): void
 {
-    // Mirrors production schema after migration 20260524120000 (relaxed
+    // Mirrors production schema after migration 20260526010000 (relaxed
     // constraints to match email-only signup contract). All columns nullable
     // here; in production NULLs are still enforced for *_other_required and
     // *_check via Postgres CHECK (not modelled in SQLite).

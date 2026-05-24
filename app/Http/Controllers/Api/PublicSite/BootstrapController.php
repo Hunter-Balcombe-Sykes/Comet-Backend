@@ -39,7 +39,7 @@ class BootstrapController extends ApiController
         // §28.14 — Individual waitlist diversion (CFG-1). Runs BEFORE validation
         // so a divert never creates a Professional row. Payload is intentionally
         // minimal: email + applicant_type='individual' + consent_source. Other
-        // columns are nullable post-migration 20260524120000.
+        // columns are nullable post-migration 20260526010000.
         if (
             (bool) config('partna.individual_waitlist_enabled', false)
             && ! $this->hasExistingProfessional($uid)
