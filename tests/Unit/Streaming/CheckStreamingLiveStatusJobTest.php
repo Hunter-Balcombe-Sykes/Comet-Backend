@@ -72,16 +72,28 @@ it('catches poller exceptions and logs per-platform error without crashing the j
         ->with('twitch', Mockery::any())
         ->andThrow(new \RuntimeException('Network error'));
 
+    // Fake the exception reporter so report($e) inside the per-platform catch
+    // doesn't trigger an additional Log::error via the exception handler.
+    Exceptions::fake();
+
     Log::shouldReceive('error')->once()->with('streaming.poll_error', Mockery::any());
 
     $job = new CheckStreamingLiveStatusJob;
     // Should not throw
     $job->handle($poller);
+
+    Exceptions::assertReported(\RuntimeException::class);
 });
 
 it('logs job failure via failed() callback', function () {
+    // Fake the exception reporter so report($e) doesn't trigger an additional
+    // Log::error via the exception handler on top of our explicit log.
+    Exceptions::fake();
+
     Log::shouldReceive('error')->once()->with('streaming.job_failed', Mockery::any());
 
     $job = new CheckStreamingLiveStatusJob;
     $job->failed(new \RuntimeException('Something broke'));
+
+    Exceptions::assertReported(\RuntimeException::class);
 });

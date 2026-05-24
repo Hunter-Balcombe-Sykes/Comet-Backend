@@ -179,7 +179,7 @@ it('dispatches the mailable class resolved from config for the category', functi
 
     DB::connection('pgsql')->statement("ATTACH DATABASE ':memory:' AS core");
     DB::connection('pgsql')->statement(
-        'CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, deleted_at TEXT NULL)'
+        "CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT NULL)"
     );
     DB::connection('pgsql')->statement(
         'CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, professional_id TEXT, category_key TEXT, mode TEXT)'

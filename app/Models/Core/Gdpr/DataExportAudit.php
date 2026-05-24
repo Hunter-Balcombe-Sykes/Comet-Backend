@@ -52,6 +52,7 @@ class DataExportAudit extends BaseModel
         'file_sha256',
         'record_counts',
         'error_message',
+        'email_sent_at',
     ];
 
     protected $casts = [
@@ -59,6 +60,7 @@ class DataExportAudit extends BaseModel
         'file_size_bytes' => 'integer',
         'created_at' => 'datetime',
         'completed_at' => 'datetime',
+        'email_sent_at' => 'datetime',
     ];
 
     // PII fields — never expose in API responses or job payloads
@@ -109,6 +111,11 @@ class DataExportAudit extends BaseModel
             'file_sha256' => $fileSha256,
             'record_counts' => $recordCounts,
         ]);
+    }
+
+    public function markEmailSent(): void
+    {
+        $this->forceFill(['email_sent_at' => now()])->saveQuietly();
     }
 
     public function markFailed(string $error): void

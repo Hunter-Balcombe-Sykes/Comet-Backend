@@ -23,6 +23,12 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
     // No backoff — tries=1 means no retry, so backoff is moot, but required for hygiene.
     public int $backoff = 0;
 
+    public function __construct()
+    {
+        // Isolated queue prevents the 90s polling window from blocking short jobs on default.
+        $this->onQueue('streaming');
+    }
+
     public int $timeout = 90;
 
     public function handle(LiveStatusPoller $poller): void
@@ -80,6 +86,7 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
             try {
                 $poller->poll($platform, $handles);
             } catch (\Throwable $e) {
+                report($e);
                 Log::error('streaming.poll_error', [
                     'platform' => $platform,
                     'message' => $e->getMessage(),
@@ -90,6 +97,7 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
 
     public function failed(\Throwable $e): void
     {
+        report($e);
         Log::error('streaming.job_failed', ['message' => $e->getMessage()]);
     }
 }

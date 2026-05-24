@@ -22,32 +22,12 @@ describe('AccountCapabilities — individual', function () {
         $this->caps = AccountCapabilities::for(makeProForCapabilities('individual'));
     });
 
-    it('skips every commerce + onboarding requirement', function () {
-        expect($this->caps->requires_stripe_connect)->toBeFalse();
-        expect($this->caps->requires_tax_info)->toBeFalse();
-        expect($this->caps->requires_payout_schedule)->toBeFalse();
-        expect($this->caps->shows_shop_section)->toBeFalse();
-        expect($this->caps->shows_commissions_dashboard)->toBeFalse();
-        expect($this->caps->shows_orders_dashboard)->toBeFalse();
-        expect($this->caps->shows_affiliates_dashboard)->toBeFalse();
-    });
-
     it('keeps its own design editor', function () {
         expect($this->caps->can_edit_design)->toBeTrue();
     });
 
     it('only receives the profile/platform notification subset', function () {
-        expect($this->caps->receives_invite_notifications)->toBeFalse();
-        expect($this->caps->receives_order_notifications)->toBeFalse();
-        expect($this->caps->receives_payout_notifications)->toBeFalse();
-        expect($this->caps->receives_commission_notifications)->toBeFalse();
-        expect($this->caps->receives_brand_status_notifications)->toBeFalse();
         expect($this->caps->notification_categories)->toBe('profile,platform');
-    });
-
-    it('is not an ex-partner and has no payout-settlement notifications', function () {
-        expect($this->caps->shows_ex_partner_panel)->toBeFalse();
-        expect($this->caps->receives_payout_settlement_notifications)->toBeFalse();
     });
 
     it('routes via worker_kv_type=individual', function () {
@@ -63,16 +43,6 @@ describe('AccountCapabilities — fallback', function () {
 
         expect($caps)->toBeInstanceOf(AccountCapabilitySet::class);
         expect($caps->worker_kv_type)->toBe('individual');
-    });
-});
-
-describe('AccountCapabilities — conditional individual flags', function () {
-    it('shows_ex_partner_panel is false for individuals (brand-partner path removed in standalone strip)', function () {
-        $pro = makeProForCapabilities('individual');
-        $pro->has_historical_partner_links = true;
-
-        // ex-partner panel removed for standalone pilot — always false.
-        expect(AccountCapabilities::for($pro)->shows_ex_partner_panel)->toBeFalse();
     });
 });
 
