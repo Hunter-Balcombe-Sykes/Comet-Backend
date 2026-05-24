@@ -188,8 +188,35 @@ class SiteCacheService
             }
 
             // Another worker holds the fill lock — serve the last-good copy without
-            // blocking. Sentinel preserves the "no site found" 404 contract.
-            return $stale === self::MISS_SENTINEL ? null : (is_array($stale) ? $stale : null);
+            // blocking. Apply the same backward-compat healing as the primary-hit path:
+            // stale copies may hold a pre-V2 payload shape (missing `services`, `legal`,
+            // or unsplit links/sections). If healing fails (old shape), fall through to
+            // buildPayloadFromDb — the fill-lock winner is already doing this, and the
+            // bounded extra DB hit is safer than serving a broken response.
+            if ($stale === self::MISS_SENTINEL) {
+                return null;
+            }
+            if (! is_array($stale)) {
+                return null;
+            }
+            if (! array_key_exists('services', $stale)) {
+                // Old payload shape — can't safely return it; rebuild.
+                Cache::forget($key);
+                Cache::forget($staleKey);
+
+                return $this->buildPayloadFromDb($subdomain, $key);
+            }
+            $stale = $this->ensureBlockCollections($stale);
+            if (! array_key_exists('legal', $stale)) {
+                $stale['legal'] = null;
+            }
+            $staleSite = $stale['site'] ?? null;
+            if (is_array($staleSite)) {
+                $professionalId = (string) data_get($stale, 'professional.id', '');
+                $stale['site'] = $this->safeHydrateSitePayload($staleSite, $professionalId, '', $subdomain);
+            }
+
+            return $stale;
         }
 
         // Cold miss (no primary, no stale) — acquire a per-subdomain fill lock so

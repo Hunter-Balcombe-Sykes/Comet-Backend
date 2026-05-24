@@ -203,3 +203,72 @@ it('returns null from stale MISS_SENTINEL when primary expired and another worke
 
     expect($result)->toBeNull();
 });
+
+it('B14/P2-10: SWR no-lock branch heals a valid stale payload (missing legal backfilled)', function () {
+    // CACHE-1 healing: stale payload has 'services' but is missing 'legal' (pre-V2-strip
+    // shape). The SWR no-lock branch must apply the same healing as the primary-hit path:
+    // backfill 'legal' and return the corrected payload — not the raw stale.
+    $subdomain = 'test-swr-heal';
+    $key = CacheKeyGenerator::publicSitePayload($subdomain);
+
+    $staleWithoutLegal = minimalCachedPayload();
+    unset($staleWithoutLegal['legal']); // simulate pre-V2 cached entry
+
+    $lock = M::mock(Lock::class);
+    $lock->shouldReceive('get')->withNoArgs()->once()->andReturn(false); // another worker holds lock
+
+    Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
+    Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn($staleWithoutLegal);
+    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+
+    $result = $this->service->getPublicSitePayload($subdomain);
+
+    expect($result)->toBeArray()
+        ->and($result)->toHaveKey('legal')
+        ->and($result['legal'])->toBeNull();
+});
+
+it('B14/P2-10: SWR no-lock branch forces rebuild when stale holds old payload shape (no services key)', function () {
+    // Old stale (pre-V2-strip): missing 'services' entirely. Must forget both keys and
+    // rebuild from DB rather than serve a broken response.
+    $subdomain = 'test-swr-old-shape';
+    $key = CacheKeyGenerator::publicSitePayload($subdomain);
+
+    $oldShapeStale = ['published' => true, 'site' => null]; // no 'services' key
+    $rebuiltPayload = minimalCachedPayload();
+    $buildReached = false;
+
+    // Subclass stubs buildPayloadFromDb — we verify it was called (no real DB needed).
+    $service = new class(new CacheLockService, $rebuiltPayload, $buildReached) extends SiteCacheService
+    {
+        public function __construct(
+            CacheLockService $lock,
+            private array $rebuiltPayload,
+            public bool &$buildReached,
+        ) {
+            parent::__construct($lock);
+        }
+
+        protected function buildPayloadFromDb(string $subdomain, string $key): ?array
+        {
+            $this->buildReached = true;
+
+            return $this->rebuiltPayload;
+        }
+    };
+
+    $lock = M::mock(Lock::class);
+    $lock->shouldReceive('get')->withNoArgs()->once()->andReturn(false);
+
+    Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
+    Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn($oldShapeStale);
+    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    // Must clear both keys before rebuilding.
+    Cache::shouldReceive('forget')->with($key)->once();
+    Cache::shouldReceive('forget')->with($key.':stale')->once();
+
+    $result = $service->getPublicSitePayload($subdomain);
+
+    expect($buildReached)->toBeTrue()
+        ->and($result)->toBe($rebuiltPayload);
+});
