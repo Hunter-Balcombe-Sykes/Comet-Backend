@@ -45,7 +45,7 @@ These are all resolved by upgrading `symfony/*` packages to `>=7.4.12` (or `>=8.
 - [ ] **#DEP-MAJ-1** · P3 — `laravel/framework` 12.42.0 → 13.11.2 (major). Defer until v13 is the established LTS line; current 12.x is supported. Audit timing later. Models: impl=sonnet · review=sonnet.
 - [ ] **#DEP-MAJ-2** · P3 — `endroid/qr-code` 5.1.0 → 6.1.3 (major). Used for handle/account-deletion QR? Verify call sites before upgrading. Models: impl=sonnet · review=sonnet.
 - [ ] **#DEP-MAJ-3** · P3 — `laravel/boost` 1.8.13 → 2.4.8 (major) and `laravel/tinker` 2.11.1 → 3.0.2 (major). Dev-only deps; can be done independently. Models: impl=sonnet · review=sonnet.
-- [ ] **#DEP-MIN-1** · P3 — Patch/minor bumps available for: `firebase/php-jwt`, `laravel/horizon`, `laravel/nightwatch`, `laravel/pail`, `laravel/pint`, `laravel/sail`, `league/flysystem-aws-s3-v3`, `pestphp/pest`, `pestphp/pest-plugin-laravel`, `predis/predis`. Apply in one PR with `composer update --no-dev` then test. Models: impl=sonnet · review=sonnet.
+- [x] **#DEP-MIN-1** · P3 — Patch/minor bumps available for: `firebase/php-jwt`, `laravel/horizon`, `laravel/nightwatch`, `laravel/pail`, `laravel/pint`, `laravel/sail`, `league/flysystem-aws-s3-v3`, `pestphp/pest`, `pestphp/pest-plugin-laravel`, `predis/predis`. Apply in one PR with `composer update --no-dev` then test. Models: impl=sonnet · review=sonnet.
 
 ---
 
@@ -1179,7 +1179,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be paranoid. A regex regression breaks all signups silently.
 
 ### Bundle B22: Dependency drift cleanup (1 grouped item) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#DEP-MIN-1`
 - Models: impl=sonnet · review=sonnet
 - Rationale: ten patch/minor bumps in one PR. Major bumps (`#DEP-MAJ-1..3`) stay deferred.
