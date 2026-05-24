@@ -26,7 +26,6 @@ it('returns default false values when no rows exist', function () {
     expect($service->getForProfessional($professionalId))->toBe([
         'delete_customer' => false,
         'delete_media' => false,
-        'unselect_product' => false,
     ]);
 });
 
@@ -42,7 +41,6 @@ it('updates and reads confirmation preferences for a professional', function () 
     expect($updated)->toBe([
         'delete_customer' => true,
         'delete_media' => false,
-        'unselect_product' => false,
     ]);
 
     $fresh = $service->getForProfessional($professionalId);
@@ -53,12 +51,11 @@ it('enables a single action via helper', function () {
     $service = app(ConfirmationPreferenceService::class);
     $professionalId = '00000000-0000-0000-0000-000000000103';
 
-    $service->enableForProfessional($professionalId, ConfirmationPreferenceService::ACTION_UNSELECT_PRODUCT);
+    $service->enableForProfessional($professionalId, ConfirmationPreferenceService::ACTION_DELETE_CUSTOMER);
 
     expect($service->getForProfessional($professionalId))->toBe([
-        'delete_customer' => false,
+        'delete_customer' => true,
         'delete_media' => false,
-        'unselect_product' => true,
     ]);
 });
 
@@ -74,7 +71,6 @@ it('ignores unsupported action keys during updates', function () {
     expect($updated)->toBe([
         'delete_customer' => true,
         'delete_media' => false,
-        'unselect_product' => false,
     ]);
 
     $rowCount = DB::connection('pgsql')
