@@ -251,12 +251,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Authorization & policy doctrine
 
-- [ ] **#P2-01** Professional routes have no AAL2 enforcement — Lens: `AUTH-1`
+- [x] **#P2-01** Professional routes have no AAL2 enforcement — Lens: `AUTH-1`
     - Where: `routes/api/professional.php` (group middleware)
     - Fix: wire `BasePolicy::requiresFreshAal2()` into sensitive policy methods on `ProfessionalSelfPolicy` (account deletion `confirm`, profile `update`). Do NOT add `require.aal2` as group middleware — would lock out users without TOTP. Reference: `docs/auth/mfa-foundation.md`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-02** `ProfessionalLinkBlockController::store()` + `reorder()` skip `authorizeForUser` — Lens: `AUTH-2`
+- [x] **#P2-02** `ProfessionalLinkBlockController::store()` + `reorder()` skip `authorizeForUser` — Lens: `AUTH-2`
     - Where: `app/Http/Controllers/Api/Professional/SiteManagement/ProfessionalLinkBlockController.php:42–44, 70, 255`
     - Fix: replace empty `authorizeCustomLinks()` calls with skeleton-pattern `authorizeForUser($pro, 'create', $skeleton)`. Delete the false-security gate method entirely. Sibling `update()` (line 118) and `destroy()` (line 245) show the correct pattern.
     - Models: impl=sonnet · review=sonnet
@@ -529,7 +529,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [ ] **#P3-11** Manual CORS injection in exception renderer is fragile against new branches — Lens: `BOOT-4`. Fix: extract to named closure / helper. Models: impl=sonnet · review=sonnet.
 
 ### Self-service authz doctrine
-- [ ] **#P3-12** `ProfessionalController::update` + `ProfessionalAccountDeletionController` omit `authorizeForUser` — Lens: `AUTH-3`. Fix: add the policy call. Pre-req for AAL2 wiring (P2-01) to actually fire. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-12** `ProfessionalController::update` + `ProfessionalAccountDeletionController` omit `authorizeForUser` — Lens: `AUTH-3`. Fix: add the policy call. Pre-req for AAL2 wiring (P2-01) to actually fire. Models: impl=sonnet · review=sonnet.
 
 ### Jobs
 - [x] **#P3-13** `CheckStreamingLiveStatusJob` lands on default queue despite 90s timeout — Lens: `JOBS-3`. Fix: `$this->onQueue('streaming')` in constructor. Models: impl=haiku · review=sonnet.
@@ -994,7 +994,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B16: Auth policy doctrine (3 items) — Effort: S-M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-01`, `#P2-02`, `#P3-12`
 - Models: impl=sonnet · review=opus
 - Rationale: doctrine consistency — every authenticated mutation should call `authorizeForUser`. Once #P3-12 is fixed, #P2-01 (AAL2 hook) automatically wires through the policy.
