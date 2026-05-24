@@ -74,6 +74,8 @@ class DeleteMediaArtifactsJob implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        report($e);
+
         Log::error('DeleteMediaArtifactsJob: cleanup exhausted retries.', [
             'media_id' => $this->mediaId,
             'base_path' => $this->basePath,

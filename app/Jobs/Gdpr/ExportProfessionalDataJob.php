@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -84,12 +85,25 @@ class ExportProfessionalDataJob implements ShouldQueue
             $ttlDays = (int) config('partna.gdpr.signed_url_ttl_days', 7);
             $signedUrl = $disk->temporaryUrl($remotePath, now()->addDays($ttlDays));
 
-            Mail::to($audit->recipient_email)->send(new ProfessionalDataExportMail(
-                signedUrl: $signedUrl,
-                professionalHandle: $audit->professional_handle_snapshot,
-                sendTo: $audit->send_to ?? 'professional',
-                recordCounts: $written['record_counts'],
-            ));
+            // Lock the row to prevent concurrent workers both seeing email_sent_at = null.
+            // At-least-once: a crash between send and stamp causes a retry to re-send —
+            // preferable to silent loss for GDPR right-of-access requests.
+            $shouldSendEmail = DB::transaction(function () use ($audit): bool {
+                $fresh = DataExportAudit::query()->lockForUpdate()->find($audit->id);
+
+                return $fresh !== null && $fresh->email_sent_at === null;
+            });
+
+            if ($shouldSendEmail) {
+                Mail::to($audit->recipient_email)->send(new ProfessionalDataExportMail(
+                    signedUrl: $signedUrl,
+                    professionalHandle: $audit->professional_handle_snapshot,
+                    sendTo: $audit->send_to ?? 'professional',
+                    recordCounts: $written['record_counts'],
+                ));
+
+                $audit->markEmailSent();
+            }
 
             $audit->markCompleted(
                 filePath: $remotePath,

@@ -114,6 +114,24 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             }
         }
 
+        // Skip suspended or disabled accounts — they should not receive transactional
+        // emails regardless of category. Check after the capability gate (which may
+        // already resolve the user) but before the heavier DB queries.
+        $recipient = User::query()
+            ->where('id', $this->professionalId)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $recipient || $recipient->status !== 'active') {
+            Log::debug('Transactional email skipped: account not active', [
+                'professional_id' => $this->professionalId,
+                'category' => $this->category,
+                'status' => $recipient?->status,
+            ]);
+
+            return;
+        }
+
         if (! NotificationPublisher::resolveEmailEnabled($this->professionalId, $this->category)) {
             Log::debug('Notification email skipped: user preference disabled', [
                 'category' => $this->category,
@@ -140,10 +158,8 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             return; // already sent or notification deleted
         }
 
-        $email = DB::table('core.users')
-            ->where('id', $this->professionalId)
-            ->whereNull('deleted_at')
-            ->value('primary_email');
+        // Re-use the $recipient model resolved above — avoids a second DB round-trip.
+        $email = $recipient->primary_email;
 
         if (! $email) {
             // Non-transient: retrying 3× will never produce an email. Mark the

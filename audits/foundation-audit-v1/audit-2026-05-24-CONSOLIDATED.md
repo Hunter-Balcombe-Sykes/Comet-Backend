@@ -292,12 +292,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: confirmation path (line 175) — straight swap to `Mail::queue()`. Request path (line 59) — needs a `SendAccountDeletionRequestMailJob` that clears the token on failure to preserve the existing correctness invariant.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-08** `DeleteMediaArtifactsJob.failed()` no `report($e)` — silent permanent failures — Lens: `JOBS-1`
+- [x] **#P2-08** `DeleteMediaArtifactsJob.failed()` no `report($e)` — silent permanent failures — Lens: `JOBS-1`
     - Where: `app/Jobs/DeleteMediaArtifactsJob.php:93–100`
     - Fix: add `report($e);` as first line of `failed()`. One-line change.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-09** `ExportProfessionalDataJob` sends duplicate GDPR export email on crash-retry — Lens: `JOBS-2`
+- [x] **#P2-09** `ExportProfessionalDataJob` sends duplicate GDPR export email on crash-retry — Lens: `JOBS-2`
     - Where: `app/Jobs/Gdpr/ExportProfessionalDataJob.php:63–103`
     - Fix: add `email_sent_at` to `data_export_audits` (or use existing `file_path` set as upload marker); guard `Mail::send()` with a check. Mirror pattern from `SendEnquiryNotificationJob`.
     - Models: impl=sonnet · review=opus
@@ -327,7 +327,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: (a) one-off `UPDATE core.users SET account_type = 'individual' WHERE account_type != 'individual'` in every non-fresh env; (b) add `CHECK (account_type = 'individual')` constraint in a new migration; (c) optional `try/catch ValueError` in the accessor as a defensive net.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-14** `SendTransactionalNotificationEmailJob` dispatches to suspended/disabled accounts — Lens: `CAP-2`
+- [x] **#P2-14** `SendTransactionalNotificationEmailJob` dispatches to suspended/disabled accounts — Lens: `CAP-2`
     - Where: `app/Jobs/Notifications/SendTransactionalNotificationEmailJob::handle()`
     - Fix: add `where('status', 'active')` to the `primary_email` lookup query OR early-return after a `User::find()` status check.
     - Models: impl=sonnet · review=sonnet
@@ -532,8 +532,8 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [ ] **#P3-12** `ProfessionalController::update` + `ProfessionalAccountDeletionController` omit `authorizeForUser` — Lens: `AUTH-3`. Fix: add the policy call. Pre-req for AAL2 wiring (P2-01) to actually fire. Models: impl=sonnet · review=sonnet.
 
 ### Jobs
-- [ ] **#P3-13** `CheckStreamingLiveStatusJob` lands on default queue despite 90s timeout — Lens: `JOBS-3`. Fix: `$this->onQueue('streaming')` in constructor. Models: impl=haiku · review=sonnet.
-- [ ] **#P3-14** `CheckStreamingLiveStatusJob.failed()` missing `report($e)` (unreachable today) — Lens: `JOBS-4`. Fix: add `report($e)` for safety; consider adding to per-platform `catch` in `handle()`. Models: impl=haiku · review=sonnet.
+- [x] **#P3-13** `CheckStreamingLiveStatusJob` lands on default queue despite 90s timeout — Lens: `JOBS-3`. Fix: `$this->onQueue('streaming')` in constructor. Models: impl=haiku · review=sonnet.
+- [x] **#P3-14** `CheckStreamingLiveStatusJob.failed()` missing `report($e)` (unreachable today) — Lens: `JOBS-4`. Fix: add `report($e)` for safety; consider adding to per-platform `catch` in `handle()`. Models: impl=haiku · review=sonnet.
 
 ### Config & RLS hygiene
 - [ ] **#P3-15** Nightwatch captures exception source code by default — Lens: `CONFIG-4`. Fix: default `false`; opt-in when debugging. Models: impl=haiku · review=sonnet.
@@ -879,7 +879,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B12: Job retry safety (5 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-08`, `#P2-09`, `#P2-14`, `#P3-13`, `#P3-14`
 - Models: impl=sonnet · review=sonnet
 - Rationale: all are `report()`/idempotency/queue-lane fixes scattered across job files. Same review surface (Horizon dashboard behavior, Nightwatch alerts).
