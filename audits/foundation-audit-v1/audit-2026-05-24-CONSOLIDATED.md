@@ -275,19 +275,19 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Data integrity & lifecycle
 
-- [ ] **#P2-05** `pseudonymiseAccountPii()` runs outside the confirmation transaction — Lens: `DEL-1`
+- [x] **#P2-05** `pseudonymiseAccountPii()` runs outside the confirmation transaction — Lens: `DEL-1`
     - Where: `app/Services/Professional/AccountDeletionService.php:127` (also `:273`)
     - Fix: snapshot `primary_email` before transaction; wrap `executeConfirmation()` + `pseudonymiseAccountPii()` in a single `DB::transaction`. Apply same fix to `adminInitiate()`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-06** Deletion token write/rollback uses two unguarded `update()` calls — Lens: `DEL-2`
+- [x] **#P2-06** Deletion token write/rollback uses two unguarded `update()` calls — Lens: `DEL-2`
     - Where: `AccountDeletionService.php:50–70`
     - Fix: wrap token write + `Mail::send()` in `DB::transaction`; throw on mail failure for automatic rollback.
     - Models: impl=sonnet · review=opus
 
 ### Performance & jobs
 
-- [ ] **#P2-07** Account deletion emails sent synchronously — Lens: `PERF-2`
+- [x] **#P2-07** Account deletion emails sent synchronously — Lens: `PERF-2`
     - Where: `AccountDeletionService.php:59, :175`
     - Fix: confirmation path (line 175) — straight swap to `Mail::queue()`. Request path (line 59) — needs a `SendAccountDeletionRequestMailJob` that clears the token on failure to preserve the existing correctness invariant.
     - Models: impl=sonnet · review=sonnet
@@ -813,7 +813,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B10: AccountDeletionService correctness (3 items) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-05`, `#P2-06`, `#P2-07`
 - Models: impl=sonnet · review=opus
 - Rationale: all in `AccountDeletionService.php`. Transaction unification fixes both DEL-1 (PII-wipe outside transaction) and DEL-2 (token race) simultaneously. Email queueing is a natural companion.

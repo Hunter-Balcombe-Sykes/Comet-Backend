@@ -54,7 +54,7 @@ it('confirms with valid token: flips status, snapshots previous status, nulls to
         ->and($pro->deletion_token_hash)->toBeNull()
         ->and($pro->deletion_confirmed_at)->not->toBeNull();
 
-    Mail::assertSent(AccountDeletionScheduledMail::class);
+    Mail::assertQueued(AccountDeletionScheduledMail::class);
 });
 
 it('rejects with 410 when token is older than 24 hours', function () {
@@ -247,4 +247,48 @@ it('pseudonymises professionals public_contact and about PII at confirm time', f
         ->and($pro->bio)->toBeNull();
     // about cast as array — empty array after scrub
     expect($pro->about)->toBe([]);
+});
+
+it('rolls back the entire confirmation when pseudonymisation fails — status, audit row, and PII all reverted', function () {
+    $rawToken = 'raw-token-'.Str::random(54);
+    $pro = seedRequestedProfessional($rawToken, [
+        'phone' => '+61400000000',
+        'first_name' => 'Jane',
+    ]);
+    $originalEmail = (string) $pro->primary_email;
+
+    // Subclass that simulates a DB error mid-pseudonymise (e.g., constraint
+    // violation, connection drop). The bug we're guarding against:
+    // executeConfirmation() committing status='pending_deletion' but leaving
+    // live PII intact. The unified DB::transaction must roll back EVERYTHING.
+    $service = new class extends AccountDeletionService
+    {
+        protected function pseudonymiseAccountPii(\App\Models\Core\Professional\User $professional): void
+        {
+            throw new \RuntimeException('Simulated DB failure mid-pseudonymise');
+        }
+    };
+
+    expect(fn () => $service->confirm($pro, $rawToken, Request::create('/', 'POST')))
+        ->toThrow(\RuntimeException::class);
+
+    $pro->refresh();
+
+    // Status NOT flipped — the whole transaction rolled back.
+    expect($pro->status)->toBe('active')
+        ->and($pro->deletion_previous_status)->toBeNull()
+        ->and($pro->deletion_confirmed_at)->toBeNull()
+        // PII unchanged — pseudonymise threw before it could overwrite.
+        ->and($pro->primary_email)->toBe($originalEmail)
+        ->and($pro->phone)->toBe('+61400000000')
+        ->and($pro->first_name)->toBe('Jane');
+
+    // No audit row persisted — logAuditEvent ran inside the transaction so it
+    // rolls back with the rest. Without rollback, an EVENT_CONFIRMED audit
+    // would exist for a user whose deletion never actually applied.
+    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+        ->where('professional_id', $pro->id)
+        ->where('event', 'confirmed')
+        ->first();
+    expect($audit)->toBeNull();
 });

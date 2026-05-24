@@ -87,7 +87,7 @@ it('admin can initiate erasure for a clean account', function () {
     expect($pro->status)->toBe('pending_deletion')
         ->and($pro->deletion_confirmed_at)->not->toBeNull();
 
-    Mail::assertSent(AccountDeletionScheduledMail::class);
+    Mail::assertQueued(AccountDeletionScheduledMail::class);
 
     $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
         ->where('professional_id', $pro->id)

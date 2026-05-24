@@ -2,9 +2,9 @@
 
 namespace App\Services\Professional;
 
+use App\Jobs\Account\SendAccountDeletionRequestMailJob;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
-use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
@@ -28,7 +28,13 @@ class AccountDeletionService
 {
     /**
      * Initiate a deletion request. Checks preconditions, stores hashed token,
-     * sends confirmation email. Rolls back token storage if mail send fails.
+     * queues the confirmation email. Token write + job dispatch + audit log
+     * commit atomically: if dispatch infrastructure fails, the token write
+     * rolls back automatically — no manual cleanup, no DEL-2 race window.
+     *
+     * The "user holds an active token IFF the confirmation email was sent"
+     * invariant is preserved by SendAccountDeletionRequestMailJob::failed(),
+     * which clears the token if all mail retries are exhausted.
      *
      * @return array{success: bool, code: int, error?: string, reasons?: array<string>}
      */
@@ -47,29 +53,31 @@ class AccountDeletionService
         $rawToken = Str::random(64);
         $tokenHash = hash('sha256', $rawToken);
 
-        $professional->update([
-            'deletion_token_hash' => $tokenHash,
-            'deletion_requested_at' => now(),
-        ]);
-
-        $confirmationUrl = rtrim((string) config('app.frontend_url'), '/')
-            .'/account/deletion/confirm?token='.$rawToken;
-
         try {
-            Mail::to($professional->primary_email)->send(
-                new AccountDeletionRequestedMail(
-                    displayName: (string) ($professional->display_name ?? 'there'),
-                    confirmationUrl: $confirmationUrl,
-                )
-            );
-        } catch (\Throwable $e) {
-            // Mail failed — roll back token so user can retry cleanly.
-            $professional->update([
-                'deletion_token_hash' => null,
-                'deletion_requested_at' => null,
-            ]);
+            // Pin the transaction to 'pgsql' explicitly so it shares the connection
+            // with the Eloquent writes inside (User extends BaseModel which forces
+            // pgsql). Using bare DB::transaction() would target the default
+            // connection, which is 'sqlite' in feature tests — making the wrapper
+            // a no-op and breaking rollback.
+            DB::connection('pgsql')->transaction(function () use ($professional, $tokenHash, $rawToken, $request) {
+                $professional->update([
+                    'deletion_token_hash' => $tokenHash,
+                    'deletion_requested_at' => now(),
+                ]);
 
-            Log::error('Account deletion request mail failed', [
+                // Job dispatch runs inside the transaction so a dispatch infrastructure
+                // failure (e.g., Redis down) throws and rolls back the token write —
+                // no orphaned token left on the row. afterCommit on the job class then
+                // delays the worker pickup until this transaction commits.
+                SendAccountDeletionRequestMailJob::dispatch(
+                    $professional->id,
+                    $rawToken,
+                );
+
+                $this->logAuditEvent($professional, ProfessionalDeletionAuditEntry::EVENT_REQUESTED, $request);
+            });
+        } catch (\Throwable $e) {
+            Log::error('Account deletion request failed', [
                 'professional_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
@@ -77,11 +85,9 @@ class AccountDeletionService
             return [
                 'success' => false,
                 'code' => 503,
-                'error' => 'Failed to send confirmation email. Please try again.',
+                'error' => 'Failed to initiate deletion request. Please try again.',
             ];
         }
-
-        $this->logAuditEvent($professional, ProfessionalDeletionAuditEntry::EVENT_REQUESTED, $request);
 
         return ['success' => true, 'code' => 200];
     }
@@ -118,13 +124,11 @@ class AccountDeletionService
             return ['success' => false, 'code' => 404, 'error' => 'Invalid token.'];
         }
 
-        $deletesAt = $this->executeConfirmation($professional);
-
-        // Order matters: audit row must capture the REAL primary_email before we
-        // pseudonymise. pseudonymiseAccountPii() is a one-way write that destroys
-        // the live PII, so it always runs after the audit snapshot is durable.
-        $this->logAuditEvent($professional, ProfessionalDeletionAuditEntry::EVENT_CONFIRMED, $request);
-        $this->pseudonymiseAccountPii($professional);
+        $deletesAt = $this->executeConfirmation(
+            $professional,
+            ProfessionalDeletionAuditEntry::EVENT_CONFIRMED,
+            $request,
+        );
 
         return [
             'success' => true,
@@ -134,23 +138,49 @@ class AccountDeletionService
     }
 
     /**
-     * Apply the confirmed deletion: snapshot status, flip to pending_deletion,
-     * send scheduled email. Shared by self-service confirm() and admin
-     * adminInitiate(). Returns the deletes_at timestamp. PII pseudonymisation
-     * is intentionally deferred to a separate call so the EVENT_CONFIRMED /
-     * EVENT_ADMIN_INITIATED audit row captures the real email first.
+     * Apply the confirmed deletion atomically: status flip, site unpublish,
+     * audit row, and PII pseudonymisation all commit in a single transaction.
+     * If any step fails the entire operation rolls back — no half-deleted
+     * state where status=pending_deletion but live PII remains in the row.
+     *
+     * Ordering inside the transaction is load-bearing: logAuditEvent reads
+     * $professional->primary_email to snapshot it, so it MUST run before
+     * pseudonymiseAccountPii overwrites the live value. The scheduled mail
+     * is queued after the transaction commits, addressed to the pre-wipe
+     * email captured in $realEmail.
      */
-    private function executeConfirmation(User $professional): Carbon
-    {
+    private function executeConfirmation(
+        User $professional,
+        string $event,
+        ?Request $request,
+        array $metadata = [],
+        string $actorType = ProfessionalDeletionAuditEntry::ACTOR_TYPE_PROFESSIONAL,
+        ?string $actorId = null,
+        ?string $actorHandle = null,
+        ?string $reason = null,
+    ): Carbon {
         $retentionDays = (int) config('partna.soft_delete_retention_days', 30);
         $deletesAt = now()->addDays($retentionDays);
         $previousStatus = (string) ($professional->status ?? 'active');
 
-        // Snapshot the real email before any state change so the "deletion scheduled"
-        // mail still reaches the user even after we pseudonymise downstream.
+        // Snapshot the real email before the transaction so the queued mail can
+        // still address the user — pseudonymiseAccountPii overwrites primary_email
+        // (both DB row and in-memory model) inside the transaction below.
         $realEmail = (string) ($professional->primary_email ?? '');
 
-        DB::transaction(function () use ($professional, $previousStatus) {
+        // Pin to 'pgsql' so the wrapper covers the same connection as the
+        // Eloquent writes inside — see request() for the test-config rationale.
+        DB::connection('pgsql')->transaction(function () use (
+            $professional,
+            $previousStatus,
+            $event,
+            $request,
+            $metadata,
+            $actorType,
+            $actorId,
+            $actorHandle,
+            $reason,
+        ) {
             $professional->update([
                 'deletion_previous_status' => $previousStatus,
                 'status' => 'pending_deletion',
@@ -167,12 +197,20 @@ class AccountDeletionService
                     'unpublished_at' => now(),
                 ]);
             }
+
+            // logAuditEvent reads $professional->primary_email to snapshot it; must
+            // run BEFORE pseudonymiseAccountPii overwrites the live value. The two
+            // calls commit together — if pseudonymise throws, the audit row is also
+            // rolled back, so we never persist a "confirmed deletion" audit for a
+            // user whose PII is still live.
+            $this->logAuditEvent($professional, $event, $request, $metadata, $actorType, $actorId, $actorHandle, $reason);
+            $this->pseudonymiseAccountPii($professional);
         });
 
         $cancelUrl = rtrim((string) config('app.frontend_url'), '/').'/account/deletion/cancel';
 
         try {
-            Mail::to($realEmail)->send(
+            Mail::to($realEmail)->queue(
                 new AccountDeletionScheduledMail(
                     displayName: (string) ($professional->display_name ?? 'there'),
                     deletesAt: $deletesAt->toDayDateTimeString(),
@@ -180,7 +218,7 @@ class AccountDeletionService
                 )
             );
         } catch (\Throwable $e) {
-            Log::error('Account deletion scheduled mail failed', [
+            Log::error('Account deletion scheduled mail dispatch failed', [
                 'professional_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
@@ -199,7 +237,7 @@ class AccountDeletionService
      * in core.professional_deletion_audit.professional_email_snapshot so support can
      * re-identify the user if they email to cancel.
      */
-    private function pseudonymiseAccountPii(User $professional): void
+    protected function pseudonymiseAccountPii(User $professional): void
     {
         $professional->forceFill([
             'phone' => 'redacted',
@@ -253,14 +291,11 @@ class AccountDeletionService
             ];
         }
 
-        $deletesAt = $this->executeConfirmation($professional);
-
         $metadata = ! empty($obligations)
             ? ['obligations_overridden' => $obligations]
             : [];
 
-        // Same audit-before-pseudonymise order as the self-service confirm() path.
-        $this->logAuditEvent(
+        $deletesAt = $this->executeConfirmation(
             $professional,
             ProfessionalDeletionAuditEntry::EVENT_ADMIN_INITIATED,
             $request,
@@ -270,7 +305,6 @@ class AccountDeletionService
             $staffActorHandle,
             $reason,
         );
-        $this->pseudonymiseAccountPii($professional);
 
         return [
             'success' => true,
