@@ -5,9 +5,9 @@ use Illuminate\Support\Facades\Route;
 beforeEach(function () {
     setupProfessionalsTable();
 
-    // Register a test route that requires the full auth.api group and returns
+    // Register a test route that requires the full professional.api group and returns
     // the resolved professional's ID so we can confirm all three middleware ran.
-    Route::middleware(['auth.api'])
+    Route::middleware(['professional.api'])
         ->get('/__test/auth-api-group', function (\Illuminate\Http\Request $request) {
             return response()->json(['professional_id' => $request->get('professional')->id]);
         });
