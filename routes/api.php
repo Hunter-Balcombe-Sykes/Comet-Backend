@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
+use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
@@ -95,6 +96,8 @@ Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'sub
     ->middleware('throttle:public-site');
 
 Route::post('/public/signup/availability', [PublicSignupAvailabilityController::class, 'check'])
+    ->middleware('throttle:public-site');
+Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
     ->middleware('throttle:public-site');
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
     ->middleware(['throttle:waitlist', 'captcha']);
