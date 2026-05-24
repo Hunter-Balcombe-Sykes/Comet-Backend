@@ -14,7 +14,7 @@ use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Block;
 use App\Services\Cache\SiteCacheService;
-use App\Services\Site\SocialLinkNormalizer;
+use App\Services\Site\LinkBlockFieldBuilder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -37,7 +37,7 @@ class ProfessionalLinkBlockController extends ApiController
     use ResolveCurrentSite;
 
     public function __construct(
-        private readonly SocialLinkNormalizer $normalizer
+        private readonly LinkBlockFieldBuilder $fieldBuilder
     ) {}
 
     private function authorizeCustomLinks(User $pro): void
@@ -77,7 +77,7 @@ class ProfessionalLinkBlockController extends ApiController
         // normalizer to rebuild a canonical URL and tag settings.platform/handle.
         // Custom mode preserves the legacy field-by-field contract.
         try {
-            $blockFields = $this->buildBlockFields($data);
+            $blockFields = $this->fieldBuilder->build($data);
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         }
@@ -126,7 +126,7 @@ class ProfessionalLinkBlockController extends ApiController
         // partial-update path that just fills whatever fields were sent.
         if (! empty($data['platform'])) {
             try {
-                $normalized = $this->buildBlockFields($data);
+                $normalized = $this->fieldBuilder->build($data);
             } catch (InvalidArgumentException $e) {
                 return $this->error($e->getMessage(), 422);
             }
@@ -156,83 +156,6 @@ class ProfessionalLinkBlockController extends ApiController
         $linkBlock->save();
 
         return $this->success(['block' => new LinkBlockResource($linkBlock->fresh())]);
-    }
-
-    /**
-     * Translate a validated request payload into the Block column values to
-     * persist. Handles the social/custom mode split centrally so store() and
-     * update() share one source of truth.
-     *
-     * Social mode produces:
-     *   - url       = canonical https URL from the normalizer
-     *   - icon_key  = registry's icon_key for the platform
-     *   - title     = user-supplied OR the platform's display_name
-     *   - settings  = user settings + {platform, handle, category} soft tags
-     *
-     * Custom mode produces:
-     *   - url       = as supplied
-     *   - icon_key  = as supplied
-     *   - title     = as supplied
-     *   - settings  = user settings + {category} (required in request)
-     *
-     * Category resolution order:
-     *   1. Request-provided `category` wins (validated against the enum in the Form Request).
-     *   2. Else fall back to the platform's default_category (platform-link case).
-     *   3. Else a 422-level guard (validation layer should have caught a missing category on custom links).
-     *
-     * @param  array<string, mixed>  $data  Validated request payload
-     * @return array<string, mixed> Block fillable fields
-     *
-     * @throws InvalidArgumentException When social-mode normalization fails (caller maps to 422)
-     */
-    private function buildBlockFields(array $data): array
-    {
-        $platform = $data['platform'] ?? null;
-        $requestedCategory = $data['category'] ?? null;
-
-        if ($platform !== null && $platform !== '') {
-            $normalized = $this->normalizer->normalize(
-                $platform,
-                $data['handle'] ?? null,
-                $data['url'] ?? null
-            );
-
-            // Tag settings.platform + settings.handle so the frontend can
-            // re-render the edit form in social mode and so analytics can
-            // group by platform later (slow but works without a column).
-            $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
-            $settings['platform'] = $normalized['platform_key'];
-            if ($normalized['handle'] !== null) {
-                $settings['handle'] = $normalized['handle'];
-            }
-
-            // Category: explicit override wins, else platform default.
-            $registry = config("partna.social_platforms.{$normalized['platform_key']}", []);
-            $settings['category'] = $requestedCategory ?: ($registry['default_category'] ?? 'other');
-
-            return [
-                'title' => ($data['title'] ?? '') !== '' ? $data['title'] : $normalized['display_name'],
-                'url' => $normalized['url'],
-                'icon_key' => $normalized['icon_key'],
-                'settings' => $settings,
-            ];
-        }
-
-        // Custom mode: category is required by the Form Request. Defensive
-        // default here in case a future code path calls buildBlockFields
-        // directly with incomplete data.
-        $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
-        if ($requestedCategory === null || $requestedCategory === '') {
-            throw new InvalidArgumentException('A category is required for custom links.');
-        }
-        $settings['category'] = $requestedCategory;
-
-        return [
-            'title' => $data['title'] ?? null,
-            'url' => $data['url'] ?? null,
-            'icon_key' => $data['icon_key'] ?? null,
-            'settings' => $settings,
-        ];
     }
 
     public function destroy(DestroyLinkBlockRequest $request, Block $linkBlock)

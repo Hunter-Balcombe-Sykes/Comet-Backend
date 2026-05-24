@@ -13,7 +13,6 @@ use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
-
 use App\Services\Media\ImageVariantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,11 +60,9 @@ function callReorderController(User $professional, array $body): \Illuminate\Htt
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
-    $controller = new ProfessionalUploadController(
-        $mediaService,
-
-        $videoVariant,
-    );
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(\App\Services\Media\VideoVariantService::class, $videoVariant);
+    $controller = app(ProfessionalUploadController::class);
 
     return $controller->reorder($formRequest);
 }

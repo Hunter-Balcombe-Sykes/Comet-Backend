@@ -7,7 +7,6 @@ use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\FeatureFlags\FeatureFlagService;
-
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\VideoVariantService;
 use Illuminate\Contracts\Validation\Validator;
@@ -69,7 +68,9 @@ it('returns 403 when video_uploads flag is off for the professional', function (
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(VideoVariantService::class);
-    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(ProfessionalUploadController::class);
 
     $response = $controller->upload($request);
 
@@ -125,7 +126,9 @@ it('allows image uploads regardless of video_uploads flag state', function () {
     $mediaService->shouldReceive('storeOriginal')->andReturn('images/test/original.jpg');
     $videoVariant = Mockery::mock(VideoVariantService::class);
 
-    $controller = new ProfessionalUploadController($mediaService, $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(ProfessionalUploadController::class);
 
     $response = $controller->upload($request);
 
