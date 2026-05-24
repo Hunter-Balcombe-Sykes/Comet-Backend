@@ -415,12 +415,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Architecture cleanup
 
-- [ ] **#P2-29** Analytics `summary()` bundles date parsing, raw SQL, cache orchestration in 350 lines — Lens: `ARCH-2`
+- [x] **#P2-29** Analytics `summary()` bundles date parsing, raw SQL, cache orchestration in 350 lines — Lens: `ARCH-2`
     - Where: `ProfessionalAnalyticsController.php:26`
     - Fix: extract `AnalyticsQueryService` + `AnalyticsCacheService`. Controller becomes thin delegate.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-30** Upload controller bundles pool-limit + R2 + video-probe + job dispatch — Lens: `ARCH-3`
+- [x] **#P2-30** Upload controller bundles pool-limit + R2 + video-probe + job dispatch — Lens: `ARCH-3`
     - Where: `ProfessionalUploadController.php`
     - Fix: extract `MediaUploadService` (or extend existing `MediaService`).
     - Models: impl=sonnet · review=sonnet
@@ -522,7 +522,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [ ] **#P3-06** Gallery `store()` is permanent 410 stub — Lens: `ARCH-6`. Fix: remove route + method. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-07** `professionalHasBookingIntegration()` hardcoded `false` — Lens: `ARCH-7`. Fix: add `// NOTE: booking removed 2026-05-22, update on reintegration`. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-08** `AccountCapabilitySet` 15 always-false constructor params — Lens: `ARCH-8`. Fix: drop stripped capability flags. Models: impl=sonnet · review=sonnet.
-- [ ] **#P3-09** `buildBlockFields()` 60+ line method in controller — Lens: `ARCH-9`. Fix: extract `LinkBlockFieldBuilder`. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-09** `buildBlockFields()` 60+ line method in controller — Lens: `ARCH-9`. Fix: extract `LinkBlockFieldBuilder`. Models: impl=sonnet · review=sonnet.
 
 ### Bootstrap & exceptions
 - [ ] **#P3-10** Dead `App\Exceptions\NoRecipientEmailException` (zero imports, duplicate of GDPR variant) — Lens: `BOOT-3`. Fix: delete the file. Models: impl=haiku · review=sonnet.
@@ -962,7 +962,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B15: Architecture extraction (3 items) — Effort: L
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-29`, `#P2-30`, `#P3-09`
 - Models: impl=sonnet · review=sonnet
 - Rationale: each item is "controller has 200+ lines of business logic; extract service." Same refactor pattern; cumulative reviewer fatigue is lower if grouped.
