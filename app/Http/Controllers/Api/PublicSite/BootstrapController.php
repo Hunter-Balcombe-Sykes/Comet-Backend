@@ -50,7 +50,13 @@ class BootstrapController extends ApiController
                 $lastName = trim((string) $request->input('last_name', ''));
                 $name = trim($firstName.' '.$lastName);
 
-                WaitlistSignup::query()->updateOrCreate(
+                // firstOrCreate (not updateOrCreate) — never clobber an existing row.
+                // If the visitor already submitted via the full PublicWaitlistController
+                // form, that row carries richer consent provenance (industry, phone,
+                // consent_ip_hash, consent_source='waitlist_form'); the divert must
+                // not overwrite any of it. The trade-off is that repeat diverters
+                // don't get last_submitted_at bumped — acceptable analytics loss.
+                WaitlistSignup::query()->firstOrCreate(
                     ['email_lc' => $emailLc],
                     [
                         'email' => $emailLc,

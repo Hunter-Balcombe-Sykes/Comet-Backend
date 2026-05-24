@@ -37,6 +37,49 @@ it('writes a clean divert row to core.waitlist_signups when individual_waitlist_
     expect($row->name)->toBe('Casey Wright');
 });
 
+it('divert does not clobber an existing full-form waitlist row (P1-A regression guard)', function () {
+    config(['partna.individual_waitlist_enabled' => true]);
+    config(['partna.waitlist.enabled' => false]);
+
+    // Pre-existing row from the full PublicWaitlistController submission.
+    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+        'id' => '00000000-0000-0000-0000-000000000bb1',
+        'email' => 'preexisting@example.com',
+        'email_lc' => 'preexisting@example.com',
+        'name' => 'Original Pro',
+        'phone' => '+61400000000',
+        'applicant_type' => 'professional',
+        'industry' => 'mens_grooming',
+        'consent_source' => 'waitlist_form',
+        'consent_ip_hash' => 'sha256-real-hash',
+        'last_submitted_at' => '2026-05-01 00:00:00',
+    ]);
+
+    $controller = app(BootstrapController::class);
+    $request = BootstrapRequest::create('/api/bootstrap', 'POST', [
+        'primary_email' => 'preexisting@example.com',
+        'first_name' => 'Should',
+        'last_name' => 'NotOverwrite',
+    ]);
+    $request->attributes->set('supabase_uid', 'divert-collision-uid');
+
+    $response = $controller->bootstrap($request);
+
+    expect($response->getStatusCode())->toBe(403);
+    expect($response->getData(true)['errors']['code'] ?? null)->toBe('INDIVIDUAL_WAITLIST');
+
+    $row = DB::connection('pgsql')->table('core.waitlist_signups')
+        ->where('email_lc', 'preexisting@example.com')->first();
+
+    // None of the original consent fields may have been overwritten.
+    expect($row->name)->toBe('Original Pro');
+    expect($row->phone)->toBe('+61400000000');
+    expect($row->applicant_type)->toBe('professional');
+    expect($row->industry)->toBe('mens_grooming');
+    expect($row->consent_source)->toBe('waitlist_form');
+    expect($row->consent_ip_hash)->toBe('sha256-real-hash');
+});
+
 it('returns 403 ACCOUNT_DISABLED for disabled accounts (not 200 with empty body)', function () {
     config(['partna.individual_waitlist_enabled' => false]);
     config(['partna.waitlist.enabled' => false]);

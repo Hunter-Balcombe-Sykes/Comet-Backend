@@ -51,7 +51,7 @@ ALTER TABLE core.waitlist_signups
 
 ALTER TABLE core.waitlist_signups
     ADD CONSTRAINT waitlist_signups_type_other_required CHECK (
-        applicant_type IS NULL
+        (applicant_type IS NULL AND applicant_type_other IS NULL)
         OR (applicant_type = 'other' AND applicant_type_other IS NOT NULL AND btrim(applicant_type_other) <> '')
         OR (applicant_type <> 'other' AND applicant_type_other IS NULL)
     ) NOT VALID;
@@ -61,7 +61,7 @@ ALTER TABLE core.waitlist_signups
 
 ALTER TABLE core.waitlist_signups
     ADD CONSTRAINT waitlist_signups_industry_other_required CHECK (
-        industry IS NULL
+        (industry IS NULL AND industry_other IS NULL)
         OR (industry = 'other' AND industry_other IS NOT NULL AND btrim(industry_other) <> '')
         OR (industry <> 'other' AND industry_other IS NULL)
     ) NOT VALID;
