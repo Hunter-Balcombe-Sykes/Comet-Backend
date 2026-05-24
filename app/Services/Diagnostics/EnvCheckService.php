@@ -53,11 +53,15 @@ class EnvCheckService
             'supabase.jwks_url' => 'SUPABASE_JWKS_URL',
             'supabase.service_role_key' => 'SUPABASE_SERVICE_ROLE_KEY',
         ],
-        'Cloudflare (DNS + KV)' => [
+        'Cloudflare (DNS + KV + Purge)' => [
             'services.cloudflare.zone_id' => 'CLOUDFLARE_ZONE_ID',
             'services.cloudflare.account_id' => 'CLOUDFLARE_ACCOUNT_ID',
             'services.cloudflare.api_token' => 'CLOUDFLARE_API_TOKEN',
             'services.cloudflare.kv_namespace_id' => 'CLOUDFLARE_KV_NAMESPACE_ID',
+            // CloudflarePurgeService uses a separate scoped token from the
+            // general api_token — missing this silently broke cache busts
+            // until B26 added the prod guard.
+            'services.cloudflare.cache_purge_token' => 'CLOUDFLARE_CACHE_PURGE_TOKEN',
         ],
     ];
 

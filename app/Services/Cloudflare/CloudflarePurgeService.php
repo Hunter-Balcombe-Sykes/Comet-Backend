@@ -38,6 +38,16 @@ class CloudflarePurgeService
     public function purgeUrls(array $urls): void
     {
         if (! $this->configured) {
+            // See CloudflareKvService::guardUnconfigured for the rationale —
+            // silent no-op in dev, hard fail in prod/staging so a missing
+            // CLOUDFLARE_CACHE_PURGE_TOKEN can't quietly stop cache busts.
+            if (app()->environment('production', 'staging')) {
+                throw new \RuntimeException(
+                    'CloudflarePurgeService is not configured (zone_id, cache_purge_token required). '
+                    .'Refusing to silently no-op purge in '.app()->environment().'.'
+                );
+            }
+
             Log::debug('CloudflarePurgeService: skipping purge (not configured)', ['url_count' => count($urls)]);
 
             return;
