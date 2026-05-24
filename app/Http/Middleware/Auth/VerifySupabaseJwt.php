@@ -87,7 +87,19 @@ class VerifySupabaseJwt
                 ], 401);
             }
 
-            $this->setSupabaseContext($request, $uid, $claims);
+            try {
+                $this->setSupabaseContext($request, $uid, $claims);
+            } catch (\Throwable $trackingEx) {
+                // Session tracking is a breadcrumb side-effect. Redis being unavailable
+                // must not reject a valid token — proceed and log distinctly so this
+                // never gets mistaken for a JWKS verification failure.
+                Log::warning('Session tracking failed after successful JWT verification', [
+                    'request_id' => $requestId,
+                    'operation' => __METHOD__,
+                    'reason' => $trackingEx->getMessage(),
+                    'kind' => 'session_tracking',
+                ]);
+            }
 
             return $next($request);
         } catch (\Throwable $e) {
@@ -124,7 +136,29 @@ class VerifySupabaseJwt
                     return response()->json(['message' => 'Invalid token'], 401);
                 }
 
-                $this->setSupabaseContext($request, $uid);
+                // Re-extract payload claims so the revocation gate and context
+                // attributes (aal, session_id, exp) are populated on this path too.
+                // extractJwtPayloadClaims does NOT verify the signature — Auth-Server
+                // already confirmed the token is valid above.
+                $fallbackClaims = $this->extractJwtPayloadClaims($token);
+                $fallbackSessionId = isset($fallbackClaims['session_id']) ? (string) $fallbackClaims['session_id'] : '';
+                if ($fallbackSessionId !== '' && $this->revocation->isRevoked($fallbackSessionId)) {
+                    return response()->json([
+                        'message' => 'Session was terminated. Please log in again.',
+                        'code' => 'session_revoked',
+                    ], 401);
+                }
+
+                try {
+                    $this->setSupabaseContext($request, $uid, $fallbackClaims);
+                } catch (\Throwable $trackingEx) {
+                    Log::warning('Session tracking failed after successful JWT verification', [
+                        'request_id' => $requestId,
+                        'operation' => __METHOD__,
+                        'reason' => $trackingEx->getMessage(),
+                        'kind' => 'session_tracking',
+                    ]);
+                }
 
                 return $next($request);
             } catch (\Throwable $e2) {
