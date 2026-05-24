@@ -362,7 +362,9 @@ class VerifySupabaseJwt
     {
         $outage = new JwksUnavailableException($cause);
 
-        if (Cache::add('jwt:jwks-failure-reported', true, 60)) {
+        // Use the lock store so a Cache::flush() on the default store can't reset
+        // this throttle and flood Nightwatch during a sustained JWKS outage.
+        if (Cache::store('cache_locks')->add('jwt:jwks-failure-reported', true, 60)) {
             report($outage);
         }
 
@@ -440,7 +442,17 @@ class VerifySupabaseJwt
             return;
         }
 
-        @apcu_store($key, $value, self::APCU_TTL_SECONDS);
+        $stored = apcu_store($key, $value, self::APCU_TTL_SECONDS);
+        if ($stored === false) {
+            // APCu full or misconfigured — every request hits the cold JWKS parse
+            // path (150-300ms). Throttle to one Nightwatch breadcrumb per 5 minutes.
+            if (Cache::store('cache_locks')->add('jwt:apcu-store-failed', true, 300)) {
+                Log::warning('APCu store failed for JWKS key — cold-path will run on every request', [
+                    'kid' => $key,
+                    'operation' => __METHOD__,
+                ]);
+            }
+        }
     }
 
     private function verifyWithAuthServer(string $jwt): ?string
