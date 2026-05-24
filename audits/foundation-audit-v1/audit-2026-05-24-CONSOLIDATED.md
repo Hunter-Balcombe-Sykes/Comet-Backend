@@ -334,12 +334,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Config hygiene
 
-- [ ] **#P2-15** `queue.batching` & `queue.failed` fall back to `sqlite` while everything else uses `pgsql` — Lens: `CONFIG-1`
+- [x] **#P2-15** `queue.batching` & `queue.failed` fall back to `sqlite` while everything else uses `pgsql` — Lens: `CONFIG-1`
     - Where: `config/queue.php`
     - Fix: change both `env('DB_CONNECTION', 'sqlite')` → `env('DB_CONNECTION', 'pgsql')`. Add both keys to `EnvCheckService::REQUIRED`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-16** Default log level is `debug` across all channels — Lens: `CONFIG-2`
+- [x] **#P2-16** Default log level is `debug` across all channels — Lens: `CONFIG-2`
     - Where: `config/logging.php` (6 channels) + `config/nightwatch.php`
     - Fix: change fallback to `'warning'`. Add `LOG_LEVEL` to `EnvCheckService::RECOMMENDED`.
     - Models: impl=haiku · review=sonnet
@@ -536,7 +536,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [x] **#P3-14** `CheckStreamingLiveStatusJob.failed()` missing `report($e)` (unreachable today) — Lens: `JOBS-4`. Fix: add `report($e)` for safety; consider adding to per-platform `catch` in `handle()`. Models: impl=haiku · review=sonnet.
 
 ### Config & RLS hygiene
-- [ ] **#P3-15** Nightwatch captures exception source code by default — Lens: `CONFIG-4`. Fix: default `false`; opt-in when debugging. Models: impl=haiku · review=sonnet.
+- [x] **#P3-15** Nightwatch captures exception source code by default — Lens: `CONFIG-4`. Fix: default `false`; opt-in when debugging. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-16** `seed.sql` is entirely dead code (guard fires immediately) — Lens: `RLS-3`. Fix: rewrite for surviving tables. Models: impl=sonnet · review=sonnet.
 - [ ] **#P3-17** `config.toml` lists dropped schemas `billing`/`retail` — Lens: `RLS-4`. Fix: remove from `schemas` and `extra_search_path`. Evaluate adding `site`/`notifications` if direct PostgREST access is ever intended. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-18** `site_media` DELETE policy is staff-only — undocumented asymmetry — Lens: `RLS-5`. Fix: add one-line comment documenting that app uses soft-delete (UPDATE deleted_at). Models: impl=haiku · review=sonnet.
@@ -908,7 +908,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B13: Config defaults hardening (3 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-15`, `#P2-16`, `#P3-15`
 - Models: impl=haiku · review=sonnet
 - Rationale: all are `config/*.php` default changes plus `EnvCheckService` additions.
