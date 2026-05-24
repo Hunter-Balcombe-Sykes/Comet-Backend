@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Professional\Account\ProfessionalAccountDeletionCon
 use App\Http\Controllers\Api\Professional\Account\ProfessionalController;
 use App\Http\Controllers\Api\Professional\Account\ProfessionalDataExportController;
 use App\Http\Controllers\Api\Professional\Account\ProfessionalDocumentController;
+use App\Http\Controllers\Api\Professional\Account\SessionController;
 use App\Http\Controllers\Api\Professional\Analytics\ProfessionalAnalyticsController;
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalEnquiryController;
@@ -57,6 +58,17 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
             Route::delete('/factors/{factorId}', [MfaController::class, 'destroy'])
                 ->whereUuid('factorId')
                 ->name('account.mfa.factors.destroy');
+        });
+
+        // Active session management — list / revoke / logout-everywhere-else.
+        // Powered by VerifySupabaseJwt's session tracking and the Redis JTI
+        // blocklist in TokenRevocationService. Bypasses pending-deletion gate
+        // so a user mid-deletion can still log themselves out.
+        Route::prefix('sessions')->withoutMiddleware([EnforcePendingDeletionReadOnly::class])->group(function () {
+            Route::get('/', [SessionController::class, 'index'])->name('sessions.index');
+            Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout');
+            Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others');
+            Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy');
         });
 
         // View Site Details
