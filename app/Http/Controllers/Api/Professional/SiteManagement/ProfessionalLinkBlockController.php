@@ -28,8 +28,9 @@ use InvalidArgumentException;
  *   - **Custom mode**: client sends `title` + `url` (legacy contract preserved).
  *     No platform binding, free-form icon_key.
  *
- * Authorization: ownership on write actions is enforced via SitePolicy (authorizeForUser).
- * A type constraint abort_unless guards that only link-type blocks reach the policy check.
+ * Authorization: ownership on write actions enforced via SitePolicy (authorizeForUser).
+ * store() and reorder() use the skeleton pattern (SitePolicy::create) for pending-deletion
+ * and ownership guard. update() and destroy() use the existing row (SitePolicy::update/delete).
  */
 class ProfessionalLinkBlockController extends ApiController
 {
@@ -39,11 +40,6 @@ class ProfessionalLinkBlockController extends ApiController
     public function __construct(
         private readonly LinkBlockFieldBuilder $fieldBuilder
     ) {}
-
-    private function authorizeCustomLinks(User $pro): void
-    {
-        // All individual users can manage custom links — no capability gate needed.
-    }
 
     public function index(IndexLinkBlockRequest $request)
     {
@@ -68,8 +64,10 @@ class ProfessionalLinkBlockController extends ApiController
     public function store(StoreLinkBlockRequest $request)
     {
         $pro = $this->currentProfessional($request);
-        $this->authorizeCustomLinks($pro);
         $site = $this->currentSite($pro);
+        // Skeleton pattern: pre-create ownership + pending-deletion check via SitePolicy::create.
+        $skeleton = new Block(['professional_id' => $pro->id, 'site_id' => $site->id]);
+        $this->authorizeForUser($pro, 'create', $skeleton);
 
         $data = $request->validated();
 
@@ -112,7 +110,6 @@ class ProfessionalLinkBlockController extends ApiController
     public function update(UpdateLinkBlockRequest $request, Block $linkBlock)
     {
         $pro = $this->currentProfessional($request);
-        $this->authorizeCustomLinks($pro);
 
         // Type constraint: this endpoint only handles link-type blocks.
         abort_unless($linkBlock->block_group === 'links' && $linkBlock->block_type === 'link', 404);
@@ -176,8 +173,10 @@ class ProfessionalLinkBlockController extends ApiController
     public function reorder(ReorderBlocksRequest $request)
     {
         $pro = $this->currentProfessional($request);
-        $this->authorizeCustomLinks($pro);
         $site = $this->currentSite($pro);
+        // Skeleton pattern: pre-create ownership + pending-deletion check via SitePolicy::create.
+        $skeleton = new Block(['professional_id' => $pro->id, 'site_id' => $site->id]);
+        $this->authorizeForUser($pro, 'create', $skeleton);
 
         $ids = array_values(array_unique($request->validated()['ids'] ?? []));
 

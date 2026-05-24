@@ -2,8 +2,11 @@
 
 use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
 use App\Http\Requests\Api\Professional\Site\DestroyLinkBlockRequest;
+use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
+use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -110,4 +113,108 @@ it('blocks a non-owner from deleting a link block with 404', function () {
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
     }
+});
+
+// ── store() ────────────────────────────────────────────────────────────────
+
+it('blocks pending-deletion professional from creating a link block (423)', function () {
+    $pro = createTenant('lb-store-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro->refresh();
+
+    $req = tenantRequestAs($pro, [
+        'title' => 'My Link',
+        'url'   => 'https://example.com',
+    ], 'POST');
+
+    try {
+        app(ProfessionalLinkBlockController::class)
+            ->store(StoreLinkBlockRequest::createFrom($req));
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+});
+
+it('allows active professional to create a link block (no 423 thrown)', function () {
+    $pro = createTenant('lb-store-active');
+
+    $req = tenantRequestAs($pro, [
+        'title'    => 'My Link',
+        'url'      => 'https://example.com',
+        'category' => 'other',
+    ], 'POST');
+    $req->headers->set('Accept', 'application/json');
+
+    $formReq = StoreLinkBlockRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    // Verify the authorization gate does not block an active professional.
+    // The store() method passes the policy check and proceeds to the DB insert;
+    // we catch QueryException (pg_advisory_xact_lock is Postgres-only, not SQLite)
+    // to confirm auth succeeded without testing the full DB flow here.
+    $authBlocked = false;
+    try {
+        app(ProfessionalLinkBlockController::class)
+            ->store($formReq);
+    } catch (AuthorizationException $e) {
+        $authBlocked = true;
+    } catch (QueryException $e) {
+        // Advisory lock uses pg_advisory_xact_lock(hashtext(?)) — not available in
+        // the SQLite test driver. Reaching this point means auth passed.
+    }
+
+    expect($authBlocked)->toBeFalse();
+});
+
+// ── reorder() ──────────────────────────────────────────────────────────────
+
+it('blocks pending-deletion professional from reordering link blocks (423)', function () {
+    $pro = createTenant('lb-reorder-pending');
+    $block = createLinkBlockFor($pro);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro->refresh();
+
+    $req = tenantRequestAs($pro, ['ids' => [$block->id]], 'POST');
+
+    try {
+        app(ProfessionalLinkBlockController::class)
+            ->reorder(ReorderBlocksRequest::createFrom($req));
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+});
+
+it('allows active professional to reorder their link blocks (no 423 thrown)', function () {
+    $pro = createTenant('lb-reorder-active');
+    $block = createLinkBlockFor($pro);
+
+    $req = tenantRequestAs($pro, ['ids' => [$block->id]], 'POST');
+
+    $formReq = ReorderBlocksRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    // Verify the authorization gate does not block an active professional.
+    // The reorder() method passes the policy check and proceeds to advisory-lock
+    // DB queries; we catch QueryException (pg_advisory_xact_lock / hashtext are
+    // Postgres-only) to confirm auth succeeded without testing the full DB flow.
+    $authBlocked = false;
+    try {
+        app(ProfessionalLinkBlockController::class)
+            ->reorder($formReq);
+    } catch (AuthorizationException $e) {
+        $authBlocked = true;
+    } catch (QueryException $e) {
+        // Advisory lock uses pg_advisory_xact_lock(hashtext(?)) — not available in
+        // the SQLite test driver. Reaching this point means auth passed.
+    }
+
+    expect($authBlocked)->toBeFalse();
 });
