@@ -332,21 +332,29 @@ function setupMediaTables(): void
 }
 
 /**
- * core.waitlist_signups for waitlist tests.
+ * core.waitlist_signups for waitlist tests. Column list mirrors the production
+ * baseline post-relaxation migration (20260526010000) — all columns nullable
+ * here for SQLite permissiveness, but every column name matches.
  */
 function setupWaitlistTable(): void
 {
     attachTestSchemas();
     \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
         id TEXT PRIMARY KEY,
+        name TEXT NULL,
         email TEXT NULL,
+        email_lc TEXT NULL UNIQUE,
+        phone TEXT NULL,
+        applicant_type TEXT NULL,
+        applicant_type_other TEXT NULL,
         industry TEXT NULL,
-        first_name TEXT NULL,
-        last_name TEXT NULL,
-        social_handle TEXT NULL,
-        company_name TEXT NULL,
-        country_code TEXT NULL,
-        notes TEXT NULL,
+        industry_other TEXT NULL,
+        pilot_program_opt_in INTEGER NULL,
+        number_of_team_members INTEGER NULL,
+        consent_source TEXT NULL,
+        consent_ip_hash TEXT NULL,
+        consent_user_agent TEXT NULL,
+        last_submitted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
@@ -447,7 +455,7 @@ function createTenant(string $handle, string $type = 'professional'): User
     $siteId = (string) \Illuminate\Support\Str::uuid();
     $now = now()->toDateTimeString();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table("core.users")->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'auth_user_id' => 'auth-'.\Illuminate\Support\Str::random(12),
         'handle' => $handle,
@@ -477,7 +485,7 @@ function createBrandTenant(string $handle = 'brand-a'): User
 {
     $pro = createTenant($handle, 'brand');
     \Illuminate\Support\Facades\DB::connection('pgsql')
-        ->table("core.users")
+        ->table('core.users')
         ->where('id', $pro->id)
         ->update(['account_type' => 'brand']);
     \App\Services\Accounts\AccountCapabilities::flushCache();
@@ -492,7 +500,7 @@ function createAffiliateTenant(string $handle = 'affiliate-a'): User
     // returns the partner capability set in dispatcher-gate tests.
     $pro = createTenant($handle, 'affiliate');
     \Illuminate\Support\Facades\DB::connection('pgsql')
-        ->table("core.users")
+        ->table('core.users')
         ->where('id', $pro->id)
         ->update(['account_type' => 'partner']);
     \App\Services\Accounts\AccountCapabilities::flushCache();
@@ -615,7 +623,6 @@ function signStripeBody(string $body, string $secret, ?int $timestamp = null): s
     return 't='.$timestamp.',v1='.$signature;
 }
 
-
 /**
  * site.service_categories — minimal columns for Square sync tests.
  */
@@ -668,7 +675,6 @@ function setupServicesTable(): void
     )');
 }
 
-
 /**
  * core.customers — all columns nullable, mirrors the production schema.
  */
@@ -718,7 +724,6 @@ function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\P
 
     return \App\Models\Core\Professional\Customer::query()->findOrFail($id);
 }
-
 
 /**
  * Insert a Service row for $pro and return the Eloquent model.
@@ -906,7 +911,6 @@ function setupFeatureFlagsTable(): void
         updated_at TEXT
     )');
 }
-
 
 /**
  * core.partna_staff — internal staff accounts, linked to Supabase auth users.

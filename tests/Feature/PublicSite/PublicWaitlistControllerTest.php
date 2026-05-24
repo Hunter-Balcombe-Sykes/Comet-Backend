@@ -11,6 +11,21 @@ beforeEach(function () {
     setupWaitlistSchema();
 })->group('public-waitlist');
 
+it('accepts an email-only waitlist submission (coming-soon landing)', function () {
+    $response = $this->postJson('/api/public/waitlist', ['email' => 'emailonly@example.com']);
+
+    $response->assertCreated()->assertJson(['ok' => true]);
+
+    $row = DB::connection('pgsql')->table('core.waitlist_signups')
+        ->where('email_lc', 'emailonly@example.com')->first();
+
+    expect($row)->not->toBeNull();
+    expect($row->name)->toBeNull();
+    expect($row->phone)->toBeNull();
+    expect($row->applicant_type)->toBeNull();
+    expect($row->industry)->toBeNull();
+});
+
 it('stores a waitlist submission with normalized fields', function () {
     $payload = [
         'name' => '  Alex Tester  ',
@@ -78,21 +93,22 @@ it('applies waitlist throttle middleware to the waitlist endpoint', function () 
 
 function setupWaitlistSchema(): void
 {
-    // The WaitlistSignup model uses 'core.waitlist_signups' as its table.
-    // Attach the 'core' schema and create the table under it so the model
-    // (and any raw DB::table('core.waitlist_signups') call) resolves.
+    // Mirrors production schema after migration 20260526010000 (relaxed
+    // constraints to match email-only signup contract). All columns nullable
+    // here; in production NULLs are still enforced for *_other_required and
+    // *_check via Postgres CHECK (not modelled in SQLite).
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
         id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        email_lc TEXT NOT NULL UNIQUE,
-        phone TEXT NOT NULL,
-        applicant_type TEXT NOT NULL,
+        name TEXT NULL,
+        email TEXT NULL,
+        email_lc TEXT NULL UNIQUE,
+        phone TEXT NULL,
+        applicant_type TEXT NULL,
         applicant_type_other TEXT NULL,
-        industry TEXT NOT NULL,
+        industry TEXT NULL,
         industry_other TEXT NULL,
-        pilot_program_opt_in INTEGER NOT NULL DEFAULT 0,
+        pilot_program_opt_in INTEGER NULL DEFAULT 0,
         number_of_team_members INTEGER NULL,
         consent_source TEXT NULL,
         consent_ip_hash TEXT NULL,
