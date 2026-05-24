@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\HttpStatusCodeInterface;
 use App\Http\Middleware\AddETagHeaders;
 use App\Http\Middleware\AddPublicCacheHeaders;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
@@ -18,7 +19,6 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use App\Contracts\HttpStatusCodeInterface;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -149,6 +149,9 @@ return Application::configure(basePath: dirname(__DIR__))
                     $e->getHttpStatusCode()
                 );
                 foreach ($e->getHttpHeaders() as $header => $value) {
+                    if (! is_string($header)) {
+                        continue; // interface contract requires string keys; skip malformed entries silently
+                    }
                     $response->headers->set($header, (string) $value);
                 }
             }

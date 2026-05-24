@@ -16,6 +16,17 @@ it('renders KickRateLimitException as 429 with Retry-After header', function () 
     $response->assertJson(['message' => 'Kick API rate limit exceeded.']);
 });
 
+it('renders KickRateLimitException as 429 without Retry-After when retryAfter is null', function () {
+    Route::get('api/__test/kick-rate-limit-no-retry', function () {
+        throw new KickRateLimitException();
+    });
+
+    $response = $this->getJson('api/__test/kick-rate-limit-no-retry');
+
+    $response->assertStatus(429);
+    $response->assertHeaderMissing('Retry-After');
+});
+
 it('renders DataExportInProgressException as 409', function () {
     Route::get('api/__test/data-export', function () {
         throw new DataExportInProgressException(existingExportId: 'abc-123');
