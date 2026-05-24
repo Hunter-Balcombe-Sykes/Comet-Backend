@@ -42,6 +42,14 @@ class ProfessionalSelfPolicy extends BasePolicy
             return $this->denyAsNotFound();
         }
 
+        // Require fresh MFA for high-risk self-mutations. Gated by flag — flip after TOTP is live.
+        if (config('partna.mfa.require_fresh_aal2_for_profile_update')) {
+            $aal2Check = $this->requiresFreshAal2();
+            if (! $aal2Check->allowed()) {
+                return $aal2Check;
+            }
+        }
+
         return true;
     }
 

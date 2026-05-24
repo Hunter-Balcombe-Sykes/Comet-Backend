@@ -5,6 +5,8 @@ use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
 use App\Models\Core\Professional\User;
 use App\Policies\ProfessionalSelfPolicy;
 
+uses(Tests\TestCase::class)->in(__FILE__);
+
 beforeEach(function () {
     $this->policy = new ProfessionalSelfPolicy;
 });

@@ -978,6 +978,10 @@ return [
         */
         'verify_max_failures' => (int) env('SIDEST_MFA_VERIFY_MAX_FAILURES', 5),
         'verify_failure_window_seconds' => (int) env('SIDEST_MFA_VERIFY_WINDOW_SECONDS', 300),
+
+        // When true, ProfessionalSelfPolicy::update requires a fresh AAL2 check.
+        // Flip to true after TOTP enrolment is live in the UI and tested in production.
+        'require_fresh_aal2_for_profile_update' => (bool) env('SIDEST_MFA_REQUIRE_FRESH_AAL2_FOR_PROFILE_UPDATE', false),
     ],
 
     'cache' => [
