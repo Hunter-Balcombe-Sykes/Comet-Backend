@@ -47,11 +47,20 @@ it('logs an error and returns empty array on 5xx response', function () {
     $manager = Mockery::mock(StreamingTokenManager::class);
     $manager->shouldReceive('getToken')->with('twitch')->andReturn('test-token');
 
+    // B3/P2-11: Twitch error bodies can echo back unrelated session data; log
+    // platform + status only — never the raw response body.
     Http::fake([
-        'api.twitch.tv/helix/streams*' => Http::response([], 500),
+        'api.twitch.tv/helix/streams*' => Http::response('oauth_token=stale-token-value', 500),
     ]);
 
-    Log::shouldReceive('error')->once()->with('streaming.api_error', Mockery::any());
+    Log::shouldReceive('error')
+        ->once()
+        ->withArgs(function (string $message, array $context) {
+            return $message === 'streaming.api_error'
+                && $context['platform'] === 'twitch'
+                && $context['status'] === 500
+                && ! array_key_exists('body', $context);
+        });
 
     $client = new TwitchApiClient($manager);
     $liveHandles = $client->getLiveHandles(['someuser']);

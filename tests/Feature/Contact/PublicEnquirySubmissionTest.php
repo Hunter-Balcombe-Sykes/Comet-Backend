@@ -154,7 +154,7 @@ it('upserts submitter as a Customer with source=enquiry', function () {
     expect($customer->professional_id)->toBe($proId);
 });
 
-it('dispatches SendEnquiryNotificationJob with the configured inbox', function () {
+it('dispatches SendEnquiryNotificationJob carrying the contact block id (not the email)', function () {
     seedPublishedContactSite();
     Bus::fake();
 
@@ -162,7 +162,17 @@ it('dispatches SendEnquiryNotificationJob with the configured inbox', function (
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    Bus::assertDispatched(SendEnquiryNotificationJob::class, fn ($job) => $job->notificationEmail === 'hello@mybrand.com');
+    // B3/P1-10: notification_email is no longer a constructor prop. The job
+    // looks it up from the contact block at handle() time so the Redis
+    // payload contains only UUIDs.
+    $contactBlock = DB::connection('pgsql')->table('site.blocks')->where('block_type', 'contact')->first();
+    $enquiry = DB::connection('pgsql')->table('site.enquiries')->first();
+
+    Bus::assertDispatched(SendEnquiryNotificationJob::class, function ($job) use ($contactBlock, $enquiry) {
+        return $job->enquiryId === $enquiry->id
+            && $job->blockId === $contactBlock->id
+            && ! property_exists($job, 'notificationEmail');
+    });
 });
 
 it('rejects a subject not in the merged options list', function () {

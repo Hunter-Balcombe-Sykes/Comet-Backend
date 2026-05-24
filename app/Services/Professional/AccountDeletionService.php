@@ -539,10 +539,13 @@ class AccountDeletionService
         }
 
         if (! $response->successful()) {
+            // Privacy: GoTrue 4xx responses can include the deleted user's email,
+            // user_metadata, and phone — drop the body from the log context. The
+            // auth_user_id + status are enough to diagnose without persisting PII
+            // into log retention windows that GDPR erasure can't reach.
             Log::error('Supabase auth user deletion failed', [
                 'auth_user_id' => $authUserId,
                 'status' => $response->status(),
-                'body' => $response->body(),
             ]);
 
             return false;

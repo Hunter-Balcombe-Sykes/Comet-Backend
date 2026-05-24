@@ -3,6 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Mail\SiteEnquiryNotification;
+use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,6 +17,12 @@ use Illuminate\Support\Facades\Mail;
 // V2: Sends the contact-form notification email to the affiliate's configured inbox after an enquiry is saved.
 // No capability gate: enquiries originate from public site contact forms and apply to all 3 account types
 // (brand, partner, individual) — there is no account_type restriction for this notification path.
+//
+// B3/P1-10: ctor payload is UUIDs only. The brand's notification_email setting
+// lives in the contact block's settings JSON — looked up at handle() time so
+// the Redis payload carries no PII. If the block was disabled, deleted, or
+// scrubbed of its notification_email between dispatch and handle, the job
+// no-ops with a warning log keyed by enquiry_id only.
 class SendEnquiryNotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -32,7 +39,7 @@ class SendEnquiryNotificationJob implements ShouldQueue
 
     public function __construct(
         public readonly string $enquiryId,
-        public readonly string $notificationEmail,
+        public readonly string $blockId,
     ) {
         $this->onQueue('notifications');
     }
@@ -66,7 +73,34 @@ class SendEnquiryNotificationJob implements ShouldQueue
             return; // already sent on a previous attempt
         }
 
-        Mail::to($this->notificationEmail)->send(new SiteEnquiryNotification($enquiry));
+        // Resolve the notification inbox from the contact block at handle() time
+        // so the brand's email never sits in a Redis-serialised job payload.
+        $block = Block::query()
+            ->whereKey($this->blockId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if ($block === null) {
+            Log::warning('SendEnquiryNotificationJob: contact block no longer available', [
+                'enquiry_id' => $this->enquiryId,
+                'block_id' => $this->blockId,
+            ]);
+
+            return;
+        }
+
+        $notificationEmail = data_get($block->settings, 'notification_email');
+        if (! is_string($notificationEmail) || trim($notificationEmail) === '') {
+            Log::warning('SendEnquiryNotificationJob: notification_email no longer configured', [
+                'enquiry_id' => $this->enquiryId,
+                'block_id' => $this->blockId,
+            ]);
+
+            return;
+        }
+
+        Mail::to(trim($notificationEmail))->send(new SiteEnquiryNotification($enquiry));
 
         $enquiry->forceFill(['email_sent_at' => now()])->saveQuietly();
     }
@@ -79,6 +113,7 @@ class SendEnquiryNotificationJob implements ShouldQueue
         // email from the database during incident response.
         Log::error('SendEnquiryNotificationJob failed permanently', [
             'enquiry_id' => $this->enquiryId,
+            'block_id' => $this->blockId,
             'error' => $e->getMessage(),
         ]);
     }

@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Professional\Customer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,6 +17,12 @@ use Throwable;
 // EmailSubscription is the source of truth; the cached column on Customer is a UX/perf shortcut
 // that isMarketingOptedIn() falls back to a live lookup for when null — so a few seconds of
 // staleness from the queue is well within the read API's tolerance.
+//
+// B3/P1-10: ctor payload is UUIDs only. The customer email and subscribed bool are
+// derived inside handle() by reading the persisted EmailSubscription row, so the
+// Redis-serialised job payload never contains PII. If the subscription row was
+// erased between dispatch and handle (GDPR pseudonymise raced ahead), the lookup
+// returns null and the job no-ops — exactly the desired post-erasure behaviour.
 class SyncCustomerMarketingOptInJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -32,17 +39,24 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
 
     public function __construct(
         public readonly string $professionalId,
-        public readonly string $email,
-        public readonly bool $subscribed,
+        public readonly string $subscriptionId,
     ) {
         $this->onQueue('notifications');
     }
 
     public function handle(): void
     {
+        $subscription = EmailSubscription::query()->find($this->subscriptionId);
+        if (! $subscription) {
+            // Subscription row gone (e.g., GDPR erasure ran between dispatch and
+            // handle, or list was admin-deleted). Quiet no-op — no source of
+            // truth to read from, no PII to surface.
+            return;
+        }
+
         $customer = Customer::query()
-            ->where('professional_id', $this->professionalId)
-            ->where('email', $this->email)
+            ->where('professional_id', $subscription->professional_id)
+            ->where('email', $subscription->email)
             ->first();
 
         if (! $customer) {
@@ -51,18 +65,18 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
             return;
         }
 
-        $customer->marketing_opt_in_cached = $this->subscribed;
+        $customer->marketing_opt_in_cached = $subscription->status === 'subscribed';
         $customer->saveQuietly();
     }
 
     // §28.17 JOB-3 — explicit failed() so Nightwatch sees retry exhaustion.
+    // B3/P1-11 — UUIDs only in the log context; email lives in the DB, not in logs.
     public function failed(Throwable $e): void
     {
         report($e);
         Log::error('notifications.sync_customer_marketing_opt_in.failed', [
             'professional_id' => $this->professionalId,
-            'email' => $this->email,
-            'subscribed' => $this->subscribed,
+            'subscription_id' => $this->subscriptionId,
             'error' => $e->getMessage(),
         ]);
     }

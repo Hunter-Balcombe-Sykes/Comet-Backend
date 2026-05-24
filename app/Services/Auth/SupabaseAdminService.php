@@ -171,8 +171,12 @@ class SupabaseAdminService
             ->delete("{$baseUrl}/users/{$supabaseUserId}/factors/{$factorId}");
 
         if (! $response->successful()) {
+            // Privacy: GoTrue 4xx responses include the user object (email,
+            // user_metadata, phone). Status code is sufficient for the controller's
+            // 502 mapping — the response body cannot be embedded in the exception
+            // message, which would otherwise persist into Horizon failed-job records.
             throw new RuntimeException(
-                "Supabase factor unenroll failed: HTTP {$response->status()} body={$response->body()}"
+                "Supabase factor unenroll failed: HTTP {$response->status()}"
             );
         }
     }
