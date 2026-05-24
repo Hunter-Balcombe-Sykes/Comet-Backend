@@ -181,16 +181,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], $statusCode);
             }
 
-            // Ensure CORS headers are present on all API error responses.
-            // HandleCors middleware adds these during normal flow, but when
-            // an exception propagates past it the rendered response skips
-            // the CORS header injection. Laravel Cloud's proxy also strips
-            // CORS headers on some error responses. This guard ensures the
-            // browser can always read the error body.
-            if ($response !== null
-                && ! $response->headers->has('Access-Control-Allow-Origin')
-            ) {
-                $response->headers->set('Access-Control-Allow-Origin', '*');
+            // Delegate to SecureHeaders — single source of truth for CORS injection (#P3-11).
+            if ($response !== null) {
+                SecureHeaders::applyCors($response);
             }
 
             return $response;

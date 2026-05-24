@@ -13,12 +13,7 @@ class SecureHeaders
     {
         $response = $next($request);
 
-        // CORS: always allow any origin. HandleCors middleware normally adds this
-        // but Laravel Cloud's edge proxy can strip it on some responses. Setting it
-        // here (global, appended last) guarantees the header survives.
-        if (! $response->headers->has('Access-Control-Allow-Origin')) {
-            $response->headers->set('Access-Control-Allow-Origin', '*');
-        }
+        self::applyCors($response);
 
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('X-Content-Type-Options', 'nosniff');
@@ -53,5 +48,20 @@ class SecureHeaders
         }
 
         return $response;
+    }
+
+    /**
+     * Ensure CORS header is present on $response.
+     *
+     * HandleCors middleware adds this during normal request flow, but exceptions
+     * that propagate past it — and some Laravel Cloud proxy paths — strip the header.
+     * This static helper is the single source of truth: called from handle() above
+     * AND from the exception renderer in bootstrap/app.php so both paths are covered.
+     */
+    public static function applyCors(Response $response): void
+    {
+        if (! $response->headers->has('Access-Control-Allow-Origin')) {
+            $response->headers->set('Access-Control-Allow-Origin', '*');
+        }
     }
 }
