@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Requests\Api\BootstrapRequest;
-use App\Services\Professional\SiteProvisioningService;
+use App\Models\Core\Site\Site;
+use App\Services\Professional\ProfessionalBootstrapService;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     config(['partna.waitlist.enabled' => true]);
+    config(['partna.individual_waitlist_enabled' => false]);
 
     // TestCase::setUp redirects 'pgsql' to in-memory SQLite. Use the shared
     // helper to attach 'core' and create core.users.
@@ -14,7 +16,7 @@ beforeEach(function () {
 })->group('bootstrap-waitlist-gate');
 
 it('blocks bootstrap for new users when waitlist mode is enabled', function () {
-    $controller = new BootstrapController(new SiteProvisioningService);
+    $controller = app(BootstrapController::class);
     $request = BootstrapRequest::create('/api/bootstrap', 'POST');
     $request->attributes->set('supabase_uid', 'new-user-uid');
 
@@ -24,15 +26,52 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
     expect($response->getData(true)['errors']['code'] ?? null)->toBe('WAITLIST_ONLY');
 });
 
-it('detects existing professionals by supabase auth user id', function () {
+it('does not gate existing professionals when waitlist mode is enabled', function () {
+    $existing = new App\Models\Core\Professional\User([
+        'handle' => 'existing',
+        'handle_lc' => 'existing',
+        'display_name' => 'Existing User',
+        'primary_email' => 'existing@example.com',
+        'status' => 'active',
+        'account_type' => 'individual',
+    ]);
+    $existing->id = '00000000-0000-0000-0000-000000000001';
+
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => '00000000-0000-0000-0000-000000000001',
+        'id' => $existing->id,
         'auth_user_id' => 'existing-user-uid',
+        'primary_email' => 'existing@example.com',
+        'handle' => 'existing',
+        'handle_lc' => 'existing',
+        'display_name' => 'Existing User',
+        'status' => 'active',
+        'account_type' => 'individual',
     ]);
 
-    $controller = new BootstrapController(new SiteProvisioningService);
-    $method = new ReflectionMethod(BootstrapController::class, 'hasExistingProfessional');
+    // Stub the service — this test only verifies the gate predicate, not the
+    // full bootstrap path. If the gate fires, the service is never called; if
+    // the gate lets the request through, the stub returns a known-good shape.
+    $site = new Site(['id' => '00000000-0000-0000-0000-000000000002', 'subdomain' => 'existing']);
+    $this->instance(ProfessionalBootstrapService::class, Mockery::mock(ProfessionalBootstrapService::class, function ($mock) use ($existing, $site) {
+        $mock->shouldReceive('bootstrap')->once()->andReturn([
+            'professional' => $existing,
+            'site' => $site,
+            'created' => false,
+        ]);
+    }));
 
-    expect($method->invoke($controller, 'existing-user-uid'))->toBeTrue();
-    expect($method->invoke($controller, 'missing-user-uid'))->toBeFalse();
+    $controller = app(BootstrapController::class);
+    $request = BootstrapRequest::create('/api/bootstrap', 'POST', [
+        'primary_email' => 'existing@example.com',
+        'display_name' => 'Existing User',
+        'handle' => 'existing',
+    ]);
+    $request->attributes->set('supabase_uid', 'existing-user-uid');
+    $request->setContainer(app())->setRedirector(app('redirect'));
+    $request->validateResolved();
+
+    $response = $controller->bootstrap($request);
+
+    // Gate did not fire → service was called → 200 success path.
+    expect($response->getStatusCode())->toBe(200);
 });
