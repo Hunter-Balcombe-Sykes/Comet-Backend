@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\Professional;
 
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ValidatesProfessionalAbout;
+use App\Models\Core\Professional\User;
 use Illuminate\Validation\Rule;
 
 // V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
@@ -23,7 +24,7 @@ class UpdateProfessionalRequest extends BaseFormRequest
 
             'primary_email' => [
                 'sometimes', 'required', 'email:rfc', 'max:255',
-                Rule::unique('professionals', 'primary_email')
+                Rule::unique(User::class, 'primary_email')
                     ->ignore($this->attributes->get('professional')?->id, 'id'),
             ],
             'phone' => ['sometimes', 'required', ...$this->phoneRule()],

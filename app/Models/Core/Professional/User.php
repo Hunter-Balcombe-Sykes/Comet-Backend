@@ -32,9 +32,8 @@ class User extends BaseModel
 {
     use HasFactory, HasUuids, Notifiable, SoftDeletes;
 
-    // DB table will be renamed from core.professionals to core.users in Task 7 (DB re-baseline).
-    // Until then, this points at the still-existing professionals table in production.
-    // SQLite test DDL (Pest.php) uses core.users to match this declaration.
+    // DB table is core.users (renamed from core.professionals in the Task 7
+    // standalone-user re-baseline). SQLite test DDL (Pest.php) matches.
     protected $table = 'core.users';
 
     public $incrementing = false;
