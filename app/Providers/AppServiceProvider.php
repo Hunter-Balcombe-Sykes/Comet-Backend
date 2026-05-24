@@ -4,6 +4,36 @@ namespace App\Providers;
 
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
+use App\Models\Analytics\LeadSubmission;
+use App\Models\Core\FeatureFlag;
+use App\Models\Core\FeatureFlagOverride;
+use App\Models\Core\Gdpr\DataExportAudit;
+use App\Models\Core\Notifications\EmailSubscription;
+use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Notifications\NotificationEmailPolicy;
+use App\Models\Core\Notifications\NotificationEmailPreference;
+use App\Models\Core\Notifications\NotificationReceipt;
+use App\Models\Core\Professional\Customer;
+use App\Models\Core\Professional\ProfessionalConfirmationPreference;
+use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
+use App\Models\Core\Professional\Service;
+use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\Professional\User;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\Staff\PartnaStaff;
+use App\Policies\CustomerPolicy;
+use App\Policies\FeatureFlagPolicy;
+use App\Policies\GdprPolicy;
+use App\Policies\NotificationPolicy;
+use App\Policies\PartnaStaffPolicy;
+use App\Policies\ProfessionalSelfPolicy;
+use App\Policies\ServicePolicy;
+use App\Policies\SitePolicy;
+use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -29,7 +59,7 @@ class AppServiceProvider extends ServiceProvider
         // across the middleware / controller / nested service calls within a
         // single request. Without this, app(FeatureFlagService::class) resolves
         // a fresh instance on every helper call and the memo is always empty.
-        $this->app->singleton(\App\Services\FeatureFlags\FeatureFlagService::class);
+        $this->app->singleton(FeatureFlagService::class);
 
     }
 
@@ -38,27 +68,27 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::policy(\App\Models\Core\Professional\Customer::class, \App\Policies\CustomerPolicy::class);
-        Gate::policy(\App\Models\Core\Site\Site::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\Block::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\SiteMedia::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\SiteSubdomainAlias::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\Enquiry::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Analytics\LeadSubmission::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\Service::class, \App\Policies\ServicePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ServiceCategory::class, \App\Policies\ServicePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\User::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ProfessionalConfirmationPreference::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ProfessionalDeletionAuditEntry::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\Notification::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationEmailPreference::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationEmailPolicy::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationReceipt::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\EmailSubscription::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Gdpr\DataExportAudit::class, \App\Policies\GdprPolicy::class);
-        Gate::policy(\App\Models\Core\Staff\PartnaStaff::class, \App\Policies\PartnaStaffPolicy::class);
-        Gate::policy(\App\Models\Core\FeatureFlag::class, \App\Policies\FeatureFlagPolicy::class);
-        Gate::policy(\App\Models\Core\FeatureFlagOverride::class, \App\Policies\FeatureFlagPolicy::class);
+        Gate::policy(Customer::class, CustomerPolicy::class);
+        Gate::policy(Site::class, SitePolicy::class);
+        Gate::policy(Block::class, SitePolicy::class);
+        Gate::policy(SiteMedia::class, SitePolicy::class);
+        Gate::policy(SiteSubdomainAlias::class, SitePolicy::class);
+        Gate::policy(Enquiry::class, SitePolicy::class);
+        Gate::policy(LeadSubmission::class, SitePolicy::class);
+        Gate::policy(Service::class, ServicePolicy::class);
+        Gate::policy(ServiceCategory::class, ServicePolicy::class);
+        Gate::policy(User::class, ProfessionalSelfPolicy::class);
+        Gate::policy(ProfessionalConfirmationPreference::class, ProfessionalSelfPolicy::class);
+        Gate::policy(ProfessionalDeletionAuditEntry::class, ProfessionalSelfPolicy::class);
+        Gate::policy(Notification::class, NotificationPolicy::class);
+        Gate::policy(NotificationEmailPreference::class, NotificationPolicy::class);
+        Gate::policy(NotificationEmailPolicy::class, NotificationPolicy::class);
+        Gate::policy(NotificationReceipt::class, NotificationPolicy::class);
+        Gate::policy(EmailSubscription::class, NotificationPolicy::class);
+        Gate::policy(DataExportAudit::class, GdprPolicy::class);
+        Gate::policy(PartnaStaff::class, PartnaStaffPolicy::class);
+        Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
+        Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -89,6 +119,13 @@ class AppServiceProvider extends ServiceProvider
         if (! app()->environment('local', 'testing')
             && (empty(config('supabase.jwt_issuer')) || empty(config('supabase.jwt_audience')))) {
             throw new \RuntimeException('SUPABASE_JWT_ISSUER and SUPABASE_JWT_AUD must be configured (JWT auth fails closed without them).');
+        }
+
+        // Supabase email hook secret must be set in production. An empty value
+        // causes VerifySupabaseEmailHookSignature to 503 every delivery,
+        // silently breaking all auth email (signup, recovery, magiclink, invite).
+        if (app()->isProduction() && empty(config('services.supabase.email_hook_secret'))) {
+            throw new \RuntimeException('SUPABASE_EMAIL_HOOK_SECRET must be configured in production (auth email hook fails closed without it).');
         }
 
         // F6 CFG-4 — Nightwatch enabled without a token attempts an unauthenticated

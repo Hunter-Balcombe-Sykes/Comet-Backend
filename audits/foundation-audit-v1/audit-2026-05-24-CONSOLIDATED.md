@@ -140,7 +140,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: throw a `RuntimeException('ACCOUNT_DISABLED')` inside the closure (matching the `EMAIL_ALREADY_REGISTERED` pattern); add a branch in the outer catch that returns `$this->error('Account is disabled. Contact support.', 403)`. Better: lift the status check above the transaction entirely.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-02** Synchronous mail on Supabase email hook → duplicate auth emails on transport slowness — Lens: `PERF-1`
+- [x] **#P1-02** Synchronous mail on Supabase email hook → duplicate auth emails on transport slowness — Lens: `PERF-1`
     - Where: `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php:69`
     - What: `Mail::send($mailable)` blocks for the Resend round-trip (100–400 ms typical, multi-second under load). Supabase Send Email Hook is at-least-once: any non-2xx (including PHP-FPM timeout) triggers a retry — meaning users get two signup-confirm / password-reset / magic-link emails when Resend hiccups.
     - Fix: switch to `Mail::queue($mailable)`. Ensure the `mail` queue worker is on Horizon (`config/horizon.php`). On queue-dispatch failure, log + return 200 `{handled:false}` rather than 500.
@@ -238,7 +238,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: change subject to `'Verify your Partna email address'`; change preheader to `'Open this email to get your verification code.'`. The code is already prominently rendered in-body — no UX loss.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-18** Supabase email hook has no webhook-id deduplication — replay window of 5 min — Lens: `WH-1` (run 2)
+- [x] **#P1-18** Supabase email hook has no webhook-id deduplication — replay window of 5 min — Lens: `WH-1` (run 2)
     - Where: `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php:30–86` · `app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php:39–53`
     - What: The `SupabaseEmailHookSignatureVerifier` correctly enforces the 300-second timestamp tolerance (good), but the `webhook-id` is extracted only for HMAC signing then discarded — the controller never sees it. Within that 5-minute window: (a) a captured signed webhook replays cleanly, sending duplicate auth emails (signup confirm / password reset / magic link); (b) Supabase's own at-least-once retry on transient 5xx also passes through this gap legitimately, producing duplicate sends. Standard Webhooks spec §4 explicitly requires receivers to track `webhook-id` for idempotency.
     - Fix: attach the `webhook-id` to the request as an attribute after signature passes; at the top of the controller call `Cache::add("email_hook:{$webhookId}", 1, now()->addSeconds(300))`. If the key existed, return `200 OK ['ok' => true, 'handled' => false, 'duplicate' => true]` and skip `Mail::send()`. TTL matches `TIMESTAMP_TOLERANCE` exactly. Log duplicates at `info` so ops can distinguish retry-noise from active replay attempts.
@@ -473,7 +473,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Webhook & infrastructure security (run-2 additions)
 
-- [ ] **#P2-39** Supabase email hook secret has no deploy-time assertion — production-breaking misconfig fails silently — Lens: `WH-2` (run 2)
+- [x] **#P2-39** Supabase email hook secret has no deploy-time assertion — production-breaking misconfig fails silently — Lens: `WH-2` (run 2)
     - Where: `app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php:25–31`
     - What: The middleware's fail-closed 503 on missing `SUPABASE_EMAIL_HOOK_SECRET` is correct security posture, but operationally invisible — Supabase retries, gives up, and users see broken signup/password-reset/magic-link with no server-side exception in Nightwatch. A typo or missed secret-rotation ships silently.
     - Fix: in `AppServiceProvider::boot()`, throw a `RuntimeException` in `production` when `config('services.supabase.email_hook_secret')` is empty. Keep the middleware's 503 as a runtime/test-env safety net. Add `SUPABASE_EMAIL_HOOK_SECRET` to deploy-checklist comments in `.env.example`.
@@ -548,7 +548,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [ ] **#P3-20** `post-create-project-cmd` creates dead SQLite file — Lens: `DEP-2`. Fix: remove the line. Models: impl=haiku · review=sonnet.
 
 ### Run-2 additions (lens-16 gap closure)
-- [ ] **#P3-21** Dev placeholder root route `Route::get('/', fn () => 'joshua hunter is awesome')` has no rate limit and no production purpose — Lens: `RATE-1` (run 2). Where: `routes/web.php:3–5`. Fix: delete the route entirely. Other web route `/p/{professionalId}.svg` correctly carries `throttle:public-site`. Models: impl=haiku · review=sonnet.
+- [x] **#P3-21** Dev placeholder root route `Route::get('/', fn () => 'joshua hunter is awesome')` has no rate limit and no production purpose — Lens: `RATE-1` (run 2). Where: `routes/web.php:3–5`. Fix: delete the route entirely. Other web route `/p/{professionalId}.svg` correctly carries `throttle:public-site`. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-22** `Access-Control-Allow-Origin: *` on every response rather than an allowlisted origins set — Lens: `SEC-3` (run 2). Where: `SecureHeaders.php:19-21` + `bootstrap/app.php` exception handler. Fix: add `frontend_origins` array to `config/partna.php` (e.g. `['https://app.partna.au', 'https://*.partna.au']`); validate `Origin` header in `SecureHeaders` and the exception render closure; echo back only on match. Defence-in-depth — Bearer tokens already prevent credentialed cross-origin reads, but `*` removes a browser-side barrier. Models: impl=sonnet · review=sonnet.
 - [ ] **#P3-23** HSTS header omits `preload` — first-visit window unprotected — Lens: `SEC-4` (run 2). Where: `SecureHeaders.php:52`. Fix: change value to `max-age=31536000; includeSubDomains; preload`; verify all `*.partna.au` subdomains are HTTPS-only before submitting to hstspreload.org. Cloudflare's "Always Use HTTPS" provides partial edge mitigation today. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-24** No CSP violation reporting endpoint — blocked requests are silent — Lens: `SEC-5` (run 2). Where: `SecureHeaders.php:48`. Fix: add `report-uri /api/internal/csp-report` (or modern `Report-To` header with `report-to` directive). Minimal self-hosted endpoint logs the violation body via `Log::warning`; Nightwatch surfaces patterns. Especially valuable under a strict `default-src 'none'` policy where misconfigured allowlists fail silently in users' browsers. Models: impl=sonnet · review=sonnet.
@@ -1229,7 +1229,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B24: Webhook hardening (4 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-02`, `#P1-18`, `#P2-39`, `#P3-21`
 - Models: impl=sonnet · review=opus
 - Rationale: all four touch the Supabase email-hook surface or its rate-limit posture. Queue the mail + webhook-id dedup + boot-time secret assertion + removing the unrelated `/` route are best done as one focused PR so the reviewer's mental model is "audit-hook + rate-limit hygiene." Doing P1-02 and P1-18 together is especially valuable — together they make retries cheap no-ops AND make replays impossible.
