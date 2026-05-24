@@ -380,27 +380,27 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Scheduler
 
-- [ ] **#P2-23** `CheckStreamingLiveStatusJob` lock timeout = scheduling cadence — Lens: `SCHED-1`
+- [x] **#P2-23** `CheckStreamingLiveStatusJob` lock timeout = scheduling cadence — Lens: `SCHED-1`
     - Where: `routes/console.php`
     - Fix: `withoutOverlapping(2)` → `withoutOverlapping(5)`. Add inline comment explaining the ceiling.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-24** `handles:notify-expiry` missing `withoutOverlapping` — Lens: `SCHED-2`
+- [x] **#P2-24** `handles:notify-expiry` missing `withoutOverlapping` — Lens: `SCHED-2`
     - Where: `routes/console.php`
     - Fix: add `->withoutOverlapping(60)->runInBackground()`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-25** `partna:prune-notifications` missing BOTH `withoutOverlapping` and `onOneServer` — Lens: `SCHED-3`
+- [x] **#P2-25** `partna:prune-notifications` missing BOTH `withoutOverlapping` and `onOneServer` — Lens: `SCHED-3`
     - Where: `routes/console.php`
     - Fix: add `->withoutOverlapping(120)->onOneServer()`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-26** Five scheduled tasks use bare `withoutOverlapping()` (24h default lock) — Lens: `SCHED-4`
+- [x] **#P2-26** Five scheduled tasks use bare `withoutOverlapping()` (24h default lock) — Lens: `SCHED-4`
     - Where: `routes/console.php` (entries for `AggregateCacheMetricsJob`, `horizon:snapshot`, `media:cleanup-stuck-processing`, `queue:prune-failed`, `partna:analytics:purge-raw-events`)
     - Fix: explicit per-task timeouts (10/10/30/60/30 mins respectively). Inline comments on each.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-27** Seven scheduled tasks missing `onOneServer()` — duplicate execution on multi-server — Lens: `SCHED-5`
+- [x] **#P2-27** Seven scheduled tasks missing `onOneServer()` — duplicate execution on multi-server — Lens: `SCHED-5`
     - Where: `routes/console.php` (7 entries — see lens file)
     - Fix: add `->onOneServer()` to each. The four that already have it form the established pattern.
     - Models: impl=haiku · review=sonnet
@@ -697,7 +697,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B6: Scheduler hardening pass (5 items) — Effort: S (~30min)
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-23`, `#P2-24`, `#P2-25`, `#P2-26`, `#P2-27`
 - Models: impl=haiku · review=sonnet
 - Rationale: all five are in `routes/console.php`. The 30-min change pattern is `add ->onOneServer()` + `add ->withoutOverlapping(N)` per task with explicit timeouts.

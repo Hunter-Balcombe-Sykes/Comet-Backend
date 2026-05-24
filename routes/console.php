@@ -4,19 +4,38 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
+/*
+ * Scheduler conventions — every entry below MUST honour these:
+ *   • ->onOneServer()           — elects one host per tick on multi-server deploys
+ *                                  (Redis atomic lock; no-op on a single host).
+ *   • ->withoutOverlapping(N)   — prefer an explicit lock TTL in minutes. A bare
+ *                                  withoutOverlapping() defaults to 1440 (24h), which
+ *                                  is rarely the right ceiling. N must exceed the
+ *                                  task's expected runtime AND, for sub-hourly
+ *                                  cadences, must also exceed the cadence itself —
+ *                                  otherwise a slow run races the next tick on the
+ *                                  instant the lock TTL expires.
+ *   • ->onFailure(...)          — surfaces silent maintenance failures to Nightwatch.
+ *   • ->runInBackground()       — for daily/cron-scale tasks that shouldn't block
+ *                                  the per-minute scheduler tick.
+ */
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
 Schedule::command('partna:purge-soft-deletes')
     ->dailyAt('03:20')
-    ->withoutOverlapping(600)
+    ->onOneServer()
+    ->withoutOverlapping(600) // 10h lock — historical purges on large tables can run long.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: purge-soft-deletes');
     });
 
 Schedule::command('partna:prune-notifications', ['--days' => 30])
     ->dailyAt('03:25')
+    ->onOneServer()
+    ->withoutOverlapping(120) // 2h lock — bounded by retention-window batch size.
     ->onFailure(function (?\Throwable $e = null): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-notifications', [
             'exception' => $e ? get_class($e) : null,
@@ -26,14 +45,16 @@ Schedule::command('partna:prune-notifications', ['--days' => 30])
 
 Schedule::command('partna:analytics:purge-raw-events')
     ->dailyAt('03:00')
-    ->withoutOverlapping()
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — partition-scoped DELETE; daily cadence.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: purge-raw-events');
     });
 
 Schedule::command('queue:prune-failed --hours=72')
     ->daily()
-    ->withoutOverlapping()
+    ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — proportional to failed_jobs table size.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-failed-jobs');
     });
@@ -42,7 +63,8 @@ Schedule::command('queue:prune-failed --hours=72')
 // and reports SLO violations (hot prefixes below 90% hit rate) to Nightwatch.
 Schedule::job(new \App\Jobs\Cache\AggregateCacheMetricsJob)
     ->hourly()
-    ->withoutOverlapping()
+    ->onOneServer()
+    ->withoutOverlapping(10) // 10min lock — read-only Redis aggregation, completes in seconds.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: aggregate-cache-metrics');
     });
@@ -51,15 +73,20 @@ Schedule::job(new \App\Jobs\Cache\AggregateCacheMetricsJob)
 // Metrics tab has data to render.
 Schedule::command('horizon:snapshot')
     ->everyFiveMinutes()
-    ->withoutOverlapping()
+    ->onOneServer()
+    ->withoutOverlapping(10) // 10min lock — 2x everyFiveMinutes cadence safety ceiling.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: horizon-snapshot');
     });
 
-// withoutOverlapping(2) matches the every-2-min cadence.
+// withoutOverlapping(5) gives a 2.5x ceiling over the everyTwoMinutes cadence. The
+// prior value (2) equalled the cadence, creating a same-tick race: lock TTL expiry
+// and the next dispatch happen at the same instant, so a slow run could collide
+// with itself. N must exceed the cadence for high-frequency tasks.
 Schedule::job(new \App\Jobs\Streaming\CheckStreamingLiveStatusJob)
     ->everyTwoMinutes()
-    ->withoutOverlapping(2)
+    ->onOneServer()
+    ->withoutOverlapping(5)
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: check-streaming-live-status');
     });
@@ -78,6 +105,8 @@ Schedule::command('handles:prune-expired-aliases')
 Schedule::command('handles:notify-expiry')
     ->dailyAt('09:00')
     ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — closes a race between application-level whereNull guards on the notified_t* stamp columns.
+    ->runInBackground()
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: handles-notify-expiry');
     });
@@ -103,7 +132,8 @@ Schedule::command('partna:backfill-subdomain-kv', ['--all', '--queue'])
 // QUEUE-5: hourly watchdog for SiteMedia rows orphaned in PROCESSING.
 Schedule::command('media:cleanup-stuck-processing')
     ->hourly()
-    ->withoutOverlapping()
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — Postgres lookup + queue dispatch, typically seconds.
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: media:cleanup-stuck-processing');
     });
