@@ -44,10 +44,13 @@ class StaffAuditService
                 'user_agent' => $userAgent,
             ]);
         } catch (Throwable $e) {
+            // B3/P2-12: request_id correlates the warning to the NGINX/Cloudflare
+            // access log entry — same pattern as FeatureFlagService / NotificationPublisher.
             Log::warning('staff.audit.write_failed', [
                 'exception' => $e->getMessage(),
                 'route' => $route,
                 'http_method' => $httpMethod,
+                'request_id' => request()?->header('X-Request-Id'),
             ]);
 
             return null;

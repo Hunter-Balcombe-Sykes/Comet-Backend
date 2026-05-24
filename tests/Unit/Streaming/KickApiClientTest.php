@@ -61,11 +61,20 @@ it('returns empty array and logs error on 5xx', function () {
     $manager = Mockery::mock(StreamingTokenManager::class);
     $manager->shouldReceive('getToken')->with('kick')->andReturn('kick-token');
 
+    // B3/P2-11: Kick error responses can include free-text bodies; the log
+    // context must record platform + status only, never the body.
     Http::fake([
-        'api.kick.com/public/v1/channels*' => Http::response([], 500),
+        'api.kick.com/public/v1/channels*' => Http::response('user_email=pii@example.com', 500),
     ]);
 
-    Log::shouldReceive('error')->once()->with('streaming.api_error', Mockery::any());
+    Log::shouldReceive('error')
+        ->once()
+        ->withArgs(function (string $message, array $context) {
+            return $message === 'streaming.api_error'
+                && $context['platform'] === 'kick'
+                && $context['status'] === 500
+                && ! array_key_exists('body', $context);
+        });
 
     $client = new KickApiClient($manager);
     expect($client->getLiveHandles(['anyuser']))->toBe([]);

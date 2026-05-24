@@ -51,10 +51,12 @@ class TwitchApiClient
             ])->get(self::STREAMS_URL.'?'.$query);
 
             if (! $response->successful()) {
+                // Privacy: Twitch error responses may echo back session data
+                // (auth tokens, channel metadata). Platform + status is enough
+                // diagnostic signal; don't persist body content into Nightwatch.
                 Log::error('streaming.api_error', [
                     'platform' => 'twitch',
                     'status' => $response->status(),
-                    'body' => $response->body(),
                 ]);
 
                 return [];

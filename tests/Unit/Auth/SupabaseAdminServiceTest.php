@@ -244,3 +244,35 @@ it('logs an email_fingerprint instead of the raw email on createUser failure', f
                 && ($context['email_fingerprint'] ?? null) === $expectedFingerprint;
         });
 });
+
+// B3 / P1-09: GoTrue 4xx responses include the full user object (email, metadata, phone).
+// Embedding $response->body() in the exception message persists that PII into Horizon
+// failed-job records and any `report($e)` upstream — retention windows the GDPR sweep
+// can't reach. Status code is sufficient for diagnosis.
+it('unenrollMfaFactor does not leak response body into exception message', function () {
+    config(['supabase.admin.base_url' => 'https://test.supabase.co/auth/v1/admin']);
+
+    Http::fake([
+        'https://test.supabase.co/auth/v1/admin/users/*/factors/*' => Http::response([
+            'user' => [
+                'id' => 'uid-123',
+                'email' => 'pii@example.com',
+                'user_metadata' => ['phone' => '+44-7700-900000'],
+            ],
+            'code' => 'mfa_factor_not_found',
+        ], 404),
+    ]);
+
+    $service = new SupabaseAdminService;
+
+    try {
+        $service->unenrollMfaFactor('uid-123', 'factor-abc');
+        $this->fail('Expected RuntimeException to be thrown');
+    } catch (RuntimeException $e) {
+        expect($e->getMessage())
+            ->toContain('HTTP 404')
+            ->and($e->getMessage())->not->toContain('pii@example.com')
+            ->and($e->getMessage())->not->toContain('body=')
+            ->and($e->getMessage())->not->toContain('user_metadata');
+    }
+});

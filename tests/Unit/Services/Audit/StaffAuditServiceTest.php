@@ -108,3 +108,30 @@ it('swallows insert failures and returns null while logging a warning', function
             && isset($context['exception'])
         );
 });
+
+// B3/P2-12: write-failures must correlate to the originating HTTP request so
+// SRE can join the warning to NGINX/Cloudflare access logs. Matches the
+// pattern in FeatureFlagService.
+it('B3/P2-12: write-failure warning includes the X-Request-Id header for correlation', function () {
+    Log::spy();
+
+    DB::connection('pgsql')->statement('DROP TABLE core.staff_audit_log');
+
+    // The X-Request-Id header is set by Cloudflare/NGINX on inbound requests.
+    request()->headers->set('X-Request-Id', 'req-abc-123');
+
+    (new StaffAuditService())->record(
+        staff: null,
+        impersonator: null,
+        professional: null,
+        route: 'staff.professionals.update',
+        httpMethod: 'PATCH',
+        statusCode: 200,
+    );
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) =>
+            $message === 'staff.audit.write_failed'
+            && ($context['request_id'] ?? null) === 'req-abc-123'
+        );
+});

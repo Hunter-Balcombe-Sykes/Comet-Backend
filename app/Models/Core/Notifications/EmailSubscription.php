@@ -91,15 +91,17 @@ class EmailSubscription extends BaseModel
                 // afterCommit so the job never enqueues if the surrounding
                 // transaction rolls back — avoids a wasted queue slot and a
                 // confusing "customer not found" no-op log in Horizon (#JOB-5).
+                //
+                // B3/P1-10: only UUIDs cross the queue boundary. Email + status
+                // are looked up inside handle() from this row, so a GDPR-erased
+                // row produces a quiet no-op instead of a leaked email payload.
                 $professionalId = (string) $subscription->professional_id;
-                $email = (string) $subscription->email;
-                $isSubscribed = $subscription->status === 'subscribed';
+                $subscriptionId = (string) $subscription->id;
 
-                DB::afterCommit(function () use ($professionalId, $email, $isSubscribed) {
+                DB::afterCommit(function () use ($professionalId, $subscriptionId) {
                     \App\Jobs\Notifications\SyncCustomerMarketingOptInJob::dispatch(
                         $professionalId,
-                        $email,
-                        $isSubscribed,
+                        $subscriptionId,
                     );
                 });
             }

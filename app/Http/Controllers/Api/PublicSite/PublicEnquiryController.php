@@ -107,6 +107,9 @@ class PublicEnquiryController extends ApiController
         $this->logLead($request, $subdomain, $site->id, (string) $site->professional_id, 'created', $startedMs);
 
         // 8) Dispatch notification email (only if settings.notification_email is present and per-brand hourly limit not reached).
+        // B3/P1-10: the job re-reads notification_email from $block->settings inside
+        // handle() — we only pass UUIDs across the queue boundary so the brand's
+        // inbox address never sits in a serialised Redis payload.
         $notificationEmail = data_get($block->settings, 'notification_email');
         if (is_string($notificationEmail) && trim($notificationEmail) !== '') {
             $notifyKey = 'enquiry_notify:'.$site->professional_id;
@@ -114,7 +117,7 @@ class PublicEnquiryController extends ApiController
 
             if (! RateLimiter::tooManyAttempts($notifyKey, $notifyLimit)) {
                 RateLimiter::hit($notifyKey, 3600);
-                SendEnquiryNotificationJob::dispatch((string) $enquiry->id, trim($notificationEmail));
+                SendEnquiryNotificationJob::dispatch((string) $enquiry->id, (string) $block->id);
             }
         }
 
