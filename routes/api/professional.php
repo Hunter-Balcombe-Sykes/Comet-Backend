@@ -66,9 +66,12 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         // so a user mid-deletion can still log themselves out.
         Route::prefix('sessions')->withoutMiddleware([EnforcePendingDeletionReadOnly::class])->group(function () {
             Route::get('/', [SessionController::class, 'index'])->name('sessions.index');
-            Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout');
-            Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others');
-            Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy');
+            Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout')
+                ->middleware('throttle:session-writes');
+            Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others')
+                ->middleware('throttle:session-writes');
+            Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy')
+                ->middleware('throttle:session-writes');
         });
 
         // View Site Details

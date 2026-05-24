@@ -412,5 +412,29 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        // Session-management write endpoints (logout, logout-others, revoke session).
+        // Keyed per-user because these write to the Redis session-id blocklist
+        // (see TokenRevocationService), which is consulted on every authenticated
+        // request site-wide — a flood here is a site-wide Redis DoS vector. IP
+        // keying is ineffective under corporate NAT; supabase_uid is always
+        // present on these authenticated routes.
+        RateLimiter::for('session-writes', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            // Fall back to IP only if uid is somehow absent (should never happen —
+            // these routes sit behind VerifySupabaseJwt).
+            $key = $request->attributes->get('supabase_uid') ?? $request->ip();
+
+            return Limit::perMinute(10)
+                ->by((string) $key)
+                ->response(function () {
+                    return response()->json([
+                        'message' => 'Too many session management requests. Please try again later.',
+                    ], 429);
+                });
+        });
+
     }
 }
