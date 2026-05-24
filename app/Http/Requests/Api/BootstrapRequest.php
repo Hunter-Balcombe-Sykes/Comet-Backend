@@ -35,7 +35,7 @@ class BootstrapRequest extends BaseFormRequest
             'display_name' => ['required', 'string', 'max:80'],
             'primary_email' => [
                 'required', 'email:rfc', 'max:255',
-                Rule::unique('professionals', 'primary_email')->ignore($existingProfessionalId, 'id'),
+                Rule::unique(User::class, 'primary_email')->ignore($existingProfessionalId, 'id'),
             ],
             'phone' => ['nullable', ...$this->phoneRule()],
             'first_name' => ['nullable', 'string', 'max:80'],
@@ -52,7 +52,7 @@ class BootstrapRequest extends BaseFormRequest
                 'nullable',
                 'string',
                 'max:50',
-                Rule::unique('professionals', 'handle_lc')->ignore($existingProfessionalId, 'id'),
+                Rule::unique(User::class, 'handle_lc')->ignore($existingProfessionalId, 'id'),
                 // Also block handles that appear in the alias table — these are handles
                 // previously used by other professionals and must not be re-claimed.
                 function (string $attribute, mixed $value, \Closure $fail) use ($existingProfessionalId): void {
