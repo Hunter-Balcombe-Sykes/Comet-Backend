@@ -304,7 +304,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Cache & observability
 
-- [ ] **#P2-10** SWR fast path serves stale payload without backward-compat healing — Lens: `CACHE-1`
+- [x] **#P2-10** SWR fast path serves stale payload without backward-compat healing — Lens: `CACHE-1`
     - Where: `app/Services/Cache/SiteCacheService.php` (SWR path ~line 118)
     - What: Sites whose cache was populated before the V2 strip (2026-05-22) serve a broken shape (missing `services`/`legal`) for up to 2.5h after the primary key expires.
     - Fix: run the same `array_key_exists('services')` + `ensureBlockCollections()` + `legal` backfill that the primary-hit path already does. On guard fail, forget both keys and fall through.
@@ -513,9 +513,9 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [x] **#P3-01** `IndividualProfileResource` constructor has 9 positional `array` params — Lens: `RES-8`. Fix: named-args / single associative `array $sections` param. Models: impl=sonnet · review=sonnet.
 
 ### Cache hygiene
-- [ ] **#P3-02** `BlockObserver::onBlockMutated` double-busts site cache — Lens: `CACHE-2`. Fix: rely solely on `site->touch()` chain. Models: impl=haiku · review=sonnet.
-- [ ] **#P3-03** `ServiceCategoryObserver` over-invalidates 13+ keys when 4 needed — Lens: `CACHE-3`. Fix: targeted `Cache::forget()` calls. Models: impl=sonnet · review=sonnet.
-- [ ] **#P3-04** `BlockObserver` independent try-catches mask partial Redis-vs-Cloudflare failure — Lens: `LISTENER-1`. Fix: combined log context (or reorder). Models: impl=sonnet · review=sonnet.
+- [x] **#P3-02** `BlockObserver::onBlockMutated` double-busts site cache — Lens: `CACHE-2`. Fix: rely solely on `site->touch()` chain. Models: impl=haiku · review=sonnet.
+- [x] **#P3-03** `ServiceCategoryObserver` over-invalidates 13+ keys when 4 needed — Lens: `CACHE-3`. Fix: targeted `Cache::forget()` calls. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-04** `BlockObserver` independent try-catches mask partial Redis-vs-Cloudflare failure — Lens: `LISTENER-1`. Fix: combined log context (or reorder). Models: impl=sonnet · review=sonnet.
 - [ ] **#P3-05** Silent lock-release failures produce no signal — Lens: `AUDIT-6`. Fix: optional Redis counter `INCR cache:lock_release_failures`. Models: impl=sonnet · review=sonnet.
 
 ### Architecture residue
@@ -933,7 +933,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B14: Cache layering hardening (4 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-10`, `#P3-02`, `#P3-03`, `#P3-04`
 - Models: impl=sonnet · review=sonnet
 - Rationale: all touch `SiteCacheService`/`ProfessionalCacheService`/Observers. SWR healing + over-invalidation pruning + observer consolidation = one cache-correctness PR.
