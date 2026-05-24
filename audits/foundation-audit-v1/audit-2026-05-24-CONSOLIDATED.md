@@ -368,12 +368,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Bootstrap & exceptions
 
-- [ ] **#P2-21** Domain exception safety net missing — Lens: `BOOT-1`
+- [x] **#P2-21** Domain exception safety net missing — Lens: `BOOT-1`
     - Where: `bootstrap/app.php` + `app/Exceptions/Streaming/KickRateLimitException.php` + `app/Exceptions/Gdpr/DataExportInProgressException.php`
     - Fix: introduce `HttpStatusCodeInterface { getHttpStatusCode(): int; getHttpHeaders(): array; }`. Domain exceptions implement it. Renderer checks `$e instanceof HttpStatusCodeInterface` in the `else` branch.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-22** `current.pro` not appended to `api` middleware group — Lens: `BOOT-2`
+- [x] **#P2-22** `current.pro` not appended to `api` middleware group — Lens: `BOOT-2`
     - Where: `bootstrap/app.php` (alias block)
     - Fix: create an `auth.api` group `['supabase.jwt', 'require.email_verified', 'current.pro']` and apply it everywhere, OR append `LoadCurrentProfessional` to the `api` group via priority list. Add a test that asserts `$request->attributes->get('professional')` is non-null on any route with `supabase.jwt`.
     - Models: impl=sonnet · review=opus
@@ -516,7 +516,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [x] **#P3-02** `BlockObserver::onBlockMutated` double-busts site cache — Lens: `CACHE-2`. Fix: rely solely on `site->touch()` chain. Models: impl=haiku · review=sonnet.
 - [x] **#P3-03** `ServiceCategoryObserver` over-invalidates 13+ keys when 4 needed — Lens: `CACHE-3`. Fix: targeted `Cache::forget()` calls. Models: impl=sonnet · review=sonnet.
 - [x] **#P3-04** `BlockObserver` independent try-catches mask partial Redis-vs-Cloudflare failure — Lens: `LISTENER-1`. Fix: combined log context (or reorder). Models: impl=sonnet · review=sonnet.
-- [ ] **#P3-05** Silent lock-release failures produce no signal — Lens: `AUDIT-6`. Fix: optional Redis counter `INCR cache:lock_release_failures`. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-05** Silent lock-release failures produce no signal — Lens: `AUDIT-6`. Fix: optional Redis counter `INCR cache:lock_release_failures`. Models: impl=sonnet · review=sonnet.
 
 ### Architecture residue
 - [ ] **#P3-06** Gallery `store()` is permanent 410 stub — Lens: `ARCH-6`. Fix: remove route + method. Models: impl=haiku · review=sonnet.
@@ -526,7 +526,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Bootstrap & exceptions
 - [ ] **#P3-10** Dead `App\Exceptions\NoRecipientEmailException` (zero imports, duplicate of GDPR variant) — Lens: `BOOT-3`. Fix: delete the file. Models: impl=haiku · review=sonnet.
-- [ ] **#P3-11** Manual CORS injection in exception renderer is fragile against new branches — Lens: `BOOT-4`. Fix: extract to named closure / helper. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-11** Manual CORS injection in exception renderer is fragile against new branches — Lens: `BOOT-4`. Fix: extract to named closure / helper. Models: impl=sonnet · review=sonnet.
 
 ### Self-service authz doctrine
 - [x] **#P3-12** `ProfessionalController::update` + `ProfessionalAccountDeletionController` omit `authorizeForUser` — Lens: `AUTH-3`. Fix: add the policy call. Pre-req for AAL2 wiring (P2-01) to actually fire. Models: impl=sonnet · review=sonnet.
@@ -1023,7 +1023,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be paranoid. Auth bugs at scale = mass data exposure.
 
 ### Bundle B17: Bootstrap & exception hardening (4 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-21`, `#P2-22`, `#P3-05`, `#P3-11`
 - Models: impl=sonnet · review=sonnet
 - Rationale: all touch `bootstrap/app.php` or adjacent middleware/exception code. Same review surface (exception renderer + middleware stack).
