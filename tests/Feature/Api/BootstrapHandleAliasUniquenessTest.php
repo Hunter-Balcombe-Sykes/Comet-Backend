@@ -105,8 +105,11 @@ function validBootstrapPayload(array $overrides = []): array
     ], $overrides);
 }
 
-it('rejects a handle_lc that already exists in the professionals table', function () {
-    DB::table('professionals')->insert([
+it('rejects a handle_lc that already exists in the core.users table', function () {
+    // Rule::unique(User::class, 'handle_lc') queries core.users (the User
+    // model's table) — not the legacy 'professionals' table that was renamed
+    // during the standalone-user strip. See #114.
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => '00000000-0000-0000-0000-000000000001',
         'handle' => 'taken',
         'handle_lc' => 'taken',
