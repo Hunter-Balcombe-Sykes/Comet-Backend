@@ -214,7 +214,10 @@ class MediaUploadService
             $hash = substr(hash_file('sha256', $file->getRealPath()), 0, 16);
             $path = "{$basePath}/original_{$hash}.{$ext}";
             $stream = fopen($file->getRealPath(), 'rb');
-            Storage::disk($mediaDisk)->put($path, $stream, 'public');
+            // 'private' — original is a re-processing source only; the public
+            // deliverable is the HLS/MP4/poster variants. Matches the image
+            // path in ImageVariantService::storeOriginal().
+            Storage::disk($mediaDisk)->put($path, $stream, 'private');
             if (is_resource($stream)) {
                 fclose($stream);
             }

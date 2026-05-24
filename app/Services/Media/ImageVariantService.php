@@ -240,7 +240,11 @@ class ImageVariantService
         }
 
         try {
-            $this->disk()->put($path, $stream, 'public');
+            // 'private' — originals are kept only as a re-processing source;
+            // the public deliverable is the variants (ACL 'public') in
+            // MediaVariant rows. Document originals are a separate path
+            // (ProfessionalDocumentController) and remain 'public'.
+            $this->disk()->put($path, $stream, 'private');
         } finally {
             // Flysystem-S3 closes the resource on success; the finally covers
             // failure paths. Double-fclose on a closed handle is harmless.

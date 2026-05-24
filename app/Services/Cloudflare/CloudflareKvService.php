@@ -38,7 +38,7 @@ class CloudflareKvService
     public function put(string $key, array $value, ?int $expirationTtl = null): void
     {
         if (! $this->configured) {
-            Log::debug('CloudflareKvService: skipping put (not configured)', ['key' => $key]);
+            $this->guardUnconfigured('put', ['key' => $key]);
 
             return;
         }
@@ -63,7 +63,7 @@ class CloudflareKvService
     public function delete(string $key): void
     {
         if (! $this->configured) {
-            Log::debug('CloudflareKvService: skipping delete (not configured)', ['key' => $key]);
+            $this->guardUnconfigured('delete', ['key' => $key]);
 
             return;
         }
@@ -76,5 +76,26 @@ class CloudflareKvService
     private function url(string $key): string
     {
         return "https://api.cloudflare.com/client/v4/accounts/{$this->accountId}/storage/kv/namespaces/{$this->namespaceId}/values/{$key}";
+    }
+
+    /**
+     * In production / staging, missing credentials must page — the silent
+     * no-op was originally a local-dev convenience and would otherwise mask
+     * unrouted subdomains until a user reported it. Dev / local / test keep
+     * the quiet behaviour so the absence of CF creds in .env.example doesn't
+     * break the suite.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    private function guardUnconfigured(string $op, array $context): void
+    {
+        if (app()->environment('production', 'staging')) {
+            throw new \RuntimeException(
+                "CloudflareKvService is not configured (account_id, kv_namespace_id, api_token required). "
+                ."Refusing to silently no-op {$op} in ".app()->environment().'.'
+            );
+        }
+
+        Log::debug("CloudflareKvService: skipping {$op} (not configured)", $context);
     }
 }
