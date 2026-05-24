@@ -26,3 +26,14 @@ it('resolves the professional when a valid JWT is supplied', function () {
         ->assertOk()
         ->assertJsonFragment(['professional_id' => $pro->id]);
 });
+
+it('rejects a valid JWT when email is not verified', function () {
+    $pro = createAffiliateTenant('auth-api-group-unverified');
+
+    // Pass email_verified=false in claims — RequireEmailVerified reads this
+    // from the supabase_claims request attribute set by the JWT stub.
+    actingAsProfessional($pro, ['email_verified' => false])
+        ->getJson('/__test/auth-api-group')
+        ->assertStatus(403)
+        ->assertJsonFragment(['error' => 'email_verification_required']);
+});
