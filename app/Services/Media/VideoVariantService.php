@@ -322,41 +322,64 @@ class VideoVariantService
     /**
      * Delete all media_variants DB rows and all files under $basePath on disk.
      * Called by DeleteMediaArtifactsJob (async) for video cleanup.
+     *
+     * Best-effort on storage, unconditional on DB: the DB row is the
+     * user-facing "this media exists" flag, so we always scrub it — any
+     * orphaned storage files become an out-of-band ops concern, logged at
+     * error level so Nightwatch surfaces them. Throwing on a transient R2
+     * blip here would re-queue the job and amplify the failure.
      */
     public function deleteVariants(string $mediaId, string $basePath): void
     {
         $disk = $this->disk();
         $basePrefix = $this->normalizeVideoCleanupBasePath($basePath);
 
-        // Delete all files under the normalized video prefix.
+        $files = [];
+        $listError = null;
+
         try {
             $files = $disk->allFiles($basePrefix);
         } catch (\Throwable $e) {
-            throw new \RuntimeException(
-                "Failed to list video artifacts for cleanup at [{$basePrefix}].",
-                0,
-                $e
-            );
+            $listError = $e;
         }
 
+        $failures = [];
         foreach ($files as $file) {
             try {
                 $deleted = $disk->delete($file);
+                if ($deleted === false) {
+                    $failures[] = ['path' => $file, 'error' => 'delete returned false'];
+                }
             } catch (\Throwable $e) {
-                throw new \RuntimeException(
-                    "Failed to delete video artifact [{$file}].",
-                    0,
-                    $e
-                );
-            }
-
-            if ($deleted === false) {
-                throw new \RuntimeException("Failed to delete video artifact [{$file}].");
+                $failures[] = [
+                    'path' => $file,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ];
             }
         }
 
-        // Delete DB rows only after storage cleanup succeeds.
+        // Deferred-unconditional: runs even if listing threw or per-file deletes failed.
         MediaVariant::where('media_id', $mediaId)->delete();
+
+        if ($listError !== null) {
+            Log::error('VideoVariantService::deleteVariants list failed; DB rows still cleared.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $basePrefix,
+                'error' => $listError->getMessage(),
+                'exception' => get_class($listError),
+            ]);
+        }
+
+        if ($failures !== []) {
+            Log::error('VideoVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $basePrefix,
+                'failure_count' => count($failures),
+                // Cap the sample so pathological cases don't bloat log lines.
+                'failures' => array_slice($failures, 0, 20),
+            ]);
+        }
     }
 
     /**

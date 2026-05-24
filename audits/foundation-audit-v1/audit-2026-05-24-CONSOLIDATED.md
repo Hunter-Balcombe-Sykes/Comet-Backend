@@ -146,13 +146,13 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: switch to `Mail::queue($mailable)`. Ensure the `mail` queue worker is on Horizon (`config/horizon.php`). On queue-dispatch failure, log + return 200 `{handled:false}` rather than 500.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-03** R2 public bucket accepts arbitrary MIME via spoofed extensions — Lens: `MEDIA-1`
+- [x] **#P1-03** R2 public bucket accepts arbitrary MIME via spoofed extensions — Lens: `MEDIA-1`
     - Where: `app/Services/Media/ImageVariantService.php:219–227`
     - What: `storeOriginal()` runs synchronously in the upload controller before the async MIME-validating job (`ProcessImageVariantsJob`). A user uploads `phishing.html` renamed to `.jpg`; it lands on the public R2 bucket at a predictable URL on the Partna media domain. RCE is not possible (R2 doesn't execute), but stored XSS via SVG and phishing pages under the Partna brand are.
     - Fix: add `finfo(FILEINFO_MIME_TYPE)` sniff at the top of `storeOriginal()` against `ALLOWED_IMAGE_MIMES`. Throw `UnprocessableImageException` on mismatch. The check must run **before** `$this->disk()->put()`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-04** `VideoVariantService::deleteVariants()` aborts on first storage failure, permanently orphaning DB rows — Lens: `MEDIA-4`
+- [x] **#P1-04** `VideoVariantService::deleteVariants()` aborts on first storage failure, permanently orphaning DB rows — Lens: `MEDIA-4`
     - Where: `app/Services/Media/VideoVariantService.php:338–360`
     - What: Loop throws `RuntimeException` on first R2 delete error; `MediaVariant::where(...)->delete()` is positioned *after* the loop, so any transient R2 error leaves partial storage state + intact DB rows pointing at a mix of live and gone paths. Retries can't fully reconcile because `allFiles()` won't re-list already-deleted files.
     - Fix: best-effort delete loop — collect failures, continue, log each. Move the `MediaVariant::delete()` call to run unconditionally after the loop. If any deletions failed, throw a summarising exception so the job can be retried for storage cleanup only.
@@ -1052,7 +1052,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B18: Media pipeline hardening (2 items) — Effort: S-M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-03`, `#P1-04` (note: `#P2-30` lives in B15 for the architectural extraction)
 - Models: impl=sonnet · review=opus
 - Rationale: image MIME validation + video delete safety. Both touch `app/Services/Media/`.
