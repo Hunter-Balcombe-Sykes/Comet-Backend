@@ -20,13 +20,17 @@ it('ignores empty session ids', function () {
 });
 
 it('tracks sessions per user and lists them with metadata', function () {
+    // SEC-3: raw ip/user_agent inputs are transformed into ip_prefix /
+    // browser_family / platform on write (privacy hygiene). The transform is
+    // deterministic so the test can assert on the post-truncation values.
     $this->service->trackForUser('user-1', 'sess-a', ['ip' => '1.2.3.4', 'user_agent' => 'Mozilla/5.0']);
-    $this->service->trackForUser('user-1', 'sess-b', ['ip' => '5.6.7.8', 'user_agent' => 'Chrome/120']);
+    $this->service->trackForUser('user-1', 'sess-b', ['ip' => '5.6.7.8', 'user_agent' => 'Mozilla/5.0 (X11) Chrome/120 Safari/537.36']);
 
     $list = $this->service->listSessionsForUser('user-1');
     expect($list)->toHaveCount(2);
     expect($list[0]['session_id'])->toBeIn(['sess-a', 'sess-b']);
-    expect($list[0]['ip'])->toBeIn(['1.2.3.4', '5.6.7.8']);
+    expect($list[0]['ip_prefix'])->toBeIn(['1.2.3.0', '5.6.7.0']);
+    expect($list[0]['browser_family'])->toBeIn(['Other', 'Chrome']);
 });
 
 it('excludes revoked sessions from the list', function () {
@@ -61,11 +65,14 @@ it('untracks a session without revoking it', function () {
 });
 
 it('only writes metadata on first sight (preserves first-seen IP)', function () {
+    // LIFE-2 + SEC-3: first writer wins the HSETNX race; the second call
+    // sees the _init sentinel and backs off without overwriting. The stored
+    // value reflects the FIRST request's metadata, post-transform.
     $this->service->trackForUser('user-1', 'sess-a', ['ip' => '1.1.1.1', 'user_agent' => 'first']);
     $this->service->trackForUser('user-1', 'sess-a', ['ip' => '2.2.2.2', 'user_agent' => 'second']);
 
     $list = $this->service->listSessionsForUser('user-1');
     expect($list)->toHaveCount(1);
-    expect($list[0]['ip'])->toBe('1.1.1.1');
-    expect($list[0]['user_agent'])->toBe('first');
+    expect($list[0]['ip_prefix'])->toBe('1.1.1.0');
+    expect($list[0]['browser_family'])->toBe('Other'); // 'first'/'second' don't match any UA pattern
 });

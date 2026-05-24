@@ -72,16 +72,27 @@ class TokenRevocationService
         Redis::expire($setKey, self::MAX_LIFETIME_SECONDS);
 
         if ($metadata !== null) {
-            // Hash of session metadata (first-seen ip, user-agent, etc) used
+            // Hash of session metadata (first-seen device/location, etc.) used
             // by the Active Sessions UI. Stored only on first sight — never
             // overwritten — to preserve "first signed in from" semantics.
+            //
+            // LIFE-2: use HSETNX on a sentinel field as an atomic check-and-set
+            // guard. Result 1 = we won the race → write all fields. Result 0 =
+            // another request beat us → skip to avoid partial-overwrite.
             $metaKey = self::SESSION_META_PREFIX.$sessionId;
-            if (! Redis::exists($metaKey)) {
+            $won = (bool) Redis::hsetnx($metaKey, '_init', '1');
+
+            if ($won) {
+                // SEC-3: store transformed values instead of raw IP/UA to limit
+                // PII exposure in Redis logs and monitoring tools. Truncation is
+                // intentional — preserves "same network neighbourhood" signal
+                // without pinpointing the exact device address.
                 Redis::hmset($metaKey, [
-                    'user_id' => $userId,
-                    'created_at' => (string) time(),
-                    'ip' => (string) ($metadata['ip'] ?? ''),
-                    'user_agent' => (string) ($metadata['user_agent'] ?? ''),
+                    'user_id'      => $userId,
+                    'created_at'   => (string) time(),
+                    'ip_prefix'    => $this->truncateIp((string) ($metadata['ip'] ?? '')),
+                    'browser_family' => $this->parseUaBrowserFamily((string) ($metadata['user_agent'] ?? '')),
+                    'platform'     => $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
                 ]);
                 Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
             }
@@ -139,7 +150,11 @@ class TokenRevocationService
      * the Active Sessions UI. Filters out any sessions that have since been
      * revoked but haven't yet been pruned from the tracking set.
      *
-     * @return list<array{session_id:string,created_at:int,ip:string,user_agent:string}>
+     * Handles both new-format entries (ip_prefix / browser_family / platform)
+     * and legacy entries written before SEC-3 (raw ip / user_agent fields).
+     * Sessions persist up to 30 days so legacy rows may exist in production.
+     *
+     * @return list<array{session_id:string,created_at:int,ip_prefix:string,browser_family:string,platform:string}>
      */
     public function listSessionsForUser(string $userId): array
     {
@@ -157,11 +172,25 @@ class TokenRevocationService
             }
 
             $meta = Redis::hgetall(self::SESSION_META_PREFIX.$sid) ?: [];
+
+            // Legacy-compat: entries written before SEC-3 carry raw `ip` and
+            // `user_agent`; parse them on read so callers always see the new shape.
+            if (array_key_exists('ip_prefix', $meta)) {
+                $ipPrefix      = (string) $meta['ip_prefix'];
+                $browserFamily = (string) $meta['browser_family'];
+                $platform      = (string) $meta['platform'];
+            } else {
+                $ipPrefix      = $this->truncateIp((string) ($meta['ip'] ?? ''));
+                $browserFamily = $this->parseUaBrowserFamily((string) ($meta['user_agent'] ?? ''));
+                $platform      = $this->parseUaPlatform((string) ($meta['user_agent'] ?? ''));
+            }
+
             $sessions[] = [
-                'session_id' => $sid,
-                'created_at' => (int) ($meta['created_at'] ?? 0),
-                'ip' => (string) ($meta['ip'] ?? ''),
-                'user_agent' => (string) ($meta['user_agent'] ?? ''),
+                'session_id'     => $sid,
+                'created_at'     => (int) ($meta['created_at'] ?? 0),
+                'ip_prefix'      => $ipPrefix,
+                'browser_family' => $browserFamily,
+                'platform'       => $platform,
             ];
         }
 
@@ -169,5 +198,87 @@ class TokenRevocationService
         usort($sessions, static fn ($a, $b) => $b['created_at'] <=> $a['created_at']);
 
         return $sessions;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Private helpers — SEC-3 PII minimisation
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Truncate an IP to its network prefix (last IPv4 octet zeroed; IPv6 first
+     * 3 hextets only). Preserves "same network neighbourhood" signal without
+     * storing the precise device address. Truncation is intentional (SEC-3).
+     *
+     * Known limitation: IPv6 compressed forms (::1, fe80::1, 2001:db8::1) produce
+     * non-standard prefix strings because we explode on ':' rather than canonicalise
+     * via inet_pton/inet_ntop. Deterministic (same input → same output) so still
+     * useful as a network-neighbourhood signal; the value is for UI display only,
+     * never used for routing/comparison/policy.
+     */
+    private function truncateIp(string $ip): string
+    {
+        if ($ip === '') {
+            return '';
+        }
+
+        // IPv6: keep the first 3 colon-delimited groups, append "::"
+        if (str_contains($ip, ':')) {
+            $parts = explode(':', $ip);
+
+            return implode(':', array_slice($parts, 0, 3)).'::';
+        }
+
+        // IPv4: zero the last octet
+        $parts = explode('.', $ip);
+        if (count($parts) === 4) {
+            $parts[3] = '0';
+
+            return implode('.', $parts);
+        }
+
+        return $ip;
+    }
+
+    /**
+     * Derive the browser family from a User-Agent string.
+     * Order matters — Edge/OPR must be checked before Chrome/Safari.
+     */
+    private function parseUaBrowserFamily(string $ua): string
+    {
+        if ($ua === '') {
+            return 'Other';
+        }
+
+        return match (true) {
+            (bool) preg_match('/Edg(?:e|\/)/i', $ua)                  => 'Edge',
+            (bool) preg_match('/OPR\//i', $ua)                        => 'Opera',
+            (bool) preg_match('/SamsungBrowser/i', $ua)               => 'Samsung Browser',
+            (bool) preg_match('/(?:Chrome|CriOS)\/[\d.]+/i', $ua)     => 'Chrome',
+            (bool) preg_match('/FxiOS\//i', $ua)                      => 'Firefox',
+            (bool) preg_match('/Firefox\/[\d.]+/i', $ua)              => 'Firefox',
+            // Mobile Safari (iOS WebKit) before generic Safari
+            (bool) preg_match('/Version\/[\d.]+ Mobile.*Safari/i', $ua) => 'iOS Safari',
+            (bool) preg_match('/Safari\/[\d.]+/i', $ua)               => 'Safari',
+            default                                                    => 'Other',
+        };
+    }
+
+    /**
+     * Derive the OS/platform from a User-Agent string.
+     */
+    private function parseUaPlatform(string $ua): string
+    {
+        if ($ua === '') {
+            return 'Other';
+        }
+
+        return match (true) {
+            (bool) preg_match('/iPhone|iPad|iOS/i', $ua)     => 'iOS',
+            (bool) preg_match('/Android/i', $ua)             => 'Android',
+            (bool) preg_match('/Windows/i', $ua)             => 'Windows',
+            (bool) preg_match('/Macintosh|Mac OS X/i', $ua)  => 'macOS',
+            (bool) preg_match('/Linux/i', $ua)               => 'Linux',
+            default                                          => 'Other',
+        };
     }
 }
