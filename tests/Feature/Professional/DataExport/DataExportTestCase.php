@@ -92,6 +92,80 @@ class DataExportTestCase
             redacted_at TEXT
         )');
 
+        // No professional_id FK — joined by email_lc only.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            email TEXT,
+            email_lc TEXT,
+            phone TEXT,
+            applicant_type TEXT,
+            applicant_type_other TEXT,
+            industry TEXT,
+            industry_other TEXT,
+            pilot_program_opt_in INTEGER,
+            number_of_team_members INTEGER,
+            consent_source TEXT,
+            consent_ip_hash TEXT,
+            consent_user_agent TEXT,
+            last_submitted_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
+        // Rows persist post user-delete (ON DELETE SET NULL) — pre-deletion DSAR disclosure is important.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            old_handle TEXT,
+            new_handle TEXT,
+            reason TEXT,
+            actor_id TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            changed_at TEXT
+        )');
+
+        // Survives the user (ON DELETE SET NULL) — DSAR must disclose IP/UA/reason snapshots while the user can still request them.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_deletion_audit (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            professional_handle_snapshot TEXT,
+            professional_email_snapshot TEXT,
+            event TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            metadata TEXT,
+            actor_type TEXT,
+            actor_id TEXT,
+            actor_handle_snapshot TEXT,
+            reason TEXT,
+            created_at TEXT
+        )');
+
+        // user_id references auth.users(id) — joined via core.users.auth_user_id.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.auth_factor_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            session_id TEXT,
+            event_type TEXT,
+            factor_id TEXT,
+            factor_type TEXT,
+            ip TEXT,
+            user_agent TEXT,
+            metadata TEXT,
+            created_at TEXT
+        )');
+
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_confirmation_preferences (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            action_key TEXT,
+            skip_confirmation INTEGER,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
         $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
@@ -145,6 +219,27 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // Joined to user via site_id → sites.professional_id.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.site_subdomain_aliases (
+            id TEXT PRIMARY KEY,
+            site_id TEXT,
+            subdomain TEXT,
+            reclaim_until TEXT,
+            expires_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            handle TEXT,
+            reclaim_until TEXT,
+            expires_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
         $conn->statement('CREATE TABLE IF NOT EXISTS site.blocks (
             id TEXT PRIMARY KEY,
             site_id TEXT,
@@ -192,6 +287,38 @@ class DataExportTestCase
             unsubscribed_at TEXT,
             consent_source TEXT,
             created_at TEXT
+        )');
+
+        // Targeted dashboard messages — body text contains user-specific content.
+        $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
+            id TEXT PRIMARY KEY,
+            professional_id TEXT,
+            type TEXT,
+            title TEXT,
+            body TEXT,
+            cta_url TEXT,
+            severity TEXT,
+            starts_at TEXT,
+            ends_at TEXT,
+            primary_action_label TEXT,
+            secondary_action_label TEXT,
+            secondary_action_url TEXT,
+            category TEXT,
+            dedupe_key TEXT,
+            email_sent_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
+        // Per-user read/dismiss timestamps — behavioural data tied to identified user.
+        $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_receipts (
+            id TEXT PRIMARY KEY,
+            notification_id TEXT,
+            professional_id TEXT,
+            read_at TEXT,
+            dismissed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (

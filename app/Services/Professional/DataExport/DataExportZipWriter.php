@@ -9,15 +9,13 @@ use ZipArchive;
 // V2: Streams a payload into a temp .zip on disk. Returns the path, SHA-256
 // hash, byte size, and a record_counts summary for the audit row.
 //
-// Two entry points:
-//   - write(array $payload)             — legacy, materialises the whole
-//                                         payload in memory. Kept for tests
-//                                         and small callers.
-//   - writeStreaming(builder, $profId)  — production path. Drives the builder
-//                                         row-by-row, streaming data.json and
-//                                         CSV entries to disk so peak memory
-//                                         stays bounded regardless of tenant
-//                                         size. GDPR exports must not OOM.
+// Single entry point — writeStreaming(builder, $profId) — drives the builder
+// row-by-row so peak memory stays bounded regardless of tenant size. GDPR
+// exports must not OOM. A legacy fully-materialised write() existed in earlier
+// revisions and was removed once production paths (ExportProfessionalDataJob)
+// were migrated to the streaming variant — having two emission paths invited
+// schema drift between them (the legacy path silently lost new sections after
+// Bundle B7).
 class DataExportZipWriter
 {
     /**
@@ -40,62 +38,80 @@ class DataExportZipWriter
             throw new RuntimeException("Failed to open temp json for writing: {$jsonPath}");
         }
 
-        // Track CSV temp files (created lazily on first row).
         /** @var array<string, array{path: string, fp: resource, columns: array<string>}> $csvHandles */
         $csvHandles = [];
 
         $recordCounts = [];
-        $groups = []; // nested-group buffer for JSON assembly
+
+        // Group emission state. The builder emits dotted-name sections like
+        // 'audit.handle_change_log' that should be assembled into JSON objects.
+        // We open a group on its first child and close it when we either
+        // transition to a different group or to a top-level section. This
+        // preserves the builder's declared order in the output JSON, which
+        // matters for any consumer that hashes data.json.
+        $currentGroup = null;
+        $firstChildInGroup = true;
+        $first = true;
 
         try {
             fwrite($jh, "{\n");
-            $first = true;
 
             foreach ($builder->stream($professionalId) as $section) {
                 $name = $section['name'];
+                $isNested = str_contains($name, '.');
+                if ($isNested) {
+                    [$groupName, $childKey] = explode('.', $name, 2);
+                } else {
+                    $groupName = null;
+                    $childKey = null;
+                }
 
-                if ($section['kind'] === 'value') {
-                    if (str_contains($name, '.')) {
-                        // Buffer the value inside its group; we'll emit the
-                        // group once we've seen all its children. Groups are
-                        // small (subscription is one row) so this is fine.
-                        [$group, $key] = explode('.', $name, 2);
-                        $groups[$group]['values'][$key] = $section['value'];
-                    } else {
-                        $this->writeJsonEntry($jh, $name, $section['value'], $first);
+                // Close the previous group if we're switching to a different
+                // group, OR transitioning back to a top-level section.
+                if ($currentGroup !== null && $groupName !== $currentGroup) {
+                    fwrite($jh, '}');
+                    $currentGroup = null;
+                }
+
+                if ($isNested) {
+                    // Open the group lazily on first child.
+                    if ($currentGroup !== $groupName) {
+                        if (! $first) {
+                            fwrite($jh, ",\n");
+                        }
+                        fwrite($jh, json_encode($groupName).': {');
+                        $currentGroup = $groupName;
+                        $firstChildInGroup = true;
                         $first = false;
                     }
 
-                    continue;
-                }
-
-                // kind === 'rows'
-                $rows = $section['rows'];
-                $csvColumns = $section['csv_columns'] ?? null;
-                $countKey = $this->recordCountKey($name);
-
-                if (str_contains($name, '.')) {
-                    [$group, $key] = explode('.', $name, 2);
-                    if (! isset($groups[$group])) {
-                        $groups[$group] = ['values' => [], 'rows' => []];
+                    if (! $firstChildInGroup) {
+                        fwrite($jh, ',');
                     }
-                    $rowsJson = $this->streamRowsToJson($jh, $rows, $csvHandles, $csvColumns, $name);
-                    $groups[$group]['rows'][$key] = $rowsJson['placeholder_path'];
-                    $recordCounts[$countKey] = $rowsJson['count'];
+
+                    if ($section['kind'] === 'value') {
+                        fwrite($jh, json_encode($childKey).':'.json_encode($section['value'], JSON_UNESCAPED_SLASHES));
+                    } else {
+                        fwrite($jh, json_encode($childKey).':');
+                        $count = $this->streamRowsArray($jh, $section['rows'], $csvHandles, $section['csv_columns'] ?? null, $name);
+                        $recordCounts[$this->recordCountKey($name)] = $count;
+                    }
+                    $firstChildInGroup = false;
                 } else {
-                    $this->beginJsonEntry($jh, $name, $first);
+                    if ($section['kind'] === 'value') {
+                        $this->writeJsonEntry($jh, $name, $section['value'], $first);
+                    } else {
+                        $this->beginJsonEntry($jh, $name, $first);
+                        $count = $this->streamRowsArray($jh, $section['rows'], $csvHandles, $section['csv_columns'] ?? null, $name);
+                        $recordCounts[$this->recordCountKey($name)] = $count;
+                    }
                     $first = false;
-                    $count = $this->streamRowsInline($jh, $rows, $csvHandles, $csvColumns, $name);
-                    $recordCounts[$countKey] = $count;
                 }
             }
 
-            // Emit buffered nested groups (media, notification_preferences,
-            // bookings, billing, audit). Each group's row sub-sections were
-            // captured to per-section temp files; splice them back in.
-            foreach ($groups as $group => $payload) {
-                $this->emitGroup($jh, $group, $payload, $first);
-                $first = false;
+            // Close any group still open at the end.
+            if ($currentGroup !== null) {
+                fwrite($jh, '}');
             }
 
             fwrite($jh, "\n}");
@@ -103,18 +119,9 @@ class DataExportZipWriter
             if (is_resource($jh)) {
                 fclose($jh);
             }
-            // Close CSV handles so they flush before we add them to the zip.
             foreach ($csvHandles as $h) {
                 if (is_resource($h['fp'])) {
                     fclose($h['fp']);
-                }
-            }
-            // Clean up any group-row scratch files now that data.json is built.
-            foreach ($groups as $group) {
-                foreach ($group['rows'] ?? [] as $path) {
-                    if (is_string($path) && file_exists($path)) {
-                        @unlink($path);
-                    }
                 }
             }
         }
@@ -149,52 +156,6 @@ class DataExportZipWriter
         ];
     }
 
-    /**
-     * Legacy entry point — fully materialised payload. Kept for tests and any
-     * caller that already has a payload in hand. Memory-bounded callers
-     * should use writeStreaming() instead.
-     *
-     * @return array{path: string, sha256: string, size: int, record_counts: array<string, int>}
-     */
-    public function write(array $payload): array
-    {
-        $path = $this->reserveZipPath();
-
-        $zip = new ZipArchive;
-        if ($zip->open($path, ZipArchive::CREATE) !== true) {
-            throw new RuntimeException("Failed to open zip for writing: {$path}");
-        }
-
-        $zip->addFromString('data.json', json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        $recordCounts = $this->recordCounts($payload);
-
-        $this->maybeAddCsv($zip, 'customers.csv', $payload['customers'] ?? [], [
-            'id', 'email', 'phone', 'full_name', 'source', 'notes', 'created_at',
-        ]);
-
-        $this->maybeAddCsv($zip, 'enquiries.csv', $payload['enquiries'] ?? [], [
-            'id', 'name', 'email', 'phone', 'subject', 'message', 'created_at',
-        ]);
-
-        $this->maybeAddCsv($zip, 'bookings.csv', $payload['bookings']['booking_events'] ?? [], [
-            'id', 'occurred_at', 'status', 'source', 'customer_name', 'customer_email', 'customer_phone', 'amount_paid_cents', 'currency_code', 'created_at',
-        ]);
-
-        $this->maybeAddCsv($zip, 'commission_payouts.csv', $payload['billing']['commission_payouts'] ?? [], [
-            'id', 'status', 'amount_cents', 'created_at',
-        ]);
-
-        $zip->close();
-
-        return [
-            'path' => $path,
-            'sha256' => hash_file('sha256', $path),
-            'size' => filesize($path),
-            'record_counts' => $recordCounts,
-        ];
-    }
-
     private function reserveZipPath(): string
     {
         $path = tempnam(sys_get_temp_dir(), 'export-');
@@ -209,13 +170,13 @@ class DataExportZipWriter
     }
 
     /**
-     * Stream rows into an inline (top-level) JSON array, also routing them to
-     * a CSV file if csv_columns is set. Returns the row count.
+     * Stream a sequence of row arrays as a JSON array literal. Also routes
+     * each row to a CSV file if csv_columns is set. Returns the row count.
      *
      * @param  resource  $jh
      * @param  array<string, array{path: string, fp: resource, columns: array<string>}>  $csvHandles
      */
-    private function streamRowsInline($jh, Generator $rows, array &$csvHandles, ?array $csvColumns, string $sectionName): int
+    private function streamRowsArray($jh, Generator $rows, array &$csvHandles, ?array $csvColumns, string $sectionName): int
     {
         fwrite($jh, '[');
         $count = 0;
@@ -232,44 +193,6 @@ class DataExportZipWriter
         fwrite($jh, ']');
 
         return $count;
-    }
-
-    /**
-     * Stream rows for a nested-group child section to a scratch JSON file.
-     * Returns the scratch path + count so emitGroup can splice the array
-     * into the parent group's JSON object.
-     *
-     * @param  resource  $jh  (unused — kept for symmetry with inline)
-     * @param  array<string, array{path: string, fp: resource, columns: array<string>}>  $csvHandles
-     * @return array{placeholder_path: string, count: int}
-     */
-    private function streamRowsToJson($jh, Generator $rows, array &$csvHandles, ?array $csvColumns, string $sectionName): array
-    {
-        $path = tempnam(sys_get_temp_dir(), 'export-grp-');
-        if ($path === false) {
-            throw new RuntimeException('Failed to create temp file for group section.');
-        }
-        $fp = fopen($path, 'wb');
-        if ($fp === false) {
-            throw new RuntimeException("Failed to open group temp for writing: {$path}");
-        }
-
-        fwrite($fp, '[');
-        $count = 0;
-        foreach ($rows as $row) {
-            if ($count > 0) {
-                fwrite($fp, ',');
-            }
-            fwrite($fp, json_encode($row, JSON_UNESCAPED_SLASHES));
-            if ($csvColumns !== null) {
-                $this->writeCsvRow($csvHandles, $sectionName, $csvColumns, $row);
-            }
-            $count++;
-        }
-        fwrite($fp, ']');
-        fclose($fp);
-
-        return ['placeholder_path' => $path, 'count' => $count];
     }
 
     /**
@@ -292,42 +215,6 @@ class DataExportZipWriter
             fwrite($jh, ",\n");
         }
         fwrite($jh, json_encode($key).': ');
-    }
-
-    /**
-     * @param  resource  $jh
-     * @param  array{values: array<string, mixed>, rows: array<string, string>}  $payload
-     */
-    private function emitGroup($jh, string $group, array $payload, bool $first): void
-    {
-        if (! $first) {
-            fwrite($jh, ",\n");
-        }
-        fwrite($jh, json_encode($group).': {');
-
-        $firstChild = true;
-        foreach ($payload['values'] ?? [] as $key => $value) {
-            if (! $firstChild) {
-                fwrite($jh, ',');
-            }
-            fwrite($jh, json_encode($key).':'.json_encode($value, JSON_UNESCAPED_SLASHES));
-            $firstChild = false;
-        }
-        foreach ($payload['rows'] ?? [] as $key => $scratchPath) {
-            if (! $firstChild) {
-                fwrite($jh, ',');
-            }
-            fwrite($jh, json_encode($key).':');
-            $rh = fopen($scratchPath, 'rb');
-            if ($rh === false) {
-                throw new RuntimeException("Failed to read group scratch file: {$scratchPath}");
-            }
-            stream_copy_to_stream($rh, $jh);
-            fclose($rh);
-            $firstChild = false;
-        }
-
-        fwrite($jh, '}');
     }
 
     /**
@@ -358,20 +245,16 @@ class DataExportZipWriter
 
     private function csvNameFor(string $sectionName): string
     {
-        // bookings.booking_events → bookings.csv (single CSV per group child),
-        // otherwise plain section.csv.
         return match ($sectionName) {
             'customers' => 'customers.csv',
             'enquiries' => 'enquiries.csv',
-            'bookings.booking_events' => 'bookings.csv',
-            'billing.commission_payouts' => 'commission_payouts.csv',
             default => str_replace('.', '_', $sectionName).'.csv',
         };
     }
 
     /**
      * Normalise record-count keys to the legacy flat schema audit consumers
-     * expect: bookings.booking_events → booking_events, etc.
+     * expect: audit.handle_change_log → handle_change_log, etc.
      *
      * @param  array<string, int>  $counts
      * @return array<string, int>
@@ -391,52 +274,5 @@ class DataExportZipWriter
         $tail = strrchr($sectionName, '.');
 
         return $tail === false ? $sectionName : ltrim($tail, '.');
-    }
-
-    /**
-     * Add a CSV entry to the zip iff the section has rows. Empty sections are
-     * intentionally omitted to keep the zip small for accounts with no
-     * customers/bookings yet.
-     */
-    private function maybeAddCsv(ZipArchive $zip, string $name, array $rows, array $columns): void
-    {
-        if (empty($rows)) {
-            return;
-        }
-
-        $fp = fopen('php://temp', 'r+');
-        fputcsv($fp, $columns);
-
-        foreach ($rows as $row) {
-            $line = [];
-            foreach ($columns as $col) {
-                $line[] = $row[$col] ?? '';
-            }
-            fputcsv($fp, $line);
-        }
-
-        rewind($fp);
-        $zip->addFromString($name, stream_get_contents($fp));
-        fclose($fp);
-    }
-
-    /**
-     * @return array<string, int>
-     */
-    private function recordCounts(array $payload): array
-    {
-        return [
-            'customers' => count($payload['customers'] ?? []),
-            'services' => count($payload['services'] ?? []),
-            'service_categories' => count($payload['service_categories'] ?? []),
-            'enquiries' => count($payload['enquiries'] ?? []),
-            'email_subscriptions' => count($payload['email_subscriptions'] ?? []),
-            'booking_events' => count($payload['bookings']['booking_events'] ?? []),
-            'lead_submissions' => count($payload['bookings']['lead_submissions'] ?? []),
-            'site_media' => count($payload['media']['site_media'] ?? []),
-            'integrations' => count($payload['integrations'] ?? []),
-            'commission_movements' => count($payload['billing']['commission_movements'] ?? []),
-            'commission_payouts' => count($payload['billing']['commission_payouts'] ?? []),
-        ];
     }
 }

@@ -220,13 +220,13 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: change `extends Mailable` → `extends BaseTransactionalMail` and call `buildEnvelope()` in each. Add a Pest arch test asserting every class under `app/Mail/` extends `BaseTransactionalMail`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-15** DSAR export missing `email_subscriptions` rows with `professional_id = NULL` — Lens: `GDPR-2`
+- [x] **#P1-15** DSAR export missing `email_subscriptions` rows with `professional_id = NULL` — Lens: `GDPR-2`
     - Where: `app/Services/Professional/DataExport/DataExportPayloadBuilder.php::streamEmailSubscriptions()`
     - What: `ensureSidestUpdatesSubscription()` creates `notifications.email_subscriptions` rows with `professional_id = NULL` keyed only by email. The DSAR export filters exclusively on `professional_id` → user's own consent record is invisible in their export. Article 15 violation.
     - Fix: add an `OR (professional_id IS NULL AND email = $professional->email)` clause (or a parallel query). Unit-test the merged generator with a seeded global row.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-16** DSAR export missing `waitlist_signups` rows entirely — Lens: `GDPR-3`
+- [x] **#P1-16** DSAR export missing `waitlist_signups` rows entirely — Lens: `GDPR-3`
     - Where: `DataExportPayloadBuilder::stream()`
     - What: `core.waitlist_signups` has no `professional_id` FK; the link is `email_lc`. No `streamWaitlistSignups()` method exists. Article 15 violation for any user who pre-registered.
     - Fix: add `streamWaitlistSignups($email)` querying `WHERE email_lc = lower($professional->email)`. Yield it from `stream()` under `'waitlist'`. Test with a seeded row.
@@ -461,12 +461,12 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### GDPR completeness
 
-- [ ] **#P2-37** Handle change log not in DSAR export — Lens: `GDPR-4`
+- [x] **#P2-37** Handle change log not in DSAR export — Lens: `GDPR-4`
     - Where: `DataExportPayloadBuilder::stream()`
     - Fix: add `streamHandleChangeLog($professionalId)`; yield under `'audit.handle_change_log'`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-38** `streamLeadSubmissions` implemented but never yielded from `stream()` — Lens: `GDPR-5`
+- [x] **#P2-38** `streamLeadSubmissions` implemented but never yielded from `stream()` — Lens: `GDPR-5`
     - Where: `DataExportPayloadBuilder.php:300` and `stream()`
     - Fix: add the yield block. Decide on IP/UA redaction (mirror `enquiries()` pattern).
     - Models: impl=sonnet · review=opus
@@ -722,8 +722,9 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B7: GDPR/DSAR completeness (4 items) — Effort: S-M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-15`, `#P1-16`, `#P2-37`, `#P2-38`
+- **Review expanded scope:** opus review surfaced 11 additional GDPR-completeness gaps not in the original 4 items; all addressed in this PR. See commit body / `audits/foundation-audit-v1/audit-2026-05-24-gdpr-end-to-end-completeness-dsar-coverage-deletio.md` for the full set.
 - Models: impl=sonnet · review=opus
 - Rationale: all in `DataExportPayloadBuilder.php`. The pattern is identical: add a `stream<Table>()` generator + yield from `stream()`.
 - Suggested approach: write the 4 new stream methods; yield each; add seeded-row tests for each table; ensure `streamLeadSubmissions` redaction matches `enquiries()`. One PR.
