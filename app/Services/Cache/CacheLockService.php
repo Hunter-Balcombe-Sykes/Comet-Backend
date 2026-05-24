@@ -110,7 +110,8 @@ class CacheLockService
                     try {
                         $lock->release();
                     } catch (Throwable) {
-                        // ignore — lock may have auto-expired
+                        // Lock may have auto-expired — track silently so ops can detect driver issues.
+                        $this->recordLockReleaseFailure();
                     }
                 }
             }
@@ -154,7 +155,8 @@ class CacheLockService
             try {
                 $lock->release();
             } catch (Throwable) {
-                // Lock already released or driver doesn't support release-after-expiry; ignore.
+                // Lock already released or driver doesn't support release-after-expiry.
+                $this->recordLockReleaseFailure();
             }
         }
     }
@@ -257,8 +259,23 @@ class CacheLockService
             try {
                 $lock->release();
             } catch (Throwable) {
-                // ignore
+                $this->recordLockReleaseFailure();
             }
+        }
+    }
+
+    /**
+     * Increment the lock-release failure counter in Redis.
+     *
+     * Key: cache:lock_release_failures (integer, no TTL — inspect with: redis-cli GET cache:lock_release_failures).
+     * Swallows driver errors silently — a failure to count must not cascade.
+     */
+    private function recordLockReleaseFailure(): void
+    {
+        try {
+            \Illuminate\Support\Facades\Redis::incr('cache:lock_release_failures');
+        } catch (\Throwable) {
+            // Swallow — a failure to count a failure must not cascade.
         }
     }
 }
