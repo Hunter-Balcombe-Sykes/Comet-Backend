@@ -79,6 +79,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'captcha' => VerifyTurnstileCaptcha::class,
             'require.aal2' => RequireAal2::class,
         ]);
+
+        // Named group for the standard authenticated user route stack.
+        // Applies JWT verification, email verification, and professional resolution
+        // in one alias so route files stay readable and can't accidentally omit one.
+        $middleware->appendToGroup('auth.api', [
+            'supabase.jwt',
+            'require.email_verified',
+            'current.pro',
+        ]);
     })
 
     ->withExceptions(function (Exceptions $exceptions): void {
