@@ -454,7 +454,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Database RLS
 
-- [ ] **#P2-36** Public INSERT policies on `waitlist_signups` + `email_subscriptions` have no validation — Lens: `RLS-2`
+- [x] **#P2-36** Public INSERT policies on `waitlist_signups` + `email_subscriptions` have no validation — Lens: `RLS-2`
     - Where: `supabase/migrations/20260526000000_baseline_standalone_user.sql`
     - Fix: add `WITH CHECK (email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' AND length(name) > 0)` to both policies.
     - Models: impl=sonnet · review=opus
@@ -539,7 +539,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 - [x] **#P3-15** Nightwatch captures exception source code by default — Lens: `CONFIG-4`. Fix: default `false`; opt-in when debugging. Models: impl=haiku · review=sonnet.
 - [ ] **#P3-16** `seed.sql` is entirely dead code (guard fires immediately) — Lens: `RLS-3`. Fix: rewrite for surviving tables. Models: impl=sonnet · review=sonnet.
 - [ ] **#P3-17** `config.toml` lists dropped schemas `billing`/`retail` — Lens: `RLS-4`. Fix: remove from `schemas` and `extra_search_path`. Evaluate adding `site`/`notifications` if direct PostgREST access is ever intended. Models: impl=haiku · review=sonnet.
-- [ ] **#P3-18** `site_media` DELETE policy is staff-only — undocumented asymmetry — Lens: `RLS-5`. Fix: add one-line comment documenting that app uses soft-delete (UPDATE deleted_at). Models: impl=haiku · review=sonnet.
+- [x] **#P3-18** `site_media` DELETE policy is staff-only — undocumented asymmetry — Lens: `RLS-5`. Fix: add one-line comment documenting that app uses soft-delete (UPDATE deleted_at). Models: impl=haiku · review=sonnet.
 
 ### Deploy
 - [ ] **#P3-19** `post-update-cmd` force-publishes vendor assets — Lens: `DEP-1`. Fix: drop `--force`. Pair with #P3-20. Models: impl=haiku · review=sonnet.
@@ -1150,7 +1150,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 *(After decision lands, a follow-up session implements the chosen path with `sonnet` for impl + `opus` for review.)*
 
 ### Bundle B21: Public-RLS input validation + policy documentation (2 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-36`, `#P3-18`
 - Models: impl=sonnet · review=opus
 - Rationale: both touch RLS policy definitions. The WITH CHECK email regex on public inserts (P2-36) is a real hardening; the site_media DELETE policy comment (P3-18) is a one-line documentation fix on the same migration file. Bundling them keeps the migration churn in one PR.
