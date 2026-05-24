@@ -3,15 +3,14 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // Own-profile shape returned to the authenticated professional (dashboard show, update, bootstrap).
-class ProfessionalDashboardResource extends JsonResource
+class ProfessionalDashboardResource extends ApiResource
 {
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'auth_user_id' => $this->auth_user_id,
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,

@@ -2,8 +2,8 @@
 
 namespace App\Http\Resources\PublicSite;
 
+use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Public-safe shape for an individual professional's profile page (§28.8).
@@ -19,7 +19,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *   - shop, products, cart, commission, order fields (commerce)
  *   - PII (primary_email, phone, auth_user_id, street address)
  */
-class IndividualProfileResource extends JsonResource
+class IndividualProfileResource extends ApiResource
 {
     /**
      * Whitelist of allowed `settings.design.*` keys (audit PROF-2). Any key
@@ -47,27 +47,25 @@ class IndividualProfileResource extends JsonResource
     ];
 
     /**
-     * @param  array<string, mixed>  $design
-     * @param  list<array<string, mixed>>  $contentImages
-     * @param  array<string, mixed>  $gallery
-     * @param  list<array<string, mixed>>  $links
-     * @param  array<string, mixed>  $bio
-     * @param  array<string, mixed>  $document
-     * @param  array<string, mixed>  $newsletter
-     * @param  array<string, mixed>  $services
-     * @param  array<string, mixed>  $booking
+     * Single associative payload (#P3-01) instead of 9 positional arrays.
+     * Keys mirror the output shape 1-to-1; missing keys degrade to [] so the
+     * Resource never crashes on a partial build.
+     *
+     * @param  array{
+     *     design?: array<string, mixed>,
+     *     content_images?: list<array<string, mixed>>,
+     *     gallery?: array<string, mixed>,
+     *     links?: list<array<string, mixed>>,
+     *     bio?: array<string, mixed>,
+     *     document?: array<string, mixed>,
+     *     newsletter?: array<string, mixed>,
+     *     services?: array<string, mixed>,
+     *     booking?: array<string, mixed>,
+     * }  $sections
      */
     public function __construct(
         $resource,
-        private readonly array $design,
-        private readonly array $contentImages,
-        private readonly array $gallery,
-        private readonly array $links,
-        private readonly array $bio,
-        private readonly array $document,
-        private readonly array $newsletter,
-        private readonly array $services,
-        private readonly array $booking,
+        private readonly array $sections = [],
     ) {
         parent::__construct($resource);
     }
@@ -77,17 +75,17 @@ class IndividualProfileResource extends JsonResource
         return [
             'handle' => $this->handle,
             'display_name' => $this->display_name,
-            'design' => $this->design,
+            'design' => $this->sections['design'] ?? [],
 
             // Section envelopes + arrays, mirroring HydrogenAffiliateController::show.
-            'content_images' => $this->contentImages,
-            'gallery' => $this->gallery,
-            'links' => $this->links,
-            'bio' => $this->bio,
-            'document' => $this->document,
-            'newsletter' => $this->newsletter,
-            'services' => $this->services,
-            'booking' => $this->booking,
+            'content_images' => $this->sections['content_images'] ?? [],
+            'gallery' => $this->sections['gallery'] ?? [],
+            'links' => $this->sections['links'] ?? [],
+            'bio' => $this->sections['bio'] ?? [],
+            'document' => $this->sections['document'] ?? [],
+            'newsletter' => $this->sections['newsletter'] ?? [],
+            'services' => $this->sections['services'] ?? [],
+            'booking' => $this->sections['booking'] ?? [],
 
             // Shop is structurally always-draft for individuals — they have no
             // commerce surface. Emit the envelope so consumers can treat all

@@ -2,9 +2,7 @@
 
 namespace App\Http\Resources;
 
-use Illuminate\Http\Resources\Json\JsonResource;
-
-class FeatureFlagResource extends JsonResource
+class FeatureFlagResource extends ApiResource
 {
     public function toArray($request): array
     {

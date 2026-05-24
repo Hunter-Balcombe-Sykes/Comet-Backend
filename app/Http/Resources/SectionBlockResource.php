@@ -3,7 +3,6 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.blocks rows where block_group='sections'.
 // Replaces the private serializeSection() that called $section->toArray() —
@@ -12,7 +11,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 // Visibility tuple (from SectionVisibilityService::batchCheck or checkVisibilityRequirements)
 // can be supplied via the constructor — index() passes it per-section; upsert/remove
 // pass null (the post-mutation response doesn't need to expose the gate).
-class SectionBlockResource extends JsonResource
+class SectionBlockResource extends ApiResource
 {
     /**
      * @param  array{0: bool, 1: ?string}|null  $visibility  [canPublish, requirementReason]

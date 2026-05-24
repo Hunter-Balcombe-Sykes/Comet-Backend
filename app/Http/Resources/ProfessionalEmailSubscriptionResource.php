@@ -3,13 +3,12 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // Wire-format gate for /api/email-subscribers (brand-side). Explicit allowlist
 // so adding a column to the EmailSubscription model never auto-exposes it to
 // the brand. Mirrors StaffEmailSubscriptionResource — diverge here when a
 // field should ship to brands but not staff (or vice versa).
-class ProfessionalEmailSubscriptionResource extends JsonResource
+class ProfessionalEmailSubscriptionResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

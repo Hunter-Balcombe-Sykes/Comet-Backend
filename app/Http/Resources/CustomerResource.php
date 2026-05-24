@@ -3,15 +3,14 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for customer records — transforms email, phone, name, source, notes, and marketing opt-in status.
-class CustomerResource extends JsonResource
+class CustomerResource extends ApiResource
 {
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'professional_id' => $this->professional_id,
             'email' => $this->email,
             'phone' => $this->phone,

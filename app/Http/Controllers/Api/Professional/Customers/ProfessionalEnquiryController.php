@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Professional\Customers;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
+use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\EnquiryResource;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 class ProfessionalEnquiryController extends ApiController
 {
     use ResolveCurrentProfessional;
+    use ReturnsPaginatedResponse;
 
     public function index(Request $request): JsonResponse
     {
@@ -23,15 +25,12 @@ class ProfessionalEnquiryController extends ApiController
             ->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
 
-        return $this->success([
-            'data' => EnquiryResource::collection($page->items())->toArray($request),
-            'meta' => [
-                'current_page' => $page->currentPage(),
-                'last_page' => $page->lastPage(),
-                'total' => $page->total(),
-                'per_page' => $page->perPage(),
-            ],
-        ]);
+        // through() transforms items in place; the paginator's count metadata
+        // is untouched so paginatedResponse() still emits the canonical
+        // current_page/last_page/total/per_page block (#P2-34).
+        $page->through(fn (Enquiry $e) => EnquiryResource::make($e)->resolve());
+
+        return $this->success($this->paginatedResponse($page));
     }
 
     public function update(Request $request, string $id): JsonResponse

@@ -3,12 +3,11 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.blocks rows where block_group='links'.
 // `settings` is passed through (it holds social-mode tags like platform/handle
 // and a free-form category) — the column itself is explicitly allowlisted.
-class LinkBlockResource extends JsonResource
+class LinkBlockResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

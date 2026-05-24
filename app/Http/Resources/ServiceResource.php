@@ -3,11 +3,10 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.services rows. Explicit allowlist — future columns
 // (e.g. internal_cost_cents, deleted_origin) don't auto-ship to dashboard/staff.
-class ServiceResource extends JsonResource
+class ServiceResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

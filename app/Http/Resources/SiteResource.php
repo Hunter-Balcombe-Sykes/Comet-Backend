@@ -3,14 +3,13 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.sites rows (dashboard + staff side).
 // `settings` is passed through unchanged — the dashboard editor reads the full
 // settings blob to render design tokens, booking config, GBP profile, etc.
 // Tightening to a key-level allowlist on settings.* is a follow-up audit task;
 // the public-internet path already does this via IndividualProfileResource::DESIGN_KEYS.
-class SiteResource extends JsonResource
+class SiteResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

@@ -158,25 +158,25 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
     - Fix: best-effort delete loop — collect failures, continue, log each. Move the `MediaVariant::delete()` call to run unconditionally after the loop. If any deletions failed, throw a summarising exception so the job can be retried for storage cleanup only.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-05** `service` & `service-category` controllers return raw Eloquent models on every read/write — Lens: `RES-1`
+- [x] **#P1-05** `service` & `service-category` controllers return raw Eloquent models on every read/write — Lens: `RES-1`
     - Where: `app/Http/Controllers/Api/Professional/SiteManagement/ProfessionalServiceCategoryController.php:37,70,85,96` · `ProfessionalServiceController.php:134,164,208` · `ProfessionalCustomerController::restore()`
     - What: Every column (`price_cents`, `currency_code`, `deleted_at`, future `internal_cost_cents`) auto-ships in API responses.
     - Fix: create `ServiceResource` + `ServiceCategoryResource`, wrap all returns. Fix `ProfessionalCustomerController::restore()` to wrap `$customer->fresh()` in `CustomerResource` (the only method in that controller without it).
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-06** Customer list response uses `pagination` key instead of `meta` — breaks paginated contract — Lens: `RES-2`
+- [x] **#P1-06** Customer list response uses `pagination` key instead of `meta` — breaks paginated contract — Lens: `RES-2`
     - Where: `app/Http/Controllers/Api/Professional/Customers/ProfessionalCustomerController.php:100-102`
     - What: Manual `$payload['pagination'] = $payload['meta']; unset($payload['meta']);` produces a shape that matches no other paginated endpoint in the codebase. Staff mirror uses `meta` correctly → professional vs staff dashboards see different envelopes.
     - Fix: delete the rename. Confirm with frontend whether any code depends on `pagination`; if so, dual-key during a transition window then drop.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-07** Link-block, site, theme controllers return raw Eloquent models — Lens: `RES-3`
+- [x] **#P1-07** Link-block, site, theme controllers return raw Eloquent models — Lens: `RES-3`
     - Where: `ProfessionalLinkBlockController.php:148,200` · `ProfessionalSiteController.php:30,42,108` · `ProfessionalThemeController.php:38` · `SiteVisibilityController.php` · `StaffSiteManagementController.php` (update)
     - What: `Site.settings` JSONB (design tokens, GBP data, internal flags) and `Theme.config` JSONB ship wholesale in dashboard responses.
     - Fix: create `LinkBlockResource`, `SiteResource`, `ThemeResource` with explicit allowlists; replace all `->toArray()` / `->fresh()` returns.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-08** Staff `show()` endpoints return raw Eloquent models without Resource wrapping — Lens: `RES-4`
+- [x] **#P1-08** Staff `show()` endpoints return raw Eloquent models without Resource wrapping — Lens: `RES-4`
     - Where: `StaffCustomerManagementController.php:105` · `StaffServiceManagementController.php:94` · `StaffServiceCategoryManagementController.php:91` · `StaffSectionManagementController.php:28` · `StaffLinkBlockManagementController.php:27`
     - What: Staff sees every DB field whether relevant or not — especially risky on PII tables and tables with `admin_notes`. Any new column auto-leaks to staff before it reaches the professional surface.
     - Fix: reuse the Resources created in P1-05/P1-07; create `SectionBlockResource` (mirror `serializeSection` pattern from professional side).
@@ -437,17 +437,17 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Resource cleanups
 
-- [ ] **#P2-33** ID field type inconsistency across Resources — Lens: `RES-5`
+- [x] **#P2-33** ID field type inconsistency across Resources — Lens: `RES-5`
     - Where: 6 Resource files (mixed `(string) $this->id` vs raw)
     - Fix: standardise to `(string) $this->id`. Consider a base `ApiResource` enforcing the cast.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-34** Manual paginated envelopes (Enquiry + Gallery) — Lens: `RES-6`
+- [x] **#P2-34** Manual paginated envelopes (Enquiry + Gallery) — Lens: `RES-6`
     - Where: `ProfessionalEnquiryController.php:33-42` · `ProfessionalGalleryController.php:54-70`
     - Fix: use `$this->paginatedResponse(...)`; create `GalleryImageResource`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-35** `serializeSection()` uses `$section->toArray()` as base — internal Block columns leak — Lens: `RES-7`
+- [x] **#P2-35** `serializeSection()` uses `$section->toArray()` as base — internal Block columns leak — Lens: `RES-7`
     - Where: `ProfessionalSectionBlockController.php::serializeSection()`
     - Fix: explicit field allowlist. Apply same fix to `StaffSectionManagementController::upsert()`.
     - Models: impl=sonnet · review=sonnet
@@ -502,7 +502,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 ## P3 — nice to have
 
 ### Resource cleanups
-- [ ] **#P3-01** `IndividualProfileResource` constructor has 9 positional `array` params — Lens: `RES-8`. Fix: named-args / single associative `array $sections` param. Models: impl=sonnet · review=sonnet.
+- [x] **#P3-01** `IndividualProfileResource` constructor has 9 positional `array` params — Lens: `RES-8`. Fix: named-args / single associative `array $sections` param. Models: impl=sonnet · review=sonnet.
 
 ### Cache hygiene
 - [ ] **#P3-02** `BlockObserver::onBlockMutated` double-busts site cache — Lens: `CACHE-2`. Fix: rely solely on `site->touch()` chain. Models: impl=haiku · review=sonnet.
@@ -639,7 +639,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be paranoid. Don't validate confidently — try to break it.
 
 ### Bundle B4: Resource creation pass — raw Eloquent leakage (5 items) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox (shipped in PR #117, merge e10ae2b3, 2026-05-24)
 - Items: `#P1-05`, `#P1-06`, `#P1-07`, `#P1-08`, `#P2-35`
 - Models: impl=sonnet · review=sonnet
 - Rationale: creating Resource classes is one focused exercise. Doing them piecemeal means 5 small PRs each needing a frontend stakeholder review for shape verification.
@@ -668,7 +668,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be skeptical — the implementor had tunnel vision; you're the cold eye.
 
 ### Bundle B5: Resource doctrine cleanups (3 items) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox (shipped on `development`, 2026-05-24)
 - Items: `#P2-33`, `#P2-34`, `#P3-01`
 - Models: impl=sonnet · review=sonnet
 - Rationale: all three are doctrine-consistency fixes. Best done after B4 lands so all Resources exist before standardising patterns across them.

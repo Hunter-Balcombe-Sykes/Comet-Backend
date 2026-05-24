@@ -4,16 +4,15 @@ namespace App\Http\Resources;
 
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // Staff admin shape for Professional — full profile including auth_user_id for identity verification.
 // No payment integration fields; those are not relevant to staff management workflows.
-class ProfessionalStaffResource extends JsonResource
+class ProfessionalStaffResource extends ApiResource
 {
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'auth_user_id' => $this->auth_user_id,
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,

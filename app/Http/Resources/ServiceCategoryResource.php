@@ -3,10 +3,9 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.service_categories rows.
-class ServiceCategoryResource extends JsonResource
+class ServiceCategoryResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

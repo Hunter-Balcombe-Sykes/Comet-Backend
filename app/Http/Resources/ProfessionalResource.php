@@ -3,15 +3,14 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for professional profiles — transforms identity, contact, location, and onboarding fields.
-class ProfessionalResource extends JsonResource
+class ProfessionalResource extends ApiResource
 {
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,

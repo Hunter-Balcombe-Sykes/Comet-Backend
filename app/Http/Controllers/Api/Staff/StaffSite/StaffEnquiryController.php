@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\EnquiryResource;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Enquiry;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 // and intentionally out of scope for this read-only bundle.
 class StaffEnquiryController extends ApiController
 {
+    use ReturnsPaginatedResponse;
+
     /**
      * GET /staff/professionals/{professional}/enquiries
      */
@@ -24,14 +27,10 @@ class StaffEnquiryController extends ApiController
             ->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
 
-        return $this->success([
-            'data' => EnquiryResource::collection($page->items())->toArray($request),
-            'meta' => [
-                'current_page' => $page->currentPage(),
-                'last_page' => $page->lastPage(),
-                'total' => $page->total(),
-                'per_page' => $page->perPage(),
-            ],
-        ]);
+        // See ProfessionalEnquiryController::index for the rationale on
+        // ->through() + paginatedResponse() (#P2-34).
+        $page->through(fn (Enquiry $e) => EnquiryResource::make($e)->resolve());
+
+        return $this->success($this->paginatedResponse($page));
     }
 }

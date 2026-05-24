@@ -3,11 +3,10 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // V2: API resource for site.themes rows. Themes are admin-managed catalogue
 // entries — no timestamps in the response shape, no per-professional fields.
-class ThemeResource extends JsonResource
+class ThemeResource extends ApiResource
 {
     /**
      * @return array<string, mixed>

@@ -40,18 +40,18 @@ class IndividualProfilePayloadBuilder
         $sections = $this->resolver->loadSections($site);
         $booking = $this->resolver->getBooking($site, $sections);
 
-        return (new IndividualProfileResource(
-            $pro,
-            $design,
-            contentImages: $this->resolver->getContentImages($site),
-            gallery: $this->resolver->getGallery($site, $sections),
-            links: $this->resolver->getLinks($site, $booking),
-            bio: $this->resolver->getBio($pro, $sections),
-            document: $this->resolver->getDocument($site),
-            newsletter: $this->resolver->getNewsletter($sections),
-            services: $this->resolver->getServices($site, $pro->id, $sections),
-            booking: $booking,
-        ))->resolve();
+        // Keys mirror the Resource output shape 1-to-1 (#P3-01).
+        return (new IndividualProfileResource($pro, [
+            'design' => $design,
+            'content_images' => $this->resolver->getContentImages($site),
+            'gallery' => $this->resolver->getGallery($site, $sections),
+            'links' => $this->resolver->getLinks($site, $booking),
+            'bio' => $this->resolver->getBio($pro, $sections),
+            'document' => $this->resolver->getDocument($site),
+            'newsletter' => $this->resolver->getNewsletter($sections),
+            'services' => $this->resolver->getServices($site, $pro->id, $sections),
+            'booking' => $booking,
+        ]))->resolve();
     }
 
     /**

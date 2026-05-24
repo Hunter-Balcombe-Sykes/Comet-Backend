@@ -2,14 +2,12 @@
 
 namespace App\Http\Resources;
 
-use Illuminate\Http\Resources\Json\JsonResource;
-
-class FeatureFlagOverrideResource extends JsonResource
+class FeatureFlagOverrideResource extends ApiResource
 {
     public function toArray($request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'flag_key' => $this->flag_key,
             'professional_id' => $this->professional_id,
             'enabled' => (bool) $this->enabled,

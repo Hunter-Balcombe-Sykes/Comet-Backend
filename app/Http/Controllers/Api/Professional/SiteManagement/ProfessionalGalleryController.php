@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentProfessional;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\Professional\ImageGallery\ReorderGalleryImageRequest;
 use App\Http\Requests\Api\Professional\ImageGallery\UpdateGalleryImageRequest;
+use App\Http\Resources\GalleryImageResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
@@ -42,18 +43,12 @@ class ProfessionalGalleryController extends ApiController
             ->orderBy('created_at')
             ->get();
 
-        $result = $images->map(fn (SiteMedia $img) => [
-            'id' => $img->id,
-            'pool' => $img->pool,
-            'alt_text' => $img->alt_text,
-            'caption' => $img->caption,
-            'sort_order' => $img->sort_order,
-            'variants' => $img->variantUrls(),
-            'created_at' => $img->created_at,
-            'updated_at' => $img->updated_at,
+        // #P2-34: GalleryImageResource is the explicit allowlist; resolve()
+        // collapses the collection to plain arrays so the response shape
+        // stays a flat list under 'images' (gallery is bounded, not paginated).
+        return $this->success([
+            'images' => GalleryImageResource::collection($images)->resolve(),
         ]);
-
-        return $this->success(['images' => $result]);
     }
 
     /**
