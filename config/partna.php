@@ -36,10 +36,83 @@ return [
             parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST) ?: 'localhost'
         )
     ),
+    // Handles/subdomains a user can never claim. Exact-match, case-insensitive.
+    // Substring matching is deliberately avoided (Scunthorpe problem) — every
+    // entry here must satisfy the DNS-safe regex used by the subdomain validator:
+    // ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ (no dots, no underscores, no leading/trailing dash).
+    // Grouped for readability; flattened into a single list at consumption.
     'reserved_subdomains' => [
-        'www', 'api', 'admin', 'app', 'staff', 'dashboard',
-        'support', 'help', 'billing', 'static', 'cdn', 'assets',
+        // --- Platform infrastructure / DNS ---
+        'www', 'api', 'admin', 'app', 'apps', 'staff', 'dashboard',
+        'support', 'help', 'helpdesk', 'billing', 'static', 'cdn', 'assets',
         'auth', 'docs', 'status', 'comet', 'sidest', 'partna',
+        'mail', 'email', 'smtp', 'imap', 'pop', 'pop3', 'webmail',
+        'ns', 'ns1', 'ns2', 'ns3', 'mx', 'dns', 'ftp', 'sftp', 'ssh', 'vpn',
+        'proxy', 'gateway', 'server', 'host', 'cloud', 'edge', 'worker', 'workers',
+        'kv', 'db', 'database', 'redis', 'cache', 'queue', 'jobs', 'cron',
+        'webhook', 'webhooks', 'callback', 'callbacks', 'localhost', 'internal',
+        'public', 'private', 'secure', 'security', 'ssl', 'tls',
+
+        // --- Environments / build stages ---
+        'dev', 'development', 'prod', 'production', 'staging', 'stage',
+        'test', 'tests', 'testing', 'qa', 'uat', 'sandbox', 'preview',
+        'beta', 'alpha', 'demo', 'local',
+
+        // --- Auth / account routes ---
+        'login', 'logout', 'signin', 'signup', 'signout', 'register',
+        'account', 'accounts', 'settings', 'profile', 'profiles',
+        'user', 'users', 'member', 'members', 'me', 'my', 'mine',
+        'password', 'reset', 'forgot', 'verify', 'verification',
+        'confirm', 'activate', 'activation', 'oauth', 'sso', 'saml', 'jwt',
+        'token', 'tokens', 'key', 'keys', 'secret', 'secrets',
+        'onboarding', 'install', 'setup', 'start',
+
+        // --- Marketing / company pages ---
+        'home', 'about', 'team', 'company', 'contact', 'careers',
+        'hiring', 'press', 'media', 'news', 'blog', 'newsroom',
+        'investors', 'enterprise', 'pricing', 'plans', 'features',
+        'partner', 'partners', 'affiliate', 'affiliates',
+        'referral', 'referrals', 'brand', 'brands', 'community',
+
+        // --- Commerce / store ---
+        'shop', 'store', 'stores', 'marketplace', 'cart', 'checkout',
+        'order', 'orders', 'invoice', 'invoices', 'payment', 'payments',
+        'refund', 'refunds', 'subscription', 'subscriptions',
+
+        // --- Discovery / catalog ---
+        'search', 'explore', 'discover', 'trending', 'popular', 'top',
+        'new', 'latest', 'featured', 'browse', 'category', 'categories',
+        'tag', 'tags', 'topic', 'topics', 'sitemap', 'robots', 'feed', 'rss',
+
+        // --- Legal / trust ---
+        'terms', 'tos', 'privacy', 'legal', 'dmca', 'copyright',
+        'trademark', 'abuse', 'report', 'compliance', 'gdpr',
+
+        // --- Developer / system ---
+        'developer', 'developers', 'doc', 'documentation',
+        'api-docs', 'graphql', 'rest', 'rpc', 'sdk', 'cli',
+        'system', 'service', 'services', 'root', 'null', 'undefined',
+        'true', 'false', 'nil', 'none', 'error', 'errors', 'config',
+
+        // --- AU government / regulators / common impersonation targets ---
+        'ato', 'asic', 'accc', 'acma', 'austrac', 'apra', 'rba',
+        'medicare', 'mygov', 'centrelink', 'ndis', 'ahpra', 'fairwork',
+        'servicesaustralia', 'gov', 'government', 'police', 'afp',
+        'aec', 'abs', 'tga', 'dva', 'auspost',
+
+        // --- Brand impersonation (high-risk lookalikes) ---
+        'google', 'apple', 'microsoft', 'amazon', 'meta', 'facebook',
+        'instagram', 'tiktok', 'twitter', 'youtube', 'linkedin',
+        'paypal', 'stripe', 'square', 'shopify', 'cloudflare',
+        'anthropic', 'claude', 'openai', 'chatgpt',
+
+        // --- Profanity / slurs (exact-match only; substring would over-block) ---
+        'fuck', 'fucker', 'fucking', 'motherfucker', 'shit', 'bullshit',
+        'cunt', 'bitch', 'bastard', 'asshole', 'arsehole', 'dick',
+        'cock', 'pussy', 'slut', 'whore', 'twat', 'wanker',
+        'faggot', 'fag', 'nigger', 'nigga', 'retard', 'tranny',
+        'kike', 'spic', 'chink', 'gook', 'wetback', 'raghead',
+        'towelhead', 'dyke', 'shemale', 'porn', 'porno', 'xxx', 'nsfw',
     ],
     'link_block_icon_keys' => [
         // Functional / custom-link icons
