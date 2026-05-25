@@ -4,6 +4,7 @@ use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail;
 
@@ -264,6 +265,32 @@ it('treats duplicate webhook-id as a no-op (Supabase retries are idempotent)', f
 
     // Still only one queued mail across both deliveries.
     Mail::assertQueued(EmailConfirmMail::class, 1);
+});
+
+it('forgets the dedup marker when Mail::queue throws so Supabase retries can re-attempt', function (): void {
+    // Override the Mail::fake() set in beforeEach with a mock that throws on queue.
+    Mail::shouldReceive('queue')->once()->andThrow(new \RuntimeException('queue connection down'));
+
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'retry@partna.au'],
+        'email_data' => [
+            'token_hash' => 'tok_fail',
+            'email_action_type' => 'recovery',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    expect($response->status())->toBe(500);
+    // The dedup key must be gone — otherwise the next Supabase retry sees a
+    // stale "seen" marker, returns duplicate=true, and the email is permanently lost.
+    expect(Cache::has('supabase:email_hook:seen:'.$req['headers']['webhook-id']))->toBeFalse();
 });
 
 it('returns 422 when the payload is missing required fields', function (): void {

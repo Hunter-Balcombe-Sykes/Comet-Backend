@@ -62,6 +62,7 @@ class SupabaseEmailHookController extends ApiController
         // TIMESTAMP_TOLERANCE (300s) — beyond that, replays fail signature
         // verification anyway, so the cache entry is no longer load-bearing.
         $webhookId = (string) $request->header('webhook-id', '');
+        $dedupKey = null;
         if ($webhookId !== '') {
             $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
             if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
@@ -88,6 +89,14 @@ class SupabaseEmailHookController extends ApiController
 
             return response()->json(['ok' => true, 'handled' => true]);
         } catch (\Throwable $e) {
+            // Roll back the dedup marker so Supabase's retry can re-attempt.
+            // Without this, the retry sees Cache::add return false, treats it as
+            // a duplicate, returns 200 OK, and Supabase permanently drops the
+            // email even though it was never actually queued.
+            if ($dedupKey !== null) {
+                Cache::forget($dedupKey);
+            }
+
             Log::error('supabase.email_hook.send_failed', [
                 'action' => $actionType,
                 'error' => $e->getMessage(),
