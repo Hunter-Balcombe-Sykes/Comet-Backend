@@ -499,7 +499,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 
 ### Concurrency & idempotency (B10 follow-up)
 
-- [ ] **#P2-43** Concurrent `confirm()` (and `cancel()` / `request()`) on AccountDeletion can persist duplicate audit rows + queue duplicate mails — Lens: `IDEMPOTENCY-1` (B10 follow-up)
+- [x] **#P2-43** Concurrent `confirm()` (and `cancel()` / `request()`) on AccountDeletion can persist duplicate audit rows + queue duplicate mails — Lens: `IDEMPOTENCY-1` (B10 follow-up)
     - Where: `app/Services/Professional/AccountDeletionService.php:101` (confirm), `:401` (cancel), `:41` (request) · `app/Http/Controllers/Api/User/ProfessionalAccountDeletionController.php`
     - What: B10 made `executeConfirmation()` transactional, but the token check at line 123 runs on a model loaded by the route resolver BEFORE the transaction starts. Two concurrent `confirm()` calls (browser refresh mid-request, mobile double-tap, two tabs) both pass the `hash_equals` check, both enter the transaction, Postgres serializes the row UPDATE — but BOTH commit a fresh `EVENT_CONFIRMED` audit row and BOTH queue an `AccountDeletionScheduledMail`. Final DB state is correct (status, PII, token all final after race resolves); the defect is forensic accuracy (audit log says the user confirmed twice when they clicked once) and user-facing duplicate emails. Same race exists on `cancel()` and `request()` paths. Window is narrow (~100ms between route-resolver load and transaction commit) but real.
     - Fix: Bundle B27 — HTTP-layer `Idempotency-Key` middleware. Frontend sends a UUID per logical operation; middleware caches `{user_id, key} → response` in Redis with 24h TTL; replay returns cached response without re-entering the controller. Applies to all mutation endpoints, extensible beyond AccountDeletion. Per-service compare-and-set (`UPDATE … WHERE deletion_token_hash = ? RETURNING affected_rows`) is the cheaper local fix if the middleware is deferred.
@@ -1316,7 +1316,7 @@ Themes that surfaced under multiple lens framings — these are the highest-conf
 > Be paranoid. Silent production failure is what this fix is trying to prevent — don't reintroduce it via a wrong env check.
 
 ### Bundle B27: Idempotency-key middleware (1 item — #P2-43) — Effort: M-L
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-43`
 - Models: impl=sonnet · review=opus
 - Rationale: HTTP-layer idempotency middleware closes the concurrent-double-submit class of bug across every mutation endpoint, not just AccountDeletion. Frontend sends `Idempotency-Key: <uuid>` per logical user action; middleware caches the first response in Redis (24h TTL) and replays on retries. Eliminates duplicate-audit-row + duplicate-mail risk on confirm/cancel/request today, and prevents future endpoints from re-introducing the same race. Discovered during B10 adversarial review — the unified transaction in B10 narrowed the race but doesn't eliminate it because the token check runs on a route-resolver-loaded model before the transaction starts.
