@@ -362,9 +362,20 @@ class VerifySupabaseJwt
     {
         $outage = new JwksUnavailableException($cause);
 
-        // Use the lock store so a Cache::flush() on the default store can't reset
-        // this throttle and flood Nightwatch during a sustained JWKS outage.
-        if (Cache::store('cache_locks')->add('jwt:jwks-failure-reported', true, 60)) {
+        // Durable throttle: Cache::lock is backed by the `cache_locks` Redis
+        // connection in production (per config/cache.php `lock_connection`),
+        // isolated from data-cache flushes — Cache::flush() can't reset it and
+        // flood Nightwatch during a sustained JWKS outage. Lock is not released;
+        // the 60s TTL is the throttle window. Wrapped in try/catch so a throttle
+        // layer outage can never mask the underlying JWKS classification.
+        try {
+            $lock = Cache::lock('jwt:jwks-failure-reported', 60);
+            if ($lock->get()) {
+                report($outage);
+            }
+        } catch (\Throwable) {
+            // Throttle layer unreachable — surface the outage anyway. Better to
+            // over-report once than silently suppress an infrastructure failure.
             report($outage);
         }
 

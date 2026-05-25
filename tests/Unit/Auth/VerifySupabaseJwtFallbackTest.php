@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -52,7 +53,11 @@ beforeEach(function () {
     $cacheLock->shouldReceive('rememberLocked')
         ->andThrow(new RuntimeException('JWKS unavailable'));
 
-    $this->middleware = new VerifySupabaseJwt($cacheLock);
+    $revocation = Mockery::mock(TokenRevocationService::class);
+    $revocation->shouldReceive('isRevoked')->andReturn(false);
+    $revocation->shouldReceive('trackForUser');
+
+    $this->middleware = new VerifySupabaseJwt($cacheLock, $revocation);
     $this->next = fn ($req) => response()->json(['ok' => true]);
 });
 

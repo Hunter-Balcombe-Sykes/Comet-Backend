@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Firebase\JWT\JWT;
 use Illuminate\Http\Request;
@@ -75,7 +76,11 @@ it('restores JWT::$leeway to its prior value after successful JWKS verification'
     $cacheLock = Mockery::mock(CacheLockService::class);
     $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
 
-    $middleware = new VerifySupabaseJwt($cacheLock);
+    $revocation = Mockery::mock(TokenRevocationService::class);
+    $revocation->shouldReceive('isRevoked')->andReturn(false);
+    $revocation->shouldReceive('trackForUser');
+
+    $middleware = new VerifySupabaseJwt($cacheLock, $revocation);
 
     JWT::$leeway = 42; // sentinel — must survive unchanged
 
@@ -110,10 +115,14 @@ it('restores JWT::$leeway even when JWT::decode throws a signature error', funct
     $cacheLock = Mockery::mock(CacheLockService::class);
     $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
 
+    $revocation = Mockery::mock(TokenRevocationService::class);
+    $revocation->shouldReceive('isRevoked')->andReturn(false);
+    $revocation->shouldReceive('trackForUser');
+
     // Auth-server fallback will fail too (no URL configured)
     config(['supabase.url' => '', 'supabase.anon_key' => '']);
 
-    $middleware = new VerifySupabaseJwt($cacheLock);
+    $middleware = new VerifySupabaseJwt($cacheLock, $revocation);
 
     JWT::$leeway = 42; // sentinel — must survive even when decode throws
 
