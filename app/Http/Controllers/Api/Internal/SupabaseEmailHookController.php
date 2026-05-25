@@ -37,6 +37,12 @@ class SupabaseEmailHookController extends ApiController
     {
         $payload = $request->json()->all();
 
+        // Extract correlation IDs first so every log line in this request can
+        // carry them. webhook-id is Supabase's idempotency key; X-Request-Id
+        // is injected upstream (Cloudflare / Laravel Cloud reverse proxy).
+        $webhookId = (string) $request->header('webhook-id', '');
+        $requestId = (string) $request->header('X-Request-Id', '');
+
         $user = is_array($payload['user'] ?? null) ? $payload['user'] : null;
         $emailData = is_array($payload['email_data'] ?? null) ? $payload['email_data'] : null;
 
@@ -51,6 +57,8 @@ class SupabaseEmailHookController extends ApiController
                 'has_user' => $user !== null,
                 'has_email_data' => $emailData !== null,
                 'action' => $actionType,
+                'webhook_id' => $webhookId,
+                'request_id' => $requestId,
             ]);
 
             return $this->error('Invalid payload', 422);
@@ -61,12 +69,14 @@ class SupabaseEmailHookController extends ApiController
         // the signature is valid. TTL matches the signature verifier's
         // TIMESTAMP_TOLERANCE (300s) — beyond that, replays fail signature
         // verification anyway, so the cache entry is no longer load-bearing.
-        $webhookId = (string) $request->header('webhook-id', '');
         $dedupKey = null;
         if ($webhookId !== '') {
             $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
             if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
-                Log::info('supabase.email_hook.duplicate', ['webhook_id' => $webhookId]);
+                Log::info('supabase.email_hook.duplicate', [
+                    'webhook_id' => $webhookId,
+                    'request_id' => $requestId,
+                ]);
 
                 return response()->json(['ok' => true, 'handled' => false, 'duplicate' => true]);
             }
@@ -80,7 +90,11 @@ class SupabaseEmailHookController extends ApiController
             if ($mailable === null) {
                 // Unsupported action type — return success so Supabase doesn't retry
                 // (it'll fall back to its built-in template). Log so we know to add support.
-                Log::info('supabase.email_hook.unhandled_action', ['action' => $actionType]);
+                Log::info('supabase.email_hook.unhandled_action', [
+                    'action' => $actionType,
+                    'webhook_id' => $webhookId,
+                    'request_id' => $requestId,
+                ]);
 
                 return response()->json(['ok' => true, 'handled' => false]);
             }
@@ -100,6 +114,8 @@ class SupabaseEmailHookController extends ApiController
             Log::error('supabase.email_hook.send_failed', [
                 'action' => $actionType,
                 'error' => $e->getMessage(),
+                'webhook_id' => $webhookId,
+                'request_id' => $requestId,
             ]);
 
             return $this->error('Failed to send email', 500);
