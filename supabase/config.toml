@@ -188,10 +188,14 @@ token_verifications = 30
 web3 = 30
 
 # Configure one of the supported captcha providers: `hcaptcha`, `turnstile`.
-# [auth.captcha]
-# enabled = true
-# provider = "hcaptcha"
-# secret = ""
+# Cloudflare Turnstile chosen because we already use Cloudflare for the
+# router Worker — same vendor, no new account. Site key + secret live in
+# the hosted Supabase dashboard (Settings → Auth → Bot & Abuse Protection)
+# for dev + prod; this block is local-stack parity only.
+[auth.captcha]
+enabled = true
+provider = "turnstile"
+secret = "env(SUPABASE_AUTH_CAPTCHA_SECRET)"
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
