@@ -16,6 +16,7 @@ beforeEach(function () {
     setupCustomersTable();
     setupServicesTable();
     setupBlocksTable();
+    setupFeedbackTable();
 });
 
 // ─── Enquiry retention ────────────────────────────────────────────────────────

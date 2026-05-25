@@ -43,6 +43,7 @@ final class AccountCapabilities
             can_edit_design: true,
             notification_categories: 'profile,platform',
             worker_kv_type: 'individual',
+            can_submit_feedback: true,
         );
     }
 }

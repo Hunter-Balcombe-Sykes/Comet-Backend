@@ -7,6 +7,7 @@ use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
+use App\Models\Core\Feedback;
 use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
@@ -27,6 +28,7 @@ use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Policies\CustomerPolicy;
 use App\Policies\FeatureFlagPolicy;
+use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
@@ -89,6 +91,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(PartnaStaff::class, PartnaStaffPolicy::class);
         Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
+        Gate::policy(Feedback::class, FeedbackPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -359,6 +362,33 @@ class AppServiceProvider extends ServiceProvider
                         'message' => 'Too many requests. Please try again later.',
                     ], 429);
                 });
+        });
+
+        // User-submitted feedback. Two limits combined: tight per-hour to stop
+        // floods, looser per-day to keep a determined user from drowning the
+        // notify_emails inbox. Per-user (supabase_uid) keyed.
+        RateLimiter::for('feedback-submit', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $uid = $request->attributes->get('supabase_uid')
+                ?? throw new \RuntimeException('supabase_uid missing on feedback route — JWT middleware not applied');
+
+            $response = function () {
+                return response()->json([
+                    'message' => 'You have submitted a lot of feedback recently. Please try again later.',
+                ], 429);
+            };
+
+            return [
+                Limit::perHour((int) config('partna.feedback.rate_limit_per_hour', 10))
+                    ->by('feedback-submit:hour:'.$uid)
+                    ->response($response),
+                Limit::perDay((int) config('partna.feedback.rate_limit_per_day', 30))
+                    ->by('feedback-submit:day:'.$uid)
+                    ->response($response),
+            ];
         });
 
         // Staff panel routes

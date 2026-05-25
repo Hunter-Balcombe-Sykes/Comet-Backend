@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Core\FeatureFlag;
+use App\Models\Core\Feedback;
 use App\Models\Core\Professional\Customer;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Professional\ServiceCategory;
@@ -36,6 +37,7 @@ class PurgeSoftDeleted extends Command
         Enquiry::class,
         ServiceCategory::class,
         Block::class,
+        Feedback::class,
     ];
 
     /**

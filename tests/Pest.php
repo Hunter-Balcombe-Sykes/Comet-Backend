@@ -240,6 +240,36 @@ function setupProfessionalsTable(): void
 }
 
 /**
+ * core.feedback table for in-app feedback submission tests.
+ * Mirrors columns from migration 20260526210001.
+ */
+function setupFeedbackTable(): void
+{
+    attachTestSchemas();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.feedback (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        reply_email TEXT NULL,
+        kind TEXT NOT NULL,
+        severity TEXT NULL,
+        message TEXT NOT NULL,
+        page_url TEXT NULL,
+        user_agent TEXT NULL,
+        viewport TEXT NULL,
+        app_version TEXT NULL,
+        request_id TEXT NULL,
+        status TEXT NOT NULL DEFAULT 'new',
+        internal_notes TEXT NOT NULL DEFAULT '[]',
+        tags TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL DEFAULT 'dashboard',
+        ip_hash TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        deleted_at TEXT NULL
+    )");
+}
+
+/**
  * site.sites table — minimal columns, all nullable.
  */
 function setupSitesTable(): void

@@ -1,5 +1,10 @@
 <?php
 
+use App\Mail\Notifications\FeatureAnnouncementMail;
+use App\Mail\Notifications\IncidentMail;
+use App\Mail\Notifications\PolicyUpdateMail;
+use App\Mail\Notifications\ProfileTaskMail;
+
 return [
     // Shared-secret token for GET /api/internal/env-check. Required to enable
     // the endpoint. When unset, the endpoint returns 503 — fail-closed by default
@@ -958,10 +963,10 @@ return [
          * No edits to the publisher, no edits to the email dispatch job.
          */
         'mailables' => [
-            'profile_tasks' => \App\Mail\Notifications\ProfileTaskMail::class,
-            'policy_update' => \App\Mail\Notifications\PolicyUpdateMail::class,
-            'incident' => \App\Mail\Notifications\IncidentMail::class,
-            'feature_announcement' => \App\Mail\Notifications\FeatureAnnouncementMail::class,
+            'profile_tasks' => ProfileTaskMail::class,
+            'policy_update' => PolicyUpdateMail::class,
+            'incident' => IncidentMail::class,
+            'feature_announcement' => FeatureAnnouncementMail::class,
         ],
 
         /*
@@ -1067,6 +1072,33 @@ return [
         // When true, ProfessionalSelfPolicy::update requires a fresh AAL2 check.
         // Flip to true after TOTP enrolment is live in the UI and tested in production.
         'require_fresh_aal2_for_profile_update' => (bool) env('SIDEST_MFA_REQUIRE_FRESH_AAL2_FOR_PROFILE_UPDATE', false),
+    ],
+
+    'feedback' => [
+        /*
+        | Comma-separated recipients for the FeedbackSubmittedMail notification.
+        | Empty value = no email sent (job logs a warning and returns;
+        | submission still persists to core.feedback).
+        */
+        'notify_emails' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('FEEDBACK_NOTIFY_EMAILS', ''))
+        ))),
+
+        // Per-user rate limit on submissions. Named throttle reads these.
+        'rate_limit_per_hour' => (int) env('FEEDBACK_RATE_LIMIT_HOUR', 10),
+        'rate_limit_per_day' => (int) env('FEEDBACK_RATE_LIMIT_DAY', 30),
+
+        // Window for the duplicate-message check. Same user submitting an
+        // identical message inside this window returns 429.
+        'duplicate_window_seconds' => (int) env('FEEDBACK_DUPLICATE_WINDOW', 60),
+
+        // Pepper for SHA256 IP hashing. Generated per env; never committed.
+        // Empty value → ip_hash stored NULL (soft-degrade; PII never leaks).
+        'ip_hash_pepper' => env('FEEDBACK_IP_HASH_PEPPER'),
+
+        // Hard cap matched by DB CHECK constraint feedback_message_length_check.
+        'max_message_length' => 5000,
     ],
 
     'cache' => [

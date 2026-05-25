@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Professional\Account\SessionController;
 use App\Http\Controllers\Api\Professional\Analytics\ProfessionalAnalyticsController;
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
 use App\Http\Controllers\Api\Professional\Customers\ProfessionalEnquiryController;
+use App\Http\Controllers\Api\Professional\Feedback\FeedbackController;
 use App\Http\Controllers\Api\Professional\Notifications\ConfirmationPreferenceController;
 use App\Http\Controllers\Api\Professional\Notifications\NotificationController;
 use App\Http\Controllers\Api\Professional\Notifications\NotificationEmailPreferenceController;
@@ -214,4 +215,15 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         // Email subscribers (marketing list)
         Route::get('/email-subscribers', [ProfessionalEmailSubscriptionController::class, 'index']);
         Route::get('/email-subscribers/export', [ProfessionalEmailSubscriptionController::class, 'export']);
+
+        // In-app feedback. POST is exempt from EnforcePendingDeletionReadOnly so
+        // accounts in their grace period can still submit (they may be giving
+        // feedback about the deletion flow itself). Per-user throttle applied
+        // directly on the POST via the dedicated `feedback-submit` limiter.
+        Route::get('/me/feedback', [FeedbackController::class, 'index']);
+        Route::get('/me/feedback/{feedback}', [FeedbackController::class, 'show'])
+            ->whereUuid('feedback');
+        Route::post('/me/feedback', [FeedbackController::class, 'store'])
+            ->withoutMiddleware([EnforcePendingDeletionReadOnly::class])
+            ->middleware('throttle:feedback-submit');
     });
