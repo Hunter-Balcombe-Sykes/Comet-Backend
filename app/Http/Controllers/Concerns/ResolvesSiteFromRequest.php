@@ -57,14 +57,14 @@ trait ResolvesSiteFromRequest
             // as `subdomain`. Handle and subdomain are the same value in V2/V3,
             // but the client only knows the handle. Resolve via user handle.
             $user = User::query()->where('handle_lc', $subdomain)->first();
-            \Log::info('resolveSiteFromData handle fallback', [
+            \Log::warning('resolveSiteFromData handle fallback', [
                 'subdomain' => $subdomain,
                 'user_found' => $user !== null,
                 'user_id' => $user?->id,
             ]);
             if ($user) {
                 $site = Site::query()->where('professional_id', $user->id)->first();
-                \Log::info('resolveSiteFromData site lookup', [
+                \Log::warning('resolveSiteFromData site lookup', [
                     'site_found' => $site !== null,
                     'site_id' => $site?->id,
                     'is_published' => $site?->is_published,
