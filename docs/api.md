@@ -341,6 +341,54 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 - Content-Type: application/json (for JSON bodies)
 - Authorization: Bearer <SUPABASE_ACCESS_TOKEN> (authenticated routes only)
 
+### Idempotency keys (mutating endpoints)
+
+Frontend can opt into safe-retry semantics on mutating endpoints by sending an `Idempotency-Key` header. When present, the backend caches the first response under `{user, route, key}` and replays it on duplicate keys for 24 hours — protecting against browser refresh, mobile double-tap, and network-retry double-submits.
+
+**Header contract:**
+
+- `Idempotency-Key: <UUID v4>` — strict UUID v4 only (rejects v1/v3/v5).
+- Generate a **fresh key per logical user action** (typically per button click). Refresh on page navigation. Reusing a key across different actions silently replays the wrong response.
+- Required scope: opt-in per request. Endpoints documented as "idempotency-aware" honour the header; others ignore it.
+
+**Endpoints that honour `Idempotency-Key` today:**
+
+- `POST /api/me/deletion/request`
+- `POST /api/me/deletion/confirm`
+- `POST /api/me/deletion/cancel`
+
+**Server behaviour:**
+
+| Scenario | Server response |
+|---|---|
+| First request with key K | Runs handler, caches response (24h), returns it |
+| Duplicate request with key K | Replays cached response + adds `Idempotency-Replayed: true` header |
+| Concurrent request with key K (first still in-flight) | `409 Conflict` + `Retry-After: 1` + `{"code": "idempotency_locked"}` — retry after a brief delay |
+| Same key across different routes | Isolated — each route has its own scope |
+| Same key across different users | Isolated — each user has their own scope |
+| Header missing or empty | Bypassed — handler runs every call (no replay) |
+| Header is not UUID v4 | `400 Bad Request` + `{"code": "idempotency_invalid_key"}` |
+| Handler returned 5xx | NOT cached — retry can succeed against a recovered backend |
+| Handler returned 2xx/3xx/4xx | Cached and replayable for 24h |
+| Response body > 256 KB | NOT cached — handler re-runs on retry; no `Idempotency-Replayed` header |
+| `StreamedResponse` / `BinaryFileResponse` (downloads, exports) | NOT cached — handler re-runs on retry |
+| Method is GET/HEAD/OPTIONS | Bypassed (those are HTTP-idempotent already) |
+
+**Frontend guidance:**
+
+- Generate one UUID v4 per logical user action; hold it for the lifetime of that action only.
+- On `409 idempotency_locked`, wait 1s and retry — the in-flight request will have populated the cache by then.
+- The `Idempotency-Replayed: true` header lets you confirm a replay occurred (useful for debugging).
+- If you fix a validation error and retry, **generate a NEW key** — reusing the key would replay the prior 422.
+
+**Cache layer outage behaviour:** middleware fails open. If Redis is unreachable, the request proceeds without idempotency protection and a warning is logged server-side. The endpoint behaves as if the header was never sent.
+
+**Replay semantics — what gets re-checked, and what doesn't:**
+
+- The replay short-circuits BEFORE downstream middleware runs (rate limit, state checks like `EnforcePendingDeletionReadOnly`, model resolution). This is by design — a replay returns the prior outcome rather than re-executing the request.
+- JWT verification ALWAYS runs first; an invalid or revoked token gets a 401 before the cache is consulted.
+- App-version-scoped cache: a deploy that changes a response shape bumps the cache namespace so old-shape replays don't outlive the deploy.
+
 ### Browser CORS
 
 - Frontend browser origins must be allowed by backend CORS config.

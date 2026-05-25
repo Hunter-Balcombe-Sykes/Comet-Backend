@@ -11,6 +11,7 @@ use App\Http\Middleware\Auth\VerifySupabaseEmailHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
 use App\Http\Middleware\Context\LoadCurrentProfessional;
 use App\Http\Middleware\FeatureGate;
+use App\Http\Middleware\IdempotencyKey;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
 use App\Http\Middleware\SecureHeaders;
@@ -66,6 +67,15 @@ return Application::configure(basePath: dirname(__DIR__))
             VerifySupabaseJwt::class,
         );
 
+        // Pin IdempotencyKey before ThrottleRequests for the same reason — a
+        // successful replay must not consume rate-limit budget. The middleware
+        // also depends on `supabase_uid` being set, which means it has to run
+        // AFTER VerifySupabaseJwt; the natural priority-list order does that.
+        $middleware->prependToPriorityList(
+            \Illuminate\Routing\Middleware\ThrottleRequests::class,
+            IdempotencyKey::class,
+        );
+
         $middleware->alias([
             'supabase.jwt' => VerifySupabaseJwt::class,
             'require.email_verified' => RequireEmailVerified::class,
@@ -78,6 +88,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => FeatureGate::class,
             'captcha' => VerifyTurnstileCaptcha::class,
             'require.aal2' => RequireAal2::class,
+            'idempotent' => IdempotencyKey::class,
         ]);
 
         // Named group for the standard authenticated user route stack.

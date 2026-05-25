@@ -37,8 +37,12 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         Route::get('/me', [ProfessionalController::class, 'show']);
         Route::patch('/me', [ProfessionalController::class, 'update']);
 
-        // Account Deletion — self-service lifecycle
-        Route::prefix('me/deletion')->group(function () {
+        // Account Deletion — self-service lifecycle.
+        // `idempotent` middleware closes the concurrent-double-submit race that
+        // would otherwise let a browser refresh or mobile double-tap persist
+        // duplicate audit rows and queue duplicate confirmation mails (#P2-43).
+        // Frontend must send a per-action `Idempotency-Key: <uuid-v4>` header.
+        Route::prefix('me/deletion')->middleware('idempotent')->group(function () {
             Route::post('/request', [ProfessionalAccountDeletionController::class, 'request'])
                 ->middleware('throttle:3,60');
             Route::post('/confirm', [ProfessionalAccountDeletionController::class, 'confirm']);
