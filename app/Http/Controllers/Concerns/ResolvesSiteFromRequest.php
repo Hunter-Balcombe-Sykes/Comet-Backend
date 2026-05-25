@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Concerns;
 
+use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 
@@ -50,6 +51,14 @@ trait ResolvesSiteFromRequest
             $alias = SiteSubdomainAlias::query()->whereRaw('lower(subdomain) = ?', [$subdomain])->first();
             if ($alias) {
                 return Site::query()->find($alias->site_id);
+            }
+
+            // Fallback: the analytics client sends `affiliate.slug` (the handle)
+            // as `subdomain`. Handle and subdomain are the same value in V2/V3,
+            // but the client only knows the handle. Resolve via user handle.
+            $user = User::query()->where('handle_lc', $subdomain)->first();
+            if ($user) {
+                return Site::query()->where('professional_id', $user->id)->first();
             }
         }
 
