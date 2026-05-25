@@ -19,6 +19,7 @@ trait ResolvesSiteFromRequest
      */
     protected function resolveSiteFromData(array $data): ?Site
     {
+        error_log('RESOLVE_CALLED ' . json_encode($data));
         if (! empty($data['site_id'])) {
             $query = Site::query()->whereKey($data['site_id']);
 
