@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Internal;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Mail\Auth\EmailChangeMail;
 use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
@@ -107,9 +108,16 @@ class SupabaseEmailHookController extends ApiController
     {
         $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
 
+        // The frontend's /auth/confirm only recognises 'email_change' (not
+        // 'email_change_new' or 'email_change_current') as a valid verifyOtp type.
+        $frontendType = match ($actionType) {
+            'email_change_new', 'email_change_current' => 'email_change',
+            default => $actionType,
+        };
+
         $params = [
             'token_hash' => $tokenHash,
-            'type' => $actionType,
+            'type' => $frontendType,
         ];
         if ($redirectTo !== null && $redirectTo !== '') {
             $params['next'] = $redirectTo;
@@ -144,17 +152,8 @@ class SupabaseEmailHookController extends ApiController
         string $verifyUrl,
         ?string $code,
     ): ?BaseTransactionalMail {
-        // Email-confirmation actions (signup, email change) use the 6-digit
-        // OTP from email_data.token. The frontend's verify step prompts for
-        // exactly this code, so a click-link would only confuse — the email
-        // is always opened side-by-side with the form asking for the digits.
-        $isConfirmAction = in_array(
-            $actionType,
-            ['signup', 'email_change', 'email_change_current', 'email_change_new'],
-            true
-        );
-
-        if ($isConfirmAction) {
+        // Signup: 6-digit OTP flow — the verify-email screen prompts for the code.
+        if ($actionType === 'signup') {
             if ($code === null || $code === '') {
                 return null;
             }
@@ -163,6 +162,11 @@ class SupabaseEmailHookController extends ApiController
         }
 
         return match ($actionType) {
+            // email_change_new: sent to the new address — link-click flow.
+            // email_change: generic fallback Supabase may emit on some versions.
+            // email_change_current: only fires when double_confirm_changes = true (disabled) — ignore.
+            'email_change_new', 'email_change' => new EmailChangeMail($recipientEmail, $displayName, $verifyUrl),
+            'email_change_current' => null,
             'recovery' => new PasswordResetMail($recipientEmail, $displayName, $verifyUrl),
             'magiclink' => new MagicLinkMail($recipientEmail, $displayName, $verifyUrl),
             'invite' => new InviteMail($recipientEmail, $displayName, $verifyUrl),
