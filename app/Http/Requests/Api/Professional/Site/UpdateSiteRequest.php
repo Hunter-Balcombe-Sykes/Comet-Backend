@@ -104,19 +104,8 @@ class UpdateSiteRequest extends BaseFormRequest
             // tokens that each Sidest theme can map to its own concrete values.
             // Enum values mirror the dashboard dropdown labels (lowercased): the
             // middle value is `default` for every 3-bucket; theme_mode is binary.
-            'settings.design.corner_radius' => ['sometimes', 'nullable', 'string', Rule::in(['square', 'default', 'pill'])],
-            'settings.design.border_thickness' => ['sometimes', 'nullable', 'string', Rule::in(['hairline', 'default', 'bold'])],
-            'settings.design.section_spacing' => ['sometimes', 'nullable', 'string', Rule::in(['tight', 'default', 'spacious'])],
             'settings.design.theme_mode' => ['sometimes', 'nullable', 'string', Rule::in(['light', 'dark'])],
-            // Theme preset picker. Individuals (and brands when the
-            // dashboard surfaces a per-sitepage override) pick which @partnaau/themes
-            // layout renders their public profile. `theme-1` is the default
-            // frosted-card layout; `theme-2` is the Apple-style long-scroll.
-            // Allowlist enforced here so the public profile API never
-            // surfaces a value that maps to a non-existent layout — the
-            // Astro/Hydrogen resolvers floor anything outside this set to
-            // theme-1 as a defence-in-depth measure.
-            'settings.design.theme' => ['sometimes', 'nullable', 'string', Rule::in(['theme-1', 'theme-2', 'theme-3', 'theme-4'])],
+            'settings.design.theme' => ['sometimes', 'nullable', 'string', Rule::in(['theme-1'])],
             // Logos are downloaded from Shopify into our own storage so the URLs
             // are stable even if Shopify CDN tokens rotate.
             'settings.design.logo' => ['prohibited'],
@@ -268,9 +257,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.design.colors.text.prohibited' => 'Text colour is now derived from theme_mode (light|dark).',
             'settings.design.colors.accent.regex' => 'The accent color must be a valid hex color.',
             'settings.design.colors.border.prohibited' => 'Border colour is now derived from theme_mode (light|dark).',
-            'settings.design.corner_radius.in' => 'Corner radius must be one of: square, default, pill.',
-            'settings.design.border_thickness.in' => 'Border thickness must be one of: hairline, default, bold.',
-            'settings.design.section_spacing.in' => 'Section spacing must be one of: tight, default, spacious.',
             'settings.design.theme_mode.in' => 'Theme mode must be one of: light, dark.',
             'settings.design.font_family.in' => 'Font must be one of: neue_haas_grotesk, helvetica_neue, forma_djr, nb_architekt, swiss_721.',
             'settings.design.media.placeholder_sitepage_images.prohibited' => 'Use /api/uploads/brand-placeholder-image and the brand-placeholder-images management endpoints.',

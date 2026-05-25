@@ -39,9 +39,6 @@ class IndividualProfileResource extends ApiResource
         'font_size',
         'layout',
         'border_radius',
-        'corner_radius',
-        'border_thickness',
-        'section_spacing',
         'brand_colors',
         'colors',
     ];
@@ -75,6 +72,7 @@ class IndividualProfileResource extends ApiResource
         return [
             'handle' => $this->handle,
             'display_name' => $this->display_name,
+            'site_id' => $this->sections['site_id'] ?? null,
             'design' => $this->sections['design'] ?? [],
 
             // Section envelopes + arrays, mirroring HydrogenAffiliateController::show.

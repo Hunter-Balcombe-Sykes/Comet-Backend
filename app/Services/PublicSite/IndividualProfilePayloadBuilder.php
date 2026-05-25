@@ -42,6 +42,7 @@ class IndividualProfilePayloadBuilder
 
         // Keys mirror the Resource output shape 1-to-1 (#P3-01).
         return (new IndividualProfileResource($pro, [
+            'site_id' => $site?->id,
             'design' => $design,
             'content_images' => $this->resolver->getContentImages($site),
             'gallery' => $this->resolver->getGallery($site, $sections),

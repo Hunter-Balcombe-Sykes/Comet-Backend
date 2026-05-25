@@ -22,7 +22,6 @@ it('passes through known design keys', function () {
     $raw = [
         'theme' => 'midnight',
         'accent_color' => '#FF00AA',
-        'corner_radius' => 'pill',
         'font_family' => 'Inter',
         'layout' => 'centered',
     ];

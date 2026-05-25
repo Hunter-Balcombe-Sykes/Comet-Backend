@@ -19,7 +19,6 @@ trait ResolvesSiteFromRequest
      */
     protected function resolveSiteFromData(array $data): ?Site
     {
-        error_log('RESOLVE_CALLED ' . json_encode($data));
         if (! empty($data['site_id'])) {
             $query = Site::query()->whereKey($data['site_id']);
 
@@ -58,21 +57,8 @@ trait ResolvesSiteFromRequest
             // as `subdomain`. Handle and subdomain are the same value in V2/V3,
             // but the client only knows the handle. Resolve via user handle.
             $user = User::query()->where('handle_lc', $subdomain)->first();
-            error_log(json_encode([
-                'msg' => 'resolveSiteFromData handle fallback',
-                'subdomain' => $subdomain,
-                'user_found' => $user !== null,
-                'user_id' => $user?->id,
-            ]));
             if ($user) {
-                $site = Site::query()->where('professional_id', $user->id)->first();
-                error_log(json_encode([
-                    'msg' => 'resolveSiteFromData site lookup',
-                    'site_found' => $site !== null,
-                    'site_id' => $site?->id,
-                    'is_published' => $site?->is_published,
-                ]));
-                return $site;
+                return Site::query()->where('professional_id', $user->id)->first();
             }
         }
 
