@@ -113,13 +113,24 @@ class ProfessionalDocumentController extends ApiController
                 });
             }
 
+            // Pick a sort_order that won't collide with other pools.
+            // The unique constraint is site-wide (site_id, sort_order) —
+            // not per-pool — so a gallery image at sort_order=0 would
+            // block a document insert at the same position. Query the
+            // max across all pools and take the next slot.
+            $maxSort = SiteMedia::query()
+                ->where('site_id', $site->id)
+                ->whereNull('deleted_at')
+                ->max('sort_order');
+            $nextSort = is_null($maxSort) ? 0 : ((int) $maxSort + 1);
+
             return SiteMedia::create([
                 'site_id' => $site->id,
                 'pool' => SiteMedia::POOL_DOCUMENTS,
                 'path' => '',
                 'alt_text' => $title,
                 'caption' => $caption,
-                'sort_order' => 0,
+                'sort_order' => $nextSort,
                 'is_active' => true,
                 'media_type' => SiteMedia::MEDIA_TYPE_DOCUMENT,
                 'processing_state' => SiteMedia::PROCESSING_STATE_READY,
