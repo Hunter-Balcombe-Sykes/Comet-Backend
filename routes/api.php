@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\Internal\CspReportController;
 use App\Http\Controllers\Api\Internal\EnvCheckController;
 use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Http\Controllers\Api\PublicSite\AnalyticsController;
@@ -118,6 +119,12 @@ Route::post('/public/enquiry', [PublicEnquiryController::class, 'submit'])
 // purpose — this is the endpoint you hit when something else is misconfigured.
 // Auth is a single shared-secret header inside the controller.
 Route::get('/internal/env-check', EnvCheckController::class);
+
+// CSP violation report sink. Browsers POST here when a page breaks the policy
+// set by SecureHeaders. Unauthenticated (browsers send without credentials);
+// throttled hard so a single misconfigured page cannot flood logs.
+Route::post('/internal/csp-report', CspReportController::class)
+    ->middleware('throttle:120,1');
 
 Route::get('/ready', [HealthController::class, 'check'])->middleware('throttle:health-check');
 Route::get('/health/scheduler', [HealthController::class, 'scheduler'])->middleware('throttle:health-check');

@@ -201,9 +201,12 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], $statusCode);
             }
 
-            // Delegate to SecureHeaders — single source of truth for CORS injection (#P3-11).
+            // Delegate to SecureHeaders — single source of truth for all security
+            // headers (XFO, CSP, HSTS, nosniff, Referrer-Policy, Permissions-Policy)
+            // AND CORS. Without this, error responses ship un-headered because the
+            // exception renderer runs after middleware has unwound (#P2-40, #P3-11).
             if ($response !== null) {
-                SecureHeaders::applyCors($response);
+                SecureHeaders::apply($response, $request);
             }
 
             return $response;

@@ -6,6 +6,18 @@ return [
     // so a fresh deploy never accidentally exposes the env-var report.
     'internal_env_check_token' => env('INTERNAL_ENV_CHECK_TOKEN'),
 
+    // Browser origins explicitly allowed to call the API via CORS. Comma-separated
+    // list of `scheme://host[:port]` entries (no trailing slash, no path). Consumed by
+    // config/cors.php for the HandleCors middleware AND by SecureHeaders::apply() for
+    // the exception-render fallback path — keeping a single source of truth so the
+    // two cannot drift. Wildcard subdomains (visitor mini-sites under *.partna.au,
+    // Shopify admin hosts) are matched via `allowed_origins_patterns` in cors.php
+    // rather than enumerated here.
+    'frontend_origins' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('PARTNA_FRONTEND_ORIGINS', ''))
+    ))),
+
     'handle' => [
         // Days during which only the original owner can reclaim a released handle for free.
         'reclaim_days' => (int) env('SIDEST_HANDLE_RECLAIM_DAYS', 14),
