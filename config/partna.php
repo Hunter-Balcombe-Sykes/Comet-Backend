@@ -794,6 +794,14 @@ return [
         'rate_limit_per_minute' => (int) env('SIDEST_RATE_LIMIT_PUBLIC_PROFILE_PER_MINUTE', 60),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
+        // Analytics endpoint exposed to the skeleton via data.publicConfig.
+        // partna-pages reads this and uses it for client-side beacons.
+        // Falls back to the dev API host so dev deploys never ship a null/empty
+        // endpoint that breaks the skeleton's PublicConfig contract.
+        'analytics_endpoint' => env(
+            'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
+            'https://dev-api.partna.au/api/analytics'
+        ),
     ],
 
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),
