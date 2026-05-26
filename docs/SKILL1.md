@@ -45,4 +45,4 @@ Either:
 
 ## Reference
 
-Plan at `~/Developer/PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md`. §23 (package structure), §49 #2/#3/#4 (rules), §51 (CI enforcement: `ThemePackageImportsTest` greps for forbidden imports).
+CI enforcement lives in `ThemePackageImportsTest` (greps for forbidden imports).

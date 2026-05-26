@@ -132,7 +132,7 @@ If you skip bootstrap, professional routes will return 403 with a message prompt
     },
     "site": {
         "id": "uuid",
-        "professional_id": "uuid",
+        "user_id": "uuid",
         "subdomain": "josh-barber",
         "is_published": false
     }
@@ -162,7 +162,7 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 
 ### User (core.users)
 
-> Model class: `App\Models\Core\Professional\User`. FK columns on other tables remain named `professional_id`.
+> Model class: `App\Models\Core\User\User`. FK columns on other tables are named `user_id`.
 
 | Name                    | Type     | Nullable | Example                                  | Constraints / Notes                                        |
 |-------------------------|----------|----------|------------------------------------------|------------------------------------------------------------|
@@ -194,7 +194,7 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 | Name            | Type     | Nullable | Example                   | Constaints / Notes                                                                                                |
 |-----------------|----------|----------|---------------------------|-------------------------------------------------------------------------------------------------------------------|
 | id              | uuid     | no       | b8e7...                   | Primary Key                                                                                                       |
-| professional_id | uudi     | no       | 4db0...                   | Owner / Professional                                                                                              |
+| user_id         | uuid     | no       | 4db0...                   | FK → core.users.id                                                                                                |
 | subdomain       | string   | no       | joshbarber                | unqiue (case-sensitive), 3-63,lowercase letters/numbers/hyphen; no leading/trailing hyphen; reserved list blocked |
 | is_published    | boolean  | no       | false                     | if false, public site endpoint returns 404 or 403 depending on route                                              |
 | theme_id        | uuid     | yes      | 9f23                      | Must exist in themes table                                                                                        |
@@ -253,7 +253,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | Name                      | Type     | Nullable | Example                | Constraints / Notes                                                         |
 |---------------------------|----------|----------|------------------------|-----------------------------------------------------------------------------|
 | id                        | uuid     | no       | `a3c1...`              | Primary key                                                                 |
-| professional_id           | uuid     | yes      | `4db0...`              | Set by server on create                                                     |
+| user_id                   | uuid     | yes      | `4db0...`              | Set by server on create                                                     |
 | full_name                 | string   | no       | `Sam Smith`            | Max 120                                                                     |
 | email                     | email    | yes      | `sam@example.com`      | Max 255                                                                     |
 | phone                     | string   | yes      | `+61411111111`         | Max 40                                                                      |
@@ -269,7 +269,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | Name            | Type     | Nullable | Example                | Constraints / Notes     |
 |-----------------|----------|----------|------------------------|-------------------------|
 | id              | uuid     | no       | `a3c1...`              | Primary key             |
-| professional_id | uuid     | no       | `4db0...`              | Owner professional      |
+| user_id         | uuid     | no       | `4db0...`              | FK → core.users.id      |
 | category_id     | uuid     | yes      | `c5e2...`              | Optional service category |
 | title           | string   | no       | `Standard Haircut`     | Max 255                 |
 | description     | string   | yes      | `Professional cut`     | Max 2000                |
@@ -286,7 +286,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | Name            | Type     | Nullable | Example                | Constraints / Notes     |
 |-----------------|----------|----------|------------------------|-------------------------|
 | id              | uuid     | no       | `c5e2...`              | Primary key             |
-| professional_id | uuid     | no       | `4db0...`              | Owner professional      |
+| user_id         | uuid     | no       | `4db0...`              | FK → core.users.id      |
 | title           | string   | no       | `Men's Cuts`           | Max 255                 |
 | description     | string   | yes      | `All mens haircuts`    | Max 2000                |
 | sort_order      | integer  | no       | `0`                    | Non-negative            |
@@ -298,7 +298,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | Name            | Type    | Nullable | Example                       | Constraints / Notes                                                                       |
 |-----------------|---------|----------|-------------------------------|-------------------------------------------------------------------------------------------|
 | id              | uuid    | no       | `d5b0...`                     | Primary key                                                                               |
-| professional_id | uuid    | no       | `4db0...`                     | Owner professional                                                                        |
+| user_id         | uuid    | no       | `4db0...`                     | FK → core.users.id                                                                        |
 | site_id         | uuid    | no       | `b8e7...`                     | Owner site                                                                                |
 | block_group     | string  | no       | `links`                       | Always links                                                                              |
 | block_type      | string  | no       | `link`                        | Always link                                                                               |
