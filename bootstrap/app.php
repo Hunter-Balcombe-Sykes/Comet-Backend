@@ -1,23 +1,20 @@
 <?php
 
+use App\Contracts\HttpStatusCodeInterface;
 use App\Http\Middleware\AddETagHeaders;
 use App\Http\Middleware\AddPublicCacheHeaders;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\RequireAal2;
-use App\Http\Middleware\Auth\VerifyHydrogenApiKey;
 use App\Http\Middleware\Auth\RequireEmailVerified;
-use App\Http\Middleware\Auth\VerifyShopifySessionToken;
 use App\Http\Middleware\Auth\VerifySupabaseEmailHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
-use App\Http\Middleware\BrandFundingGate;
-use App\Http\Middleware\Context\LoadCurrentProfessional;
+use App\Http\Middleware\Context\LoadCurrentUser;
 use App\Http\Middleware\FeatureGate;
+use App\Http\Middleware\IdempotencyKey;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
-use App\Http\Middleware\RequirePlan;
 use App\Http\Middleware\SecureHeaders;
-use App\Http\Middleware\VerifyTurnstileCaptcha;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -69,35 +66,37 @@ return Application::configure(basePath: dirname(__DIR__))
             VerifySupabaseJwt::class,
         );
 
-        // Same priority pin for the embedded-app session-token verifier. The
-        // `embedded-by-shop` rate limiter reads `embedded_shop_domain` from the
-        // request attributes, which VerifyShopifySessionToken sets after decoding
-        // the JWT. Without this, ThrottleRequests fires before the JWT is parsed
-        // and the per-shop limiter collapses to per-IP (or whatever fallback
-        // the limiter uses).
+        // Pin IdempotencyKey before ThrottleRequests for the same reason — a
+        // successful replay must not consume rate-limit budget. The middleware
+        // also depends on `supabase_uid` being set, which means it has to run
+        // AFTER VerifySupabaseJwt; the natural priority-list order does that.
         $middleware->prependToPriorityList(
             \Illuminate\Routing\Middleware\ThrottleRequests::class,
-            VerifyShopifySessionToken::class,
+            IdempotencyKey::class,
         );
 
         $middleware->alias([
             'supabase.jwt' => VerifySupabaseJwt::class,
             'require.email_verified' => RequireEmailVerified::class,
-            'current.pro' => LoadCurrentProfessional::class,
+            'current.pro' => LoadCurrentUser::class,
             'staff' => EnsurePartnaStaff::class,
             'staff.admin' => EnsurePartnaAdmin::class,
             'staff.audit' => RecordStaffAuditEntry::class,
             'lead.log' => LogLeadRateLimits::class,
-            'plan' => RequirePlan::class,
-            'hydrogen.key' => VerifyHydrogenApiKey::class,
-            'shopify.session' => VerifyShopifySessionToken::class,
             'supabase.email-hook' => VerifySupabaseEmailHookSignature::class,
             'feature' => FeatureGate::class,
-            'captcha' => VerifyTurnstileCaptcha::class,
-            'brand-funding-gate' => BrandFundingGate::class,
-            'brand.only' => \App\Http\Middleware\EnsureBrandAccount::class,
-            'affiliate.only' => \App\Http\Middleware\EnsureAffiliateAccount::class,
+            'bot.token' => \App\Http\Middleware\VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
+            'idempotent' => IdempotencyKey::class,
+        ]);
+
+        // Named group for the standard authenticated user route stack.
+        // Applies JWT verification, email verification, and professional resolution
+        // in one alias so route files stay readable and can't accidentally omit one.
+        $middleware->appendToGroup('user.api', [
+            'supabase.jwt',
+            'require.email_verified',
+            'current.pro',
         ]);
     })
 
@@ -162,6 +161,20 @@ return Application::configure(basePath: dirname(__DIR__))
                 $response = $e->getResponse();
             }
 
+            // Domain exceptions that declare their own HTTP contract (e.g. 429, 409).
+            elseif ($e instanceof HttpStatusCodeInterface) {
+                $response = response()->json(
+                    ['message' => $e->getMessage()],
+                    $e->getHttpStatusCode()
+                );
+                foreach ($e->getHttpHeaders() as $header => $value) {
+                    if (! is_string($header)) {
+                        continue; // interface contract requires string keys; skip malformed entries silently
+                    }
+                    $response->headers->set($header, (string) $value);
+                }
+            }
+
             // Generic error handling
             else {
                 $statusCode = 500;
@@ -187,16 +200,12 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], $statusCode);
             }
 
-            // Ensure CORS headers are present on all API error responses.
-            // HandleCors middleware adds these during normal flow, but when
-            // an exception propagates past it the rendered response skips
-            // the CORS header injection. Laravel Cloud's proxy also strips
-            // CORS headers on some error responses. This guard ensures the
-            // browser can always read the error body.
-            if ($response !== null
-                && ! $response->headers->has('Access-Control-Allow-Origin')
-            ) {
-                $response->headers->set('Access-Control-Allow-Origin', '*');
+            // Delegate to SecureHeaders — single source of truth for all security
+            // headers (XFO, CSP, HSTS, nosniff, Referrer-Policy, Permissions-Policy)
+            // AND CORS. Without this, error responses ship un-headered because the
+            // exception renderer runs after middleware has unwound (#P2-40, #P3-11).
+            if ($response !== null) {
+                SecureHeaders::apply($response, $request);
             }
 
             return $response;

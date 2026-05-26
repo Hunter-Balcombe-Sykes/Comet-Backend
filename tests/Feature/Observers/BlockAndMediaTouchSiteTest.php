@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 // scope's transaction wrapping.
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
     setupMediaTables();
@@ -31,12 +31,11 @@ function seedTouchFixture(): array
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'touchtest',
         'handle_lc' => 'touchtest',
         'display_name' => 'Touch Test',
-        'professional_type' => 'professional',
         'account_type' => 'individual',
         'status' => 'active',
         'created_at' => '2020-01-01 00:00:00',
@@ -45,7 +44,7 @@ function seedTouchFixture(): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'touchtest',
         'is_published' => 1,
         'created_at' => '2020-01-01 00:00:00',
@@ -60,7 +59,7 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
     $fixture = seedTouchFixture();
 
     Block::create([
-        'professional_id' => $fixture['pro_id'],
+        'user_id' => $fixture['pro_id'],
         'site_id' => $fixture['site_id'],
         'block_type' => 'bio',
         'block_group' => 'sections',
@@ -78,7 +77,7 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
 it('Block::save (update) dispatches CloudflareCachePurgeJob via the touch() chain', function () {
     $fixture = seedTouchFixture();
     $block = Block::create([
-        'professional_id' => $fixture['pro_id'],
+        'user_id' => $fixture['pro_id'],
         'site_id' => $fixture['site_id'],
         'block_type' => 'link',
         'block_group' => 'links',
@@ -102,7 +101,7 @@ it('Block::save (update) dispatches CloudflareCachePurgeJob via the touch() chai
 it('Block::delete dispatches CloudflareCachePurgeJob via the touch() chain', function () {
     $fixture = seedTouchFixture();
     $block = Block::create([
-        'professional_id' => $fixture['pro_id'],
+        'user_id' => $fixture['pro_id'],
         'site_id' => $fixture['site_id'],
         'block_type' => 'link',
         'block_group' => 'links',
@@ -125,7 +124,7 @@ it('SiteMedia::create dispatches CloudflareCachePurgeJob via the touch() chain',
 
     SiteMedia::create([
         'site_id' => $fixture['site_id'],
-        'professional_id' => $fixture['pro_id'],
+        'user_id' => $fixture['pro_id'],
         'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',
@@ -143,7 +142,7 @@ it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain',
     $fixture = seedTouchFixture();
     $media = SiteMedia::create([
         'site_id' => $fixture['site_id'],
-        'professional_id' => $fixture['pro_id'],
+        'user_id' => $fixture['pro_id'],
         'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',

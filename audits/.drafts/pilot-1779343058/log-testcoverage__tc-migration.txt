@@ -1,0 +1,12 @@
+WARNING: scope path not found: tests/Feature/Audit
+→ Firing deepseek-v4-pro (thinking: max) — payload   511619 bytes (~127904 tokens)
+
+✓ Wrote audits/.drafts/pilot-1779343058/draft-testcoverage__tc-migration.md — 0
+0 findings, 70s elapsed
+
+Token usage:
+  prompt: 121677  output: 1336  reasoning: 1276  cache_hit: 5888/121677
+
+→ Next: adjudicate with Claude Sonnet. Feed audits/.drafts/pilot-1779343058/draft-testcoverage__tc-migration.md + the same scope to Sonnet
+  asking it to verify findings, refine tiers, fix wrong fix recommendations,
+  and emit audit-$(date +%F)-<lens>.md in the canonical format.

@@ -1,10 +1,27 @@
 <?php
 
+use App\Mail\Notifications\FeatureAnnouncementMail;
+use App\Mail\Notifications\IncidentMail;
+use App\Mail\Notifications\PolicyUpdateMail;
+use App\Mail\Notifications\ProfileTaskMail;
+
 return [
     // Shared-secret token for GET /api/internal/env-check. Required to enable
     // the endpoint. When unset, the endpoint returns 503 — fail-closed by default
     // so a fresh deploy never accidentally exposes the env-var report.
     'internal_env_check_token' => env('INTERNAL_ENV_CHECK_TOKEN'),
+
+    // Browser origins explicitly allowed to call the API via CORS. Comma-separated
+    // list of `scheme://host[:port]` entries (no trailing slash, no path). Consumed by
+    // config/cors.php for the HandleCors middleware AND by SecureHeaders::apply() for
+    // the exception-render fallback path — keeping a single source of truth so the
+    // two cannot drift. Wildcard subdomains (visitor mini-sites under *.partna.au,
+    // Shopify admin hosts) are matched via `allowed_origins_patterns` in cors.php
+    // rather than enumerated here.
+    'frontend_origins' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('PARTNA_FRONTEND_ORIGINS', ''))
+    ))),
 
     'handle' => [
         // Days during which only the original owner can reclaim a released handle for free.
@@ -24,10 +41,83 @@ return [
             parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST) ?: 'localhost'
         )
     ),
+    // Handles/subdomains a user can never claim. Exact-match, case-insensitive.
+    // Substring matching is deliberately avoided (Scunthorpe problem) — every
+    // entry here must satisfy the DNS-safe regex used by the subdomain validator:
+    // ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ (no dots, no underscores, no leading/trailing dash).
+    // Grouped for readability; flattened into a single list at consumption.
     'reserved_subdomains' => [
-        'www', 'api', 'admin', 'app', 'staff', 'dashboard',
-        'support', 'help', 'billing', 'static', 'cdn', 'assets',
+        // --- Platform infrastructure / DNS ---
+        'www', 'api', 'admin', 'app', 'apps', 'staff', 'dashboard',
+        'support', 'help', 'helpdesk', 'billing', 'static', 'cdn', 'assets',
         'auth', 'docs', 'status', 'comet', 'sidest', 'partna',
+        'mail', 'email', 'smtp', 'imap', 'pop', 'pop3', 'webmail',
+        'ns', 'ns1', 'ns2', 'ns3', 'mx', 'dns', 'ftp', 'sftp', 'ssh', 'vpn',
+        'proxy', 'gateway', 'server', 'host', 'cloud', 'edge', 'worker', 'workers',
+        'kv', 'db', 'database', 'redis', 'cache', 'queue', 'jobs', 'cron',
+        'webhook', 'webhooks', 'callback', 'callbacks', 'localhost', 'internal',
+        'public', 'private', 'secure', 'security', 'ssl', 'tls',
+
+        // --- Environments / build stages ---
+        'dev', 'development', 'prod', 'production', 'staging', 'stage',
+        'test', 'tests', 'testing', 'qa', 'uat', 'sandbox', 'preview',
+        'beta', 'alpha', 'demo', 'local',
+
+        // --- Auth / account routes ---
+        'login', 'logout', 'signin', 'signup', 'signout', 'register',
+        'account', 'accounts', 'settings', 'profile', 'profiles',
+        'user', 'users', 'member', 'members', 'me', 'my', 'mine',
+        'password', 'reset', 'forgot', 'verify', 'verification',
+        'confirm', 'activate', 'activation', 'oauth', 'sso', 'saml', 'jwt',
+        'token', 'tokens', 'key', 'keys', 'secret', 'secrets',
+        'onboarding', 'install', 'setup', 'start',
+
+        // --- Marketing / company pages ---
+        'home', 'about', 'team', 'company', 'contact', 'careers',
+        'hiring', 'press', 'media', 'news', 'blog', 'newsroom',
+        'investors', 'enterprise', 'pricing', 'plans', 'features',
+        'partner', 'partners', 'affiliate', 'affiliates',
+        'referral', 'referrals', 'brand', 'brands', 'community',
+
+        // --- Commerce / store ---
+        'shop', 'store', 'stores', 'marketplace', 'cart', 'checkout',
+        'order', 'orders', 'invoice', 'invoices', 'payment', 'payments',
+        'refund', 'refunds', 'subscription', 'subscriptions',
+
+        // --- Discovery / catalog ---
+        'search', 'explore', 'discover', 'trending', 'popular', 'top',
+        'new', 'latest', 'featured', 'browse', 'category', 'categories',
+        'tag', 'tags', 'topic', 'topics', 'sitemap', 'robots', 'feed', 'rss',
+
+        // --- Legal / trust ---
+        'terms', 'tos', 'privacy', 'legal', 'dmca', 'copyright',
+        'trademark', 'abuse', 'report', 'compliance', 'gdpr',
+
+        // --- Developer / system ---
+        'developer', 'developers', 'doc', 'documentation',
+        'api-docs', 'graphql', 'rest', 'rpc', 'sdk', 'cli',
+        'system', 'service', 'services', 'root', 'null', 'undefined',
+        'true', 'false', 'nil', 'none', 'error', 'errors', 'config',
+
+        // --- AU government / regulators / common impersonation targets ---
+        'ato', 'asic', 'accc', 'acma', 'austrac', 'apra', 'rba',
+        'medicare', 'mygov', 'centrelink', 'ndis', 'ahpra', 'fairwork',
+        'servicesaustralia', 'gov', 'government', 'police', 'afp',
+        'aec', 'abs', 'tga', 'dva', 'auspost',
+
+        // --- Brand impersonation (high-risk lookalikes) ---
+        'google', 'apple', 'microsoft', 'amazon', 'meta', 'facebook',
+        'instagram', 'tiktok', 'twitter', 'youtube', 'linkedin',
+        'paypal', 'stripe', 'square', 'shopify', 'cloudflare',
+        'anthropic', 'claude', 'openai', 'chatgpt',
+
+        // --- Profanity / slurs (exact-match only; substring would over-block) ---
+        'fuck', 'fucker', 'fucking', 'motherfucker', 'shit', 'bullshit',
+        'cunt', 'bitch', 'bastard', 'asshole', 'arsehole', 'dick',
+        'cock', 'pussy', 'slut', 'whore', 'twat', 'wanker',
+        'faggot', 'fag', 'nigger', 'nigga', 'retard', 'tranny',
+        'kike', 'spic', 'chink', 'gook', 'wetback', 'raghead',
+        'towelhead', 'dyke', 'shemale', 'porn', 'porno', 'xxx', 'nsfw',
     ],
     'link_block_icon_keys' => [
         // Functional / custom-link icons
@@ -618,7 +708,12 @@ return [
         ],
     ],
 
-    'section_block_types' => ['gallery', 'services', 'shop', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+    // `contact` = visitor-submitted contact form (notification_email lives here).
+    // `public_contact` = the professional's own opt-in contact details surfaced
+    //                    publicly on the sitepage — distinct domain, distinct toggle.
+    // `workplace`      = the professional's business / workplace card backed by
+    //                    `sites.settings.google_business_profile` (Google Places-fed).
+    'section_block_types' => ['gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'public_contact', 'workplace', 'credentials', 'experience', 'bio'],
 
     // Platform-default subject dropdown options for the contact section block.
     // Merged with the affiliate's settings.subject_options at render and
@@ -631,18 +726,11 @@ return [
         'Other',
     ],
 
-    'professional_types' => [
-        'brand' => 'Brand',
-        'professional' => 'Professional',
-        'influencer' => 'Influencer',
-    ],
-
     'waitlist' => [
         'enabled' => (bool) env('PARTNA_WAITLIST_ENABLED', env('SIDEST_WAITLIST_ENABLED', false)),
         'types' => [
             'influencer' => 'Influencer',
             'professional' => 'Professional',
-            'brand' => 'Brand',
             'other' => 'Other',
         ],
         'industries' => [
@@ -657,121 +745,18 @@ return [
 
     /*
     |----------------------------------------------------------------------
-    | Brand industries – canonical taxonomy
-    |----------------------------------------------------------------------
-    | Controlled list of industries a brand may declare on its BrandProfile.
-    | Order here is NOT semantic (display order is a frontend concern).
-    | Keys are slugs used in storage + API; values are human display names.
-    |
-    | Additive-only: renaming a slug requires a data migration. Adding a new
-    | slug is safe. See docs/brand-industries.md for the stability contract.
-    */
-    'brand_industries' => [
-        'apparel' => 'Apparel',
-        'footwear' => 'Footwear',
-        'accessories' => 'Accessories',
-        'skin_care' => 'Skin Care',
-        'haircare' => 'Haircare',
-        'makeup' => 'Makeup',
-        'fragrance' => 'Fragrance',
-        'mens_grooming' => "Men's Grooming",
-        'health_wellness_supplements' => 'Health, Wellness & Supplements',
-        'activewear_fitness' => 'Activewear & Fitness',
-        'home_living' => 'Home & Living',
-        'electronics_tech' => 'Electronics & Tech',
-        'other' => 'Other',
-    ],
-
-    /*
-    |----------------------------------------------------------------------
     | Account type defaults – applied during registration
     |----------------------------------------------------------------------
-    | 'professional' is the base type. 'influencer' inherits from it.
-    | 'brand' has its own distinct config.
-    | 'affiliate' is an overlay applied when a professional/influencer
-    | connects to a brand (via invite or manual connection).
+    | All active accounts are `individual`. Config is flat — no `inherits` key.
     */
     'account_type_defaults' => [
-        // Influencer is the base type (most basic account)
-        'influencer' => [
+        'individual' => [
             // NOTE: 'bio' MUST sit at the end of the list. syncAllowedSections
             // iterates this array and writes sort_order = index, and a unique
             // index on (site_id, block_group, sort_order) where block_group =
             // 'sections' rejects any re-packing that would momentarily shift
             // an existing row's sort_order onto another's. Placing new block
             // types at the tail keeps existing rows at their stored indices.
-            'allowed_sections' => ['shop', 'services', 'gallery', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
-            'default_sections' => ['shop', 'services', 'gallery'],
-            'is_published' => true,
-            'allowed_theme_count' => 3,
-            'custom_links_allowed' => false,
-            'default_contact' => [
-                'full_name' => 'Charlie',
-                'email' => 'charlie@ai.com',
-                'phone' => '1234 567 890',
-                'source' => 'system_default',
-                'subscribed' => true,
-            ],
-        ],
-        // Professional inherits influencer + adds booking, analytics, custom links
-        'professional' => [
-            'inherits' => 'influencer',
-            // 'bio' stays at the end — see the note on the influencer block
-            // for why ordering here is load-bearing.
-            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
-            'default_sections' => ['shop', 'services', 'gallery'],
-            'custom_links_allowed' => true,
-        ],
-        'brand' => [
-            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'newsletter', 'countdown', 'contact'],
-            'default_sections' => [],
-            'is_published' => false,
-            'allowed_theme_count' => null, // unlimited
-            'custom_links_allowed' => true,
-            'enforce_handle_equals_display_name' => true,
-            'default_checkout_mode' => null,
-            'default_site_settings' => [
-                'design' => [
-                    // System default colours, in-house font
-                ],
-            ],
-        ],
-        // Overlay applied when professional/influencer connects to a brand
-        'affiliate' => [
-            'auto_enable_sections' => ['shop'],
-            'use_brand_affiliate_theme' => true,
-            'use_brand_affiliate_products' => true,
-        ],
-
-        // ── New 3-state account_type keys (§31.1) ─────────────────────────────
-        // The site-management controllers (links, sections, etc.) read
-        // `$pro->account_type?->value` (the canonical 3-state field) via the
-        // plain config() helper, which does NOT resolve `inherits`. So these
-        // entries must be flat (no inherits key) — values mirror the legacy
-        // 'professional' entry above for `individual` and `partner`, since
-        // both new types map onto what was the standalone-professional path.
-        // Partners get the brand 'affiliate' overlay applied separately on
-        // BrandPartnerLink create; that's handled in
-        // AccountTypeDefaultsService::applyAffiliateDefaults, not here.
-        //
-        // Without these keys, individuals + partners default-deny on every
-        // direct config lookup (custom_links_allowed, allowed_theme_count,
-        // etc.) — including the 403 on /api/links that surfaced this gap.
-        'individual' => [
-            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
-            'default_sections' => ['shop', 'services', 'gallery'],
-            'is_published' => true,
-            'allowed_theme_count' => 3,
-            'custom_links_allowed' => true,
-            'default_contact' => [
-                'full_name' => 'Charlie',
-                'email' => 'charlie@ai.com',
-                'phone' => '1234 567 890',
-                'source' => 'system_default',
-                'subscribed' => true,
-            ],
-        ],
-        'partner' => [
             'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
             'default_sections' => ['shop', 'services', 'gallery'],
             'is_published' => true,
@@ -791,28 +776,6 @@ return [
 
     'analytics_raw_event_retention_days' => (int) env('PARTNA_ANALYTICS_RAW_EVENT_RETENTION_DAYS', env('ANALYTICS_RAW_EVENT_RETENTION_DAYS', 90)),
 
-    'commerce_analytics' => [
-        // SWR cache TTL (seconds) for the affiliate projections endpoint. Push-invalidated on every commerce
-        // webhook write via AnalyticsCacheService::invalidateAnalytics(), so this is the upper bound on staleness
-        // when no writes happen — not the typical staleness.
-        'projections_ttl_seconds' => (int) env('PARTNA_COMMERCE_PROJECTIONS_TTL_SECONDS', env('COMMERCE_PROJECTIONS_TTL_SECONDS', 300)),
-
-        // Adaptive window tiers, descending. Service picks the largest tier the affiliate has ≥ days of history for.
-        // Below the smallest tier, response returns status=insufficient_data.
-        'projections_window_tiers' => [90, 60, 30, 14],
-
-        // Confidence band thresholds. CV = stddev / mean of daily net-commission within the window.
-        'projections_confidence_high' => ['min_history_days' => 90, 'max_cv' => 0.5],
-        'projections_confidence_medium' => ['min_history_days' => 30, 'max_cv' => 1.0],
-        // Anything qualifying for the window but not above is "low".
-    ],
-
-    // How many days after the billing period ends a past_due subscription retains plan entitlements.
-    // After this window, access is revoked until Stripe collects payment or cancels.
-    'billing' => [
-        'past_due_grace_days' => (int) env('PARTNA_PAST_DUE_GRACE_DAYS', env('SIDEST_PAST_DUE_GRACE_DAYS', 7)),
-    ],
-
     'throttle' => [
         'enabled' => (bool) env('PARTNA_THROTTLE_ENABLED', env('SIDEST_THROTTLE_ENABLED', true)),
         // Max notification emails sent per brand inbox per hour regardless of how many enquiries arrive.
@@ -831,22 +794,14 @@ return [
         'rate_limit_per_minute' => (int) env('SIDEST_RATE_LIMIT_PUBLIC_PROFILE_PER_MINUTE', 60),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
-    ],
-
-    // Rate-limit config for the brand signup code redemption path (§33 CFG-3).
-    // Values are intentionally in config (not inline) so they can be tightened
-    // under abuse without a code deploy.
-    'brand_signup_code' => [
-        'rate_limit' => [
-            // Hard cap per IP per minute.
-            'per_minute' => (int) env('PARTNA_SIGNUP_CODE_RATE_PER_MINUTE', 10),
-            // Hard cap per IP per hour.
-            'per_hour' => (int) env('PARTNA_SIGNUP_CODE_RATE_PER_HOUR', 100),
-            // After this many failed attempts on the same IP within an hour, responses are delayed.
-            'delay_after_failures' => (int) env('PARTNA_SIGNUP_CODE_DELAY_AFTER_FAILURES', 5),
-            // Seconds to sleep when the delay threshold is hit.
-            'delay_seconds' => (int) env('PARTNA_SIGNUP_CODE_DELAY_SECONDS', 2),
-        ],
+        // Analytics endpoint exposed to the skeleton via data.publicConfig.
+        // partna-pages reads this and uses it for client-side beacons.
+        // Falls back to the dev API host so dev deploys never ship a null/empty
+        // endpoint that breaks the skeleton's PublicConfig contract.
+        'analytics_endpoint' => env(
+            'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
+            'https://dev-api.partna.au/api/analytics'
+        ),
     ],
 
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),
@@ -865,13 +820,8 @@ return [
     'upload_pools' => ['gallery', 'content'],
 
     'image_pools' => [
-        // Affiliate sitepage gallery + content panels both expose 6 slots
-        // in the dashboard — keep the env override available, default to 6.
         'gallery' => ['max' => (int) env('PARTNA_GALLERY_IMAGE_MAX', env('SIDEST_GALLERY_IMAGE_MAX', 6))],
         'content' => ['max' => (int) env('PARTNA_CONTENT_IMAGE_MAX', env('SIDEST_CONTENT_IMAGE_MAX', 6))],
-        'product' => ['max' => (int) env('PARTNA_PRODUCT_IMAGE_MAX', env('SIDEST_PRODUCT_IMAGE_MAX', 5))],
-        'brand_gallery' => ['max' => (int) env('PARTNA_BRAND_GALLERY_IMAGE_MAX', env('SIDEST_BRAND_GALLERY_IMAGE_MAX', 5))],
-        'product_custom' => ['max' => (int) env('PARTNA_PRODUCT_CUSTOM_PHOTO_MAX', env('SIDEST_PRODUCT_CUSTOM_PHOTO_MAX', 1))],
         'documents' => ['max' => 1],
     ],
 
@@ -915,15 +865,6 @@ return [
             'fit' => 'inside',
             'quality' => (int) env('PARTNA_IMAGE_MAXIMIZED_QUALITY', env('SIDEST_IMAGE_MAXIMIZED_QUALITY', 92)),
         ],
-    ],
-
-    'hydrogen' => [
-        // GitHub PAT with actions:write scope on the sidest-storefront repo.
-        // Used by HydrogenDeploymentService to trigger single-brand Oxygen
-        // deployments when a brand saves credentials in the wizard.
-        'github_token' => env('PARTNA_HYDROGEN_GITHUB_TOKEN', env('SIDEST_HYDROGEN_GITHUB_TOKEN')),
-        'github_repo' => env('PARTNA_HYDROGEN_GITHUB_REPO', env('SIDEST_HYDROGEN_GITHUB_REPO', 'hunterbalcombesykes/sidest-storefront')),
-        'github_ref' => env('PARTNA_HYDROGEN_GITHUB_REF', env('SIDEST_HYDROGEN_GITHUB_REF', 'main')),
     ],
 
     'image_max_upload_size' => (int) env('PARTNA_IMAGE_MAX_UPLOAD_KB', env('SIDEST_IMAGE_MAX_UPLOAD_KB', 10240)), // 10 MB
@@ -990,52 +931,6 @@ return [
         ],
     ],
 
-    'professional_only_section_types' => [
-        'barbershop_info',
-        'sitepage_analytics',
-        'booking',
-    ],
-
-    'store' => [
-        'default_commission_rate' => (float) env('PARTNA_STORE_DEFAULT_COMMISSION', env('SIDEST_STORE_DEFAULT_COMMISSION', 15)),
-        'max_featured_products' => (int) env('PARTNA_STORE_MAX_FEATURED', env('SIDEST_STORE_MAX_FEATURED', 10)),
-        'checkout_session_ttl_minutes' => (int) env('PARTNA_STORE_CHECKOUT_SESSION_TTL_MINUTES', env('SIDEST_STORE_CHECKOUT_SESSION_TTL_MINUTES', 120)),
-        // System default applied when a brand hasn't picked a hold period yet.
-        // Brands can explicitly choose 0 (instant), 7, 14, or 28 — the allowed values
-        // are enforced in UpdateBrandStoreSettingsRequest. There is no longer a
-        // server-side min-floor; the dropdown enumerates the only valid options.
-        'payout_hold_days' => (int) env('PARTNA_STORE_PAYOUT_HOLD_DAYS', env('SIDEST_STORE_PAYOUT_HOLD_DAYS', 7)),
-        'platform_fee_percent' => (float) env('PARTNA_STORE_PLATFORM_FEE_PERCENT', env('SIDEST_STORE_PLATFORM_FEE_PERCENT', 20)),
-        // Signup grace deadline. New affiliates get this many days after Stripe
-        // Connect onboarding starts before their commissions begin voiding.
-        // Used by StripeConnectService::createConnectAccount to set the
-        // grace deadline on v1 (stripe_grace_period_ends_at column dropped in v2).
-        'signup_grace_period_days' => (int) env('PARTNA_STORE_SIGNUP_GRACE_PERIOD_DAYS', env('SIDEST_STORE_SIGNUP_GRACE_PERIOD_DAYS', 30)),
-
-        // Per-payout grace deadline. Each commission_payouts row's
-        // void_at is set to created_at + this many days. After that,
-        // if the affiliate's Stripe Connect isn't 'active', the
-        // VoidExpiredPayoutsJob cancels the payout (brand keeps the
-        // money — never charged).
-        'payout_grace_period_days' => (int) env('PARTNA_STORE_PAYOUT_GRACE_PERIOD_DAYS', env('SIDEST_STORE_PAYOUT_GRACE_PERIOD_DAYS', 60)),
-
-        // DEPRECATED — fallback for code that hasn't migrated to the split keys above.
-        // Previously conflated "signup grace" (30d) and "payout grace" (60d) under one key,
-        // which silently misconfigured one of the two whenever ops tuned the value.
-        // Removed callers: StripeConnectService, CommissionPayoutService, VoidExpiredPayoutsJob.
-        'grace_period_days' => (int) env('PARTNA_STORE_GRACE_PERIOD_DAYS', env('SIDEST_STORE_GRACE_PERIOD_DAYS', 60)),
-
-        'commission_void_window_days' => (int) env('PARTNA_STORE_COMMISSION_VOID_WINDOW_DAYS', env('SIDEST_STORE_COMMISSION_VOID_WINDOW_DAYS', 30)),
-    ],
-
-    'payouts' => [
-        // Cap on rows materialised by /stripe/payouts/{payoutId} (payoutDetail).
-        // Matches the 500-row limit ExportService passes to forBrand/forAffiliate,
-        // so the "export the rest" fallback is the natural overflow path. Frontend
-        // reads `has_more` to render a load-more / export affordance.
-        'detail_orders_limit' => (int) env('PARTNA_PAYOUTS_DETAIL_ORDERS_LIMIT', 500),
-    ],
-
     'form_timing' => [
         'min_ms' => (int) env('PARTNA_FORM_TIMING_MIN_MS', env('FORM_TIMING_MIN_MS', 2500)),      // 2.5s minimum fill time
         'max_ms' => (int) env('PARTNA_FORM_TIMING_MAX_MS', env('FORM_TIMING_MAX_MS', 43200000)),  // 12h max (stale form)
@@ -1046,17 +941,7 @@ return [
         'incident' => 14,
         'feature_announcement' => 30,
         'default' => 30,
-        'invite' => 90,
-        'commission' => 365,
-        'payout' => 365,
-        'integration' => 60,
-        'analytics_weekly' => 30,
-        'analytics_milestones' => 90,
         'profile_task' => 180,
-        'brand_status' => 60,
-        'subscription' => 365,
-        'brand_link' => 60,
-        'payout_warning' => 60,
     ],
 
     'notifications' => [
@@ -1085,21 +970,10 @@ return [
          * No edits to the publisher, no edits to the email dispatch job.
          */
         'mailables' => [
-            'invites' => \App\Mail\Notifications\InviteNotificationMail::class,
-            'commissions' => \App\Mail\Notifications\CommissionNotificationMail::class,
-            'payouts' => \App\Mail\Notifications\PayoutNotificationMail::class,
-            'payout_settlement' => \App\Mail\Notifications\PayoutSettlementMail::class,
-            'integrations' => \App\Mail\Notifications\IntegrationNotificationMail::class,
-            'analytics_weekly' => \App\Mail\Notifications\AnalyticsWeeklyMail::class,
-            'analytics_milestones' => \App\Mail\Notifications\AnalyticsMilestoneMail::class,
-            'profile_tasks' => \App\Mail\Notifications\ProfileTaskMail::class,
-            'brand_status' => \App\Mail\Notifications\BrandStatusMail::class,
-            'subscriptions' => \App\Mail\Notifications\SubscriptionMail::class,
-            'brand_links' => \App\Mail\Notifications\BrandLinkMail::class,
-            'payout_warnings' => \App\Mail\Notifications\PayoutWarningMail::class,
-            'policy_update' => \App\Mail\Notifications\PolicyUpdateMail::class,
-            'incident' => \App\Mail\Notifications\IncidentMail::class,
-            'feature_announcement' => \App\Mail\Notifications\FeatureAnnouncementMail::class,
+            'profile_tasks' => ProfileTaskMail::class,
+            'policy_update' => PolicyUpdateMail::class,
+            'incident' => IncidentMail::class,
+            'feature_announcement' => FeatureAnnouncementMail::class,
         ],
 
         /*
@@ -1111,16 +985,8 @@ return [
          * controller surfaces these with mandatory=true so the frontend can
          * render them as read-only "always on" toggles.
          */
-        // commissions + payouts used to live here as mandatory transactional
-        // categories. The product chose to surface them as opt-in toggles
-        // instead — the in-app notifications still always fire (so users
-        // never miss money movement on the dashboard), only the EMAIL copy
-        // is now silenceable. subscriptions + brand_status stay mandatory:
-        // billing/account-state mail is contract-performance under GDPR
-        // Art. 6(1)(b) and transactional-primary-purpose under CAN-SPAM §316.3.
         'mandatory_categories' => [
-            'subscriptions',
-            'brand_status',
+            'policy_update',
         ],
     ],
 
@@ -1147,9 +1013,6 @@ return [
         'smart_booking' => (bool) env('PARTNA_SMART_BOOKING_ENABLED', env('SIDEST_SMART_BOOKING_ENABLED', false)),
         'square_sync' => (bool) env('PARTNA_SQUARE_SYNC_ENABLED', env('SIDEST_SQUARE_SYNC_ENABLED', false)),
         'fresha_sync' => (bool) env('PARTNA_FRESHA_SYNC_ENABLED', env('SIDEST_FRESHA_SYNC_ENABLED', false)),
-        // Gates Turnstile CAPTCHA on public lead-capture endpoints. Enable only after
-        // the frontend has integrated the Turnstile widget and sends cf_turnstile_response.
-        'captcha' => (bool) env('PARTNA_CAPTCHA_ENABLED', env('SIDEST_CAPTCHA_ENABLED', false)),
     ],
 
     /*
@@ -1176,74 +1039,8 @@ return [
         // within this many minutes returns 409 instead of queuing again.
         // Prevents accidental double-clicks AND queue thrashing.
         'dedup_window_minutes' => (int) env('GDPR_EXPORT_DEDUP_WINDOW_MINUTES', 30),
-        // WEBHOOK-4: reject inbound GDPR webhooks whose X-Shopify-Triggered-At is
-        // older than this. Deliberately wide — beyond Shopify's ~48h retry
-        // horizon — so a legitimate retry is never clipped, while a genuinely
-        // ancient captured-and-replayed delivery is refused. payload_hash
-        // firstOrCreate already neutralises exact replays; this is defence in depth.
-        'webhook_max_age_seconds' => (int) env('GDPR_WEBHOOK_MAX_AGE_SECONDS', 259200), // 72h
     ],
 
-    // Async commission/financial exports. The 'commission' subkey scopes the
-    // transactions export (POST /stripe/exports/transactions); other exports
-    // (payouts, detailed-commissions, eofy) remain synchronous and don't read these.
-    'exports' => [
-        'commission' => [
-            'queue' => env('PARTNA_COMMISSION_EXPORT_QUEUE', 'exports'),
-            'connection' => env('PARTNA_COMMISSION_EXPORT_CONNECTION', 'redis'),
-            'chunk_size' => (int) env('PARTNA_COMMISSION_EXPORT_CHUNK_SIZE', 500),
-            'signed_url_ttl_days' => (int) env('PARTNA_COMMISSION_EXPORT_TTL_DAYS', 3),
-            'retention_days' => (int) env('PARTNA_COMMISSION_EXPORT_RETENTION_DAYS', 30),
-            'dedup_window_minutes' => (int) env('PARTNA_COMMISSION_EXPORT_DEDUP_MINUTES', 5),
-            'stuck_watchdog_minutes' => (int) env('PARTNA_COMMISSION_EXPORT_STUCK_MINUTES', 60),
-            // Shared with the global Stripe SDK binding so the whole app pins one version.
-            'stripe_api_version' => env('STRIPE_API_VERSION', '2025-02-24.acacia'),
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Reconciler
-    |--------------------------------------------------------------------------
-    |
-    | Shopify orders backstop — pulls orders updated since the last reconcile
-    | timestamp and dispatches ProcessShopifyOrderWebhookJob for missing/stale
-    | local rows. Cron expression is env-overridable so ops can switch to
-    | hourly ('0 * * * *') for the first 60 days post-launch without a deploy.
-    |
-    */
-
-    'reconciler' => [
-        'schedule' => env('PARTNA_RECONCILER_SCHEDULE', env('SIDEST_RECONCILER_SCHEDULE', '0 3 * * *')),
-    ],
-
-    /*
-    |----------------------------------------------------------------------
-    | Cache TTL tiers (seconds)
-    |----------------------------------------------------------------------
-    | All env-overridable so Redis tuning during a hot-key incident or
-    | memory pressure event does not require a code redeploy — just flip
-    | the env var and run `php artisan config:cache`.
-    |
-    | Tiers:
-    |   public_payload             Hot public-site read; jittered ±20% on write to
-    |                              spread expiry bursts across the fleet.
-    |   analytics_short            Warm analytics/affiliate-status reads; push-
-    |                              invalidated on every write so staleness is bounded.
-    |   auth_id_lookup             Immutable Supabase auth UUID → professional_id mapping
-    |                              plus profile/services/settings caches (same tier).
-    |   professional_model         Hydrated Eloquent model on every authenticated request
-    |                              (auth hot path — short TTL, SWR-backed).
-    |   professional_handle_lookup Handle → id and payload reads; tuned separately from
-    |                              the auth path because they serve different traffic.
-    |   webhook_idempotency        Dedup window for inbound webhooks; prevents a Shopify
-    |                              retry from processing the same event twice.
-    |   brand_admin_catalog        Shopify product catalog fetched for order-commission
-    |                              resolution; push-invalidated on catalog webhooks.
-    |   collection_gid             Shopify collection GID lookups; long-lived stable data.
-    |   product_custom_photos      Per-affiliate custom product photo flags; hot reads on
-    |                              every order item, short TTL to limit stale-state window.
-    */
     /*
     |----------------------------------------------------------------------
     | MFA — verification windows and brute-force protection
@@ -1275,6 +1072,37 @@ return [
         */
         'verify_max_failures' => (int) env('SIDEST_MFA_VERIFY_MAX_FAILURES', 5),
         'verify_failure_window_seconds' => (int) env('SIDEST_MFA_VERIFY_WINDOW_SECONDS', 300),
+
+        // When true, ProfessionalSelfPolicy::update requires a fresh AAL2 check.
+        // Flip to true after TOTP enrolment is live in the UI and tested in production.
+        'require_fresh_aal2_for_profile_update' => (bool) env('SIDEST_MFA_REQUIRE_FRESH_AAL2_FOR_PROFILE_UPDATE', false),
+    ],
+
+    'feedback' => [
+        /*
+        | Comma-separated recipients for the FeedbackSubmittedMail notification.
+        | Empty value = no email sent (job logs a warning and returns;
+        | submission still persists to core.feedback).
+        */
+        'notify_emails' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('FEEDBACK_NOTIFY_EMAILS', ''))
+        ))),
+
+        // Per-user rate limit on submissions. Named throttle reads these.
+        'rate_limit_per_hour' => (int) env('FEEDBACK_RATE_LIMIT_HOUR', 10),
+        'rate_limit_per_day' => (int) env('FEEDBACK_RATE_LIMIT_DAY', 30),
+
+        // Window for the duplicate-message check. Same user submitting an
+        // identical message inside this window returns 429.
+        'duplicate_window_seconds' => (int) env('FEEDBACK_DUPLICATE_WINDOW', 60),
+
+        // Pepper for SHA256 IP hashing. Generated per env; never committed.
+        // Empty value → ip_hash stored NULL (soft-degrade; PII never leaks).
+        'ip_hash_pepper' => env('FEEDBACK_IP_HASH_PEPPER'),
+
+        // Hard cap matched by DB CHECK constraint feedback_message_length_check.
+        'max_message_length' => 5000,
     ],
 
     'cache' => [
@@ -1285,9 +1113,51 @@ return [
             'professional_model' => (int) env('PARTNA_CACHE_TTL_PROFESSIONAL_MODEL', env('CACHE_TTL_PROFESSIONAL_MODEL', 60)),                     // 60s
             'professional_handle_lookup' => (int) env('PARTNA_CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', env('CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', 3600)), // 60m
             'webhook_idempotency' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_IDEMPOTENCY', env('CACHE_TTL_WEBHOOK_IDEMPOTENCY', 86400)),               // 24h
-            'brand_admin_catalog' => (int) env('PARTNA_CACHE_TTL_BRAND_ADMIN_CATALOG', env('CACHE_TTL_BRAND_ADMIN_CATALOG', 300)),                 // 5m
-            'collection_gid' => (int) env('PARTNA_CACHE_TTL_COLLECTION_GID', env('CACHE_TTL_COLLECTION_GID', 3600)),                               // 60m
-            'product_custom_photos' => (int) env('PARTNA_CACHE_TTL_PRODUCT_CUSTOM_PHOTOS', env('CACHE_TTL_PRODUCT_CUSTOM_PHOTOS', 60)),            // 60s
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bot Protection
+    |--------------------------------------------------------------------------
+    | Provider-agnostic CAPTCHA verification for public mutation endpoints.
+    | See docs/superpowers/specs/2026-05-26-bot-protection-foundation-design.md
+    */
+
+    'bot_protection' => [
+        'driver' => env('BOT_PROTECTION_DRIVER', 'null'),       // null | turnstile | hcaptcha | fake
+        'mode' => env('BOT_PROTECTION_MODE', 'off'),          // off | shadow | enforce
+        'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', true),
+
+        'enforce_timeout_ms' => 3000,
+        'shadow_timeout_ms' => 500,
+
+        'circuit_breaker' => [
+            'failure_threshold' => 5,
+            'window_seconds' => 60,
+            'cooldown_seconds' => 300,
+        ],
+
+        'drivers' => [
+            'turnstile' => [
+                'site_key' => env('TURNSTILE_SITE_KEY'),
+                'secret' => env('TURNSTILE_SECRET'),
+                'verify_url' => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            ],
+            'hcaptcha' => [
+                'site_key' => env('HCAPTCHA_SITE_KEY'),
+                'secret' => env('HCAPTCHA_SECRET'),
+                'verify_url' => 'https://api.hcaptcha.com/siteverify',
+            ],
+            'null' => [],
+            'fake' => [],
+        ],
+
+        // Cloudflare-published test keys — refused by boot guard in production.
+        'known_test_site_keys' => [
+            '1x00000000000000000000AA',
+            '2x00000000000000000000AB',
+            '3x00000000000000000000FF',
         ],
     ],
 ];

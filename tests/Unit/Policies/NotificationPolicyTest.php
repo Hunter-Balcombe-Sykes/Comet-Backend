@@ -5,7 +5,7 @@ use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Notifications\NotificationEmailPolicy;
 use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Policies\NotificationPolicy;
 
 beforeEach(function () {
@@ -16,16 +16,16 @@ beforeEach(function () {
 // view — Notification (global broadcast)
 // ---------------------------------------------------------------------------
 
-it('allows any actor to view a global notification (professional_id null)', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => null]);
+it('allows any actor to view a global notification (user_id null)', function () {
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => null]);
 
     expect($this->policy->view($actor, $notification))->toBeTrue();
 });
 
-it('allows a different actor to view a global notification (professional_id null)', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-other', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => null]);
+it('allows a different actor to view a global notification (user_id null)', function () {
+    $actor = (new User)->forceFill(['id' => 'pro-other', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => null]);
 
     expect($this->policy->view($actor, $notification))->toBeTrue();
 });
@@ -35,15 +35,15 @@ it('allows a different actor to view a global notification (professional_id null
 // ---------------------------------------------------------------------------
 
 it('allows view when the actor owns a targeted notification', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $notification))->toBeTrue();
 });
 
 it('denies view with 404 when the targeted notification belongs to another professional', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $notification);
 
@@ -56,15 +56,15 @@ it('denies view with 404 when the targeted notification belongs to another profe
 // ---------------------------------------------------------------------------
 
 it('allows view when the actor owns a NotificationEmailPreference', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPreference(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $pref = new NotificationEmailPreference(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $pref))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the NotificationEmailPreference', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPreference(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $pref = new NotificationEmailPreference(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $pref);
 
@@ -73,15 +73,15 @@ it('denies view with 404 when the actor does not own the NotificationEmailPrefer
 });
 
 it('allows view when the actor owns an EmailSubscription', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $sub = new EmailSubscription(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $sub = new EmailSubscription(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $sub))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the EmailSubscription', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $sub = new EmailSubscription(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $sub = new EmailSubscription(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $sub);
 
@@ -94,15 +94,15 @@ it('denies view with 404 when the actor does not own the EmailSubscription', fun
 // ---------------------------------------------------------------------------
 
 it('allows update when the actor owns the resource and is active', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-1']);
 
     expect($this->policy->update($actor, $notification))->toBeTrue();
 });
 
 it('denies update with 404 when the actor does not own the resource', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-2']);
 
     $result = $this->policy->update($actor, $notification);
 
@@ -111,8 +111,8 @@ it('denies update with 404 when the actor does not own the resource', function (
 });
 
 it('denies update with 423 when the actor is pending deletion', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-1']);
 
     $result = $this->policy->update($actor, $notification);
 
@@ -121,10 +121,10 @@ it('denies update with 423 when the actor is pending deletion', function () {
     expect($result->message())->toBe('Account is pending deletion.');
 });
 
-it('denies update with 404 when a global notification (professional_id null) is passed', function () {
+it('denies update with 404 when a global notification (user_id null) is passed', function () {
     // Global notifications are broadcasts — individual actors cannot mutate them.
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => null]);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => null]);
 
     $result = $this->policy->update($actor, $notification);
 
@@ -137,15 +137,15 @@ it('denies update with 404 when a global notification (professional_id null) is 
 // ---------------------------------------------------------------------------
 
 it('allows delete when the actor owns the resource', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-1']);
 
     expect($this->policy->delete($actor, $notification))->toBeTrue();
 });
 
 it('denies delete with 404 when the actor does not own the resource', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-2']);
 
     $result = $this->policy->delete($actor, $notification);
 
@@ -154,8 +154,8 @@ it('denies delete with 404 when the actor does not own the resource', function (
 });
 
 it('denies delete with 423 when the actor is pending deletion', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $notification = (new Notification)->forceFill(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $notification = (new Notification)->forceFill(['user_id' => 'pro-1']);
 
     $result = $this->policy->delete($actor, $notification);
 
@@ -169,14 +169,14 @@ it('denies delete with 423 when the actor is pending deletion', function () {
 // ---------------------------------------------------------------------------
 
 it('allows view on NotificationEmailPolicy for the owner', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPolicy(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $pref = new NotificationEmailPolicy(['user_id' => 'pro-1']);
     expect($this->policy->view($actor, $pref))->toBeTrue();
 });
 
 it('denies view on NotificationEmailPolicy with 404 for non-owner', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPolicy(['professional_id' => 'pro-other']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $pref = new NotificationEmailPolicy(['user_id' => 'pro-other']);
     $result = $this->policy->view($actor, $pref);
     expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
     expect($result->status())->toBe(404);
@@ -187,14 +187,14 @@ it('denies view on NotificationEmailPolicy with 404 for non-owner', function () 
 // ---------------------------------------------------------------------------
 
 it('allows view on NotificationReceipt for the owner', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $receipt = new NotificationReceipt(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $receipt = new NotificationReceipt(['user_id' => 'pro-1']);
     expect($this->policy->view($actor, $receipt))->toBeTrue();
 });
 
 it('denies view on NotificationReceipt with 404 for non-owner', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $receipt = new NotificationReceipt(['professional_id' => 'pro-other']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $receipt = new NotificationReceipt(['user_id' => 'pro-other']);
     $result = $this->policy->view($actor, $receipt);
     expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
     expect($result->status())->toBe(404);

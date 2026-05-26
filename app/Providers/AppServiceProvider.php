@@ -4,8 +4,38 @@ namespace App\Providers;
 
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
-use App\Models\Core\Professional\ProfessionalIntegration;
-use App\Policies\IntegrationPolicy;
+use App\Models\Analytics\LeadSubmission;
+use App\Models\Core\FeatureFlag;
+use App\Models\Core\FeatureFlagOverride;
+use App\Models\Core\Feedback;
+use App\Models\Core\Gdpr\DataExportAudit;
+use App\Models\Core\Notifications\EmailSubscription;
+use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Notifications\NotificationEmailPolicy;
+use App\Models\Core\Notifications\NotificationEmailPreference;
+use App\Models\Core\Notifications\NotificationReceipt;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\UserConfirmationPreference;
+use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\Staff\PartnaStaff;
+use App\Policies\CustomerPolicy;
+use App\Policies\FeatureFlagPolicy;
+use App\Policies\FeedbackPolicy;
+use App\Policies\GdprPolicy;
+use App\Policies\NotificationPolicy;
+use App\Policies\PartnaStaffPolicy;
+use App\Policies\UserSelfPolicy;
+use App\Policies\ServicePolicy;
+use App\Policies\SitePolicy;
+use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -31,41 +61,8 @@ class AppServiceProvider extends ServiceProvider
         // across the middleware / controller / nested service calls within a
         // single request. Without this, app(FeatureFlagService::class) resolves
         // a fresh instance on every helper call and the memo is always empty.
-        $this->app->singleton(\App\Services\FeatureFlags\FeatureFlagService::class);
+        $this->app->singleton(FeatureFlagService::class);
 
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyAdminClient::class);
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyBudgetTracker::class);
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyCostTracker::class);
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyMetrics::class);
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyBulkOperationLock::class);
-
-        // Storefront client needs its own budget bucket — Shopify gives Admin
-        // and Storefront separate budgets at their edge, so the local-bucket
-        // state must not collide. The cost tracker is shared (sha1 hashes
-        // namespace samples by content).
-        $this->app->singleton(\App\Services\Shopify\Client\ShopifyStorefrontClient::class, function ($app) {
-            return new \App\Services\Shopify\Client\ShopifyStorefrontClient(
-                budget: new \App\Services\Shopify\Client\ShopifyBudgetTracker('shopify:storefront-bucket'),
-                cost: $app->make(\App\Services\Shopify\Client\ShopifyCostTracker::class),
-                metrics: $app->make(\App\Services\Shopify\Client\ShopifyMetrics::class),
-            );
-        });
-
-        // Stripe SDK client — services that DI \Stripe\StripeClient (e.g.
-        // StripeTransactionFetcher, StripeBalanceService, StripeRowGenerator) need
-        // the API key configured on the instance the container hands them. Without
-        // this binding, every Stripe call from those services raises
-        // AuthenticationException which their try/catch silently swallows,
-        // surfacing as empty transactions / zero balance on the dashboard.
-        // stripe_version is pinned via partna.exports.commission.stripe_api_version
-        // (env STRIPE_API_VERSION) so all SDK usage — including the async export
-        // pipeline — resolves the same Stripe response shape.
-        $this->app->singleton(\Stripe\StripeClient::class, function () {
-            return new \Stripe\StripeClient(array_filter([
-                'api_key' => config('services.stripe.secret_key'),
-                'stripe_version' => config('partna.exports.commission.stripe_api_version'),
-            ]));
-        });
     }
 
     /**
@@ -73,52 +70,28 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::policy(ProfessionalIntegration::class, IntegrationPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\Customer::class, \App\Policies\CustomerPolicy::class);
-        Gate::policy(\App\Models\Core\Site\Site::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\Block::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\SiteMedia::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\SiteSubdomainAlias::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Core\Site\Enquiry::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Analytics\LeadSubmission::class, \App\Policies\SitePolicy::class);
-        Gate::policy(\App\Models\Commerce\CommissionPayout::class, \App\Policies\CommissionPolicy::class);
-        Gate::policy(\App\Models\Commerce\CommissionMovement::class, \App\Policies\CommissionPolicy::class);
-        Gate::policy(\App\Models\Commerce\Order::class, \App\Policies\CommissionPolicy::class);
-        Gate::policy(\App\Models\Commerce\OrderItem::class, \App\Policies\CommissionPolicy::class);
-        Gate::policy(\App\Models\Commerce\BrandAffiliateRollup::class, \App\Policies\CommissionPolicy::class);
-        Gate::policy(\App\Models\Commerce\CommissionExportAudit::class, \App\Policies\CommissionExportAuditPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\BrandPartnerLink::class, \App\Policies\BrandPartnerLinkPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\BrandPartnerLinkEvent::class, \App\Policies\BrandPartnerLinkPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\BrandAffiliateInvite::class, \App\Policies\BrandPartnerLinkPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\Service::class, \App\Policies\ServicePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ServiceCategory::class, \App\Policies\ServicePolicy::class);
-        Gate::policy(\App\Models\Brand\BrandStoreSettings::class, \App\Policies\BrandResourcePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\BrandProfile::class, \App\Policies\BrandResourcePolicy::class);
-        Gate::policy(\App\Models\Brand\BrandTeamMembership::class, \App\Policies\BrandResourcePolicy::class);
-        Gate::policy(\App\Models\Core\Professional\Professional::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ProfessionalConfirmationPreference::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\WalletCurrencySwitchAudit::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Core\Professional\ProfessionalDeletionAuditEntry::class, \App\Policies\ProfessionalSelfPolicy::class);
-        Gate::policy(\App\Models\Billing\Subscription::class, \App\Policies\SubscriptionPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\Notification::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationEmailPreference::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationEmailPolicy::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\NotificationReceipt::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Notifications\EmailSubscription::class, \App\Policies\NotificationPolicy::class);
-        Gate::policy(\App\Models\Core\Gdpr\GdprRequest::class, \App\Policies\GdprPolicy::class);
-        Gate::policy(\App\Models\Core\Gdpr\DataExportAudit::class, \App\Policies\GdprPolicy::class);
-        Gate::policy(\App\Models\Commerce\AffiliateProductSelection::class, \App\Policies\AffiliateProductPolicy::class);
-        Gate::policy(\App\Models\Core\Staff\PartnaStaff::class, \App\Policies\PartnaStaffPolicy::class);
-        Gate::policy(\App\Models\Core\FeatureFlag::class, \App\Policies\FeatureFlagPolicy::class);
-        Gate::policy(\App\Models\Core\FeatureFlagOverride::class, \App\Policies\FeatureFlagPolicy::class);
-
-        // Stripe payment-method abilities — bypasses model-class dispatch so
-        // CommissionPolicy methods are reachable without overriding the Professional→
-        // ProfessionalSelfPolicy registration. The $brand arg is always the acting
-        // professional (self-operation), so $actor->id === $brand->id is the primary guard.
-        Gate::define('managePaymentMethod', fn (\App\Models\Core\Professional\Professional $actor, \App\Models\Core\Professional\Professional $brand) => app(\App\Policies\CommissionPolicy::class)->managePaymentMethod($actor, $brand));
-        Gate::define('manageWallet', fn (\App\Models\Core\Professional\Professional $actor, \App\Models\Core\Professional\Professional $brand) => app(\App\Policies\CommissionPolicy::class)->manageWallet($actor, $brand));
-        Gate::define('startConnect', fn (\App\Models\Core\Professional\Professional $actor, \App\Models\Core\Professional\Professional $pro) => app(\App\Policies\CommissionPolicy::class)->startConnect($actor, $pro));
+        Gate::policy(Customer::class, CustomerPolicy::class);
+        Gate::policy(Site::class, SitePolicy::class);
+        Gate::policy(Block::class, SitePolicy::class);
+        Gate::policy(SiteMedia::class, SitePolicy::class);
+        Gate::policy(SiteSubdomainAlias::class, SitePolicy::class);
+        Gate::policy(Enquiry::class, SitePolicy::class);
+        Gate::policy(LeadSubmission::class, SitePolicy::class);
+        Gate::policy(Service::class, ServicePolicy::class);
+        Gate::policy(ServiceCategory::class, ServicePolicy::class);
+        Gate::policy(User::class, UserSelfPolicy::class);
+        Gate::policy(UserConfirmationPreference::class, UserSelfPolicy::class);
+        Gate::policy(UserDeletionAuditEntry::class, UserSelfPolicy::class);
+        Gate::policy(Notification::class, NotificationPolicy::class);
+        Gate::policy(NotificationEmailPreference::class, NotificationPolicy::class);
+        Gate::policy(NotificationEmailPolicy::class, NotificationPolicy::class);
+        Gate::policy(NotificationReceipt::class, NotificationPolicy::class);
+        Gate::policy(EmailSubscription::class, NotificationPolicy::class);
+        Gate::policy(DataExportAudit::class, GdprPolicy::class);
+        Gate::policy(PartnaStaff::class, PartnaStaffPolicy::class);
+        Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
+        Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
+        Gate::policy(Feedback::class, FeedbackPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -131,12 +104,6 @@ class AppServiceProvider extends ServiceProvider
         // producing a domain pattern of "{subdomain}." that matches nothing.
         if (app()->isProduction() && empty(config('partna.public_domain'))) {
             throw new \RuntimeException('PARTNA_PUBLIC_DOMAIN must be configured in production.');
-        }
-
-        // Refuse to boot outside tests with a missing Shopify API version — a blank
-        // SHOPIFY_API_VERSION would silently fall back to a stale/deprecated version.
-        if (! app()->environment('testing') && empty(config('services.shopify.api_version'))) {
-            throw new \RuntimeException('SHOPIFY_API_VERSION must be set (e.g. 2026-04).');
         }
 
         // §28.17 SEC-2 — JWKS fail-closed in production.
@@ -157,12 +124,11 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('SUPABASE_JWT_ISSUER and SUPABASE_JWT_AUD must be configured (JWT auth fails closed without them).');
         }
 
-        // F6 CFG-2 — Stripe secret key must be set in production. The StripeClient
-        // singleton array_filter()s out a missing key, so callers raise
-        // AuthenticationException that downstream try/catch silently swallows —
-        // surfacing as zero balances / empty transactions. Crash at boot instead.
-        if (app()->isProduction() && empty(config('services.stripe.secret_key'))) {
-            throw new \RuntimeException('STRIPE_SECRET_KEY must be set in production.');
+        // Supabase email hook secret must be set in production. An empty value
+        // causes VerifySupabaseEmailHookSignature to 503 every delivery,
+        // silently breaking all auth email (signup, recovery, magiclink, invite).
+        if (app()->isProduction() && empty(config('services.supabase.email_hook_secret'))) {
+            throw new \RuntimeException('SUPABASE_EMAIL_HOOK_SECRET must be configured in production (auth email hook fails closed without it).');
         }
 
         // F6 CFG-4 — Nightwatch enabled without a token attempts an unauthenticated
@@ -301,21 +267,6 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
-        // Booking checkout — tighter limit because checkout hits Stripe/Square synchronously
-        RateLimiter::for('booking-checkout', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return Limit::none();
-            }
-
-            return Limit::perMinute(10)
-                ->by($request->ip())
-                ->response(function () {
-                    return response()->json([
-                        'message' => 'Too many booking attempts. Please try again shortly.',
-                    ], 429);
-                });
-        });
-
         // Analytics endpoints (pageviews, clicks)
         RateLimiter::for('analytics', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
@@ -395,58 +346,24 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Shopify webhook endpoints (keyed by shop domain, fallback to IP)
-        RateLimiter::for('shopify-webhooks', function (Request $request) use ($throttleEnabled) {
+        // public-subscribe: newsletter signups. Tightened from the previous
+        // throttle:public-site (60/min IP) to 5/min IP + 12/h per email,
+        // matching the waitlist limiter's per-email cap.
+        RateLimiter::for('public-subscribe', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
-                return Limit::none();
+                return [Limit::none()];
             }
 
-            $key = strtolower(trim((string) $request->header('x-shopify-shop-domain', '')));
-            if ($key === '') {
-                $key = $request->ip();
-            }
+            $email = strtolower((string) $request->input('email', ''));
 
-            return Limit::perMinute(120)
-                ->by($key)
-                ->response(function () {
-                    return response()->json(['message' => 'Too many webhook requests.'], 429);
-                });
-        });
-
-        // Affiliate selection write operations (create, delete, reorder)
-        RateLimiter::for('affiliate-writes', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return Limit::none();
-            }
-
-            $uid = $request->attributes->get('supabase_uid')
-                ?? throw new \RuntimeException('supabase_uid missing on affiliate-writes route — JWT middleware not applied');
-
-            return Limit::perMinute(60)
-                ->by($uid)
-                ->response(function () {
-                    return response()->json([
-                        'message' => 'Too many selection changes. Please try again later.',
-                    ], 429);
-                });
-        });
-
-        // Brand catalog write operations (metafield updates, collection management)
-        RateLimiter::for('brand-catalog-writes', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return Limit::none();
-            }
-
-            $uid = $request->attributes->get('supabase_uid')
-                ?? throw new \RuntimeException('supabase_uid missing on brand-catalog-writes route — JWT middleware not applied');
-
-            return Limit::perMinute(30)
-                ->by($uid)
-                ->response(function () {
-                    return response()->json([
-                        'message' => 'Too many catalog changes. Please try again later.',
-                    ], 429);
-                });
+            return [
+                Limit::perMinute(5)->by($request->ip())->response(function () {
+                    return response()->json(['message' => 'Too many subscription attempts. Please wait before trying again.'], 429);
+                }),
+                Limit::perHour(12)->by($email !== '' ? "email:{$email}" : 'no-email')->response(function () {
+                    return response()->json(['message' => 'Too many subscription attempts for this email. Please try later.'], 429);
+                }),
+            ];
         });
 
         // Authenticated professional routes
@@ -465,6 +382,33 @@ class AppServiceProvider extends ServiceProvider
                         'message' => 'Too many requests. Please try again later.',
                     ], 429);
                 });
+        });
+
+        // User-submitted feedback. Two limits combined: tight per-hour to stop
+        // floods, looser per-day to keep a determined user from drowning the
+        // notify_emails inbox. Per-user (supabase_uid) keyed.
+        RateLimiter::for('feedback-submit', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $uid = $request->attributes->get('supabase_uid')
+                ?? throw new \RuntimeException('supabase_uid missing on feedback route — JWT middleware not applied');
+
+            $response = function () {
+                return response()->json([
+                    'message' => 'You have submitted a lot of feedback recently. Please try again later.',
+                ], 429);
+            };
+
+            return [
+                Limit::perHour((int) config('partna.feedback.rate_limit_per_hour', 10))
+                    ->by('feedback-submit:hour:'.$uid)
+                    ->response($response),
+                Limit::perDay((int) config('partna.feedback.rate_limit_per_day', 30))
+                    ->by('feedback-submit:day:'.$uid)
+                    ->response($response),
+            ];
         });
 
         // Staff panel routes
@@ -518,60 +462,29 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
-        // Internal Hydrogen endpoints (server-to-server)
-        RateLimiter::for('hydrogen-internal', function (Request $request) use ($throttleEnabled) {
+        // Session-management write endpoints (logout, logout-others, revoke session).
+        // Keyed per-user because these write to the Redis session-id blocklist
+        // (see TokenRevocationService), which is consulted on every authenticated
+        // request site-wide — a flood here is a site-wide Redis DoS vector. IP
+        // keying is ineffective under corporate NAT; supabase_uid is always
+        // present on these authenticated routes.
+        RateLimiter::for('session-writes', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
-            return Limit::perMinute(120)
-                ->by($request->ip())
+            // Fall back to IP only if uid is somehow absent (should never happen —
+            // these routes sit behind VerifySupabaseJwt).
+            $key = $request->attributes->get('supabase_uid') ?? $request->ip();
+
+            return Limit::perMinute(10)
+                ->by((string) $key)
                 ->response(function () {
                     return response()->json([
-                        'message' => 'Too many requests.',
+                        'message' => 'Too many session management requests. Please try again later.',
                     ], 429);
                 });
         });
 
-        // Embedded Shopify app — keyed by the resolved shop domain from the
-        // JWT (`dest` claim). VerifyShopifySessionToken is pinned ahead of
-        // ThrottleRequests in bootstrap/app.php so the attribute is set before
-        // this callback fires. Fail loud (500 → Nightwatch) on a missing
-        // attribute instead of falling back to $request->ip(): behind Cloudflare
-        // every backend request shares a small pool of edge IPs, so an IP
-        // fallback would silently bucket every tenant (and every auth failure)
-        // into one shared limit. Matches the per-uid pattern used by every
-        // other authenticated limiter in this file.
-        RateLimiter::for('embedded-by-shop', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return Limit::none();
-            }
-
-            $shop = $request->attributes->get('embedded_shop_domain')
-                ?? throw new \RuntimeException('embedded_shop_domain missing on embedded-by-shop route — VerifyShopifySessionToken middleware not applied or priority pin removed');
-
-            return Limit::perMinute(60)
-                ->by('embedded-shop:'.$shop)
-                ->response(function () {
-                    return response()->json([
-                        'message' => 'Too many embedded app requests. Please wait a moment and try again.',
-                    ], 429);
-                });
-        });
-
-        // Public plans listing
-        RateLimiter::for('plans', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return Limit::none();
-            }
-
-            return Limit::perMinute(30)
-                ->by($request->ip())
-                ->response(function () {
-                    return response()->json([
-                        'message' => 'Too many requests. Please try again later.',
-                    ], 429);
-                });
-        });
     }
 }

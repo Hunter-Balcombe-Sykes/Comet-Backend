@@ -47,9 +47,10 @@ it('POSTs purge_cache with files payload for the configured zone', function () {
     });
 });
 
-it('purgeHandle composes both slash and slash-less URLs for the handle', function () {
+it('purgeHandle composes page URLs + the API subrequest URL', function () {
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au');
     Http::fake();
 
     (new CloudflarePurgeService)->purgeHandle('  MIXED-CASE  ');
@@ -57,6 +58,36 @@ it('purgeHandle composes both slash and slash-less URLs for the handle', functio
     Http::assertSent(fn ($req) => $req['files'] === [
         'https://mixed-case.partna.au/',
         'https://mixed-case.partna.au',
+        'https://dev-api.partna.au/api/public/profiles/mixed-case',
+    ]);
+});
+
+it('purgeHandle strips trailing slash on app.url before composing API URL', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au/');
+    Http::fake();
+
+    (new CloudflarePurgeService)->purgeHandle('jane');
+
+    Http::assertSent(fn ($req) => $req['files'] === [
+        'https://jane.partna.au/',
+        'https://jane.partna.au',
+        'https://dev-api.partna.au/api/public/profiles/jane',
+    ]);
+});
+
+it('purgeHandle skips the API URL when app.url is unset', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Http::fake();
+
+    (new CloudflarePurgeService)->purgeHandle('jane');
+
+    Http::assertSent(fn ($req) => $req['files'] === [
+        'https://jane.partna.au/',
+        'https://jane.partna.au',
     ]);
 });
 

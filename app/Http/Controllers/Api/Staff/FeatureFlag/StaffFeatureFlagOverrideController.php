@@ -39,9 +39,7 @@ class StaffFeatureFlagOverrideController extends ApiController
         $flag = FeatureFlag::findOrFail($key);
         $data = $request->validated();
 
-        $scope = ($data['brand_id'] ?? null)
-            ? OverrideScope::forBrand($data['brand_id'])
-            : OverrideScope::forProfessional($data['professional_id']);
+        $scope = OverrideScope::forUser($data['user_id']);
 
         $cacheInvalidated = $this->service->setOverride(
             $key,
@@ -54,8 +52,8 @@ class StaffFeatureFlagOverrideController extends ApiController
 
         // Fetch the upserted row to return in the response.
         $created = FeatureFlagOverride::where('flag_key', $key)
-            ->when($scope->brandId, fn ($q) => $q->where('brand_id', $scope->brandId))
-            ->when($scope->professionalId, fn ($q) => $q->where('professional_id', $scope->professionalId)->whereNull('brand_id'))
+            ->where('user_id', $scope->userId)
+            ->whereNull('brand_id')
             ->first();
 
         $response = (new FeatureFlagOverrideResource($created))->response()->setStatusCode(201);
@@ -80,11 +78,7 @@ class StaffFeatureFlagOverrideController extends ApiController
         $cacheInvalidated = true;
 
         try {
-            if ($override->brand_id !== null) {
-                $this->service->forgetBrand($override->brand_id);
-            } else {
-                $this->service->forgetPro($override->professional_id);
-            }
+            $this->service->forgetPro($override->user_id);
         } catch (Throwable $e) {
             $cacheInvalidated = false;
         }

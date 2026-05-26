@@ -7,20 +7,19 @@
 // silently defaulted `media_type` to 'image', which dropped video ids from
 // the reorder payload and corrupted the displayed order.
 
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
-use App\Http\Requests\Api\Professional\Uploads\ReorderPoolImagesRequest;
-use App\Models\Core\Professional\Professional;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
+use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
-use App\Services\Media\BrandDesignMediaService;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
 
@@ -49,7 +48,7 @@ function seedGalleryMediaRow(string $siteId, string $mediaType, int $sortOrder):
     return $id;
 }
 
-function callReorderController(Professional $professional, array $body): \Illuminate\Http\JsonResponse
+function callReorderController(User $professional, array $body): \Illuminate\Http\JsonResponse
 {
     $request = Request::create('/api/images/reorder', 'POST', $body);
     $request->attributes->set('professional', $professional);
@@ -61,23 +60,20 @@ function callReorderController(Professional $professional, array $body): \Illumi
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
-    $controller = new ProfessionalUploadController(
-        $mediaService,
-        new BrandDesignMediaService($mediaService),
-        $videoVariant,
-    );
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(\App\Services\Media\VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
 
     return $controller->reorder($formRequest);
 }
 
-function seedProfessionalAndSite(): array
+function seedUserAndSite(): array
 {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => $professionalId,
-        'professional_type' => 'professional',
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
         'display_name' => 'Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -85,14 +81,14 @@ function seedProfessionalAndSite(): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'mixed-reorder-test',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 
@@ -100,7 +96,7 @@ function seedProfessionalAndSite(): array
 }
 
 it('reorders a mixed image+video gallery when media_type is omitted', function () {
-    [$professional, $site] = seedProfessionalAndSite();
+    [$professional, $site] = seedUserAndSite();
 
     // Seed: [image A (0), video B (1), image C (2), video D (3)].
     $a = seedGalleryMediaRow($site->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
@@ -126,7 +122,7 @@ it('reorders a mixed image+video gallery when media_type is omitted', function (
 });
 
 it('still scopes the reorder when media_type is explicitly provided', function () {
-    [$professional, $site] = seedProfessionalAndSite();
+    [$professional, $site] = seedUserAndSite();
 
     // Seed: image A (0), image B (1), video C (2), video D (3).
     $a = seedGalleryMediaRow($site->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
@@ -154,8 +150,8 @@ it('still scopes the reorder when media_type is explicitly provided', function (
 });
 
 it('rejects a mixed reorder that includes an id from another site', function () {
-    [$professionalA, $siteA] = seedProfessionalAndSite();
-    [, $siteB] = seedProfessionalAndSite();
+    [$professionalA, $siteA] = seedUserAndSite();
+    [, $siteB] = seedUserAndSite();
 
     $ownImage = seedGalleryMediaRow($siteA->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
     $foreignVideo = seedGalleryMediaRow($siteB->id, SiteMedia::MEDIA_TYPE_VIDEO, 0);

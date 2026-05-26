@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -15,9 +15,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 class GdprPolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
-        if ((string) ($resource->professional_id ?? '') !== (string) $actor->id) {
+        if ((string) ($resource->user_id ?? '') !== (string) $actor->id) {
             return $this->denyAsNotFound();
         }
 

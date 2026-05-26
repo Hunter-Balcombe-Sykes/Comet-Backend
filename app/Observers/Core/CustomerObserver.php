@@ -2,7 +2,7 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\Professional\Customer;
+use App\Models\Core\User\Customer;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 
@@ -33,8 +33,8 @@ class CustomerObserver
 
     private function invalidateCount(Customer $customer): void
     {
-        if (! empty($customer->professional_id)) {
-            $key = CacheKeyGenerator::customerCount((string) $customer->professional_id);
+        if (! empty($customer->user_id)) {
+            $key = CacheKeyGenerator::customerCount((string) $customer->user_id);
             Cache::forget($key);
             Cache::forget($key.':stale');
         }

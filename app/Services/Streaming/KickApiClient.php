@@ -59,10 +59,13 @@ class KickApiClient
             }
 
             if (! $response->successful()) {
+                // Privacy: Kick error responses may include free-text bodies or
+                // echo back session data. Platform + status is enough for a
+                // poller-side circuit-breaker decision; don't persist body content
+                // into Nightwatch retention.
                 Log::error('streaming.api_error', [
                     'platform' => 'kick',
                     'status' => $response->status(),
-                    'body' => $response->body(),
                 ]);
 
                 return [];

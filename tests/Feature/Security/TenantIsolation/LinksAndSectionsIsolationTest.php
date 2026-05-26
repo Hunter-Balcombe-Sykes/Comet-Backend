@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
-use App\Http\Requests\Api\Professional\Site\IndexLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
+use App\Http\Requests\Api\User\Site\IndexLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Models\Core\Site\Block;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +20,7 @@ it('link index only returns blocks belonging to the authenticated professional',
     DB::table('site.blocks')->insert([
         [
             'id' => (string) Str::uuid(),
-            'professional_id' => $a->id,
+            'user_id' => $a->id,
             'site_id' => $a->site->id,
             'block_group' => 'links',
             'block_type' => 'link',
@@ -33,7 +33,7 @@ it('link index only returns blocks belonging to the authenticated professional',
         ],
         [
             'id' => (string) Str::uuid(),
-            'professional_id' => $b->id,
+            'user_id' => $b->id,
             'site_id' => $b->site->id,
             'block_group' => 'links',
             'block_type' => 'link',
@@ -52,7 +52,7 @@ it('link index only returns blocks belonging to the authenticated professional',
     $req->setContainer(app());
     $req->attributes->set('professional', $b);
 
-    $response = app(ProfessionalLinkBlockController::class)->index($req);
+    $response = app(UserLinkBlockController::class)->index($req);
     $payload = $response->getData(true);
 
     // success() wraps via response()->json($data) — no 'data' envelope.
@@ -68,7 +68,7 @@ it('link update refuses a block belonging to another professional site', functio
     $blockId = (string) Str::uuid();
     DB::table('site.blocks')->insert([
         'id' => $blockId,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'site_id' => $a->site->id,
         'block_group' => 'links',
         'block_type' => 'link',
@@ -95,7 +95,7 @@ it('link update refuses a block belonging to another professional site', functio
     $formReq->validateResolved();
 
     try {
-        app(ProfessionalLinkBlockController::class)->update($formReq, $block);
+        app(UserLinkBlockController::class)->update($formReq, $block);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);

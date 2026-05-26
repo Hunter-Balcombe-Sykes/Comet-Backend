@@ -2,43 +2,37 @@
 
 namespace Database\Factories;
 
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\User>
+ * @extends Factory<User>
  */
 class UserFactory extends Factory
 {
-    /**
-     * The current password being used by the factory.
-     */
-    protected static ?string $password;
+    protected $model = User::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
-        return [
-            'name' => fake()->name(),
-            'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
-            'password' => static::$password ??= Hash::make('password'),
-            'remember_token' => Str::random(10),
-        ];
-    }
+        $first = fake()->firstName();
+        $last = fake()->lastName();
+        $handle = strtolower($first.$last.fake()->randomNumber(4));
 
-    /**
-     * Indicate that the model's email address should be unverified.
-     */
-    public function unverified(): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'email_verified_at' => null,
-        ]);
+        return [
+            'id' => (string) Str::uuid(),
+            'auth_user_id' => (string) Str::uuid(),
+            'handle' => $handle,
+            'handle_lc' => $handle,
+            'display_name' => "{$first} {$last}",
+            'first_name' => $first,
+            'last_name' => $last,
+            'primary_email' => fake()->unique()->safeEmail(),
+            'country_code' => 'AU',
+            'timezone' => 'Australia/Sydney',
+            'account_type' => 'individual',
+            'status' => 'active',
+            'onboarding_step' => 0,
+        ];
     }
 }

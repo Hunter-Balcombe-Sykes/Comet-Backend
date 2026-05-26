@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Support\Facades\Artisan;
@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupEnquiriesTable();
     setupServiceCategoriesTable();
@@ -16,6 +16,7 @@ beforeEach(function () {
     setupCustomersTable();
     setupServicesTable();
     setupBlocksTable();
+    setupFeedbackTable();
 });
 
 // ─── Enquiry retention ────────────────────────────────────────────────────────

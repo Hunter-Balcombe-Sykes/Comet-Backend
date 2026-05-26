@@ -9,7 +9,7 @@ class DocumentTestCase
 {
     public static function boot(): void
     {
-        setupProfessionalsTable();
+        setupUsersTable();
         setupSitesTable();
         setupMediaTables();
         setupBlocksTable();

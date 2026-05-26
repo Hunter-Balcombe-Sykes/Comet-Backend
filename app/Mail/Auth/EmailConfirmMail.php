@@ -23,7 +23,7 @@ class EmailConfirmMail extends BaseTransactionalMail
     {
         return $this->buildEnvelope()
             ->to($this->recipientEmail)
-            ->subject("Your Partna verification code: {$this->code}")
+            ->subject('Verify your Partna email address')
             ->view('emails.auth.email-confirm');
     }
 }

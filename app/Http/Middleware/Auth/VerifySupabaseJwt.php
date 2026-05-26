@@ -3,6 +3,7 @@
 namespace App\Http\Middleware\Auth;
 
 use App\Exceptions\Auth\JwksUnavailableException;
+use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Closure;
 use Firebase\JWT\JWK;
@@ -45,7 +46,10 @@ class VerifySupabaseJwt
      */
     private const APCU_TTL_SECONDS = 3600;
 
-    public function __construct(private CacheLockService $cacheLock) {}
+    public function __construct(
+        private CacheLockService $cacheLock,
+        private TokenRevocationService $revocation,
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -72,7 +76,30 @@ class VerifySupabaseJwt
                 return response()->json(['message' => 'Token missing sub'], 401);
             }
 
-            $this->setSupabaseContext($request, $uid, $claims);
+            // Revocation gate — if this session_id was revoked (logout from
+            // any device, admin action, etc.) reject the token even though
+            // its signature is still valid. One Redis EXISTS per request.
+            $sessionId = isset($claims['session_id']) ? (string) $claims['session_id'] : '';
+            if ($sessionId !== '' && $this->revocation->isRevoked($sessionId)) {
+                return response()->json([
+                    'message' => 'Session was terminated. Please log in again.',
+                    'code' => 'session_revoked',
+                ], 401);
+            }
+
+            try {
+                $this->setSupabaseContext($request, $uid, $claims);
+            } catch (\Throwable $trackingEx) {
+                // Session tracking is a breadcrumb side-effect. Redis being unavailable
+                // must not reject a valid token — proceed and log distinctly so this
+                // never gets mistaken for a JWKS verification failure.
+                Log::warning('Session tracking failed after successful JWT verification', [
+                    'request_id' => $requestId,
+                    'operation' => __METHOD__,
+                    'reason' => $trackingEx->getMessage(),
+                    'kind' => 'session_tracking',
+                ]);
+            }
 
             return $next($request);
         } catch (\Throwable $e) {
@@ -109,7 +136,29 @@ class VerifySupabaseJwt
                     return response()->json(['message' => 'Invalid token'], 401);
                 }
 
-                $this->setSupabaseContext($request, $uid);
+                // Re-extract payload claims so the revocation gate and context
+                // attributes (aal, session_id, exp) are populated on this path too.
+                // extractJwtPayloadClaims does NOT verify the signature — Auth-Server
+                // already confirmed the token is valid above.
+                $fallbackClaims = $this->extractJwtPayloadClaims($token);
+                $fallbackSessionId = isset($fallbackClaims['session_id']) ? (string) $fallbackClaims['session_id'] : '';
+                if ($fallbackSessionId !== '' && $this->revocation->isRevoked($fallbackSessionId)) {
+                    return response()->json([
+                        'message' => 'Session was terminated. Please log in again.',
+                        'code' => 'session_revoked',
+                    ], 401);
+                }
+
+                try {
+                    $this->setSupabaseContext($request, $uid, $fallbackClaims);
+                } catch (\Throwable $trackingEx) {
+                    Log::warning('Session tracking failed after successful JWT verification', [
+                        'request_id' => $requestId,
+                        'operation' => __METHOD__,
+                        'reason' => $trackingEx->getMessage(),
+                        'kind' => 'session_tracking',
+                    ]);
+                }
 
                 return $next($request);
             } catch (\Throwable $e2) {
@@ -139,19 +188,35 @@ class VerifySupabaseJwt
     {
         $request->attributes->set('supabase_uid', $uid);
 
+        $sessionId = null;
         if ($claims !== null) {
             $request->attributes->set('supabase_claims', $claims);
             // Hot-accessed claims promoted to top-level attributes so policies
             // and middleware don't reparse $claims on every check.
             $request->attributes->set('supabase_aal', $claims['aal'] ?? 'aal1');
             $request->attributes->set('supabase_amr', $claims['amr'] ?? []);
-            $request->attributes->set('supabase_session_id', $claims['session_id'] ?? null);
+            $sessionId = isset($claims['session_id']) ? (string) $claims['session_id'] : null;
+            $request->attributes->set('supabase_session_id', $sessionId);
+            // exp is also useful downstream (e.g. the logout endpoint needs it
+            // to size the revocation TTL precisely).
+            $request->attributes->set('supabase_exp', isset($claims['exp']) ? (int) $claims['exp'] : null);
         } else {
             // Auth-Server fallback path: no claims available. Default to aal1
             // so downstream policies fail safe (treat as not-MFA-verified).
             $request->attributes->set('supabase_aal', 'aal1');
             $request->attributes->set('supabase_amr', []);
             $request->attributes->set('supabase_session_id', null);
+            $request->attributes->set('supabase_exp', null);
+        }
+
+        // Track the session for "Sign out everywhere" + Active Sessions UI.
+        // SADD is idempotent so re-tracking on every request is fine; metadata
+        // (first-seen IP, user-agent) is only written on first sight.
+        if ($sessionId !== null && $sessionId !== '') {
+            $this->revocation->trackForUser($uid, $sessionId, [
+                'ip' => (string) $request->ip(),
+                'user_agent' => (string) $request->userAgent(),
+            ]);
         }
 
         // Nightwatch falls back to hidden context when no Laravel auth guard is resolved.
@@ -297,7 +362,20 @@ class VerifySupabaseJwt
     {
         $outage = new JwksUnavailableException($cause);
 
-        if (Cache::add('jwt:jwks-failure-reported', true, 60)) {
+        // Durable throttle: Cache::lock is backed by the `cache_locks` Redis
+        // connection in production (per config/cache.php `lock_connection`),
+        // isolated from data-cache flushes — Cache::flush() can't reset it and
+        // flood Nightwatch during a sustained JWKS outage. Lock is not released;
+        // the 60s TTL is the throttle window. Wrapped in try/catch so a throttle
+        // layer outage can never mask the underlying JWKS classification.
+        try {
+            $lock = Cache::lock('jwt:jwks-failure-reported', 60);
+            if ($lock->get()) {
+                report($outage);
+            }
+        } catch (\Throwable) {
+            // Throttle layer unreachable — surface the outage anyway. Better to
+            // over-report once than silently suppress an infrastructure failure.
             report($outage);
         }
 
@@ -375,7 +453,17 @@ class VerifySupabaseJwt
             return;
         }
 
-        @apcu_store($key, $value, self::APCU_TTL_SECONDS);
+        $stored = apcu_store($key, $value, self::APCU_TTL_SECONDS);
+        if ($stored === false) {
+            // APCu full or misconfigured — every request hits the cold JWKS parse
+            // path (150-300ms). Throttle to one Nightwatch breadcrumb per 5 minutes.
+            if (Cache::store('cache_locks')->add('jwt:apcu-store-failed', true, 300)) {
+                Log::warning('APCu store failed for JWKS key — cold-path will run on every request', [
+                    'kid' => $key,
+                    'operation' => __METHOD__,
+                ]);
+            }
+        }
     }
 
     private function verifyWithAuthServer(string $jwt): ?string

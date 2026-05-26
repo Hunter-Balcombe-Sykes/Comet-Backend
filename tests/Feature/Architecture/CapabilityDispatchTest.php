@@ -32,6 +32,11 @@ it('every notification dispatcher job consults AccountCapabilities or is documen
         // not a per-professional capability category. Capability gating lives in
         // the brand-settings layer (whether enquiries are accepted at all).
         'app/Jobs/Notifications/SendEnquiryNotificationJob.php' => 'Brand-inbox dispatch; capability gating is at brand-settings level, not per-category',
+        // Feedback notification job targets the internal team@ alias from env,
+        // not a per-Professional notification category. The per-user capability
+        // gate (can_submit_feedback) is enforced upstream in FeedbackService
+        // before the job is ever dispatched.
+        'app/Jobs/Notifications/SendFeedbackEmailJob.php' => 'Internal team@ dispatch; capability gate (can_submit_feedback) enforced upstream in FeedbackService::submit before dispatch',
     ];
 
     $dir = base_path('app/Jobs/Notifications');

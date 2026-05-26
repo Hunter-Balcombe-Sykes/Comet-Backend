@@ -1,37 +1,36 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupEmailSubscriptionsTable();
 });
 
-function makeStaffSubscriberProfessional(): Professional
+function makeStaffSubscriberUser(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'sub-'.substr($id, 0, 8),
         'handle_lc' => 'sub-'.substr($id, 0, 8),
         'display_name' => 'Subs Pro',
         'primary_email' => 'sub-'.substr($id, 0, 8).'@example.com',
-        'professional_type' => 'brand',
         'status' => 'active',
     ]);
 
-    return Professional::query()->find($id);
+    return User::query()->find($id);
 }
 
 function seedSubscription(string $proId, array $overrides = []): void
 {
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert(array_merge([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'list_key' => 'marketing',
         'email' => 'fan@example.com',
         'email_lc' => 'fan@example.com',
@@ -45,8 +44,8 @@ function seedSubscription(string $proId, array $overrides = []): void
 }
 
 it('lists subscribers for the route-bound professional only', function () {
-    $pro = makeStaffSubscriberProfessional();
-    $otherPro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
+    $otherPro = makeStaffSubscriberUser();
 
     seedSubscription($pro->id, ['email' => 'mine@example.com', 'email_lc' => 'mine@example.com']);
     seedSubscription($otherPro->id, ['email' => 'theirs@example.com', 'email_lc' => 'theirs@example.com']);
@@ -62,7 +61,7 @@ it('lists subscribers for the route-bound professional only', function () {
 });
 
 it('filters by status when ?status=unsubscribed is provided', function () {
-    $pro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
 
     seedSubscription($pro->id, ['email' => 'in@example.com', 'email_lc' => 'in@example.com', 'status' => 'subscribed']);
     seedSubscription($pro->id, ['email' => 'out@example.com', 'email_lc' => 'out@example.com', 'status' => 'unsubscribed', 'unsubscribed_at' => now()->toDateTimeString()]);
@@ -76,7 +75,7 @@ it('filters by status when ?status=unsubscribed is provided', function () {
 });
 
 it('streams a CSV export with the canonical header row', function () {
-    $pro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
     seedSubscription($pro->id, ['email' => 'csv@example.com', 'email_lc' => 'csv@example.com', 'full_name' => 'CSV Person']);
 
     $controller = new StaffEmailSubscriberController;

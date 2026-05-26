@@ -191,7 +191,24 @@ it('normalizes legacy file paths and deletes media artifacts plus db rows', func
     expect(DB::connection('pgsql')->table('media_variants')->where('media_id', $mediaId)->count())->toBe(0);
 });
 
-it('throws when storage listing fails during video cleanup', function () {
+it('still clears DB rows when storage listing fails (best-effort cleanup)', function () {
+    // Contract: deleteVariants is best-effort on storage and unconditional on DB.
+    // If R2 listing flakes, we still scrub the DB row so the user sees the media as
+    // deleted; any storage orphans become a separate ops concern. Previously this
+    // threw, which caused DeleteMediaArtifactsJob to retry 3× and amplify transients.
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $mediaId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'mp4',
+        'disk' => 'local',
+        'path' => 'videos/test/media/optimized.mp4',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
     $disk = Mockery::mock(Filesystem::class);
     $disk->shouldReceive('allFiles')
         ->once()
@@ -204,8 +221,60 @@ it('throws when storage listing fails during video cleanup', function () {
 
     $service = new VideoVariantService;
 
-    expect(fn () => $service->deleteVariants((string) Str::uuid(), 'videos/test/media/original.mp4'))
-        ->toThrow(RuntimeException::class, 'Failed to list video artifacts');
+    // Must not throw — graceful degradation on transient storage failure.
+    $service->deleteVariants($mediaId, 'videos/test/media/original.mp4');
+
+    expect(DB::connection('pgsql')->table('media_variants')->where('media_id', $mediaId)->count())
+        ->toBe(0);
+});
+
+it('continues past per-file delete failures and still clears DB rows', function () {
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $mediaId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'mp4',
+        'disk' => 'local',
+        'path' => 'videos/test/media/optimized.mp4',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $disk = Mockery::mock(Filesystem::class);
+    $disk->shouldReceive('allFiles')
+        ->once()
+        ->with('videos/test/media')
+        ->andReturn([
+            'videos/test/media/optimized.mp4',
+            'videos/test/media/poster.jpg',
+            'videos/test/media/hls/optimized/playlist.m3u8',
+        ]);
+
+    // First delete blows up; remaining two succeed. The loop must NOT bail.
+    $disk->shouldReceive('delete')
+        ->with('videos/test/media/optimized.mp4')
+        ->once()
+        ->andThrow(new RuntimeException('per-file flake'));
+    $disk->shouldReceive('delete')
+        ->with('videos/test/media/poster.jpg')
+        ->once()
+        ->andReturn(true);
+    $disk->shouldReceive('delete')
+        ->with('videos/test/media/hls/optimized/playlist.m3u8')
+        ->once()
+        ->andReturn(true);
+
+    Storage::shouldReceive('disk')
+        ->once()
+        ->andReturn($disk);
+
+    $service = new VideoVariantService;
+    $service->deleteVariants($mediaId, 'videos/test/media/original.mp4');
+
+    expect(DB::connection('pgsql')->table('media_variants')->where('media_id', $mediaId)->count())
+        ->toBe(0);
 });
 
 function bootstrapMediaJobsSchema(): void

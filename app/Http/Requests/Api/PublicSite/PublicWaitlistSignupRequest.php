@@ -7,8 +7,7 @@ use Illuminate\Validation\Rule;
 
 // V2: Validates waitlist signup. Only email is required — all other fields are optional
 // so the public coming-soon landing can submit an email-only row, while the full
-// multi-step form (when reintroduced) can submit the complete payload. Conditional
-// per-type rules still apply when applicant_type is provided.
+// multi-step form (when reintroduced) can submit the complete payload.
 class PublicWaitlistSignupRequest extends BaseFormRequest
 {
     protected function prepareForValidation(): void
@@ -23,9 +22,6 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'industry_other_text' => $this->normalizeOptionalString($this->input('industry_other_text')),
             'pilot_program_opt_in' => $this->normalizeBoolean($this->input('pilot_program_opt_in')),
             'number_of_team_members' => $this->normalizeInteger($this->input('number_of_team_members')),
-            'number_of_affiliates_ambassadors' => $this->normalizeInteger($this->input('number_of_affiliates_ambassadors')),
-            'is_brand_partner_or_ambassador' => $this->normalizeBoolean($this->input('is_brand_partner_or_ambassador')),
-            'currently_sells_products' => $this->normalizeBoolean($this->input('currently_sells_products')),
         ]);
     }
 
@@ -40,11 +36,7 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'industry' => ['nullable', 'string', Rule::in(array_keys(config('partna.waitlist.industries', [])))],
             'industry_other_text' => ['nullable', 'string', 'max:200', 'required_if:industry,other', 'prohibited_unless:industry,other'],
             'pilot_program_opt_in' => ['nullable', 'boolean'],
-            // Conditional fields still enforced when applicant_type is supplied; absent type means none of these are allowed.
-            'number_of_team_members' => ['nullable', 'integer', 'min:0', 'max:1000000', 'required_if:type,brand', 'prohibited_unless:type,brand'],
-            'number_of_affiliates_ambassadors' => ['nullable', 'integer', 'min:0', 'max:1000000', 'required_if:type,brand', 'prohibited_unless:type,brand'],
-            'is_brand_partner_or_ambassador' => ['nullable', 'boolean', 'required_if:type,influencer', 'required_if:type,professional', 'prohibited_unless:type,influencer,professional'],
-            'currently_sells_products' => ['nullable', 'boolean', 'required_if:type,influencer', 'required_if:type,professional', 'prohibited_unless:type,influencer,professional'],
+            'number_of_team_members' => ['nullable', 'integer', 'min:0', 'max:1000000'],
         ];
     }
 
@@ -93,7 +85,6 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
         return match ($compact) {
             'professional', 'proffesional', 'profesisonal' => 'professional',
             'influencer' => 'influencer',
-            'brand' => 'brand',
             'other' => 'other',
             default => str_replace([' ', '-'], '_', $normalized),
         };

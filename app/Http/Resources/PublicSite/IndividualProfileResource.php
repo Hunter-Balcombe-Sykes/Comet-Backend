@@ -2,97 +2,121 @@
 
 namespace App\Http\Resources\PublicSite;
 
+use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
+use stdClass;
 
 /**
  * Public-safe shape for an individual professional's profile page (§28.8).
  *
- * Consumed by the Astro Worker subrequest path. Mirrors the Hydrogen
- * affiliate response (`HydrogenAffiliateController::show`) minus brand-
- * fallback content (placeholders / fallback_gallery / brand_logo /
- * brand_slogan) and minus the shop section — both intentionally excluded
- * for individuals. Feature tests assert those keys remain absent.
+ * Consumed by the Astro Worker subrequest path (partna-pages). The payload
+ * mirrors the skeleton-system contract (spec §3.4 + phase-8 engines):
+ *   - `profile` — content (engine fields + base profile + content_images)
+ *   - `designKit` — per-user design vars (nested camelCase), partial
+ *   - `skeletonId` — picks which code-side skeleton renders
+ *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
- * INTENTIONAL EXCLUSIONS (audit TEST-4 / PublicProfileShapeTest):
- *   - placeholders, fallback_gallery, brand_logo, brand_slogan (brand-only)
- *   - shop, products, cart, commission, order fields (commerce)
+ * partna-pages does the read-time merge of the partial `designKit` with
+ * code-side defaults before passing to the skeleton.
+ *
+ * Each engine field falls back to a stable empty state:
+ *   - object engines (bio, document, newsletter) → null when nothing authored
+ *   - list engines (gallery, links, services) → empty array
+ *
+ * Booking is a link-engine category, not a separate field — `bucketLinks`
+ * in @partnaau/design-system splits the list at render time.
+ *
+ * INTENTIONAL EXCLUSIONS:
+ *   - Legacy themeMode / accent / fontFamily / settings.design.* — removed in
+ *     the skeleton-system cleanup. The full design surface is now design_kits.
  *   - PII (primary_email, phone, auth_user_id, street address)
+ *   - Anything brand- or commerce-related (the platform is individual-only).
  */
-class IndividualProfileResource extends JsonResource
+class IndividualProfileResource extends ApiResource
 {
     /**
-     * Whitelist of allowed `settings.design.*` keys (audit PROF-2). Any key
-     * not in this list is filtered out at the controller layer before the
-     * Resource sees it. Adding a new public design field requires an
-     * explicit entry here — silent expansion is the exact failure mode
-     * this constant prevents.
+     * Single associative payload — keys mirror the output shape 1-to-1.
+     * Missing keys degrade to sensible empties so the Resource never crashes
+     * on a partial build.
      *
-     * @var list<string>
-     */
-    public const DESIGN_KEYS = [
-        'theme',
-        'theme_mode',
-        'accent_color',
-        'background_color',
-        'font_family',
-        'font_size',
-        'layout',
-        'border_radius',
-        'corner_radius',
-        'border_thickness',
-        'section_spacing',
-        'brand_colors',
-        'colors',
-    ];
-
-    /**
-     * @param  array<string, mixed>  $design
-     * @param  list<array<string, mixed>>  $contentImages
-     * @param  array<string, mixed>  $gallery
-     * @param  list<array<string, mixed>>  $links
-     * @param  array<string, mixed>  $bio
-     * @param  array<string, mixed>  $document
-     * @param  array<string, mixed>  $newsletter
-     * @param  array<string, mixed>  $services
-     * @param  array<string, mixed>  $booking
+     * @param  array{
+     *     site_id?: string|null,
+     *     design_kit?: array<string, mixed>,
+     *     skeleton_id?: string|null,
+     *     public_config?: array<string, mixed>,
+     *     content_images?: list<array<string, mixed>>,
+     *     bio?: array<string, mixed>|null,
+     *     gallery?: list<array<string, mixed>>,
+     *     links?: list<array<string, mixed>>,
+     *     services?: list<array<string, mixed>>,
+     *     document?: array<string, mixed>|null,
+     *     newsletter?: array<string, mixed>|null,
+     * }  $sections
      */
     public function __construct(
         $resource,
-        private readonly array $design,
-        private readonly array $contentImages,
-        private readonly array $gallery,
-        private readonly array $links,
-        private readonly array $bio,
-        private readonly array $document,
-        private readonly array $newsletter,
-        private readonly array $services,
-        private readonly array $booking,
+        private readonly array $sections = [],
     ) {
         parent::__construct($resource);
     }
 
     public function toArray(Request $request): array
     {
+        // Empty designKit must serialize as `{}` (object), not `[]` (array).
+        // PHP's array → JSON encoder emits `[]` for any empty associative
+        // array; cast to stdClass when there are no stored vars so the wire
+        // payload matches the spec contract (designKit is always an object).
+        $designKit = $this->sections['design_kit'] ?? [];
+        $designKitOut = $designKit === [] ? new stdClass : $designKit;
+
+        // Same story for publicConfig — always an object, even if every field
+        // is absent. Empty associative arrays would JSON-encode to `[]`.
+        $publicConfig = $this->sections['public_config'] ?? [];
+        $publicConfigOut = $publicConfig === [] ? new stdClass : $publicConfig;
+
+        // Engine fields preserve null-vs-array distinction precisely:
+        //   - bio/document/newsletter: null when no data is authored.
+        //   - gallery/links/services: always emitted as an array.
         return [
-            'handle' => $this->handle,
-            'display_name' => $this->display_name,
-            'design' => $this->design,
+            // Content data — the profile itself + engine outputs. camelCase
+            // keys for engine fields per spec §5 wire convention.
+            'profile' => [
+                'handle' => $this->handle,
+                'displayName' => $this->display_name,
+                'site_id' => $this->sections['site_id'] ?? null,
 
-            // Section envelopes + arrays, mirroring HydrogenAffiliateController::show.
-            'content_images' => $this->contentImages,
-            'gallery' => $this->gallery,
-            'links' => $this->links,
-            'bio' => $this->bio,
-            'document' => $this->document,
-            'newsletter' => $this->newsletter,
-            'services' => $this->services,
-            'booking' => $this->booking,
+                // Engine outputs (phase 8).
+                'bio' => $this->sections['bio'] ?? null,
+                'gallery' => $this->sections['gallery'] ?? [],
+                'links' => $this->sections['links'] ?? [],
+                'services' => $this->sections['services'] ?? [],
+                'document' => $this->sections['document'] ?? null,
+                'newsletter' => $this->sections['newsletter'] ?? null,
 
-            // Shop is structurally always-draft for individuals — they have no
-            // commerce surface. Emit the envelope so consumers can treat all
-            // section keys uniformly without special-casing missing keys.
-            'shop' => ['state' => 'draft', 'data' => null],
+                // Retained for compat — content-pool images aren't a phase-8
+                // engine but skeletons read them as the "section background"
+                // slot. May graduate to its own engine later.
+                'content_images' => $this->sections['content_images'] ?? [],
+            ],
+
+            // Per-user design kit. Partial — only contains stored (non-null)
+            // columns from site.design_kits, mapped from flat snake_case DB
+            // columns to nested camelCase groups (e.g. color_accent →
+            // colors.accent). partna-pages merges this with DESIGN_KIT_DEFAULTS
+            // (code-side) before passing to the skeleton.
+            'designKit' => $designKitOut,
+
+            // Which of the four code-side skeletons to render. One of
+            // 'skeleton-1', 'skeleton-2', 'skeleton-3', 'skeleton-4'.
+            // Falls back to 'skeleton-1' if the site row is missing — same as
+            // the column default.
+            'skeletonId' => $this->sections['skeleton_id'] ?? 'skeleton-1',
+
+            // Platform-wide knobs the skeleton needs at render time (analytics
+            // endpoint, etc.). Always an object — empty fields stay absent
+            // rather than nulled-out, so the contract is "what's present is
+            // current; everything else is unset".
+            'publicConfig' => $publicConfigOut,
         ];
     }
 }

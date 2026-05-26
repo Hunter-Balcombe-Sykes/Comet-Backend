@@ -38,6 +38,16 @@ class CloudflarePurgeService
     public function purgeUrls(array $urls): void
     {
         if (! $this->configured) {
+            // See CloudflareKvService::guardUnconfigured for the rationale —
+            // silent no-op in dev, hard fail in prod/staging so a missing
+            // CLOUDFLARE_CACHE_PURGE_TOKEN can't quietly stop cache busts.
+            if (app()->environment('production', 'staging')) {
+                throw new \RuntimeException(
+                    'CloudflarePurgeService is not configured (zone_id, cache_purge_token required). '
+                    .'Refusing to silently no-op purge in '.app()->environment().'.'
+                );
+            }
+
             Log::debug('CloudflarePurgeService: skipping purge (not configured)', ['url_count' => count($urls)]);
 
             return;
@@ -55,8 +65,16 @@ class CloudflarePurgeService
     }
 
     /**
-     * Purge the canonical individual public-profile URL for a handle.
-     * The Astro Worker subrequest target is `https://<handle>.partna.au/`.
+     * Purge the full cache chain for one individual's public profile:
+     *   1. Page URL (`https://<handle>.partna.au/`) — what visitors hit. Cached by
+     *      the router Worker via `caches.default.put` with `s-maxage=10`.
+     *   2. Backend API subrequest URL (`<app.url>/api/public/profiles/<handle>`) —
+     *      the Astro Worker calls this with `cf: {cacheTtl: 300, cacheEverything: true}`,
+     *      so without this purge the edge holds the API response for 5 minutes
+     *      and re-renders stale HTML even after the page URL has been evicted.
+     *
+     * All URLs sit in the same Cloudflare zone (`partna.au`), so one
+     * purge_cache request covers everything.
      */
     public function purgeHandle(string $handle): void
     {
@@ -65,12 +83,23 @@ class CloudflarePurgeService
             return;
         }
 
-        // Purge both the root path (`/`) and the slash-less variant defensively —
-        // Cloudflare treats them as distinct cache keys.
-        $this->purgeUrls([
+        $urls = [
+            // Page URL — root path and slash-less variant. Cloudflare treats
+            // these as distinct cache keys, so list both.
             "https://{$h}.partna.au/",
             "https://{$h}.partna.au",
-        ]);
+        ];
+
+        $apiBase = rtrim((string) config('app.url', ''), '/');
+        if ($apiBase !== '') {
+            // The Astro Worker subrequest target — `IndividualProfileController@show`.
+            // Without this entry the §28.8 endpoint's edge cache (`cacheTtl: 300`)
+            // pins the rendered HTML to stale data for up to 5 minutes after a
+            // mutation, regardless of how aggressively we purge the page URL.
+            $urls[] = "{$apiBase}/api/public/profiles/{$h}";
+        }
+
+        $this->purgeUrls($urls);
     }
 
     private function url(): string

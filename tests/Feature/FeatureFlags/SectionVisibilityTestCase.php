@@ -29,7 +29,7 @@ class SectionVisibilityTestCase
             }
         }
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             handle TEXT,
             display_name TEXT,
@@ -42,7 +42,7 @@ class SectionVisibilityTestCase
 
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
             id TEXT PRIMARY KEY,
-            professional_id TEXT,
+            user_id TEXT,
             provider TEXT,
             access_token TEXT,
             external_account_id TEXT,
@@ -53,7 +53,7 @@ class SectionVisibilityTestCase
 
         $conn->statement('CREATE TABLE IF NOT EXISTS site.services (
             id TEXT PRIMARY KEY,
-            professional_id TEXT,
+            user_id TEXT,
             title TEXT,
             price_cents INTEGER DEFAULT 0,
             is_active INTEGER DEFAULT 1,
@@ -65,7 +65,7 @@ class SectionVisibilityTestCase
 
         $conn->statement('CREATE TABLE IF NOT EXISTS site.blocks (
             id TEXT PRIMARY KEY,
-            professional_id TEXT,
+            user_id TEXT,
             site_id TEXT,
             block_group TEXT,
             block_type TEXT,

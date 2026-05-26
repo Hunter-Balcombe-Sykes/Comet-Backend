@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -15,20 +15,20 @@ use Illuminate\Database\Eloquent\Model;
  * Covers: Site, Block, SiteMedia, Enquiry, SiteSubdomainAlias, LeadSubmission.
  *
  * Ownership resolution:
- *   - Site, Block, Enquiry, LeadSubmission: carry professional_id directly
+ *   - Site, Block, Enquiry, LeadSubmission: carry user_id directly
  *   - SiteMedia, SiteSubdomainAlias: resolve via loaded site relation
  *     (caller must setRelation('site', $site) before authorizeForUser to avoid N+1)
  */
 class SitePolicy extends BasePolicy
 {
-    public function view(Professional $actor, Model $resource): bool|Response
+    public function view(User $actor, Model $resource): bool|Response
     {
         return $this->ownerMatches($actor, $resource)
             ? true
             : $this->denyAsNotFound();
     }
 
-    public function update(Professional $actor, Model $resource): bool|Response
+    public function update(User $actor, Model $resource): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -39,12 +39,12 @@ class SitePolicy extends BasePolicy
             : $this->denyAsNotFound();
     }
 
-    public function delete(Professional $actor, Model $resource): bool|Response
+    public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
     }
 
-    public function create(Professional $actor, Model $skeleton): bool|Response
+    public function create(User $actor, Model $skeleton): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
@@ -53,7 +53,7 @@ class SitePolicy extends BasePolicy
         return $this->ownerMatches($actor, $skeleton);
     }
 
-    private function ownerMatches(Professional $actor, Model $resource): bool
+    private function ownerMatches(User $actor, Model $resource): bool
     {
         $ownerId = $this->resolveOwnerId($resource);
 
@@ -62,7 +62,7 @@ class SitePolicy extends BasePolicy
 
     private function resolveOwnerId(Model $resource): ?string
     {
-        // SiteMedia and SiteSubdomainAlias don't own professional_id — ownership
+        // SiteMedia and SiteSubdomainAlias don't own user_id — ownership
         // resolves through their site relation. Caller must setRelation('site', $site)
         // before authorizeForUser to prevent N+1 / lazy-loading violations.
         //
@@ -81,16 +81,16 @@ class SitePolicy extends BasePolicy
                 return null;
             }
 
-            return (string) $site->professional_id;
+            return (string) $site->user_id;
         }
 
-        // Direct: Site itself plus denormalized professional_id on Block/Enquiry/LeadSubmission.
+        // Direct: Site itself plus denormalized user_id on Block/Enquiry/LeadSubmission.
         // getAttributes() reads the raw attribute array without triggering Eloquent __get
         // magic. array_key_exists is intentional — isset() would return false for null.
         $rawAttrs = $resource->getAttributes();
 
-        return array_key_exists('professional_id', $rawAttrs) && $rawAttrs['professional_id'] !== null
-            ? (string) $rawAttrs['professional_id']
+        return array_key_exists('user_id', $rawAttrs) && $rawAttrs['user_id'] !== null
+            ? (string) $rawAttrs['user_id']
             : null;
     }
 }

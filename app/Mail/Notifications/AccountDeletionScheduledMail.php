@@ -2,13 +2,13 @@
 
 namespace App\Mail\Notifications;
 
+use App\Mail\BaseTransactionalMail;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 // V2: Sent after confirmation — 30-day grace period is running. Includes the
 // scheduled deletion date and a one-click cancel link.
-class AccountDeletionScheduledMail extends Mailable
+class AccountDeletionScheduledMail extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -20,7 +20,7 @@ class AccountDeletionScheduledMail extends Mailable
 
     public function build(): self
     {
-        return $this
+        return $this->buildEnvelope()
             ->subject('Your account is scheduled for deletion')
             ->view('emails.account.deletion-scheduled');
     }

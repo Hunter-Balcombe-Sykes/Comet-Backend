@@ -226,3 +226,55 @@ it('respects the PARTNA_IMAGE_MAX_PIXELS env override', function () {
         @unlink($fixture);
     }
 });
+
+it('storeOriginal stores a valid image via stream and returns the path', function () {
+    $service = new ImageVariantService;
+    $basePath = 'images/test/'.Str::uuid();
+    $fixture = makeVariantFixture(400, 300, 'jpeg');
+
+    $upload = new \Illuminate\Http\UploadedFile(
+        $fixture,
+        'photo.jpg',
+        'image/jpeg',
+        null,
+        true, // test mode — bypasses moveUploadedFile()
+    );
+
+    $path = $service->storeOriginal($upload, $basePath);
+
+    expect($path)->toStartWith("{$basePath}/original_");
+    expect($path)->toEndWith('.jpg');
+    expect(Storage::disk('local')->exists($path))->toBeTrue();
+    // Stream-based upload must preserve the file byte-for-byte.
+    expect(Storage::disk('local')->size($path))->toBe(filesize($fixture));
+
+    @unlink($fixture);
+});
+
+it('storeOriginal rejects files whose bytes are not an allowed image MIME', function () {
+    $service = new ImageVariantService;
+    $basePath = 'images/test/'.Str::uuid();
+
+    // Write a PHP script and disguise it as a JPEG via the client-supplied filename + MIME.
+    $maliciousPath = tempnam(sys_get_temp_dir(), 'sidest_malicious_');
+    file_put_contents($maliciousPath, "<?php echo 'pwn'; ?>\n");
+    $upload = new \Illuminate\Http\UploadedFile(
+        $maliciousPath,
+        'evil.jpg',
+        'image/jpeg', // CLIENT-supplied MIME — must NOT be trusted
+        null,
+        true,
+    );
+
+    try {
+        $service->storeOriginal($upload, $basePath);
+        throw new \RuntimeException('Expected UnprocessableImageException was not thrown');
+    } catch (\App\Services\Media\UnprocessableImageException $e) {
+        expect($e->getMessage())->toContain('not an accepted image format');
+    } finally {
+        @unlink($maliciousPath);
+    }
+
+    // Sniff rejection must occur BEFORE any disk write.
+    expect(Storage::disk('local')->allFiles($basePath))->toBeEmpty();
+});

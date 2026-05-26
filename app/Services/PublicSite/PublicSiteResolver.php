@@ -14,8 +14,8 @@ class PublicSiteResolver
 
         $siteQuery = Site::query()
             ->where('is_published', true)
-            ->with('professional')
-            ->whereHas('professional', function ($q) {
+            ->with('user')
+            ->whereHas('user', function ($q) {
                 $q->where('status', 'active');
             });
 

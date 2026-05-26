@@ -2,7 +2,7 @@
 
 use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Gdpr\GdprRequest;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Policies\GdprPolicy;
 
 beforeEach(function () {
@@ -12,15 +12,15 @@ beforeEach(function () {
 // --- view on GdprRequest ---
 
 it('allows view when the actor owns the GdprRequest', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $request = new GdprRequest(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $request = new GdprRequest(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $request))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the GdprRequest', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $request = new GdprRequest(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $request = new GdprRequest(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $request);
 
@@ -31,15 +31,15 @@ it('denies view with 404 when the actor does not own the GdprRequest', function 
 // --- view on DataExportAudit ---
 
 it('allows view when the actor owns the DataExportAudit', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $audit = new DataExportAudit(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $audit = new DataExportAudit(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $audit))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the DataExportAudit', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $audit = new DataExportAudit(['professional_id' => 'pro-2']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
+    $audit = new DataExportAudit(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $audit);
 
@@ -50,15 +50,15 @@ it('denies view with 404 when the actor does not own the DataExportAudit', funct
 // --- CRITICAL: pending_deletion does NOT block GDPR access ---
 
 it('allows view for a pending_deletion actor on their own GdprRequest', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $request = new GdprRequest(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $request = new GdprRequest(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $request))->toBeTrue();
 });
 
 it('allows view for a pending_deletion actor on their own DataExportAudit', function () {
-    $actor = (new Professional)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $audit = new DataExportAudit(['professional_id' => 'pro-1']);
+    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
+    $audit = new DataExportAudit(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $audit))->toBeTrue();
 });

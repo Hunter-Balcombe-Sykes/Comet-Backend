@@ -4,7 +4,7 @@ use App\Models\Core\Site\SiteMedia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-// Tests that the gallery slot count (used by ProfessionalUploadController) correctly
+// Tests that the gallery slot count (used by UserUploadController) correctly
 // excludes failed-processing rows. Failed uploads are a terminal state — they occupy no
 // usable slot and must not reduce the effective capacity for new uploads.
 

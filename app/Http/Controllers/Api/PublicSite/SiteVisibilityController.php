@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\UpdateVisibilityRequest;
-use App\Models\Core\Professional\Professional;
+use App\Http\Resources\SiteResource;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
@@ -13,7 +14,7 @@ class SiteVisibilityController extends ApiController
 {
     public function update(UpdateVisibilityRequest $request): JsonResponse
     {
-        /** @var Professional $professional */
+        /** @var User $professional */
         $professional = $request->attributes->get('professional');
 
         // Extra safety: if someone ever bypasses middleware, don't allow disabled accounts.
@@ -22,14 +23,14 @@ class SiteVisibilityController extends ApiController
         }
 
         $site = Site::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->firstOrFail();
 
         $site->published = (bool) $request->validated('published');
         $site->save();
 
         return $this->success([
-            'site' => $site->fresh(),
+            'site' => new SiteResource($site->fresh()),
         ]);
     }
 }

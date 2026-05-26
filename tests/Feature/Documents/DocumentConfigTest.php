@@ -8,21 +8,6 @@ it('registers documents pool with max 1', function () {
     expect(config('partna.image_pools.documents'))->toMatchArray(['max' => 1]);
 });
 
-it('allows documents for influencer (and therefore professional via inheritance)', function () {
-    expect(config('partna.account_type_defaults.influencer.allowed_sections'))
-        ->toContain('documents');
-});
-
-it('allows documents for professional account type', function () {
-    expect(config('partna.account_type_defaults.professional.allowed_sections'))
-        ->toContain('documents');
-});
-
-it('does NOT allow documents for brand accounts', function () {
-    expect(config('partna.account_type_defaults.brand.allowed_sections'))
-        ->not->toContain('documents');
-});
-
 it('exposes POOL_DOCUMENTS and MEDIA_TYPE_DOCUMENT constants', function () {
     expect(\App\Models\Core\Site\SiteMedia::POOL_DOCUMENTS)->toBe('documents');
     expect(\App\Models\Core\Site\SiteMedia::MEDIA_TYPE_DOCUMENT)->toBe('document');
@@ -34,16 +19,15 @@ it('SectionVisibilityService rejects documents section when no document is uploa
     $proId = (string) \Illuminate\Support\Str::uuid();
     $siteId = (string) \Illuminate\Support\Str::uuid();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
         'primary_email' => 'p@example.com', 'status' => 'active',
-        'professional_type' => 'professional',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
     ]);
 
-    [$canBeVisible, $reason] = app(\App\Services\Professional\SectionVisibilityService::class)
+    [$canBeVisible, $reason] = app(\App\Services\User\SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'documents');
 
     expect($canBeVisible)->toBeFalse();
@@ -56,13 +40,12 @@ it('SectionVisibilityService allows documents section when a document exists', f
     $proId = (string) \Illuminate\Support\Str::uuid();
     $siteId = (string) \Illuminate\Support\Str::uuid();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
         'primary_email' => 'p@example.com', 'status' => 'active',
-        'professional_type' => 'professional',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
@@ -76,7 +59,7 @@ it('SectionVisibilityService allows documents section when a document exists', f
         'is_active' => 1,
     ]);
 
-    [$canBeVisible] = app(\App\Services\Professional\SectionVisibilityService::class)
+    [$canBeVisible] = app(\App\Services\User\SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'documents');
 
     expect($canBeVisible)->toBeTrue();

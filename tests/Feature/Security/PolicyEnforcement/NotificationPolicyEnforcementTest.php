@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Notifications\NotificationController;
+use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Models\Core\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +27,7 @@ function createNotification(array $overrides = []): Notification
 
     DB::connection('pgsql')->table('notifications.notifications')->insert(array_merge([
         'id' => $id,
-        'professional_id' => null,
+        'user_id' => null,
         'type' => 'info',
         'title' => 'Test Notification',
         'body' => 'Test body',
@@ -45,7 +45,7 @@ function createNotification(array $overrides = []): Notification
 
 it('allows the owner to call markRead on their targeted notification', function () {
     $owner = createTenant('notif-mark-owner');
-    $notification = createNotification(['professional_id' => $owner->id]);
+    $notification = createNotification(['user_id' => $owner->id]);
     $req = tenantRequestAs($owner);
 
     $response = app(NotificationController::class)->markRead($req, $notification);
@@ -55,8 +55,8 @@ it('allows the owner to call markRead on their targeted notification', function 
 
 it('allows any professional to call markRead on a global notification', function () {
     $pro = createTenant('notif-mark-global');
-    // Global: professional_id is null
-    $notification = createNotification(['professional_id' => null]);
+    // Global: user_id is null
+    $notification = createNotification(['user_id' => null]);
     $req = tenantRequestAs($pro);
 
     $response = app(NotificationController::class)->markRead($req, $notification);
@@ -67,7 +67,7 @@ it('allows any professional to call markRead on a global notification', function
 it('blocks a non-owner from calling markRead on a targeted notification with 404', function () {
     $owner = createTenant('notif-mark-own');
     $intruder = createTenant('notif-mark-intruder');
-    $notification = createNotification(['professional_id' => $owner->id]);
+    $notification = createNotification(['user_id' => $owner->id]);
     $req = tenantRequestAs($intruder);
 
     try {
@@ -84,7 +84,7 @@ it('blocks a non-owner from calling markRead on a targeted notification with 404
 
 it('allows the owner to call dismiss on their targeted notification', function () {
     $owner = createTenant('notif-dismiss-owner');
-    $notification = createNotification(['professional_id' => $owner->id]);
+    $notification = createNotification(['user_id' => $owner->id]);
     $req = tenantRequestAs($owner);
 
     $response = app(NotificationController::class)->dismiss($req, $notification);
@@ -94,7 +94,7 @@ it('allows the owner to call dismiss on their targeted notification', function (
 
 it('allows any professional to call dismiss on a global notification', function () {
     $pro = createTenant('notif-dismiss-global');
-    $notification = createNotification(['professional_id' => null]);
+    $notification = createNotification(['user_id' => null]);
     $req = tenantRequestAs($pro);
 
     $response = app(NotificationController::class)->dismiss($req, $notification);
@@ -105,7 +105,7 @@ it('allows any professional to call dismiss on a global notification', function 
 it('blocks a non-owner from calling dismiss on a targeted notification with 404', function () {
     $owner = createTenant('notif-dismiss-own');
     $intruder = createTenant('notif-dismiss-intruder');
-    $notification = createNotification(['professional_id' => $owner->id]);
+    $notification = createNotification(['user_id' => $owner->id]);
     $req = tenantRequestAs($intruder);
 
     try {

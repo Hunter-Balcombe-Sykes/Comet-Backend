@@ -2,13 +2,9 @@
 
 namespace App\Services\Cache;
 
-use App\Jobs\Cache\InvalidateBrandAffiliatesCacheJob;
+use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\MediaVariant;
-use App\Models\Core\Professional\BrandPartnerLink;
-use App\Models\Core\Professional\Professional;
-use App\Models\Core\Professional\ProfessionalIntegration;
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\ProfessionalHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Views\PublicSitePayload;
@@ -38,9 +34,6 @@ class SiteCacheService
      * eviction so a parallel bot-burst still hits cache, not the view.
      */
     private const MISS_PRIMARY_TTL_SECONDS = 30;
-
-    /** @var array<string, array<string, string|null>|null> */
-    private array $brandPartnerEnrichmentCache = [];
 
     public function __construct(private readonly CacheLockService $cacheLock) {}
 
@@ -79,7 +72,7 @@ class SiteCacheService
         if (is_array($site)) {
             $site = $this->safeHydrateSitePayload(
                 $site,
-                (string) ($row->professional_id ?? ''),
+                (string) ($row->user_id ?? ''),
                 (string) ($row->site_id ?? ''),
                 $subdomain
             );
@@ -100,17 +93,7 @@ class SiteCacheService
             'sections' => $sections,
             'blocks' => $this->buildCombinedBlocksPayload($links, $sections, $existingBlocks),
             'legal' => $payload['legal'] ?? null,
-            // Preserve the store sub-object from the source payload so that
-            // withStorePayload() below can lift selected_products + commission
-            // settings out of payload.store. Without this, the rebuilt $data
-            // has no 'store' key and withStorePayload falls through to empty
-            // defaults — the front-end would see no featured products even
-            // though the view row contains them.
-            'store' => $payload['store'] ?? null,
         ];
-        $data = $this->ensureProfessionalType($data, (string) ($row->professional_id ?? ''));
-        $data = $this->safeWithStorePayload($data, (string) ($row->professional_id ?? ''), $subdomain);
-        $data = $this->safeApplyBrandImageFallbacks($data, $subdomain);
 
         $this->writePayloadWithStale($key, $data);
 
@@ -155,15 +138,6 @@ class SiteCacheService
             // Older cache entries may not include `services`.
             if (array_key_exists('services', $cached)) {
                 $cached = $this->ensureBlockCollections($cached);
-                $cached = $this->ensureProfessionalType(
-                    $cached,
-                    (string) data_get($cached, 'professional.id', '')
-                );
-                $cached = $this->safeWithStorePayload(
-                    $cached,
-                    (string) data_get($cached, 'professional.id', ''),
-                    $subdomain
-                );
 
                 if (! array_key_exists('legal', $cached)) {
                     $cached['legal'] = null;
@@ -172,10 +146,10 @@ class SiteCacheService
                 // Always resolve image variant paths to URLs (handles pre-URL-resolution cache entries)
                 $site = $cached['site'] ?? null;
                 if (is_array($site)) {
-                    $professionalId = (string) data_get($cached, 'professional.id', '');
+                    $userId = (string) data_get($cached, 'professional.id', '');
                     $cached['site'] = $this->safeHydrateSitePayload(
                         $site,
-                        $professionalId,
+                        $userId,
                         '',
                         $subdomain
                     );
@@ -214,8 +188,35 @@ class SiteCacheService
             }
 
             // Another worker holds the fill lock — serve the last-good copy without
-            // blocking. Sentinel preserves the "no site found" 404 contract.
-            return $stale === self::MISS_SENTINEL ? null : (is_array($stale) ? $stale : null);
+            // blocking. Apply the same backward-compat healing as the primary-hit path:
+            // stale copies may hold a pre-V2 payload shape (missing `services`, `legal`,
+            // or unsplit links/sections). If healing fails (old shape), fall through to
+            // buildPayloadFromDb — the fill-lock winner is already doing this, and the
+            // bounded extra DB hit is safer than serving a broken response.
+            if ($stale === self::MISS_SENTINEL) {
+                return null;
+            }
+            if (! is_array($stale)) {
+                return null;
+            }
+            if (! array_key_exists('services', $stale)) {
+                // Old payload shape — can't safely return it; rebuild.
+                Cache::forget($key);
+                Cache::forget($staleKey);
+
+                return $this->buildPayloadFromDb($subdomain, $key);
+            }
+            $stale = $this->ensureBlockCollections($stale);
+            if (! array_key_exists('legal', $stale)) {
+                $stale['legal'] = null;
+            }
+            $staleSite = $stale['site'] ?? null;
+            if (is_array($staleSite)) {
+                $userId = (string) data_get($stale, 'professional.id', '');
+                $stale['site'] = $this->safeHydrateSitePayload($staleSite, $userId, '', $subdomain);
+            }
+
+            return $stale;
         }
 
         // Cold miss (no primary, no stale) — acquire a per-subdomain fill lock so
@@ -272,271 +273,23 @@ class SiteCacheService
     }
 
     /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function applyBrandImageFallbacks(array $payload): array
-    {
-        $professional = $payload['professional'] ?? null;
-        if (! is_array($professional) || ($professional['professional_type'] ?? null) === 'brand') {
-            return $payload;
-        }
-
-        $affiliateId = (string) ($professional['id'] ?? '');
-        if (empty($affiliateId)) {
-            return $payload;
-        }
-
-        // JSON column is affiliate-controlled; use it only as a hint for which brand is configured.
-        $brandPartner = $payload['site']['settings']['brand_partner'] ?? null;
-        if (! is_array($brandPartner) || empty($brandPartner['professional_id'])) {
-            return $payload;
-        }
-
-        $claimedBrandId = (string) $brandPartner['professional_id'];
-
-        // BrandPartnerLink is the consent record — verify before using any brand data.
-        $link = BrandPartnerLink::where('affiliate_professional_id', $affiliateId)
-            ->where('brand_professional_id', $claimedBrandId)
-            ->first();
-
-        if (! $link) {
-            Log::warning('Brand-partner enrichment skipped: no verified link in consent table.', [
-                'affiliate_id' => $affiliateId,
-                'brand_id' => $claimedBrandId,
-            ]);
-
-            return $payload;
-        }
-
-        // Resolve brand_id from the verified link record, never from the mutable JSON.
-        $brandId = (string) $link->brand_professional_id;
-        $brandSite = Site::query()
-            ->where('professional_id', $brandId)
-            ->first();
-
-        if (! $brandSite) {
-            return $payload;
-        }
-
-        // Brand placeholders now live in site_media (pool=design, purpose=placeholder).
-        // The service resolves variant URLs; we project them to { url, alt_text }
-        // to match the new Hydrogen brand-design response shape.
-        $designMedia = app(\App\Services\Media\BrandDesignMediaService::class)
-            ->listDesignMedia((string) $brandSite->id);
-
-        if (empty($designMedia['placeholders'])) {
-            return $payload;
-        }
-
-        $placeholderImages = array_map(
-            fn (array $p) => [
-                'url' => $p['url'],
-                'alt_text' => $p['alt_text'],
-            ],
-            $designMedia['placeholders']
-        );
-
-        $imageKeys = ['gallery', 'content_images'];
-
-        foreach ($imageKeys as $key) {
-            if (! isset($payload['site'][$key]) || ! is_array($payload['site'][$key])) {
-                continue;
-            }
-
-            if (empty($payload['site'][$key])) {
-                $payload['site'][$key] = $placeholderImages;
-            }
-        }
-
-        return $payload;
-    }
-
-    /**
      * @param  array<string, mixed>  $site
      * @return array<string, mixed>
      */
-    private function safeHydrateSitePayload(array $site, string $professionalId, string $siteId, string $subdomain): array
+    private function safeHydrateSitePayload(array $site, string $userId, string $siteId, string $subdomain): array
     {
         try {
-            $site = $this->resolveImageVariantUrlsInSite($site, $siteId);
-
-            return $this->enrichSiteWithBrandPartnerRadius($site);
+            return $this->resolveImageVariantUrlsInSite($site, $siteId);
         } catch (\Throwable $e) {
             Log::warning('Public site payload hydration failed; returning base site payload.', [
                 'subdomain' => $subdomain,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'site_id' => $siteId,
                 'error' => $e->getMessage(),
             ]);
 
             return $site;
         }
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function safeWithStorePayload(array $payload, string $professionalId, string $subdomain): array
-    {
-        try {
-            return $this->withStorePayload($payload, $professionalId);
-        } catch (\Throwable $e) {
-            Log::warning('Public site store payload build failed; returning payload without refreshed store data.', [
-                'subdomain' => $subdomain,
-                'professional_id' => $professionalId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return $payload;
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function safeApplyBrandImageFallbacks(array $payload, string $subdomain): array
-    {
-        try {
-            return $this->applyBrandImageFallbacks($payload);
-        } catch (\Throwable $e) {
-            Log::warning('Brand image fallback enrichment failed; returning payload unchanged.', [
-                'subdomain' => $subdomain,
-                'professional_id' => (string) data_get($payload, 'professional.id', ''),
-                'error' => $e->getMessage(),
-            ]);
-
-            return $payload;
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $site
-     * @return array<string, mixed>
-     */
-    public function enrichSiteWithBrandPartnerRadius(array $site): array
-    {
-        $settings = is_array($site['settings'] ?? null) ? $site['settings'] : [];
-        $brandPartner = is_array($settings['brand_partner'] ?? null)
-            ? $settings['brand_partner']
-            : (is_array($settings['brandPartner'] ?? null) ? $settings['brandPartner'] : []);
-
-        $professionalId = $brandPartner['professional_id'] ?? $brandPartner['professionalId'] ?? null;
-        if (! is_string($professionalId) || trim($professionalId) === '') {
-            return $site;
-        }
-
-        $enrichment = $this->resolveBrandPartnerEnrichmentData(trim($professionalId));
-        if (! is_array($enrichment)) {
-            return $site;
-        }
-
-        if ($this->isMissingBrandPartnerField($brandPartner, 'border_radius', 'borderRadius') && $this->isFilledString($enrichment['border_radius'] ?? null)) {
-            $brandPartner['border_radius'] = $enrichment['border_radius'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'font_file_url', 'fontFileUrl') && $this->isFilledString($enrichment['font_file_url'] ?? null)) {
-            $brandPartner['font_file_url'] = $enrichment['font_file_url'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'username', 'handle') && $this->isFilledString($enrichment['username'] ?? null)) {
-            $brandPartner['username'] = $enrichment['username'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'first_name', 'firstName') && $this->isFilledString($enrichment['first_name'] ?? null)) {
-            $brandPartner['first_name'] = $enrichment['first_name'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'last_name', 'lastName') && $this->isFilledString($enrichment['last_name'] ?? null)) {
-            $brandPartner['last_name'] = $enrichment['last_name'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'border_color', 'borderColor') && $this->isFilledString($enrichment['border_color'] ?? null)) {
-            $brandPartner['border_color'] = $enrichment['border_color'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'logo_letter_spacing', 'logoLetterSpacing') && $this->isFilledString($enrichment['logo_letter_spacing'] ?? null)) {
-            $brandPartner['logo_letter_spacing'] = $enrichment['logo_letter_spacing'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'logo_font_size', 'logoFontSize') && $this->isFilledString($enrichment['logo_font_size'] ?? null)) {
-            $brandPartner['logo_font_size'] = $enrichment['logo_font_size'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'border_width', 'borderWidth') && $this->isFilledString($enrichment['border_width'] ?? null)) {
-            $brandPartner['border_width'] = $enrichment['border_width'];
-        }
-        if ($this->isMissingBrandPartnerField($brandPartner, 'general_spacing_padding', 'generalSpacingPadding') && $this->isFilledString($enrichment['general_spacing_padding'] ?? null)) {
-            $brandPartner['general_spacing_padding'] = $enrichment['general_spacing_padding'];
-        }
-
-        $settings['brand_partner'] = $brandPartner;
-        $site['settings'] = $settings;
-
-        return $site;
-    }
-
-    /**
-     * @return array<string, string|null>|null
-     */
-    private function resolveBrandPartnerEnrichmentData(string $professionalId): ?array
-    {
-        if (array_key_exists($professionalId, $this->brandPartnerEnrichmentCache)) {
-            return $this->brandPartnerEnrichmentCache[$professionalId];
-        }
-
-        $partnerSite = Site::query()
-            ->where('professional_id', $professionalId)
-            ->first(['settings']);
-
-        $partnerProfessional = Professional::query()
-            ->whereKey($professionalId)
-            ->first(['handle', 'first_name', 'last_name']);
-
-        if (! $partnerSite && ! $partnerProfessional) {
-            $this->brandPartnerEnrichmentCache[$professionalId] = null;
-
-            return null;
-        }
-
-        $partnerSettings = is_array($partnerSite?->settings ?? null) ? $partnerSite->settings : [];
-        $design = is_array($partnerSettings['design'] ?? null) ? $partnerSettings['design'] : [];
-        $typography = is_array($design['typography'] ?? null) ? $design['typography'] : [];
-        $resolved = [
-            'username' => $this->normalizeString($partnerProfessional?->handle ?? null),
-            'first_name' => $this->normalizeString($partnerProfessional?->first_name ?? null),
-            'last_name' => $this->normalizeString($partnerProfessional?->last_name ?? null),
-            'border_color' => $this->normalizeString($design['border_color'] ?? $design['borderColor'] ?? null),
-            'border_radius' => $this->normalizeString($design['border_radius'] ?? $design['borderRadius'] ?? null),
-            'border_width' => $this->normalizeString($design['border_width'] ?? $design['borderWidth'] ?? null),
-            'general_spacing_padding' => $this->normalizeString($design['general_spacing_padding'] ?? $design['generalSpacingPadding'] ?? null),
-            'font_file_url' => null,
-            'logo_letter_spacing' => $this->normalizeString($typography['logo_letter_spacing'] ?? $typography['logoLetterSpacing'] ?? null),
-            'logo_font_size' => $this->normalizeString($typography['logo_font_size'] ?? $typography['logoFontSize'] ?? null),
-        ];
-
-        $this->brandPartnerEnrichmentCache[$professionalId] = $resolved;
-
-        return $resolved;
-    }
-
-    /**
-     * @param  array<string, mixed>  $brandPartner
-     */
-    private function isMissingBrandPartnerField(array $brandPartner, string $snakeKey, string $camelKey): bool
-    {
-        return ! $this->isFilledString($brandPartner[$snakeKey] ?? null)
-            && ! $this->isFilledString($brandPartner[$camelKey] ?? null);
-    }
-
-    private function isFilledString(mixed $value): bool
-    {
-        return is_string($value) && trim($value) !== '';
-    }
-
-    private function normalizeString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $trimmed = trim($value);
-
-        return $trimmed === '' ? null : $trimmed;
     }
 
     /**
@@ -566,43 +319,6 @@ class SiteCacheService
         $payload['links'] = $links;
         $payload['sections'] = $sections;
         $payload['blocks'] = $this->buildCombinedBlocksPayload($links, $sections, $existingBlocks);
-
-        return $payload;
-    }
-
-    /**
-     * Ensure professional payload includes professional_type.
-     *
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function ensureProfessionalType(array $payload, string $professionalId): array
-    {
-        $professional = $payload['professional'] ?? null;
-        if (! is_array($professional)) {
-            return $payload;
-        }
-
-        $existing = $professional['professional_type'] ?? null;
-        if (is_string($existing) && trim($existing) !== '') {
-            return $payload;
-        }
-
-        if ($professionalId === '') {
-            $professionalId = (string) ($professional['id'] ?? '');
-        }
-
-        $resolved = null;
-        if ($professionalId !== '') {
-            $resolved = Professional::query()
-                ->where('id', $professionalId)
-                ->value('professional_type');
-        }
-
-        $professional['professional_type'] = is_string($resolved) && trim($resolved) !== ''
-            ? $resolved
-            : 'professional';
-        $payload['professional'] = $professional;
 
         return $payload;
     }
@@ -649,65 +365,6 @@ class SiteCacheService
         });
 
         return array_values($combined);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function withStorePayload(array $payload, string $professionalId): array
-    {
-        $store = null;
-        $existingStore = $payload['store'] ?? null;
-
-        if (
-            is_array($existingStore)
-            && is_array($existingStore['selected_products'] ?? null)
-            && array_key_exists('default_commission_rate', $existingStore)
-            && array_key_exists('max_featured_products', $existingStore)
-        ) {
-            $store = [
-                'selected_products' => array_values($existingStore['selected_products']),
-                'default_commission_rate' => (float) $existingStore['default_commission_rate'],
-                'max_featured_products' => (int) $existingStore['max_featured_products'],
-                'checkout_mode' => in_array(($existingStore['checkout_mode'] ?? null), ['shopify', 'stripe'], true)
-                    ? $existingStore['checkout_mode']
-                    : 'shopify',
-            ];
-        }
-
-        if (
-            $store === null
-            && is_array($payload['selected_products'] ?? null)
-            && array_key_exists('default_commission_rate', $payload)
-            && array_key_exists('max_featured_products', $payload)
-        ) {
-            $store = [
-                'selected_products' => array_values($payload['selected_products']),
-                'default_commission_rate' => (float) $payload['default_commission_rate'],
-                'max_featured_products' => (int) $payload['max_featured_products'],
-                'checkout_mode' => in_array(($payload['checkout_mode'] ?? null), ['shopify', 'stripe'], true)
-                    ? $payload['checkout_mode']
-                    : 'shopify',
-            ];
-        }
-
-        if ($store === null) {
-            $store = [
-                'selected_products' => [],
-                'default_commission_rate' => (float) config('partna.store.default_commission_rate', 15),
-                'max_featured_products' => (int) config('partna.store.max_featured_products', 12),
-                'checkout_mode' => 'shopify',
-            ];
-        }
-
-        $payload['store'] = $store;
-        $payload['selected_products'] = $store['selected_products'];
-        $payload['default_commission_rate'] = $store['default_commission_rate'];
-        $payload['max_featured_products'] = $store['max_featured_products'];
-        $payload['checkout_mode'] = $store['checkout_mode'] ?? 'shopify';
-
-        return $payload;
     }
 
     /**
@@ -826,209 +483,6 @@ class SiteCacheService
     }
 
     /**
-     * Bust the Hydrogen brand-design cache for a site. Call from every write
-     * path that touches design tokens or design media (logo, placeholders).
-     *
-     * Why explicit per-action: the stale window is 5s, so a forgotten bust
-     * isn't catastrophic — but the user sees their own saves on Hydrogen
-     * immediately only when every write path fires this.
-     */
-    public function forgetBrandDesign(string $siteId): void
-    {
-        // hydrogenBrandDesign is wrapped in CacheLockService::rememberLocked,
-        // which writes a :stale twin. Clear both or the SWR fast path keeps
-        // serving the pre-write value for up to 10× the 5s base TTL.
-        $key = CacheKeyGenerator::hydrogenBrandDesign($siteId);
-        Cache::forget($key);
-        Cache::forget($key.':stale');
-    }
-
-    /**
-     * Bust the Hydrogen affiliate-page cache for the affiliate that owns $siteId.
-     *
-     * The cache key is (brand_professional_id, slug). An affiliate may have
-     * multiple slugs in play (current handle + historical aliases) and may be
-     * linked to multiple brands, so this walks the full (brand × slug) matrix
-     * and clears every entry — plus the :stale companion that CacheLockService
-     * writes alongside the primary.
-     *
-     * Idempotent and best-effort: missing rows simply yield zero keys to delete.
-     */
-    public function forgetHydrogenAffiliate(string $siteId): void
-    {
-        // Cheapest exit first: an affiliate with no brand link has no cache
-        // entry to bust. Site.professional_id is needed for the link query,
-        // so we resolve it via a single value() rather than a full model
-        // load — saves materialising the Site row when we'll only exit.
-        $affiliateId = (string) Site::query()
-            ->whereKey($siteId)
-            ->value('professional_id');
-        if ($affiliateId === '') {
-            return;
-        }
-
-        $brandIds = BrandPartnerLink::query()
-            ->where('affiliate_professional_id', $affiliateId)
-            ->pluck('brand_professional_id')
-            ->all();
-        if ($brandIds === []) {
-            return;
-        }
-
-        // Now resolve slugs — current handle + historical aliases — so we can
-        // walk the full (brand × slug) matrix.
-        $affiliate = Professional::query()
-            ->whereKey($affiliateId)
-            ->first(['handle']);
-
-        $slugs = [];
-        if ($affiliate && is_string($affiliate->handle) && $affiliate->handle !== '') {
-            $slugs[] = strtolower($affiliate->handle);
-        }
-
-        $aliases = ProfessionalHandleAlias::query()
-            ->where('professional_id', $affiliateId)
-            ->pluck('handle')
-            ->all();
-        foreach ($aliases as $alias) {
-            if (is_string($alias) && $alias !== '') {
-                $slugs[] = strtolower($alias);
-            }
-        }
-        $slugs = array_values(array_unique($slugs));
-
-        if ($slugs === []) {
-            return;
-        }
-
-        $keys = [];
-        foreach ($brandIds as $brandId) {
-            foreach ($slugs as $slug) {
-                $primary = CacheKeyGenerator::hydrogenAffiliate((string) $brandId, $slug);
-                $keys[] = $primary;
-                $keys[] = $primary.':stale';
-            }
-        }
-
-        Cache::deleteMultiple(array_values(array_unique($keys)));
-    }
-
-    /**
-     * Bust Hydrogen affiliate-page cache keys for every active affiliate linked to $brandId.
-     *
-     * Mirrors the (brand × slug) matrix that forgetHydrogenAffiliate() builds for a single
-     * affiliate, but inverts the query: given the brand, enumerate all linked affiliates,
-     * resolve each affiliate's current handle + aliases, then delete the primary
-     * hydrogenAffiliate(brandId, slug) key for each (the :stale twin is intentionally
-     * left intact so SWR absorbs the fan-out rebuild — see the loop comment below).
-     *
-     * Called from the brand branch of invalidateSite() so a brand design/config change
-     * propagates to every affiliate's Hydrogen page cache.
-     */
-    public function forgetHydrogenAffiliatesByBrand(string $brandId): void
-    {
-        if ($brandId === '') {
-            return;
-        }
-
-        $affiliateIds = BrandPartnerLink::query()
-            ->where('brand_professional_id', $brandId)
-            ->pluck('affiliate_professional_id')
-            ->filter(fn ($id): bool => is_string($id) && $id !== '')
-            ->all();
-
-        if (empty($affiliateIds)) {
-            return;
-        }
-
-        // Resolve current handles for all affiliates in one query.
-        $handlesByAffiliate = Professional::query()
-            ->whereIn('id', $affiliateIds)
-            ->pluck('handle', 'id')
-            ->all();
-
-        // Resolve active aliases for all affiliates in one query.
-        $aliasesByAffiliate = ProfessionalHandleAlias::query()
-            ->whereIn('professional_id', $affiliateIds)
-            ->get(['professional_id', 'handle'])
-            ->groupBy('professional_id')
-            ->map(fn ($rows) => $rows->pluck('handle')->all())
-            ->all();
-
-        $keys = [];
-        foreach ($affiliateIds as $affiliateId) {
-            $affiliateId = (string) $affiliateId;
-            $slugs = [];
-
-            $handle = $handlesByAffiliate[$affiliateId] ?? null;
-            if (is_string($handle) && $handle !== '') {
-                $slugs[] = strtolower($handle);
-            }
-
-            foreach ($aliasesByAffiliate[$affiliateId] ?? [] as $alias) {
-                if (is_string($alias) && $alias !== '') {
-                    $slugs[] = strtolower($alias);
-                }
-            }
-
-            $slugs = array_values(array_unique($slugs));
-
-            // Delete ONLY the primary key, not the :stale twin — a brand change
-            // can fan out to hundreds of affiliate pages; keeping :stale lets the
-            // SWR fast path serve last-good while one worker rebuilds, avoiding a
-            // synchronised cold-rebuild stampede across the affiliate roster.
-            foreach ($slugs as $slug) {
-                $keys[] = CacheKeyGenerator::hydrogenAffiliate($brandId, $slug);
-            }
-        }
-
-        if (! empty($keys)) {
-            Cache::deleteMultiple(array_values(array_unique($keys)));
-        }
-    }
-
-    /**
-     * Bust the Hydrogen brand-config cache for a brand professional.
-     *
-     * The cache key is keyed by shop_domain (1:1 with brand professional via
-     * the Shopify ProfessionalIntegration row), so this resolves the domain
-     * once and clears both the primary key and its :stale twin.
-     */
-    public function forgetHydrogenBrandConfig(string $professionalId): void
-    {
-        if ($professionalId === '') {
-            return;
-        }
-
-        $shopDomain = ProfessionalIntegration::query()
-            ->where('professional_id', $professionalId)
-            ->where('provider', ProfessionalIntegration::PROVIDER_SHOPIFY)
-            ->value('shopify_shop_domain');
-
-        if (! is_string($shopDomain) || trim($shopDomain) === '') {
-            return;
-        }
-
-        $primary = CacheKeyGenerator::hydrogenBrandConfig(strtolower(trim($shopDomain)));
-        Cache::deleteMultiple([$primary, $primary.':stale']);
-    }
-
-    /**
-     * Bust the Hydrogen affiliate-products cache for an affiliate professional.
-     *
-     * Direct key (no enumeration) — clears the primary and its :stale twin.
-     */
-    public function forgetHydrogenAffiliateProducts(string $affiliateId): void
-    {
-        if ($affiliateId === '') {
-            return;
-        }
-
-        $primary = CacheKeyGenerator::hydrogenAffiliateProducts($affiliateId);
-        Cache::deleteMultiple([$primary, $primary.':stale']);
-    }
-
-    /**
      * Returns both the primary key and its SWR stale copy so invalidation is
      * always symmetric — prevents stale copies surviving after a primary bust.
      *
@@ -1044,7 +498,7 @@ class SiteCacheService
      */
     public function invalidateSite(Site $site): void
     {
-        $professionalId = (string) ($site->professional_id ?? '');
+        $userId = (string) ($site->user_id ?? '');
 
         $keys = [
             // busts: site:payload:{subdomain} + :stale (CACHE-2 — SWR fast path
@@ -1067,8 +521,8 @@ class SiteCacheService
         // The auth-path Professional model cache (AUTH-1) holds the site relation
         // preloaded — site writes must bust it or the next 60s of authenticated
         // requests would see a stale subdomain / settings on $pro->site.
-        if ($professionalId !== '') {
-            $modelKey = CacheKeyGenerator::professionalModel($professionalId);
+        if ($userId !== '') {
+            $modelKey = CacheKeyGenerator::professionalModel($userId);
             $keys[] = $modelKey;
             $keys[] = $modelKey.':stale';
         }
@@ -1099,49 +553,6 @@ class SiteCacheService
         }
 
         Cache::deleteMultiple(array_values(array_unique($keys)));
-
-        // Master Pattern 15: bust the Hydrogen response caches keyed off this
-        // site. The two cache families are mutually exclusive — hydrogen-affiliate
-        // is keyed by (brand, affiliate-handle) and only meaningful for affiliate
-        // sites; hydrogen-brand-config is keyed by shop_domain and only meaningful
-        // for brand sites. Determine the site owner's role and bust the
-        // appropriate cache. Wrapped in try-catch so a hydrogen-bust failure
-        // (e.g. DB hiccup resolving handle aliases) never blocks the primary
-        // public-payload invalidation above.
-        if ($professionalId !== '') {
-            try {
-                $owner = Professional::query()
-                    ->whereKey($professionalId)
-                    ->first(['professional_type']);
-                if ($owner?->isBrand()) {
-                    $this->forgetHydrogenBrandConfig($professionalId);
-
-                    // CACHE-6: also clear Hydrogen affiliate-page caches for every
-                    // active partner linked to this brand. A brand design/config change
-                    // is reflected on each affiliate's Hydrogen page, so those keys must
-                    // be invalidated alongside the brand-config key.
-                    // Walk BrandPartnerLink rows and clear hydrogenAffiliate keys using
-                    // the same (brand, slug) matrix that forgetHydrogenAffiliate() builds.
-                    $this->forgetHydrogenAffiliatesByBrand($professionalId);
-                } else {
-                    $this->forgetHydrogenAffiliate((string) $site->id);
-                }
-            } catch (\Throwable $e) {
-                Log::warning('Hydrogen cache bust failed during invalidateSite', [
-                    'site_id' => $site->id,
-                    'professional_id' => $professionalId,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // SCALE-3: replace the inline O(N) per-subdomain dispatch loop with a single
-        // job that chunks BrandPartnerLink rows internally (500 per chunk). This avoids
-        // dispatching potentially thousands of individual jobs into the queue when a
-        // brand edit invalidates a large affiliate roster.
-        if ($professionalId !== '') {
-            InvalidateBrandAffiliatesCacheJob::dispatch($professionalId);
-        }
     }
 
     public function getSiteLinkBlocks(string $siteId): array
@@ -1159,7 +570,8 @@ class SiteCacheService
                 ->active()
                 ->orderBy('sort_order')
                 ->get()
-                ->toArray()
+                ->map(fn (Block $b) => (new LinkBlockResource($b))->resolve())
+                ->all()
         );
     }
 

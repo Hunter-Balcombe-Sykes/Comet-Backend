@@ -6,16 +6,14 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSiteFromRequest;
-use App\Http\Requests\Api\PublicSite\Analytics\CartEventRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
-use App\Models\Analytics\CartEvent;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
 use App\Models\Core\Site\Block;
-use App\Services\Cache\AnalyticsCacheService;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -30,9 +28,7 @@ class AnalyticsController extends ApiController
     use HashesClientData;
     use ResolvesSiteFromRequest;
 
-    public function __construct(
-        private AnalyticsCacheService $analyticsCache
-    ) {}
+    public function __construct() {}
 
     public function pageview(PageviewRequest $request): JsonResponse
     {
@@ -68,12 +64,12 @@ class AnalyticsController extends ApiController
             'country_code' => $this->detectCountryCode($request),
             'device_type' => $this->detectDeviceType($request->userAgent()),
         ]);
-        $visit->professional_id = $site->professional_id;
+        $visit->user_id = $site->user_id;
         $visit->site_id = $site->id;
         $visit->save();
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on pageview', ['site_id' => $site->id, 'error' => $e->getMessage()]);
@@ -124,7 +120,6 @@ class AnalyticsController extends ApiController
         $trackableSectionTypes = collect(config('partna.section_block_types', [
             'gallery',
             'services',
-            'shop',
             'booking',
         ]))
             ->filter(fn ($type) => is_string($type) && trim($type) !== '')
@@ -178,14 +173,14 @@ class AnalyticsController extends ApiController
                 'utm_medium' => $data['utm_medium'] ?? null,
                 'utm_campaign' => $data['utm_campaign'] ?? null,
             ]);
-            $click->professional_id = $site->professional_id;
+            $click->user_id = $site->user_id;
             $click->site_id = $site->id;
             $click->link_block_id = $block->id;
             $click->save();
         }
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on click', ['site_id' => $site->id, 'error' => $e->getMessage()]);
@@ -195,46 +190,6 @@ class AnalyticsController extends ApiController
             'message' => $isTrackableSection ? 'Section interaction recorded' : 'Click recorded',
             'click_id' => $click->id,
         ], 201);
-    }
-
-    public function cartEvent(CartEventRequest $request): JsonResponse
-    {
-        $data = $request->validated();
-
-        $site = $this->resolveSiteFromData($data);
-
-        if (! $site) {
-            $statusCode = ! empty($data['site_id']) ? 422 : 404;
-
-            return $this->error('Site not found', $statusCode);
-        }
-
-        // 404 not 403: public endpoint — returning 403 would reveal the site exists but is unpublished
-        if (! $site->is_published) {
-            return $this->error('Site not found', 404);
-        }
-
-        $event = new CartEvent([
-            'event_type' => $data['event_type'],
-            'occurred_at' => now(),
-            'session_id' => $data['session_id'] ?? null,
-            'visitor_id' => $data['visitor_id'] ?? null,
-            'ip_hash' => $this->hashIp($request->ip()),
-            'shopify_product_id' => $data['shopify_product_id'] ?? null,
-            'quantity' => $data['quantity'] ?? null,
-        ]);
-        $event->professional_id = $site->professional_id;
-        $event->site_id = $site->id;
-        $event->save();
-
-        try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
-        } catch (Throwable $e) {
-            report($e);
-            Log::warning('Analytics cache invalidation failed on cart event', ['site_id' => $site->id, 'error' => $e->getMessage()]);
-        }
-
-        return $this->success(['message' => 'Cart event recorded', 'event_id' => $event->id], 201);
     }
 
     public function sectionSeen(SectionSeenRequest $request): JsonResponse
@@ -307,13 +262,13 @@ class AnalyticsController extends ApiController
                 'country_code' => $this->detectCountryCode($request),
                 'device_type' => $this->detectDeviceType($request->userAgent()),
             ]);
-            $view->professional_id = $site->professional_id;
+            $view->user_id = $site->user_id;
             $view->site_id = $site->id;
             $view->save();
         }
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on section view', [
@@ -332,12 +287,12 @@ class AnalyticsController extends ApiController
     /**
      * Invalidate analytics cache at most once per 30-second window per professional.
      * High-volume ingest (pageviews, clicks, section views) would otherwise bust SWR
-     * on every event. Commerce writes bypass this and call invalidateAnalytics() directly.
+     * on every event.
      */
-    private function debounceInvalidateAnalytics(string $professionalId): void
+    private function debounceInvalidateAnalytics(string $userId): void
     {
-        if (Cache::add("analytics:ingest-debounce:{$professionalId}", 1, 30)) {
-            $this->analyticsCache->invalidateAnalytics($professionalId);
+        if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
+            Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
         }
     }
 }

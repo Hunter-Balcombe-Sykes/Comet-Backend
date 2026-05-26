@@ -3,17 +3,29 @@
 return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
-    // Wildcard origin is safe because supports_credentials => false — the
-    // browser's wildcard+credentials restriction doesn't apply. All auth is
-    // via Authorization: Bearer JWT, not cookies. This allows the Shopify
-    // admin extension sandbox, local dev servers, and any future frontend
-    // to call the API without CORS preflight rejections.
-    'allowed_origins' => ['*'],
-    'allowed_origins_patterns' => [],
-    // Wildcard headers are safe for the same reason as allowed_origins above:
-    // supports_credentials => false means the browser's wildcard+credentials
-    // restriction does not apply. If supports_credentials is ever set to true,
-    // both allowed_origins and allowed_headers MUST be locked to explicit values.
+    // Exact-origin allowlist for browser callers. Driven by PARTNA_FRONTEND_ORIGINS
+    // (see config/partna.php). First-party frontends — partna.au, www.partna.au,
+    // app.partna.au, and dev/local equivalents — go here.
+    //
+    // History: this was previously `['*']` with a comment justifying wildcard via
+    // `supports_credentials => false`. That tolerated unbounded callers (scanners,
+    // random sites). Replaced by an explicit allowlist + targeted regex patterns
+    // below for the legitimate wildcard cases (#P2-40 / #P3-11).
+    'allowed_origins' => config('partna.frontend_origins', []),
+    // Regex patterns for hostnames where enumerating every entry is impossible:
+    //   - *.partna.au: visitor mini-sites (handle subdomains); the character class
+    //     excludes `.` so `evil.partna.au.attacker.com` cannot match.
+    //   - admin.shopify.com and *.myshopify.com: embedded Shopify admin extension.
+    // All patterns require https. Subject to Laravel CORS package's `preg_match` —
+    // anchors and delimiters are mandatory.
+    'allowed_origins_patterns' => [
+        '#^https://[a-z0-9-]+\.partna\.au$#i',
+        '#^https://admin\.shopify\.com$#i',
+        '#^https://[a-z0-9-]+\.myshopify\.com$#i',
+    ],
+    // Wildcard request headers remain safe: supports_credentials => false means the
+    // browser's wildcard+credentials restriction does not apply. If supports_credentials
+    // is ever set to true, this MUST be locked to an explicit list.
     'allowed_headers' => ['*'],
     'exposed_headers' => [],
     // Cache CORS preflight responses for 24h. Browsers floor this to their own

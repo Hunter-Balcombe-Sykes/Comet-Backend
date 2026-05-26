@@ -2,13 +2,13 @@
 
 use App\Services\Site\UpdateSiteAction;
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();
@@ -19,20 +19,19 @@ beforeEach(function () {
  * Create a professional + site with the given subdomain using raw DB inserts
  * (no Eloquent factories; mirrors the project's test helper pattern).
  */
-function createProWithSite(string $subdomain): Professional
+function createProWithSite(string $subdomain): User
 {
     $proId  = (string) Str::uuid();
     $siteId = (string) Str::uuid();
     $now    = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id'                => $proId,
         'auth_user_id'      => 'auth-'.Str::random(12),
         'handle'            => $subdomain,
         'handle_lc'         => strtolower($subdomain),
         'display_name'      => ucfirst($subdomain),
         'primary_email'     => $subdomain.'@example.test',
-        'professional_type' => 'professional',
         'status'            => 'active',
         'created_at'        => $now,
         'updated_at'        => $now,
@@ -40,7 +39,7 @@ function createProWithSite(string $subdomain): Professional
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id'             => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain'      => $subdomain,
         'is_published'   => 1,
         'settings'       => json_encode([]),
@@ -48,7 +47,7 @@ function createProWithSite(string $subdomain): Professional
         'updated_at'     => $now,
     ]);
 
-    return Professional::query()->with('site')->findOrFail($proId);
+    return User::query()->with('site')->findOrFail($proId);
 }
 
 it('writes a handle_change_log row on subdomain rename with rename reason and actor', function () {
@@ -60,7 +59,7 @@ it('writes a handle_change_log row on subdomain rename with rename reason and ac
         ['ip' => '203.0.113.4', 'user_agent' => 'pest/test']
     );
 
-    $log = HandleChangeLog::where('professional_id', $pro->id)->latest('changed_at')->firstOrFail();
+    $log = HandleChangeLog::where('user_id', $pro->id)->latest('changed_at')->firstOrFail();
     expect($log->old_handle)->toBe('old');
     expect($log->new_handle)->toBe('new');
     expect($log->reason)->toBe(HandleChangeLog::REASON_RENAME);
@@ -78,5 +77,5 @@ it('does not write a handle_change_log row when subdomain is unchanged', functio
         ['ip' => '203.0.113.4', 'user_agent' => 'pest/test']
     );
 
-    expect(HandleChangeLog::where('professional_id', $pro->id)->count())->toBe(0);
+    expect(HandleChangeLog::where('user_id', $pro->id)->count())->toBe(0);
 });

@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Views\AllSiteData;
 use Illuminate\Http\JsonResponse;
 
-// V2: Staff views site data including unpublished sites. Used by internal staff dashboard.
+// Staff views site data including unpublished sites. Used by internal staff
+// dashboard. Returns the user's content + skeleton choice; the per-user
+// design kit is intentionally NOT surfaced here (staff don't edit it).
 class StaffSiteController extends ApiController
 {
     public function show(string $subdomain): JsonResponse
@@ -20,90 +22,55 @@ class StaffSiteController extends ApiController
             return $this->error('Site not found.', 404);
         }
 
-        $siteSettings = is_array($row->site_settings) ? $row->site_settings : [];
-
-        // Staff can see unpublished too, so we return published flag either way
-        return $this->success([
-            'is_published' => (bool) $row->is_published,
-
-            'site' => [
-                'id' => $row->site_id,
-                'subdomain' => $row->subdomain,
-                'settings' => $siteSettings,
-            ],
-
-            'professional' => [
-                'id' => $row->professional_id,
-                'handle' => $row->professional_handle,
-                'display_name' => $row->professional_display_name,
-                'professional_type' => $row->professional_type,
-                // account_type alongside legacy professional_type; staff dashboards may filter on either
-                // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
-                'account_type' => $row->account_type,
-                'bio' => $row->professional_bio,
-                'location_street_address' => $row->professional_location_street_address,
-                'location_city' => $row->professional_location_city,
-                'location_state' => $row->professional_location_state,
-                'location_postcode' => $row->professional_location_postcode,
-                'location_country' => $row->professional_location_country,
-            ],
-
-            'theme' => [
-                'id' => $row->theme_id,
-                'key' => $row->theme_key,
-                'name' => $row->theme_name,
-                'config' => $row->theme_config,
-            ],
-
-            'blocks' => $row->blocks ?? [],
-        ]);
+        return $this->success($this->buildPayload($row));
     }
 
-    public function showByProfessional(Professional $professional): JsonResponse
+    public function showByProfessional(User $professional): JsonResponse
     {
         $row = AllSiteData::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->first();
 
         if (! $row) {
             return $this->error('Site not found for professional.', 404);
         }
 
+        return $this->success($this->buildPayload($row));
+    }
+
+    /**
+     * Build the staff payload from an all_site_data row. Single source so
+     * show + showByProfessional can't drift. Skeleton choice replaces the old
+     * `theme` object.
+     */
+    private function buildPayload(AllSiteData $row): array
+    {
         $siteSettings = is_array($row->site_settings) ? $row->site_settings : [];
 
-        return $this->success([
+        return [
             'is_published' => (bool) $row->is_published,
 
             'site' => [
                 'id' => $row->site_id,
                 'subdomain' => $row->subdomain,
+                'skeleton_id' => $row->skeleton_id,
                 'settings' => $siteSettings,
             ],
 
             'professional' => [
-                'id' => $row->professional_id,
-                'handle' => $row->professional_handle,
-                'display_name' => $row->professional_display_name,
-                'professional_type' => $row->professional_type,
-                // account_type alongside legacy professional_type; staff dashboards may filter on either
-                // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
+                'id' => $row->user_id,
+                'handle' => $row->handle,
+                'display_name' => $row->display_name,
                 'account_type' => $row->account_type,
-                'bio' => $row->professional_bio,
-                'location_street_address' => $row->professional_location_street_address,
-                'location_city' => $row->professional_location_city,
-                'location_state' => $row->professional_location_state,
-                'location_postcode' => $row->professional_location_postcode,
-                'location_country' => $row->professional_location_country,
-            ],
-
-            'theme' => [
-                'id' => $row->theme_id,
-                'key' => $row->theme_key,
-                'name' => $row->theme_name,
-                'config' => $row->theme_config,
+                'bio' => $row->bio,
+                'location_street_address' => $row->location_street_address,
+                'location_city' => $row->location_city,
+                'location_state' => $row->location_state,
+                'location_postcode' => $row->location_postcode,
+                'location_country' => $row->location_country,
             ],
 
             'blocks' => $row->blocks ?? [],
-        ]);
+        ];
     }
 }

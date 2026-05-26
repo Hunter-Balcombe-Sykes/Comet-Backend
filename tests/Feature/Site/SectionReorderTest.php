@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalSectionBlockController;
-use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
-use App\Models\Core\Professional\Professional;
+use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
+use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -18,14 +18,14 @@ beforeEach(function () {
     shimPgAdvisoryLockForSqlite();
 });
 
-function seedSectionBlock(Professional $pro, string $blockType, int $sortOrder): string
+function seedSectionBlock(User $pro, string $blockType, int $sortOrder): string
 {
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     DB::table('site.blocks')->insert([
         'id' => $id,
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'site_id' => $pro->site->id,
         'block_group' => 'sections',
         'block_type' => $blockType,
@@ -40,7 +40,7 @@ function seedSectionBlock(Professional $pro, string $blockType, int $sortOrder):
     return $id;
 }
 
-function callSectionReorder(Professional $pro, array $ids)
+function callSectionReorder(User $pro, array $ids)
 {
     $plain = tenantRequestAs($pro, ['ids' => $ids], 'POST');
     $req = ReorderBlocksRequest::createFrom($plain);
@@ -48,7 +48,7 @@ function callSectionReorder(Professional $pro, array $ids)
     $req->validateResolved();
     $req->attributes->set('professional', $pro);
 
-    return app(ProfessionalSectionBlockController::class)->reorder($req);
+    return app(UserSectionBlockController::class)->reorder($req);
 }
 
 it('reorders sections owned by the authenticated professional', function () {
@@ -103,7 +103,7 @@ it('ignores link blocks when reordering sections', function () {
     $now = now()->toDateTimeString();
     DB::table('site.blocks')->insert([
         'id' => $linkId,
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'site_id' => $pro->site->id,
         'block_group' => 'links',
         'block_type' => 'link',

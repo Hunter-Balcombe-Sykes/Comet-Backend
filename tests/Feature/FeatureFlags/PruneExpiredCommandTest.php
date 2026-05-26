@@ -10,7 +10,7 @@ beforeEach(function () {
 it('deletes expired overrides, keeps active ones', function () {
     $proId = (string) Str::uuid();
     $pro2Id = (string) Str::uuid();
-    $brandId = (string) Str::uuid();
+    $pro3Id = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.feature_flags')->insert([
         'key' => 'prune_test_flag', 'default_enabled' => false, 'rollout_percent' => 0,
@@ -20,15 +20,15 @@ it('deletes expired overrides, keeps active ones', function () {
     // Expired pro override
     $expiredId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
-        'id' => $expiredId, 'flag_key' => 'prune_test_flag', 'professional_id' => $proId,
+        'id' => $expiredId, 'flag_key' => 'prune_test_flag', 'user_id' => $proId,
         'enabled' => true, 'expires_at' => now()->subMinute(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
-    // Active brand override
+    // Active pro override
     $activeId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
-        'id' => $activeId, 'flag_key' => 'prune_test_flag', 'brand_id' => $brandId,
+        'id' => $activeId, 'flag_key' => 'prune_test_flag', 'user_id' => $pro3Id,
         'enabled' => true, 'expires_at' => now()->addHour(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -36,7 +36,7 @@ it('deletes expired overrides, keeps active ones', function () {
     // Permanent override (no expires_at)
     $permanentId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
-        'id' => $permanentId, 'flag_key' => 'prune_test_flag', 'professional_id' => $pro2Id,
+        'id' => $permanentId, 'flag_key' => 'prune_test_flag', 'user_id' => $pro2Id,
         'enabled' => false, 'expires_at' => null,
         'created_at' => now(), 'updated_at' => now(),
     ]);

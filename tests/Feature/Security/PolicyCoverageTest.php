@@ -17,42 +17,21 @@ use Symfony\Component\Finder\Finder;
 
 const POLICY_EXEMPT = [
     // Catalog & system tables — no tenant ownership; admin-only or read-only.
-    \App\Models\Billing\Plan::class,
-    \App\Models\Billing\WebhookEvent::class,
     \App\Models\Core\MediaVariant::class,           // owned via parent SiteMedia
     \App\Models\Core\Waitlist\WaitlistSignup::class, // public submission, no actor
 
-    // Shared catalog — one Theme can be applied to many sites; read by public
-    // site renderer, mutations are admin-only.
-    \App\Models\Core\Site\Theme::class,
-
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
-    // API, gated by the parent Site/CommissionPolicy.
-    \App\Models\Analytics\CartEvent::class,
+    // API, gated by the parent Site policy.
     \App\Models\Analytics\LinkClick::class,
     \App\Models\Analytics\SectionView::class,
     \App\Models\Analytics\SiteVisit::class,
-
-    // Nested under CommissionPayout — gated transitively by CommissionPolicy.
-    \App\Models\Commerce\CommissionPayoutItem::class,
-
-    // Nested under Commerce\Order — append-only audit log; access flows through
-    // the parent Order's CommissionPolicy. Mirrors the CommissionPayoutItem pattern.
-    \App\Models\Commerce\OrderEvent::class,
-
-    // Nested under CommissionPayout — append-only Stripe-reversal log written
-    // server-side by CommissionPayoutRefundService. No user-facing CRUD; reads
-    // are gated by the parent CommissionPayout's CommissionPolicy (and at the
-    // DB layer by RLS policy `clawbacks_party_select` in
-    // 20260512200000_commission_clawbacks_enable_rls.sql).
-    \App\Models\Commerce\CommissionClawback::class,
 
     // Append-only audit log for handle/subdomain renames; readable by staff only — no per-row tenant policy.
     \App\Models\Core\HandleChangeLog::class,
 
     // Handle alias table — read/write access flows through the parent Professional's policy.
-    \App\Models\Core\Site\ProfessionalHandleAlias::class,
+    \App\Models\Core\Site\UserHandleAlias::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional
@@ -60,18 +39,11 @@ const POLICY_EXEMPT = [
     // here because there is no controller action to gate.
     \App\Models\Core\Staff\StaffAuditEntry::class,
 
-    // Async export audit row. Created by the professional's own export request;
-    // read back only by the same professional via the export status endpoint.
-    // Access is gated at the controller level (professional_id scoping) — there
-    // is no cross-tenant resource access risk, and no policy-gated CRUD surface.
-    \App\Models\Commerce\CommissionExportAudit::class,
+    // GDPR request submissions — write-only via the GDPR submission endpoint;
+    // mutations are user-initiated, reads are staff-only via SQL. Parent
+    // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
+    \App\Models\Core\Gdpr\GdprRequest::class,
 
-    // Append-only audit log for brand signup code lifecycle events (generated, rotated,
-    // claimed, failed_claim, etc.). Written only by BrandSignupCodeService — never
-    // directly exposed over the API for write. Dashboard counts are aggregated via
-    // BrandSignupCodeController which scopes all reads to the authenticated brand's
-    // own profile. No per-row tenant policy is needed.
-    \App\Models\Core\Professional\BrandSignupCodeAuditEntry::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {

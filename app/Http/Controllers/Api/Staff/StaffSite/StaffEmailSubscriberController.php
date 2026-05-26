@@ -8,13 +8,13 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\StaffEmailSubscriptionResource;
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 // Staff inspector for a brand's marketing-list subscribers (#GDPR-1).
-// Mirrors the brand-side ProfessionalEmailSubscriptionController so support
+// Mirrors the brand-side UserEmailSubscriptionController so support
 // can answer Article 15/20 requests routed via the platform inbox.
 class StaffEmailSubscriberController extends ApiController
 {
@@ -26,7 +26,7 @@ class StaffEmailSubscriberController extends ApiController
      * GET /staff/professionals/{professional}/email-subscribers
      * Any-staff. Same query + paging shape as the brand sees on /api/email-subscribers.
      */
-    public function index(Request $request, Professional $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
         $listKey = $request->query('list_key', 'marketing');
         $listKey = is_string($listKey) ? trim($listKey) : 'marketing';
@@ -42,7 +42,7 @@ class StaffEmailSubscriberController extends ApiController
         $searchLike = $this->prepareSearchLike($request, 'search');
 
         $query = EmailSubscription::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->where('list_key', $listKey)
             ->orderByDesc('subscribed_at')
             ->orderByDesc('created_at');
@@ -76,7 +76,7 @@ class StaffEmailSubscriberController extends ApiController
      * GET /staff/professionals/{professional}/email-subscribers/export
      * Any-staff. CSV stream matching the brand-side export verbatim.
      */
-    public function export(Request $request, Professional $professional): StreamedResponse
+    public function export(Request $request, User $professional): StreamedResponse
     {
         $listKey = $request->query('list_key', 'marketing');
         $listKey = is_string($listKey) ? trim($listKey) : 'marketing';
@@ -88,7 +88,7 @@ class StaffEmailSubscriberController extends ApiController
         $status = is_string($status) ? trim($status) : 'subscribed';
 
         $query = EmailSubscription::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->where('list_key', $listKey)
             ->orderBy('email');
 

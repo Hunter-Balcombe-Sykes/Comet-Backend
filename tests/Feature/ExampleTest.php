@@ -1,8 +1,11 @@
 <?php
 
 /** @phpstan-ignore-all */
-test('the application returns a successful response', function () {
+// The backend has no public landing page — `/` is intentionally a 404.
+// Public traffic goes through subdomain routing (handled by the Cloudflare
+// Worker); the API origin only serves /api/* and /p/{uuid}.svg.
+test('the root path is intentionally not exposed', function () {
     $response = $this->get('/');
 
-    $response->assertStatus(200);
+    $response->assertStatus(404);
 });

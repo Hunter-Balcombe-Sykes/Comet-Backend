@@ -3,7 +3,7 @@
 namespace App\Models\Core\Staff;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,7 +16,7 @@ class StaffAuditEntry extends BaseModel
 {
     use HasFactory, HasUuids;
 
-    protected $table = 'core.staff_audit_log';
+    protected $table = 'audit.staff_audit_log';
 
     public $incrementing = false;
 
@@ -32,7 +32,7 @@ class StaffAuditEntry extends BaseModel
         'staff_email_snapshot',
         'impersonator_staff_id',
         'impersonator_email_snapshot',
-        'professional_id',
+        'user_id',
         'professional_handle_snapshot',
         'route',
         'http_method',
@@ -60,8 +60,8 @@ class StaffAuditEntry extends BaseModel
         return $this->belongsTo(PartnaStaff::class, 'impersonator_staff_id');
     }
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

@@ -26,6 +26,10 @@ const MAILABLE_COVERAGE_EXEMPT = [
     'policy_update',
     'incident',
     'feature_announcement',
+    // ProfileTaskMail exists but its emit site was removed with the account-type
+    // defaults machinery (3-account-type strip). Retained in config pending a
+    // replacement emit site for the individual-only onboarding flow.
+    'profile_tasks',
 ];
 
 it('every configured mailable category has at least one publish() call site', function () {

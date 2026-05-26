@@ -1,77 +1,118 @@
 <?php
 
-// §28.17 CACHE-1 — ServiceCategory mutations must trigger
-// ProfessionalCacheService::invalidateProfessional so the dashboard
-// services cache doesn't serve stale category state for up to the
-// 30-min TTL after a rename / delete / reorder.
+// B14/P3-03 — ServiceCategory mutations must bust only the four services cache
+// keys (professionalDashboardServices + professionalServices, both ± :stale)
+// and the public site payload (category titles are embedded there). Prior to
+// this fix the observer called invalidateUser() which nuked 13+ keys
+// including the hydrated User model — forcing unnecessary Postgres round-trips.
 
-use App\Models\Core\Professional\Professional;
-use App\Models\Core\Professional\ServiceCategory;
-use App\Services\Cache\ProfessionalCacheService;
+use App\Models\Core\User\User;
+use App\Models\Core\User\ServiceCategory;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\SiteCacheService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupServiceCategoriesTable();
 });
 
-function seedCategoryTestPro(): Professional
+function seedCategoryTestPro(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'cat-pro',
         'handle_lc' => 'cat-pro',
         'display_name' => 'Cat Pro',
-        'professional_type' => 'professional',
         'account_type' => 'individual',
         'status' => 'active',
     ]);
 
-    return Professional::query()->findOrFail($id);
+    return User::query()->findOrFail($id);
 }
 
-it('invalidates the Professional cache when a ServiceCategory is created', function () {
+it('busts only the services cache keys when a ServiceCategory is created', function () {
     $pro = seedCategoryTestPro();
 
-    $cache = Mockery::mock(ProfessionalCacheService::class);
-    $cache->shouldReceive('invalidateProfessional')->once()->with(Mockery::on(fn ($p) => $p->id === $pro->id));
-    app()->instance(ProfessionalCacheService::class, $cache);
+    // Seed stale values so we can assert they were cleared.
+    $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
+    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    Cache::put($dashKey, ['old'], 60);
+    Cache::put($dashKey.':stale', ['old-stale'], 60);
+    Cache::put($svcKey, ['old'], 60);
+    Cache::put($svcKey.':stale', ['old-stale'], 60);
+
+    // SiteCacheService::invalidateSite is called for the site payload — mock it
+    // so we don't need a full site fixture. No site → skipped gracefully.
+    $siteCache = Mockery::mock(SiteCacheService::class);
+    $siteCache->shouldNotReceive('invalidateSite'); // no site on this pro
+    app()->instance(SiteCacheService::class, $siteCache);
 
     ServiceCategory::query()->create([
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
     ]);
+
+    expect(Cache::get($dashKey))->toBeNull()
+        ->and(Cache::get($dashKey.':stale'))->toBeNull()
+        ->and(Cache::get($svcKey))->toBeNull()
+        ->and(Cache::get($svcKey.':stale'))->toBeNull();
 });
 
-it('invalidates the Professional cache when a ServiceCategory is updated', function () {
+it('busts only the services cache keys when a ServiceCategory is updated', function () {
     $pro = seedCategoryTestPro();
     $category = ServiceCategory::query()->create([
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
     ]);
 
-    $cache = Mockery::mock(ProfessionalCacheService::class);
-    $cache->shouldReceive('invalidateProfessional')->once()->with(Mockery::on(fn ($p) => $p->id === $pro->id));
-    app()->instance(ProfessionalCacheService::class, $cache);
+    $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
+    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    Cache::put($dashKey, ['old'], 60);
+    Cache::put($dashKey.':stale', ['old-stale'], 60);
+    Cache::put($svcKey, ['old'], 60);
+    Cache::put($svcKey.':stale', ['old-stale'], 60);
+
+    $siteCache = Mockery::mock(SiteCacheService::class);
+    $siteCache->shouldNotReceive('invalidateSite');
+    app()->instance(SiteCacheService::class, $siteCache);
 
     $category->update(['title' => 'Renamed']);
+
+    expect(Cache::get($dashKey))->toBeNull()
+        ->and(Cache::get($dashKey.':stale'))->toBeNull()
+        ->and(Cache::get($svcKey))->toBeNull()
+        ->and(Cache::get($svcKey.':stale'))->toBeNull();
 });
 
-it('invalidates the Professional cache when a ServiceCategory is deleted', function () {
+it('busts only the services cache keys when a ServiceCategory is deleted', function () {
     $pro = seedCategoryTestPro();
     $category = ServiceCategory::query()->create([
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
     ]);
 
-    $cache = Mockery::mock(ProfessionalCacheService::class);
-    $cache->shouldReceive('invalidateProfessional')->once()->with(Mockery::on(fn ($p) => $p->id === $pro->id));
-    app()->instance(ProfessionalCacheService::class, $cache);
+    $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
+    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    Cache::put($dashKey, ['old'], 60);
+    Cache::put($dashKey.':stale', ['old-stale'], 60);
+    Cache::put($svcKey, ['old'], 60);
+    Cache::put($svcKey.':stale', ['old-stale'], 60);
+
+    $siteCache = Mockery::mock(SiteCacheService::class);
+    $siteCache->shouldNotReceive('invalidateSite');
+    app()->instance(SiteCacheService::class, $siteCache);
 
     $category->delete();
+
+    expect(Cache::get($dashKey))->toBeNull()
+        ->and(Cache::get($dashKey.':stale'))->toBeNull()
+        ->and(Cache::get($svcKey))->toBeNull()
+        ->and(Cache::get($svcKey.':stale'))->toBeNull();
 });

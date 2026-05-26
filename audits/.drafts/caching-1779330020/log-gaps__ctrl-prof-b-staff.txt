@@ -1,0 +1,10 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   424845 bytes (~106211 tokens)
+
+✓ Wrote audits/.drafts/caching-1779330020/draft-gaps__ctrl-prof-b-staff.md — 1 findings, 392s elapsed
+
+Token usage:
+  prompt: 96242  output: 10584  reasoning: 9824  cache_hit: 96128/96242
+
+→ Next: adjudicate with Claude Sonnet. Feed audits/.drafts/caching-1779330020/draft-gaps__ctrl-prof-b-staff.md + the same scope to Sonnet
+  asking it to verify findings, refine tiers, fix wrong fix recommendations,
+  and emit audit-$(date +%F)-<lens>.md in the canonical format.

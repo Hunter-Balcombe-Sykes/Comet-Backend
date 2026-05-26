@@ -3,13 +3,13 @@
 namespace App\Models\Core\Notifications;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-// V2: In-app notification with typed severity, optional time window, and CTA actions. Can be global (professional_id null) or targeted to one professional.
+// V2: In-app notification with typed severity, optional time window, and CTA actions. Can be global (user_id null) or targeted to one professional.
 class Notification extends BaseModel
 {
     use HasUuids;
@@ -30,7 +30,7 @@ class Notification extends BaseModel
     protected $keyType = 'string';
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'type',
         'category',
         'title',
@@ -52,9 +52,9 @@ class Notification extends BaseModel
         'email_sent_at' => 'datetime',
     ];
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function receipts(): HasMany
@@ -62,14 +62,14 @@ class Notification extends BaseModel
         return $this->hasMany(NotificationReceipt::class, 'notification_id');
     }
 
-    public function scopeVisibleTo(Builder $query, Professional $professional): Builder
+    public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         $now = now();
 
         return $query
-            ->where(function (Builder $q) use ($professional): void {
-                $q->whereNull('professional_id')
-                    ->orWhere('professional_id', $professional->id);
+            ->where(function (Builder $q) use ($user): void {
+                $q->whereNull('user_id')
+                    ->orWhere('user_id', $user->id);
             })
             ->where(function (Builder $q) use ($now): void {
                 $q->whereNull('starts_at')->orWhere('starts_at', '<=', $now);
@@ -125,7 +125,7 @@ class Notification extends BaseModel
     {
         return match (self::normalizeFrontendType($value)) {
             'Critical' => 'critical',
-            'Warning', 'BrandPartnerRemoved' => 'warning',
+            'Warning' => 'warning',
             'To do' => 'warning',
             'Success', 'Info', 'Invitation' => 'info',
             default => 'info',

@@ -4,6 +4,7 @@ use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail;
 
@@ -67,7 +68,7 @@ it('dispatches PasswordResetMail for recovery action', function (): void {
     expect($response->json('ok'))->toBeTrue();
     expect($response->json('handled'))->toBeTrue();
 
-    Mail::assertSent(PasswordResetMail::class, function (PasswordResetMail $m): bool {
+    Mail::assertQueued(PasswordResetMail::class, function (PasswordResetMail $m): bool {
         return $m->recipientEmail === 'tobias@partna.au'
             && $m->displayName === 'Tobias'
             && str_starts_with($m->verifyUrl, 'https://app.partna.au/auth/confirm?')
@@ -95,7 +96,7 @@ it('dispatches MagicLinkMail for magiclink action', function (): void {
     ], $req['body']);
 
     $response->assertOk();
-    Mail::assertSent(MagicLinkMail::class);
+    Mail::assertQueued(MagicLinkMail::class);
 });
 
 it('dispatches EmailConfirmMail for signup action with the 6-digit code', function (): void {
@@ -117,7 +118,7 @@ it('dispatches EmailConfirmMail for signup action with the 6-digit code', functi
     ], $req['body']);
 
     $response->assertOk();
-    Mail::assertSent(EmailConfirmMail::class, function (EmailConfirmMail $m): bool {
+    Mail::assertQueued(EmailConfirmMail::class, function (EmailConfirmMail $m): bool {
         return $m->recipientEmail === 'newby@partna.au'
             && $m->displayName === 'Newby'
             && $m->code === '142857';
@@ -143,7 +144,7 @@ it('returns handled=false for signup when Supabase omits the 6-digit code', func
 
     $response->assertOk();
     expect($response->json('handled'))->toBeFalse();
-    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
 });
 
 it('dispatches InviteMail for invite action', function (): void {
@@ -164,7 +165,7 @@ it('dispatches InviteMail for invite action', function (): void {
     ], $req['body']);
 
     $response->assertOk();
-    Mail::assertSent(InviteMail::class);
+    Mail::assertQueued(InviteMail::class);
 });
 
 it('returns 200 with handled=false for unknown action type (no retry)', function (): void {
@@ -186,7 +187,7 @@ it('returns 200 with handled=false for unknown action type (no retry)', function
 
     $response->assertOk();
     expect($response->json('handled'))->toBeFalse();
-    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
 });
 
 it('rejects requests with an invalid signature (401)', function (): void {
@@ -200,7 +201,7 @@ it('rejects requests with an invalid signature (401)', function (): void {
     ], json_encode(['user' => ['email' => 'x@partna.au'], 'email_data' => ['email_action_type' => 'recovery']]));
 
     expect($response->status())->toBe(401);
-    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
 });
 
 it('returns 503 when the secret is not configured', function (): void {
@@ -231,6 +232,65 @@ it('rejects timestamps outside the tolerance window (401)', function (): void {
     ], $req['body']);
 
     expect($response->status())->toBe(401);
+});
+
+it('treats duplicate webhook-id as a no-op (Supabase retries are idempotent)', function (): void {
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'retry@partna.au', 'user_metadata' => ['name' => 'Retry']],
+        'email_data' => [
+            'token_hash' => 'tok_dedup',
+            'token' => '424242',
+            'email_action_type' => 'signup',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $headers = [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ];
+
+    $first = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], $headers, $req['body']);
+    $first->assertOk();
+    expect($first->json('handled'))->toBeTrue();
+    Mail::assertQueued(EmailConfirmMail::class, 1);
+
+    // Replay the exact same headers + body. Should be acknowledged but not re-dispatched.
+    $second = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], $headers, $req['body']);
+    $second->assertOk();
+    expect($second->json('duplicate'))->toBeTrue();
+    expect($second->json('handled'))->toBeFalse();
+
+    // Still only one queued mail across both deliveries.
+    Mail::assertQueued(EmailConfirmMail::class, 1);
+});
+
+it('forgets the dedup marker when Mail::queue throws so Supabase retries can re-attempt', function (): void {
+    // Override the Mail::fake() set in beforeEach with a mock that throws on queue.
+    Mail::shouldReceive('queue')->once()->andThrow(new \RuntimeException('queue connection down'));
+
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'retry@partna.au'],
+        'email_data' => [
+            'token_hash' => 'tok_fail',
+            'email_action_type' => 'recovery',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    expect($response->status())->toBe(500);
+    // The dedup key must be gone — otherwise the next Supabase retry sees a
+    // stale "seen" marker, returns duplicate=true, and the email is permanently lost.
+    expect(Cache::has('supabase:email_hook:seen:'.$req['headers']['webhook-id']))->toBeFalse();
 });
 
 it('returns 422 when the payload is missing required fields', function (): void {

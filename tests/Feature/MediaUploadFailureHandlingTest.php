@@ -2,10 +2,10 @@
 
 /** @phpstan-ignore-all */
 
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
-use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
+use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
@@ -23,7 +23,7 @@ beforeEach(function () {
     bootstrapMediaUploadFailureSchema();
     setupFeatureFlagsTable();
 
-    // ProfessionalUploadController gates video uploads behind the video_uploads
+    // UserUploadController gates video uploads behind the video_uploads
     // feature flag (FeatureFlagService::enabled). With an empty registry it
     // resolves via the config fallback — enable it so these tests reach the
     // actual upload-failure paths under test rather than a 403.
@@ -45,7 +45,7 @@ beforeEach(function () {
 it('dispatches video cleanup with directory base path when deleting media', function () {
     Queue::fake();
 
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     $mediaId = (string) Str::uuid();
 
@@ -68,7 +68,9 @@ it('dispatches video cleanup with directory base path when deleting media', func
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(VideoVariantService::class);
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
     $siteImage = SiteMedia::query()->findOrFail($mediaId);
 
     // Controller signature was changed to (Request, SiteMedia) — test was
@@ -88,7 +90,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
 });
 
 it('returns 503 and soft-deletes media when video dispatch fails', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'database',
@@ -125,7 +127,9 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
     // Probe passes so we reach the dispatch step (where the 503 originates).
     $videoVariant->shouldReceive('probeAndValidate')->once()->andReturn([]);
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(503);
@@ -140,7 +144,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
 });
 
 it('returns 422 and creates no DB row when probe finds no video stream', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -168,7 +172,9 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
         ->once()
         ->andThrow(new \RuntimeException('File does not contain a recognisable video stream.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -178,7 +184,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
 });
 
 it('returns 422 and creates no DB row when video exceeds maximum duration', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -206,7 +212,9 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
         ->once()
         ->andThrow(new \RuntimeException('Video is too long (400s). Maximum allowed duration is 300s.'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -216,7 +224,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
 });
 
 it('returns 422 and creates no DB row when ffprobe cannot parse the container', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -244,7 +252,9 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
         ->once()
         ->andThrow(new \RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
 
-    $controller = new ProfessionalUploadController($mediaService, new \App\Services\Media\BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -255,25 +265,24 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
 
 function bootstrapMediaUploadFailureSchema(): void
 {
-    // Models reference schema-qualified tables (core.professionals, site.sites,
+    // Models reference schema-qualified tables (core.users, site.sites,
     // site.site_media). The shared helpers in tests/Pest.php attach the right
     // schemas and create tables under them.
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
 }
 
 /**
- * @return array{0: Professional, 1: Site}
+ *  array{0: User, 1: Site}
  */
-function createProfessionalAndSiteForMediaUploadTests(): array
+function createUserAndSiteForMediaUploadTests(): array
 {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => $professionalId,
-        'professional_type' => 'professional',
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
         'display_name' => 'Test Professional',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -281,14 +290,14 @@ function createProfessionalAndSiteForMediaUploadTests(): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'test-pro',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = Professional::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

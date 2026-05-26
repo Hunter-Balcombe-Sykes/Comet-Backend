@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 it('does not resolve sites via expired subdomain aliases', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
 
@@ -14,20 +14,19 @@ it('does not resolve sites via expired subdomain aliases', function () {
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'newhandle',
         'handle_lc' => 'newhandle',
         'status' => 'active',
         'primary_email' => 'newhandle@example.test',
-        'professional_type' => 'professional',
         'created_at' => $now,
         'updated_at' => $now,
     ]);
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'newhandle',
         'is_published' => 1,
         'settings' => json_encode([]),
@@ -68,7 +67,7 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => null,
+        'user_id' => null,
         'subdomain' => 'newhandle',
         'is_published' => 1,
         'settings' => json_encode([]),
@@ -96,7 +95,7 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
 })->todo(note: 'handle-redirect lifecycle not yet implemented — alias hits do not yet 301 to the canonical subdomain. See docs/superpowers/plans/2026-05-19-handle-redirect-lifecycle.md');
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupHandleAliasesTable();
 
@@ -107,20 +106,20 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
     $now = now()->toDateTimeString();
     $expiry = now()->addSeconds(7776000)->toDateTimeString(); // 90d
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'newh',
         'handle_lc' => 'newh',
         'status' => 'active',
         'primary_email' => 'newh@example.test',
-        'professional_type' => 'brand',
+        'account_type' => 'individual',
         'created_at' => $now,
         'updated_at' => $now,
     ]);
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle' => 'oldh',
         'reclaim_until' => now()->addDays(5)->toDateTimeString(),
         'expires_at' => $expiry,
@@ -129,7 +128,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
     ]);
 
     // Canonical entry — no expiry (null TTL).
-    $kv->shouldReceive('put')->once()->with('newh', ['type' => 'brand'], null);
+    $kv->shouldReceive('put')->once()->with('newh', ['type' => 'individual'], null);
 
     // Alias entry — type=alias, target=newh, TTL close to 90d.
     $kv->shouldReceive('put')->once()->withArgs(function ($key, $value, $ttl) {
@@ -143,7 +142,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
 });
 
 it('walks a subdomain alias through grace → redirect → released states', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();
@@ -154,20 +153,19 @@ it('walks a subdomain alias through grace → redirect → released states', fun
     $siteId = (string) \Illuminate\Support\Str::uuid();
     $start = '2026-06-01 12:00:00';
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.professionals')->insert([
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'new-handle',
         'handle_lc' => 'new-handle',
         'status' => 'active',
         'primary_email' => 'lifecycle@example.test',
-        'professional_type' => 'professional',
         'created_at' => $start,
         'updated_at' => $start,
     ]);
 
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'new-handle',
         'is_published' => 1,
         'created_at' => $start,

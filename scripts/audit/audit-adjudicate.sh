@@ -29,6 +29,7 @@ OUT_PROVIDED=false
 MODEL="sonnet"
 ADJ_PROMPT="$(dirname "$0")/adjudicate-prompt.md"
 MAX_BUDGET="2.00"
+NO_SOURCE=false   # --no-source: skip inlining scope source; adjudicator uses Read/Grep instead
 
 usage() { sed -n '2,17p' "$0" | sed 's/^# \?//'; }
 
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --model)         MODEL="$2"; shift 2 ;;
         --system-prompt) ADJ_PROMPT="$2"; shift 2 ;;
         --max-budget)    MAX_BUDGET="$2"; shift 2 ;;
+        --no-source)     NO_SOURCE=true; shift ;;
         -h|--help)       usage; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -118,27 +120,37 @@ USER_MSG="$TMP/user.md"
     echo ""
     cat "$DRAFTS"
     echo ""
-    echo "## Source Files (for Evidence verification)"
-    echo ""
-
-    for path in "${SCOPE_PATHS[@]}"; do
-        if [[ -d "$path" ]]; then
-            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" \) | sort)
-        elif [[ -f "$path" ]]; then
-            files="$path"
-        else
-            echo "WARNING: scope path not found: $path" >&2
-            continue
-        fi
-        while IFS= read -r f; do
-            [[ -f "$f" ]] || continue
-            echo "### $f"
-            echo '```php'
-            cat "$f"
-            echo '```'
-            echo ""
-        done <<< "$files"
-    done
+    if $NO_SOURCE; then
+        echo "## Source Files (for Evidence verification)"
+        echo ""
+        echo "Source is NOT inlined here — the scope is too large to fit the prompt."
+        echo "Use your \`Read\` / \`Grep\` / \`Glob\` tools to verify every finding's"
+        echo "Evidence against the real files. You are running in the project root."
+        echo "Scope paths covered by this audit:"
+        echo ""
+        for path in "${SCOPE_PATHS[@]}"; do echo "- \`$path\`"; done
+    else
+        echo "## Source Files (for Evidence verification)"
+        echo ""
+        for path in "${SCOPE_PATHS[@]}"; do
+            if [[ -d "$path" ]]; then
+                files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" \) | sort)
+            elif [[ -f "$path" ]]; then
+                files="$path"
+            else
+                echo "WARNING: scope path not found: $path" >&2
+                continue
+            fi
+            while IFS= read -r f; do
+                [[ -f "$f" ]] || continue
+                echo "### $f"
+                echo '```php'
+                cat "$f"
+                echo '```'
+                echo ""
+            done <<< "$files"
+        done
+    fi
 
     echo "---"
     echo ""

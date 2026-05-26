@@ -7,11 +7,11 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     attachTestSchemas();
-    setupProfessionalsTable();
+    setupUsersTable();
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NULL,
         category TEXT NULL,
         title TEXT NULL,
@@ -29,7 +29,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         category_key TEXT NULL,
         mode TEXT NULL,
         created_at TEXT NULL,
@@ -38,7 +38,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         category_key TEXT NULL,
         enabled INTEGER NULL,
         created_at TEXT NULL,
@@ -47,7 +47,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         site_id TEXT NULL,
         visitor_id TEXT NULL,
         ip_hash TEXT NULL,
@@ -56,7 +56,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.link_clicks (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         site_id TEXT NULL,
         visitor_id TEXT NULL,
         ip_hash TEXT NULL,
@@ -74,7 +74,7 @@ it('email job exits without sending when professional is soft-deleted', function
     $notifId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'primary_email' => 'deleted@example.test',
         'status' => 'active',
@@ -85,7 +85,7 @@ it('email job exits without sending when professional is soft-deleted', function
 
     DB::connection('pgsql')->table('notifications.notifications')->insert([
         'id' => $notifId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'type' => 'Info',
         'category' => 'invites',
         'title' => 'Test notification',
@@ -109,7 +109,7 @@ it('email job does not block active professionals from receiving email', functio
     $proId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'primary_email' => 'active@example.test',
         'status' => 'active',
@@ -119,7 +119,7 @@ it('email job does not block active professionals from receiving email', functio
     ]);
 
     $email = DB::connection('pgsql')
-        ->table('core.professionals')
+        ->table('core.users')
         ->where('id', $proId)
         ->whereNull('deleted_at')
         ->value('primary_email');
@@ -134,7 +134,7 @@ it('analytics soft-delete guard does not block non-deleted professional', functi
     $proId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'status' => 'active',
         'deleted_at' => null,
@@ -143,7 +143,7 @@ it('analytics soft-delete guard does not block non-deleted professional', functi
     ]);
 
     $shouldProceed = DB::connection('pgsql')
-        ->table('core.professionals')
+        ->table('core.users')
         ->where('id', $proId)
         ->whereNull('deleted_at')
         ->exists();
@@ -153,23 +153,22 @@ it('analytics soft-delete guard does not block non-deleted professional', functi
 
 // ── #V5-056: staff stats doesn't count deleted professionals ─────────────────
 
-it('whereNull deleted_at query excludes soft-deleted professionals from type counts', function () {
+it('whereNull deleted_at query excludes soft-deleted users from account_type counts', function () {
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        ['id' => (string) Str::uuid(), 'professional_type' => 'brand', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'professional_type' => 'brand', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'professional_type' => 'brand', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'professional_type' => 'professional', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+    DB::connection('pgsql')->table('core.users')->insert([
+        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
     ]);
 
     $typeCounts = DB::connection('pgsql')
-        ->table('core.professionals')
+        ->table('core.users')
         ->whereNull('deleted_at')
-        ->selectRaw('professional_type, count(*) as total')
-        ->groupBy('professional_type')
-        ->pluck('total', 'professional_type');
+        ->selectRaw('account_type, count(*) as total')
+        ->groupBy('account_type')
+        ->pluck('total', 'account_type');
 
-    expect((int) $typeCounts->get('brand'))->toBe(2)
-        ->and((int) $typeCounts->get('professional'))->toBe(1);
+    expect((int) $typeCounts->get('individual'))->toBe(3);
 });

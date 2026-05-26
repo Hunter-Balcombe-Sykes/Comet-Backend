@@ -3,7 +3,7 @@
 namespace App\Models\Core\Gdpr;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -42,7 +42,7 @@ class GdprRequest extends BaseModel
         'shopify_shop_id',
         'payload_hash',
         'payload',
-        'professional_id',
+        'user_id',
         'status',
         'error',
         'received_at',
@@ -56,9 +56,9 @@ class GdprRequest extends BaseModel
         'completed_at' => 'datetime',
     ];
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function markCompleted(): void

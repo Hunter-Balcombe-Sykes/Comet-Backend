@@ -7,6 +7,7 @@
 // until the cache expired.
 
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
@@ -19,7 +20,6 @@ beforeEach(function () {
     // Reset the in-process static key cache so each test starts cold.
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $prop->setValue(null, []);
 
     config([
@@ -111,14 +111,17 @@ it('warms a TRUE mixed-alg JWKS (RS256 + ES256) with each kid carrying its own a
     $cacheLock = Mockery::mock(CacheLockService::class);
     $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
 
-    $middleware = new VerifySupabaseJwt($cacheLock);
+    $revocation = Mockery::mock(TokenRevocationService::class);
+    $revocation->shouldReceive('isRevoked')->andReturn(false);
+    $revocation->shouldReceive('trackForUser');
+
+    $middleware = new VerifySupabaseJwt($cacheLock, $revocation);
     $request = Request::create('/test', 'GET', [], [], [], ['HTTP_AUTHORIZATION' => 'Bearer '.$jwt]);
     $response = $middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
     expect($response->getStatusCode())->toBe(200);
 
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $warmed = $prop->getValue();
 
     expect($warmed[$kidRs]->getAlgorithm())->toBe('RS256')
@@ -155,7 +158,11 @@ it('warms self::$keysByKid with each parsed Key having its OWN declared algorith
     $cacheLock = Mockery::mock(CacheLockService::class);
     $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
 
-    $middleware = new VerifySupabaseJwt($cacheLock);
+    $revocation = Mockery::mock(TokenRevocationService::class);
+    $revocation->shouldReceive('isRevoked')->andReturn(false);
+    $revocation->shouldReceive('trackForUser');
+
+    $middleware = new VerifySupabaseJwt($cacheLock, $revocation);
     $request = Request::create('/test', 'GET', [], [], [], ['HTTP_AUTHORIZATION' => 'Bearer '.$jwt]);
     $response = $middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
     expect($response->getStatusCode())->toBe(200);
@@ -164,7 +171,6 @@ it('warms self::$keysByKid with each parsed Key having its OWN declared algorith
     // declared by their JWK entry, NOT whatever $alg the inbound JWT had.
     $ref = new \ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
-    $prop->setAccessible(true);
     $warmed = $prop->getValue();
 
     expect($warmed)->toHaveKey($kidRs)

@@ -4,14 +4,11 @@ namespace App\Mail;
 
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Content;
-use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Str;
 
 // V2: Notifies the affiliate's configured inbox of a new enquiry submitted via the contact section block.
-class SiteEnquiryNotification extends Mailable
+class SiteEnquiryNotification extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -19,23 +16,16 @@ class SiteEnquiryNotification extends Mailable
         public readonly Enquiry $enquiry,
     ) {}
 
-    public function envelope(): Envelope
+    public function build(): self
     {
-        return new Envelope(
-            subject: Str::limit("New enquiry from {$this->enquiry->name} — {$this->enquiry->subject}", 77),
-        );
-    }
-
-    public function content(): Content
-    {
+        // CRLF sanitisation happens centrally in BaseTransactionalMail::subject().
         $dashboardUrl = rtrim((string) config('app.dashboard_url', config('app.url')), '/').'/enquiries';
 
-        return new Content(
-            view: 'emails.enquiry-notification',
-            with: [
+        return $this->buildEnvelope()
+            ->subject(Str::limit("New enquiry from {$this->enquiry->name} — {$this->enquiry->subject}", 77))
+            ->view('emails.enquiry-notification', [
                 'enquiry' => $this->enquiry,
                 'dashboardUrl' => $dashboardUrl,
-            ],
-        );
+            ]);
     }
 }

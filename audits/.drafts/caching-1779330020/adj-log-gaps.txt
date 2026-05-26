@@ -1,0 +1,4 @@
+→ Adjudicating with claude --model sonnet ...
+
+✓ Wrote audits/.drafts/caching-1779330020/audit-gaps.md — 7 findings, 204s elapsed
+Final audit ready: audits/.drafts/caching-1779330020/audit-gaps.md

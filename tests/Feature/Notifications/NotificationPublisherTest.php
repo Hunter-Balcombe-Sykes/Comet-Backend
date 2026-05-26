@@ -3,7 +3,7 @@
 /** @phpstan-ignore-all */
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
-use App\Mail\Notifications\InviteNotificationMail;
+use App\Mail\Notifications\PolicyUpdateMail;
 use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Support\Facades\Config;
@@ -34,7 +34,7 @@ beforeEach(function () {
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NOT NULL,
         category TEXT NOT NULL,
         title TEXT NOT NULL,
@@ -55,7 +55,7 @@ beforeEach(function () {
     // SQLite requires schema prefix on the index name, not the table in ON clause.
     $conn->statement(
         'CREATE UNIQUE INDEX IF NOT EXISTS notifications.notifications_dedupe_key_per_pro_uq
-         ON notifications (professional_id, dedupe_key)
+         ON notifications (user_id, dedupe_key)
          WHERE dedupe_key IS NOT NULL'
     );
 
@@ -66,7 +66,7 @@ it('stores dedupe_key in its own column, not smuggled into the CTA URL', functio
     $publisher = new NotificationPublisher;
 
     $publisher->publish(
-        professionalId: 'pro-1',
+        userId: 'pro-1',
         frontendType: 'Info',
         category: 'invites',
         title: 'Test',
@@ -82,11 +82,11 @@ it('stores dedupe_key in its own column, not smuggled into the CTA URL', functio
     expect($row->cta_url)->not->toContain('notif=');
 });
 
-it('deduplicates via ON CONFLICT on (professional_id, dedupe_key)', function () {
+it('deduplicates via ON CONFLICT on (user_id, dedupe_key)', function () {
     $publisher = new NotificationPublisher;
 
     $publish = fn () => $publisher->publish(
-        professionalId: 'pro-1',
+        userId: 'pro-1',
         frontendType: 'Info',
         category: 'invites',
         title: 'Test',
@@ -107,7 +107,7 @@ it('allows the same dedupe_key for different professionals', function () {
 
     foreach (['pro-1', 'pro-2'] as $proId) {
         $publisher->publish(
-            professionalId: $proId,
+            userId: $proId,
             frontendType: 'Info',
             category: 'invites',
             title: 'T',
@@ -120,11 +120,11 @@ it('allows the same dedupe_key for different professionals', function () {
     expect(DB::table('notifications.notifications')->count())->toBe(2);
 });
 
-it('rejects empty professional_id or empty title/body silently', function () {
+it('rejects empty user_id or empty title/body silently', function () {
     $publisher = new NotificationPublisher;
 
     $publisher->publish(
-        professionalId: '',
+        userId: '',
         frontendType: 'Info',
         category: 'invites',
         title: 'T',
@@ -133,7 +133,7 @@ it('rejects empty professional_id or empty title/body silently', function () {
     );
 
     $publisher->publish(
-        professionalId: 'pro-1',
+        userId: 'pro-1',
         frontendType: 'Info',
         category: 'invites',
         title: '   ',
@@ -142,7 +142,7 @@ it('rejects empty professional_id or empty title/body silently', function () {
     );
 
     $publisher->publish(
-        professionalId: 'pro-1',
+        userId: 'pro-1',
         frontendType: 'Info',
         category: 'invites',
         title: 'T',
@@ -160,9 +160,9 @@ it('dispatches the mailable class resolved from config for the category', functi
     // Seed a notification row the job can load.
     DB::table('notifications.notifications')->insert([
         'id' => 'notif-1',
-        'professional_id' => 'pro-1',
+        'user_id' => 'pro-1',
         'type' => 'Info',
-        'category' => 'invites',
+        'category' => 'policy_update',
         'title' => 'Welcome',
         'body' => 'You are invited',
         'cta_url' => '/x',
@@ -179,19 +179,19 @@ it('dispatches the mailable class resolved from config for the category', functi
 
     DB::connection('pgsql')->statement("ATTACH DATABASE ':memory:' AS core");
     DB::connection('pgsql')->statement(
-        'CREATE TABLE IF NOT EXISTS core.professionals (id TEXT PRIMARY KEY, primary_email TEXT, deleted_at TEXT NULL)'
+        "CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT NULL)"
     );
     DB::connection('pgsql')->statement(
-        'CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, professional_id TEXT, category_key TEXT, mode TEXT)'
+        'CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, user_id TEXT, category_key TEXT, mode TEXT)'
     );
     DB::connection('pgsql')->statement(
-        'CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, professional_id TEXT, category_key TEXT, enabled INTEGER)'
+        'CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, user_id TEXT, category_key TEXT, enabled INTEGER)'
     );
-    DB::table('core.professionals')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
 
-    (new SendTransactionalNotificationEmailJob('notif-1', 'invites', 'pro-1'))->handle();
+    (new SendTransactionalNotificationEmailJob('notif-1', 'policy_update', 'pro-1'))->handle();
 
-    Mail::assertSent(InviteNotificationMail::class);
+    Mail::assertSent(PolicyUpdateMail::class);
 });
 
 it('skips email dispatch when category maps to null (in-app only)', function () {

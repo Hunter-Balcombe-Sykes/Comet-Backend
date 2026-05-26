@@ -3,22 +3,22 @@
 namespace App\Services\Site;
 
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\Professional;
-use App\Models\Core\Site\ProfessionalHandleAlias;
+use App\Models\Core\User\User;
+use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Models\Core\Site\Theme;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-// V2: Site update with business logic — subdomain cooldown (30-day), theme defaults, PATCH-style settings merge, publish validation.
+// Site update with business logic — subdomain cooldown (30-day), PATCH-style
+// settings merge, publish validation, skeleton selection. Per-user design
+// vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
-    // Days between allowed subdomain changes. Mirrored in ProfessionalController::show
+    // Days between allowed subdomain changes. Mirrored in UserSelfController::show
     // when computing subdomain_change_available_at for the /me payload.
     public const SUBDOMAIN_COOLDOWN_DAYS = 30;
 
@@ -28,7 +28,7 @@ class UpdateSiteAction
      * $data should already be validated by a FormRequest.
      * $options can enable staff-only powers later without changing pro-behavior.
      */
-    public function execute(Professional $professional, array $data, array $options = []): Site
+    public function execute(User $professional, array $data, array $options = []): Site
     {
         $professional->loadMissing('site');
 
@@ -120,13 +120,13 @@ class UpdateSiteAction
                     // HydrogenAffiliateController + public site resolver both look up by handle_lc,
                     // so a desync means the affiliate URL breaks immediately after a rename.
                     // The DB trigger (trg_professional_handle_change) records the old handle into
-                    // professional_handle_aliases automatically on this save. We also write it
+                    // user_handle_aliases automatically on this save. We also write it
                     // from PHP (belt-and-suspenders) so tests without the trigger stay green.
                     $oldHandle = $professional->handle;
                     if (! empty($oldHandle) && strtolower($oldHandle) !== $incoming) {
                         try {
-                            ProfessionalHandleAlias::query()->create([
-                                'professional_id' => $professional->id,
+                            UserHandleAlias::query()->create([
+                                'user_id' => $professional->id,
                                 'handle'          => $oldHandle,
                                 'reclaim_until'   => now()->addDays($reclaimDays),
                                 'expires_at'      => now()->addDays($redirectDays),
@@ -156,7 +156,7 @@ class UpdateSiteAction
                     // the old subdomain; $incoming is the new one. actor_id falls back to
                     // the professional themselves (self-serve rename).
                     HandleChangeLog::create([
-                        'professional_id' => (string) $professional->id,
+                        'user_id' => (string) $professional->id,
                         'old_handle'      => $current,
                         'new_handle'      => $incoming,
                         'reason'          => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),
@@ -171,36 +171,24 @@ class UpdateSiteAction
                 }
             }
 
-            // Allow sending theme_id=null to reset to default (same behavior as current pro-controller)
-            if (array_key_exists('theme_id', $data) && $data['theme_id'] === null) {
-                $defaultId = Theme::query()
-                    ->where('is_default', true)
-                    ->value('id');
-
-                if (! $defaultId) {
-                    throw ValidationException::withMessages([
-                        'theme_id' => ['No default theme configured.'],
-                    ]);
-                }
-
-                $data['theme_id'] = $defaultId;
-            }
-
-            // Merge settings for PATCH semantics (don’t overwrite the whole JSON)
+            // Merge settings for PATCH semantics (don't overwrite the whole JSON).
+            // settings.design.* is no longer accepted — the FormRequest rejects
+            // those keys at validation, but strip them here too as a belt-and-
+            // braces defence against any service-layer caller bypassing the
+            // FormRequest (job replays, internal tools, etc.).
             if (array_key_exists('settings', $data)) {
                 $existing = is_array($site->settings) ? $site->settings : [];
                 $incoming = is_array($data['settings']) ? $data['settings'] : [];
                 // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
                 unset($incoming['selected_products']);
-                Arr::forget($incoming, 'design.typography.font_file_name');
-                Arr::forget($incoming, 'design.typography.font_file_path');
-                Arr::forget($incoming, 'design.typography.font_file_url');
+                // Skeleton-system cleanup: settings.design.* is dead. Any
+                // incoming `design` sub-key gets dropped on the floor.
+                unset($incoming['design']);
                 $merged = array_replace_recursive($existing, $incoming);
-
-                // Indexed list special-casing was historically needed for
-                // settings.design.media.placeholder_sitepage_images, which has
-                // since moved to site.site_media. No remaining indexed lists live
-                // under settings, so the recursive merge is sufficient.
+                // Same guard on the merged result — old design data on disk
+                // was already stripped by the cleanup migration, but if any
+                // straggler resurfaced via a write race it dies here.
+                unset($merged['design']);
 
                 $data['settings'] = $merged;
             }
@@ -234,12 +222,6 @@ class UpdateSiteAction
                 }
                 throw $e;
             }
-
-            // Bust the Hydrogen brand-design cache so dashboard saves surface
-            // inside Hydrogen's 5s staleWhileRevalidate window. Deferred until
-            // commit so a rolled-back transaction doesn't wipe a warm cache.
-            $siteId = (string) $site->id;
-            DB::afterCommit(fn () => app(SiteCacheService::class)->forgetBrandDesign($siteId));
 
             return $site->fresh();
         });

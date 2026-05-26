@@ -37,13 +37,12 @@ function seedPublishedSite(bool $isPublished = true): string
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
         'primary_email' => 'p@example.com', 'status' => 'active',
-        'professional_type' => 'professional',
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p',
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p',
         'is_published' => $isPublished ? 1 : 0,
     ]);
 

@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Site\UpsertSectionBlockRequest;
+use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 

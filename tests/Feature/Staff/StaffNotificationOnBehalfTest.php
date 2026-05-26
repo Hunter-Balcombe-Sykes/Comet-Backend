@@ -4,7 +4,7 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,13 +12,13 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     attachTestSchemas();
-    setupProfessionalsTable();
+    setupUsersTable();
 
     $conn = DB::connection('pgsql');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NOT NULL,
         category TEXT NULL,
         title TEXT NOT NULL,
@@ -37,37 +37,36 @@ beforeEach(function () {
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_receipts (
         id TEXT PRIMARY KEY,
         notification_id TEXT NOT NULL,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         read_at TEXT NULL,
         dismissed_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
-        UNIQUE(notification_id, professional_id)
+        UNIQUE(notification_id, user_id)
     )');
 
     $conn->statement('DELETE FROM notifications.notifications');
     $conn->statement('DELETE FROM notifications.notification_receipts');
 });
 
-function staffNotif_makeBrand(): Professional
+function staffNotif_makeBrand(): User
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'primary_email' => 'brand@example.test',
-        'professional_type' => 'brand',
         'status' => 'active',
         'created_at' => now()->toIso8601String(),
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    return Professional::query()->where('id', $id)->first();
+    return User::query()->where('id', $id)->first();
 }
 
-function staffNotif_seedNotificationForPro(string $professionalId, string $title = 'Stuck banner'): Notification
+function staffNotif_seedNotificationForPro(string $userId, string $title = 'Stuck banner'): Notification
 {
     return Notification::query()->create([
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'type' => 'Info',
         'title' => $title,
         'body' => 'body',
@@ -78,7 +77,7 @@ function staffNotif_seedNotificationForPro(string $professionalId, string $title
 function staffNotif_seedGlobalNotification(string $title = 'Global broadcast'): Notification
 {
     return Notification::query()->create([
-        'professional_id' => null,
+        'user_id' => null,
         'type' => 'Info',
         'title' => $title,
         'body' => 'body',

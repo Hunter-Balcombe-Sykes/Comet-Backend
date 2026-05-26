@@ -15,7 +15,7 @@
     <div class="container">
         <h2>Your account deletion has been cancelled</h2>
         <p>Hi {{ $displayName }},</p>
-        <p>Your Partna account deletion has been cancelled. Your account is active again and your public site, brand configuration, and affiliate pages are back online.</p>
+        <p>Your Partna account deletion has been cancelled. Your account is active again and your public profile page is back online.</p>
         <p>If you did not request this, please contact support immediately.</p>
     </div>
 </body>

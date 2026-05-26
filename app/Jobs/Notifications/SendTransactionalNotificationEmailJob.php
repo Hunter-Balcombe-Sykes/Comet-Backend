@@ -3,7 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
-// V2: Sends category-specific transactional emails (invites, commissions, payouts). Respects feature flags and user email preferences.
+// V2: Sends category-specific transactional emails. Respects feature flags and user email preferences.
 // Categories with a capability gate are listed in CAPABILITY_GATE_MAP. Categories absent from the map bypass the gate
 // (e.g. analytics_weekly, profile_tasks) — they have no account_type restriction.
 class SendTransactionalNotificationEmailJob implements ShouldQueue
@@ -36,13 +36,9 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     // `incident`, `feature_announcement`, `integrations`, `analytics_*`,
     // and `profile_tasks` are intentionally absent — they apply to all
     // account types (or use a non-account-type policy elsewhere).
-    private const CAPABILITY_GATE_MAP = [
-        'payouts' => 'receives_payout_notifications',
-        'payout_settlement' => 'receives_payout_settlement_notifications',
-        'commissions' => 'receives_commission_notifications',
-        'brand_status' => 'receives_brand_status_notifications',
-        'invites' => 'receives_invite_notifications',
-    ];
+    // No commerce/brand notification gates — all categories gated here are
+    // only applicable to brand/partner accounts (dropped in standalone strip).
+    private const CAPABILITY_GATE_MAP = [];
 
     /**
      * Expose the capability gate map for the preference controller's category filter.
@@ -68,7 +64,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     public function __construct(
         public readonly string $notificationId,
         public readonly string $category,
-        public readonly string $professionalId,
+        public readonly string $userId,
     ) {
         $this->onQueue('notifications');
     }
@@ -104,10 +100,10 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             // professional is treated as incapable. Otherwise a deleted
             // account could still receive a payouts/commissions email if
             // the row vanishes between dispatch and run.
-            $pro = Professional::find($this->professionalId);
+            $pro = User::find($this->userId);
             if (! $pro || ! AccountCapabilities::for($pro)->{$capabilityProperty}) {
                 Log::debug('Transactional email skipped: capability gate', [
-                    'professional_id' => $this->professionalId,
+                    'user_id' => $this->userId,
                     'category' => $this->category,
                     'capability' => $capabilityProperty,
                     'professional_found' => $pro !== null,
@@ -118,10 +114,28 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             }
         }
 
-        if (! NotificationPublisher::resolveEmailEnabled($this->professionalId, $this->category)) {
+        // Skip suspended or disabled accounts — they should not receive transactional
+        // emails regardless of category. Check after the capability gate (which may
+        // already resolve the user) but before the heavier DB queries.
+        $recipient = User::query()
+            ->where('id', $this->userId)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $recipient || $recipient->status !== 'active') {
+            Log::debug('Transactional email skipped: account not active', [
+                'user_id' => $this->userId,
+                'category' => $this->category,
+                'status' => $recipient?->status,
+            ]);
+
+            return;
+        }
+
+        if (! NotificationPublisher::resolveEmailEnabled($this->userId, $this->category)) {
             Log::debug('Notification email skipped: user preference disabled', [
                 'category' => $this->category,
-                'professional_id' => $this->professionalId,
+                'user_id' => $this->userId,
             ]);
 
             return;
@@ -144,17 +158,15 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             return; // already sent or notification deleted
         }
 
-        $email = DB::table('core.professionals')
-            ->where('id', $this->professionalId)
-            ->whereNull('deleted_at')
-            ->value('primary_email');
+        // Re-use the $recipient model resolved above — avoids a second DB round-trip.
+        $email = $recipient->primary_email;
 
         if (! $email) {
             // Non-transient: retrying 3× will never produce an email. Mark the
             // job failed so Horizon's failed-jobs counter increments and
             // Nightwatch alerts via failed() — critical for payout/commission categories.
             $this->fail(new \RuntimeException(
-                'no primary_email on record for professional '.$this->professionalId
+                'no primary_email on record for professional '.$this->userId
             ));
 
             return;
@@ -182,7 +194,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
         Log::error('Transactional notification email failed', [
             'notification_id' => $this->notificationId,
             'category' => $this->category,
-            'professional_id' => $this->professionalId,
+            'user_id' => $this->userId,
             'message' => $e->getMessage(),
         ]);
     }

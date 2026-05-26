@@ -2,7 +2,7 @@
 
 use App\Jobs\Notifications\SyncCustomerMarketingOptInJob;
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\Customer;
+use App\Models\Core\User\Customer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -19,11 +19,11 @@ beforeEach(function () {
  * Save a marketing EmailSubscription via Eloquent so the saved() observer fires.
  * Raw DB::insert bypasses model events.
  */
-function saveMarketingSubscription(string $professionalId, string $email, string $status = 'subscribed'): EmailSubscription
+function saveMarketingSubscription(string $userId, string $email, string $status = 'subscribed'): EmailSubscription
 {
     $sub = new EmailSubscription;
     $sub->id = (string) Str::uuid();
-    $sub->professional_id = $professionalId;
+    $sub->user_id = $userId;
     $sub->list_key = 'marketing';
     $sub->email = $email;
     $sub->email_lc = strtolower($email);
@@ -38,23 +38,28 @@ it('CACHE-11: EmailSubscription save dispatches the sync job instead of looking 
     Queue::fake();
 
     $proId = (string) Str::uuid();
-    saveMarketingSubscription($proId, 'buyer@example.test', 'subscribed');
+    $sub = saveMarketingSubscription($proId, 'buyer@example.test', 'subscribed');
 
-    Queue::assertPushed(SyncCustomerMarketingOptInJob::class, function ($job) use ($proId) {
-        return $job->professionalId === $proId
-            && $job->email === 'buyer@example.test'
-            && $job->subscribed === true;
+    // B3/P1-10: job payload must carry only UUIDs (no raw email or subscribed
+    // bool). Email + status are derived in handle() from the persisted
+    // EmailSubscription row so the Redis payload contains no PII.
+    Queue::assertPushed(SyncCustomerMarketingOptInJob::class, function ($job) use ($proId, $sub) {
+        return $job->userId === $proId
+            && $job->subscriptionId === (string) $sub->id;
     });
 });
 
-it('CACHE-11: unsubscribe save dispatches the job with subscribed=false', function () {
+it('CACHE-11: unsubscribe save dispatches the job carrying the subscription id only', function () {
     Queue::fake();
 
     $proId = (string) Str::uuid();
-    saveMarketingSubscription($proId, 'buyer@example.test', 'unsubscribed');
+    $sub = saveMarketingSubscription($proId, 'buyer@example.test', 'unsubscribed');
 
-    Queue::assertPushed(SyncCustomerMarketingOptInJob::class, function ($job) {
-        return $job->subscribed === false;
+    // The subscribed bool used to be a constructor prop. It's now derived from
+    // EmailSubscription.status inside handle() — so we assert the dispatcher
+    // wires the subscription id, not the bool.
+    Queue::assertPushed(SyncCustomerMarketingOptInJob::class, function ($job) use ($sub) {
+        return $job->subscriptionId === (string) $sub->id;
     });
 });
 
@@ -64,7 +69,7 @@ it('CACHE-11: non-marketing list keys do not dispatch the sync job', function ()
     $proId = (string) Str::uuid();
     $sub = new EmailSubscription;
     $sub->id = (string) Str::uuid();
-    $sub->professional_id = $proId;
+    $sub->user_id = $proId;
     $sub->list_key = 'sidest_updates';
     $sub->email = 'staff@example.test';
     $sub->email_lc = 'staff@example.test';
@@ -77,9 +82,10 @@ it('CACHE-11: non-marketing list keys do not dispatch the sync job', function ()
 
 it('CACHE-11 job: updates Customer.marketing_opt_in_cached when the customer exists', function () {
     $proId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.customers')->insert([
+    $sub = saveMarketingSubscription($proId, 'buyer@example.test', 'subscribed');
+    DB::connection('pgsql')->table('site.customers')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'email' => 'buyer@example.test',
         'full_name' => 'Buyer',
         'marketing_opt_in_cached' => null,
@@ -87,27 +93,47 @@ it('CACHE-11 job: updates Customer.marketing_opt_in_cached when the customer exi
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    (new SyncCustomerMarketingOptInJob($proId, 'buyer@example.test', true))->handle();
+    (new SyncCustomerMarketingOptInJob($proId, (string) $sub->id))->handle();
 
-    $customer = Customer::query()->where('professional_id', $proId)->where('email', 'buyer@example.test')->first();
+    $customer = Customer::query()->where('user_id', $proId)->where('email', 'buyer@example.test')->first();
     expect($customer->marketing_opt_in_cached)->toBeTrue();
 
-    (new SyncCustomerMarketingOptInJob($proId, 'buyer@example.test', false))->handle();
+    // Flip the subscription to unsubscribed and re-run — cached column should flip too.
+    $sub->status = 'unsubscribed';
+    $sub->save();
+
+    (new SyncCustomerMarketingOptInJob($proId, (string) $sub->id))->handle();
     $customer->refresh();
     expect($customer->marketing_opt_in_cached)->toBeFalse();
 });
 
 it('CACHE-11 job: is a no-op when no matching Customer exists', function () {
     $proId = (string) Str::uuid();
+    $sub = saveMarketingSubscription($proId, 'ghost@example.test', 'subscribed');
 
     // Should neither throw nor insert a Customer row.
-    (new SyncCustomerMarketingOptInJob($proId, 'ghost@example.test', true))->handle();
+    (new SyncCustomerMarketingOptInJob($proId, (string) $sub->id))->handle();
 
-    expect(DB::connection('pgsql')->table('core.customers')->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('site.customers')->count())->toBe(0);
+});
+
+// B3/P1-10: when the EmailSubscription row is gone at handle() time (GDPR erasure
+// raced ahead of the queue), the job must no-op silently — no PII source to
+// leak, nothing to update.
+it('B3/P1-10 job: is a no-op when the EmailSubscription row no longer exists', function () {
+    $proId = (string) Str::uuid();
+    $missingSubscriptionId = (string) Str::uuid();
+
+    // Should neither throw nor touch any Customer row.
+    (new SyncCustomerMarketingOptInJob($proId, $missingSubscriptionId))->handle();
+
+    expect(DB::connection('pgsql')->table('site.customers')->count())->toBe(0);
 });
 
 // §28.17 JOB-3 — failed() must call report() so Nightwatch sees exhaustion.
-it('JOB-3: failed() reports the exception before logging', function () {
+// B3/P1-11 — failed() log context must NOT contain the customer email; keep
+// user_id + subscription_id for correlation.
+it('JOB-3 + B3/P1-11: failed() reports exception and logs UUIDs only (no email)', function () {
     \Illuminate\Support\Facades\Log::spy();
 
     $exception = new \RuntimeException('boom');
@@ -136,10 +162,17 @@ it('JOB-3: failed() reports the exception before logging', function () {
         };
     });
 
-    (new SyncCustomerMarketingOptInJob('p1', 'x@x.test', true))->failed($exception);
+    (new SyncCustomerMarketingOptInJob('p1', 'sub-id-1'))->failed($exception);
 
     expect($reported)->toBe($exception);
     \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
         ->once()
-        ->with('notifications.sync_customer_marketing_opt_in.failed', \Mockery::on(fn ($ctx) => $ctx['error'] === 'boom'));
+        ->withArgs(function (string $message, array $context) {
+            return $message === 'notifications.sync_customer_marketing_opt_in.failed'
+                && $context['error'] === 'boom'
+                && $context['user_id'] === 'p1'
+                && $context['subscription_id'] === 'sub-id-1'
+                && ! array_key_exists('email', $context)
+                && ! array_key_exists('subscribed', $context);
+        });
 });

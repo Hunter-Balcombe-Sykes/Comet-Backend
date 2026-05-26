@@ -3,7 +3,7 @@
 namespace App\Models\Core;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -19,7 +19,7 @@ class HandleChangeLog extends BaseModel
     public const REASON_STAFF_RENAME = 'staff_rename';
     public const REASON_SYSTEM       = 'system';
 
-    protected $table = 'core.handle_change_log';
+    protected $table = 'audit.handle_change_log';
 
     public $incrementing = false;
 
@@ -28,7 +28,7 @@ class HandleChangeLog extends BaseModel
     public $timestamps = false;
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'old_handle',
         'new_handle',
         'reason',
@@ -42,8 +42,8 @@ class HandleChangeLog extends BaseModel
         'changed_at' => 'datetime',
     ];
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

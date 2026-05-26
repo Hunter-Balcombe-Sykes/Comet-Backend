@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Services\Site\SocialLinkNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;

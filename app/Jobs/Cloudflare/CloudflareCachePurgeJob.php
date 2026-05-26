@@ -33,7 +33,7 @@ class CloudflareCachePurgeJob implements ShouldQueue
 
     public function __construct(public readonly string $handle)
     {
-        $this->onQueue('integrations');
+        $this->onQueue('default');
     }
 
     public function handle(CloudflarePurgeService $purge): void

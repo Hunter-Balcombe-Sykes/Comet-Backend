@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 
 /**
@@ -13,38 +13,38 @@ use Illuminate\Auth\Access\Response;
  */
 class CustomerPolicy extends BasePolicy
 {
-    public function view(Professional $actor, Customer $customer): bool|Response
+    public function view(User $actor, Customer $customer): bool|Response
     {
-        if ((string) $customer->professional_id !== (string) $actor->id) {
+        if ((string) $customer->user_id !== (string) $actor->id) {
             return $this->denyAsNotFound();
         }
 
         return true;
     }
 
-    public function create(Professional $actor, Customer $skeleton): bool|Response
+    public function create(User $actor, Customer $skeleton): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
         }
 
-        return (string) $skeleton->professional_id === (string) $actor->id;
+        return (string) $skeleton->user_id === (string) $actor->id;
     }
 
-    public function update(Professional $actor, Customer $customer): bool|Response
+    public function update(User $actor, Customer $customer): bool|Response
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
         }
 
-        if ((string) $customer->professional_id !== (string) $actor->id) {
+        if ((string) $customer->user_id !== (string) $actor->id) {
             return $this->denyAsNotFound();
         }
 
         return true;
     }
 
-    public function delete(Professional $actor, Customer $customer): bool|Response
+    public function delete(User $actor, Customer $customer): bool|Response
     {
         return $this->update($actor, $customer);
     }

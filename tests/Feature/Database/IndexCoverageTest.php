@@ -23,7 +23,7 @@ function indexCoverageSuiteIsPostgres(): bool
  *
  * @param  string  $schema  e.g. 'site'
  * @param  string  $table   e.g. 'sites'
- * @param  string  $index   e.g. 'idx_sites_theme_id'
+ * @param  string  $index   e.g. 'idx_aps_brand_user_id'
  */
 function assertIndexExists(string $schema, string $table, string $index): void
 {
@@ -45,22 +45,13 @@ function assertIndexExists(string $schema, string $table, string $index): void
     );
 }
 
-// ─── site.sites.theme_id ────────────────────────────────────────────────────
+// ─── commerce.affiliate_product_selections.brand_user_id ────────────
 
-it('sites table has a supporting index on theme_id', function () {
+it('affiliate_product_selections table has a supporting index on brand_user_id', function () {
     if (! indexCoverageSuiteIsPostgres()) {
         $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
     }
-    assertIndexExists('site', 'sites', 'idx_sites_theme_id');
-});
-
-// ─── commerce.affiliate_product_selections.brand_professional_id ────────────
-
-it('affiliate_product_selections table has a supporting index on brand_professional_id', function () {
-    if (! indexCoverageSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
-    }
-    assertIndexExists('commerce', 'affiliate_product_selections', 'idx_aps_brand_professional_id');
+    assertIndexExists('commerce', 'affiliate_product_selections', 'idx_aps_brand_user_id');
 });
 
 // ─── core.wallet_currency_switch_audit.topup_id ─────────────────────────────

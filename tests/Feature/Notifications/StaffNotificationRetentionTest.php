@@ -46,7 +46,7 @@ beforeEach(function () {
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NOT NULL,
         category TEXT NULL,
         title TEXT NOT NULL,

@@ -2,13 +2,13 @@
 
 namespace App\Mail\Notifications;
 
+use App\Mail\BaseTransactionalMail;
 use App\Models\Core\Notifications\Notification;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 // V2: Sends feature-announcement broadcast emails (new product capabilities) using the Notification model and the feature_announcement template.
-class FeatureAnnouncementMail extends Mailable
+class FeatureAnnouncementMail extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -16,7 +16,7 @@ class FeatureAnnouncementMail extends Mailable
 
     public function build(): self
     {
-        return $this
+        return $this->buildEnvelope()
             ->subject($this->notification->title)
             ->view('emails.notifications.feature_announcement');
     }

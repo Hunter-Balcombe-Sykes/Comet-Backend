@@ -2,7 +2,7 @@
 
 namespace App\Jobs\Cache;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
@@ -53,12 +53,12 @@ class WarmPublicSiteCacheJob implements ShouldQueue
         // payload assembly but never breaks correctness; swallow errors so a
         // transient Professional/Site lookup failure doesn't trip job retries.
         try {
-            $pro = Professional::query()->where('handle_lc', $subdomain)->first();
-            if (! $pro || ! $pro->isIndividual()) {
+            $pro = User::query()->where('handle_lc', $subdomain)->first();
+            if (! $pro) {
                 return;
             }
 
-            $site = Site::query()->where('professional_id', $pro->id)->first();
+            $site = Site::query()->where('user_id', $pro->id)->first();
             $cacheLock->rememberLocked(
                 $builder->cacheKey($subdomain, $site, $pro),
                 $builder->cacheTtl(),

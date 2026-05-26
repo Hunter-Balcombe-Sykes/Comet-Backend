@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware\Logging;
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Audit\StaffAuditService;
 use Closure;
@@ -54,17 +54,17 @@ class RecordStaffAuditEntry
             $staff = $staff instanceof PartnaStaff ? $staff : null;
 
             $professionalParam = $request->route()?->parameter('professional');
-            $professional = $professionalParam instanceof Professional ? $professionalParam : null;
-            $professionalIdFromString = (is_string($professionalParam) && $professionalParam !== '')
+            $professional = $professionalParam instanceof User ? $professionalParam : null;
+            $userIdFromString = (is_string($professionalParam) && $professionalParam !== '')
                 ? $professionalParam
                 : null;
 
             // When no route-model binding resolved, construct a bare Professional
-            // so the service can still record the professional_id FK. Handle is null
+            // so the service can still record the user_id FK. Handle is null
             // because we only have the UUID — snapshot will be null, which is fine.
-            if ($professional === null && $professionalIdFromString !== null) {
-                $professional = new Professional;
-                $professional->id = $professionalIdFromString;
+            if ($professional === null && $userIdFromString !== null) {
+                $professional = new User;
+                $professional->id = $userIdFromString;
             }
 
             $this->audit->record(
@@ -74,7 +74,7 @@ class RecordStaffAuditEntry
                 route: $request->route()?->getName() ?? $request->route()?->uri() ?? $request->path() ?: 'unknown',
                 httpMethod: $request->method(),
                 statusCode: $response->getStatusCode(),
-                payloadSummary: $this->summariseBindings($request, $professionalIdFromString),
+                payloadSummary: $this->summariseBindings($request, $userIdFromString),
                 ip: $request->ip(),
                 userAgent: $request->userAgent(),
             );
@@ -95,7 +95,7 @@ class RecordStaffAuditEntry
      *
      * @return array<string, string|int|bool|float>
      */
-    private function summariseBindings(Request $request, ?string $professionalIdFromString): array
+    private function summariseBindings(Request $request, ?string $userIdFromString): array
     {
         $params = $request->route()?->parameters() ?? [];
         $summary = [];
@@ -111,8 +111,8 @@ class RecordStaffAuditEntry
         // Backstop: if the professional came through as a raw string we
         // already captured it for the FK field, but route()->parameters()
         // returns the same thing so this is usually a no-op.
-        if ($professionalIdFromString !== null && ! isset($summary['professional'])) {
-            $summary['professional'] = $professionalIdFromString;
+        if ($userIdFromString !== null && ! isset($summary['professional'])) {
+            $summary['professional'] = $userIdFromString;
         }
 
         return $summary;

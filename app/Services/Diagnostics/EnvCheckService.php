@@ -42,6 +42,8 @@ class EnvCheckService
         'Cache / Queue / Session' => [
             'cache.default' => 'CACHE_STORE',
             'queue.default' => 'QUEUE_CONNECTION',
+            'queue.batching.database' => 'DB_CONNECTION',
+            'queue.failed.database' => 'DB_CONNECTION',
             'session.driver' => 'SESSION_DRIVER',
         ],
         'Supabase Auth' => [
@@ -51,23 +53,15 @@ class EnvCheckService
             'supabase.jwks_url' => 'SUPABASE_JWKS_URL',
             'supabase.service_role_key' => 'SUPABASE_SERVICE_ROLE_KEY',
         ],
-        'Shopify' => [
-            'services.shopify.api_key' => 'SHOPIFY_API_KEY',
-            'services.shopify.api_secret' => 'SHOPIFY_API_SECRET',
-            'services.shopify.webhook_secret' => 'SHOPIFY_WEBHOOK_SECRET',
-        ],
-        'Stripe' => [
-            'services.stripe.secret_key' => 'STRIPE_SECRET_KEY',
-            'services.stripe.publishable_key' => 'STRIPE_PUBLISHABLE_KEY',
-            'services.stripe.platform_webhook_secret' => 'STRIPE_PLATFORM_WEBHOOK_SECRET',
-            'services.stripe.platform_thin_webhook_secret' => 'STRIPE_PLATFORM_THIN_WEBHOOK_SECRET',
-            'services.stripe.connect_webhook_secret' => 'STRIPE_CONNECT_WEBHOOK_SECRET',
-        ],
-        'Cloudflare (DNS + KV)' => [
+        'Cloudflare (DNS + KV + Purge)' => [
             'services.cloudflare.zone_id' => 'CLOUDFLARE_ZONE_ID',
             'services.cloudflare.account_id' => 'CLOUDFLARE_ACCOUNT_ID',
             'services.cloudflare.api_token' => 'CLOUDFLARE_API_TOKEN',
             'services.cloudflare.kv_namespace_id' => 'CLOUDFLARE_KV_NAMESPACE_ID',
+            // CloudflarePurgeService uses a separate scoped token from the
+            // general api_token — missing this silently broke cache busts
+            // until B26 added the prod guard.
+            'services.cloudflare.cache_purge_token' => 'CLOUDFLARE_CACHE_PURGE_TOKEN',
         ],
     ];
 
@@ -80,19 +74,16 @@ class EnvCheckService
     public const RECOMMENDED = [
         'Observability' => [
             'nightwatch.token' => 'NIGHTWATCH_TOKEN',
+            'logging.channels.single.level' => 'LOG_LEVEL',
         ],
         'Mail' => [
             'services.resend.key' => 'RESEND_API_KEY',
             'mail.from.address' => 'MAIL_FROM_ADDRESS',
             'mail.from.name' => 'MAIL_FROM_NAME',
         ],
-        'Hydrogen storefront deploys' => [
-            'services.hydrogen.api_key' => 'HYDROGEN_API_KEY',
-            'partna.hydrogen.github_token' => 'PARTNA_HYDROGEN_GITHUB_TOKEN',
-            'partna.hydrogen.github_repo' => 'PARTNA_HYDROGEN_GITHUB_REPO',
-        ],
-        'Cloudflare Turnstile (captcha)' => [
-            'services.turnstile.secret_key' => 'CLOUDFLARE_TURNSTILE_SECRET_KEY',
+        'Bot Protection (Turnstile)' => [
+            'partna.bot_protection.drivers.turnstile.secret' => 'TURNSTILE_SECRET',
+            'partna.bot_protection.drivers.turnstile.site_key' => 'TURNSTILE_SITE_KEY',
         ],
         'Google Maps (address autocomplete)' => [
             'services.google_maps.api_key' => 'GOOGLE_MAPS_API_KEY',

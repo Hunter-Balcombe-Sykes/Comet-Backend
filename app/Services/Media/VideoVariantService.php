@@ -23,16 +23,18 @@ use Symfony\Component\Process\Process;
  *   8. DB upsert – persist one MediaVariant row per logical artifact
  *   9. SiteMedia update – set processing_state, duration_ms, poster_path
  *
- * Storage layout under the media disk:
+ * Storage layout under the media disk (all artifact paths are
+ * content-hashed so the CDN treats re-processed files as fresh URLs —
+ * mirrors the image variant pattern, prevents stale-cache reads):
  *   videos/{proId}/{mediaId}/
  *     original_{hash}.{ext}
- *     optimized.mp4
- *     maximized.mp4
+ *     optimized_{hash}.mp4
+ *     maximized_{hash}.mp4
  *     hls/
- *       optimized/playlist.m3u8  + seg_*.ts
- *       maximized/playlist.m3u8  + seg_*.ts
- *       adaptive.m3u8             (master playlist)
- *     poster.jpg
+ *       optimized_{hash}/playlist.m3u8  + seg_*.ts
+ *       maximized_{hash}/playlist.m3u8  + seg_*.ts
+ *       adaptive_{hash}.m3u8             (master playlist)
+ *     poster_{hash}.jpg
  *
  * Requires ffmpeg and ffprobe to be available (configured via config/partna.php).
  */
@@ -187,8 +189,8 @@ class VideoVariantService
                 $hlsDirs[$variantKey] = $tmpHlsDir;
             }
 
-            // --- 5. Build adaptive master playlist ---
-            $adaptiveContent = $this->buildAdaptivePlaylist($variantDefs);
+            // --- 5. Adaptive master playlist is built after upload, once
+            //        per-variant content hashes are known (see below). ---
 
             // --- 6. Extract poster ---
             $tmpPoster = $this->makeTmpFile('sidest_poster_', '.jpg');
@@ -198,9 +200,18 @@ class VideoVariantService
             $disk = $this->disk();
             $diskName = $this->resolvedDiskName();
 
+            // Content-hash each MP4 once and reuse for the matching HLS dir below.
+            // Mirrors ImageVariantService — re-encoding the same source produces
+            // identical paths (idempotent), a *different* source produces a new
+            // URL (CDN can't serve a stale half-overwritten file mid-replace).
+            $variantHashes = [];
+
             // Upload MP4s
             foreach ($mp4Paths as $variantKey => $mp4) {
-                $remotePath = "{$basePath}/{$variantKey}.mp4";
+                $hash = substr((string) hash_file('sha256', $mp4), 0, 16);
+                $variantHashes[$variantKey] = $hash;
+
+                $remotePath = "{$basePath}/{$variantKey}_{$hash}.mp4";
                 $stream = fopen($mp4, 'rb');
                 $disk->put($remotePath, $stream, 'public');
                 if (is_resource($stream)) {
@@ -218,14 +229,19 @@ class VideoVariantService
                         'bitrate_kbps' => (int) ($def['video_bitrate_kbps'] ?? 0) + (int) ($def['audio_bitrate_kbps'] ?? 0),
                         'file_size_bytes' => filesize($mp4) ?: null,
                         'duration_ms' => $durationMs,
+                        'content_hash' => $hash,
                         'metadata' => ['resolution' => $def['resolution'] ?? null],
                     ]
                 );
             }
 
             // Upload HLS segments + playlists
+            // HLS dir reuses the MP4 hash — segments are a stream-copy of the
+            // MP4, so they share its identity. Keeps cache busting consistent
+            // across the MP4 + HLS pair without re-hashing N segment files.
             foreach ($hlsDirs as $variantKey => $hlsDir) {
-                $remoteHlsBase = "{$basePath}/hls/{$variantKey}";
+                $hash = $variantHashes[$variantKey];
+                $remoteHlsBase = "{$basePath}/hls/{$variantKey}_{$hash}";
                 foreach (scandir($hlsDir) ?: [] as $file) {
                     if ($file === '.' || $file === '..') {
                         continue;
@@ -249,13 +265,18 @@ class VideoVariantService
                         'path' => $playlistPath,
                         'mime' => 'application/vnd.apple.mpegurl',
                         'duration_ms' => $durationMs,
+                        'content_hash' => $hash,
                         'metadata' => ['resolution' => $def['resolution'] ?? null],
                     ]
                 );
             }
 
-            // Upload adaptive master playlist
-            $adaptiveRemotePath = "{$basePath}/hls/adaptive.m3u8";
+            // Adaptive master playlist references the per-variant HLS dirs by
+            // name, so rebuild it now that the hashes are known. Then hash the
+            // resulting content itself so the master URL also busts on change.
+            $adaptiveContent = $this->buildAdaptivePlaylist($variantDefs, $variantHashes);
+            $adaptiveHash = substr(hash('sha256', $adaptiveContent), 0, 16);
+            $adaptiveRemotePath = "{$basePath}/hls/adaptive_{$adaptiveHash}.m3u8";
             $disk->put($adaptiveRemotePath, $adaptiveContent, [
                 'visibility' => 'public',
                 'ContentType' => 'application/vnd.apple.mpegurl',
@@ -267,11 +288,13 @@ class VideoVariantService
                     'disk' => $diskName,
                     'path' => $adaptiveRemotePath,
                     'mime' => 'application/vnd.apple.mpegurl',
+                    'content_hash' => $adaptiveHash,
                 ]
             );
 
             // Upload poster
-            $posterRemotePath = "{$basePath}/poster.jpg";
+            $posterHash = substr((string) hash_file('sha256', $tmpPoster), 0, 16);
+            $posterRemotePath = "{$basePath}/poster_{$posterHash}.jpg";
             $stream = fopen($tmpPoster, 'rb');
             $disk->put($posterRemotePath, $stream, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
             if (is_resource($stream)) {
@@ -285,6 +308,7 @@ class VideoVariantService
                     'path' => $posterRemotePath,
                     'mime' => 'image/jpeg',
                     'file_size_bytes' => filesize($tmpPoster) ?: null,
+                    'content_hash' => $posterHash,
                 ]
             );
 
@@ -322,41 +346,64 @@ class VideoVariantService
     /**
      * Delete all media_variants DB rows and all files under $basePath on disk.
      * Called by DeleteMediaArtifactsJob (async) for video cleanup.
+     *
+     * Best-effort on storage, unconditional on DB: the DB row is the
+     * user-facing "this media exists" flag, so we always scrub it — any
+     * orphaned storage files become an out-of-band ops concern, logged at
+     * error level so Nightwatch surfaces them. Throwing on a transient R2
+     * blip here would re-queue the job and amplify the failure.
      */
     public function deleteVariants(string $mediaId, string $basePath): void
     {
         $disk = $this->disk();
         $basePrefix = $this->normalizeVideoCleanupBasePath($basePath);
 
-        // Delete all files under the normalized video prefix.
+        $files = [];
+        $listError = null;
+
         try {
             $files = $disk->allFiles($basePrefix);
         } catch (\Throwable $e) {
-            throw new \RuntimeException(
-                "Failed to list video artifacts for cleanup at [{$basePrefix}].",
-                0,
-                $e
-            );
+            $listError = $e;
         }
 
+        $failures = [];
         foreach ($files as $file) {
             try {
                 $deleted = $disk->delete($file);
+                if ($deleted === false) {
+                    $failures[] = ['path' => $file, 'error' => 'delete returned false'];
+                }
             } catch (\Throwable $e) {
-                throw new \RuntimeException(
-                    "Failed to delete video artifact [{$file}].",
-                    0,
-                    $e
-                );
-            }
-
-            if ($deleted === false) {
-                throw new \RuntimeException("Failed to delete video artifact [{$file}].");
+                $failures[] = [
+                    'path' => $file,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ];
             }
         }
 
-        // Delete DB rows only after storage cleanup succeeds.
+        // Deferred-unconditional: runs even if listing threw or per-file deletes failed.
         MediaVariant::where('media_id', $mediaId)->delete();
+
+        if ($listError !== null) {
+            Log::error('VideoVariantService::deleteVariants list failed; DB rows still cleared.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $basePrefix,
+                'error' => $listError->getMessage(),
+                'exception' => get_class($listError),
+            ]);
+        }
+
+        if ($failures !== []) {
+            Log::error('VideoVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $basePrefix,
+                'failure_count' => count($failures),
+                // Cap the sample so pathological cases don't bloat log lines.
+                'failures' => array_slice($failures, 0, 20),
+            ]);
+        }
     }
 
     /**
@@ -474,8 +521,11 @@ class VideoVariantService
      * Build the adaptive (master) HLS playlist content.
      *
      * @param  array<string, array<string, mixed>>  $variantDefs
+     * @param  array<string, string>  $variantHashes  variant_key → content hash
+     *                                                used to reference the per-variant
+     *                                                hashed HLS directory.
      */
-    private function buildAdaptivePlaylist(array $variantDefs): string
+    private function buildAdaptivePlaylist(array $variantDefs, array $variantHashes): string
     {
         $lines = ['#EXTM3U'];
 
@@ -496,8 +546,13 @@ class VideoVariantService
                 throw new \RuntimeException("Invalid video resolution for variant '{$variantKey}': {$resolution}");
             }
 
+            $hash = $variantHashes[$variantKey] ?? null;
+            if ($hash === null) {
+                throw new \RuntimeException("Missing content hash for variant '{$variantKey}'.");
+            }
+
             $lines[] = "#EXT-X-STREAM-INF:BANDWIDTH={$bandwidth},RESOLUTION={$resolution}";
-            $lines[] = "{$variantKey}/playlist.m3u8";
+            $lines[] = "{$variantKey}_{$hash}/playlist.m3u8";
         }
 
         return implode("\n", $lines)."\n";

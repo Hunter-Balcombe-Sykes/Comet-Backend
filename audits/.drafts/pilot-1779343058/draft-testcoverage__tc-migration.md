@@ -1,0 +1,1 @@
+No test or application source files were provided — only migration SQL is available. Without `tests/`, `app/`, or `database/factories/` directories, it is impossible to verify coverage, identify missing tests, or quote evidence from the codebase. No findings can be produced.

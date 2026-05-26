@@ -13,7 +13,7 @@ class FeatureFlagOverride extends BaseModel
     protected $keyType = 'string';
 
     protected $fillable = [
-        'flag_key', 'professional_id', 'brand_id', 'enabled',
+        'flag_key', 'user_id', 'enabled',
         'reason', 'expires_at', 'created_by',
     ];
 

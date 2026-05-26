@@ -49,26 +49,6 @@ it('public site-by-slug route includes Vary: X-Site-Subdomain in response header
     expect($vary)->toContain('X-Site-Subdomain');
 });
 
-it('public booking config-by-slug route returns Cache-Control: public', function () {
-    $subdomain = 'test-booking-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    $response = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/booking/config-by-slug');
-
-    // The controller may return 200 or 404 depending on booking setup — we verify
-    // headers only on successful responses where the cache policy applies.
-    if ($response->isOk()) {
-        $cacheControl = (string) $response->headers->get('Cache-Control', '');
-        expect($cacheControl)->toContain('public');
-        expect((string) $response->headers->get('Vary', ''))->toContain('X-Site-Subdomain');
-    } else {
-        // Still confirm no-public-cache on non-200
-        $cacheControl = (string) $response->headers->get('Cache-Control', '');
-        expect($cacheControl)->not->toContain('public');
-    }
-});
 
 it('unsubscribe route returns Cache-Control: no-store regardless of response code', function () {
     // The middleware must set no-store before the route handler resolves,
@@ -80,13 +60,6 @@ it('unsubscribe route returns Cache-Control: no-store regardless of response cod
     expect($cacheControl)->not->toContain('public');
 });
 
-it('brand-affiliate-invites route returns Cache-Control: no-store regardless of response code', function () {
-    $response = $this->getJson('/api/public/brand-affiliate-invites/'.Str::uuid());
-
-    $cacheControl = (string) $response->headers->get('Cache-Control', '');
-    expect($cacheControl)->toContain('no-store');
-    expect($cacheControl)->not->toContain('public');
-});
 
 it('authenticated API routes do not receive public cache headers', function () {
     $response = $this
@@ -124,7 +97,6 @@ function prewarmSiteCache(string $subdomain): void
             'id' => (string) Str::uuid(),
             'handle' => $subdomain,
             'display_name' => 'Test Pro',
-            'professional_type' => 'solo',
         ],
         'theme' => null,
         'services' => [],

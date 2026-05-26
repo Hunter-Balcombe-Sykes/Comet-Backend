@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\JsonResponse;
@@ -22,10 +22,10 @@ class StaffAnalyticsController extends ApiController
      * GET /api/staff/professionals/{professional}/analytics?days=30
      * Optional: ?from=YYYY-MM-DD&to=YYYY-MM-DD
      *
-     * Cached for 60 s keyed by (professional_id, from, to) + analyticsSummaryVersion
+     * Cached for 60 s keyed by (user_id, from, to) + analyticsSummaryVersion
      * so a cache-bust on the professional's own dashboard also refreshes this view.
      */
-    public function summary(Request $request, Professional $professional): JsonResponse
+    public function summary(Request $request, User $professional): JsonResponse
     {
         $days = (int) $request->query('days', 30);
         $days = max(1, min(365, $days));
@@ -79,7 +79,7 @@ class StaffAnalyticsController extends ApiController
         $data = $this->cacheLock->rememberLocked($cacheKey, 60, function () use ($professional, $from, $to, $site): array {
             // Totals (visits)
             $visitsAgg = DB::table('analytics.site_visits')
-                ->where('professional_id', $professional->id)
+                ->where('user_id', $professional->id)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw('COUNT(*) as total_visits')
                 ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_visitors')
@@ -97,7 +97,7 @@ class StaffAnalyticsController extends ApiController
 
             try {
                 $clicksAgg = DB::table('analytics.link_clicks')
-                    ->where('professional_id', $professional->id)
+                    ->where('user_id', $professional->id)
                     ->whereBetween('occurred_at', [$from, $to])
                     ->selectRaw('COUNT(*) as total_clicks')
                     ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
@@ -116,7 +116,7 @@ class StaffAnalyticsController extends ApiController
 
             // Daily charts
             $visitsByDay = DB::table('analytics.site_visits')
-                ->where('professional_id', $professional->id)
+                ->where('user_id', $professional->id)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw('DATE(occurred_at) as day, COUNT(*) as count')
                 ->groupByRaw('DATE(occurred_at)')
@@ -125,7 +125,7 @@ class StaffAnalyticsController extends ApiController
 
             try {
                 $clicksByDay = DB::table('analytics.link_clicks')
-                    ->where('professional_id', $professional->id)
+                    ->where('user_id', $professional->id)
                     ->whereBetween('occurred_at', [$from, $to])
                     ->selectRaw('DATE(occurred_at) as day, COUNT(*) as count')
                     ->groupByRaw('DATE(occurred_at)')
@@ -139,7 +139,7 @@ class StaffAnalyticsController extends ApiController
                 // Top links
                 $topLinks = DB::table('analytics.link_clicks as lc')
                     ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')
-                    ->where('lc.professional_id', $professional->id)
+                    ->where('lc.user_id', $professional->id)
                     ->whereBetween('lc.occurred_at', [$from, $to])
                     ->whereRaw("LOWER(COALESCE(b.block_group, '')) = 'links'")
                     ->whereRaw("LOWER(COALESCE(b.block_type, '')) = 'link'")
@@ -163,7 +163,6 @@ class StaffAnalyticsController extends ApiController
                     'id' => $professional->id,
                     'handle' => $professional->handle,
                     'display_name' => $professional->display_name,
-                    'professional_type' => $professional->professional_type,
                 ],
                 'site' => [
                     'id' => $site->id,

@@ -1,0 +1,7 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   351792 bytes (~87948 tokens)
+Malformed response — no .choices[0].message.content:
+{
+  "error": {
+    "message": "We were unable to start processing your request within the 900-second timeout limit. Please try again later."
+  }
+}

@@ -2,12 +2,12 @@
 
 namespace App\Mail\Notifications;
 
+use App\Mail\BaseTransactionalMail;
 use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 // V2: Sent when a professional cancels their pending deletion during the grace period.
-class AccountDeletionCancelledMail extends Mailable
+class AccountDeletionCancelledMail extends BaseTransactionalMail
 {
     use Queueable, SerializesModels;
 
@@ -17,7 +17,7 @@ class AccountDeletionCancelledMail extends Mailable
 
     public function build(): self
     {
-        return $this
+        return $this->buildEnvelope()
             ->subject('Your account deletion has been cancelled')
             ->view('emails.account.deletion-cancelled');
     }

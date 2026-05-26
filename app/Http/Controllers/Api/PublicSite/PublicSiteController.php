@@ -11,7 +11,7 @@ use App\Services\Streaming\LiveStatusInjector;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-// V2: Serves published mini-site data by subdomain (cached, 95% of traffic). Hydrogen storefronts fetch brand config via separate Storefront API endpoint.
+// V2: Serves published mini-site data by subdomain (cached, 95% of traffic).
 class PublicSiteController extends ApiController
 {
     public function __construct(

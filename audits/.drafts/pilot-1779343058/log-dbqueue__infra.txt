@@ -1,0 +1,10 @@
+→ Firing deepseek-v4-pro (thinking: max) — payload   357454 bytes (~89363 tokens)
+
+✓ Wrote audits/.drafts/pilot-1779343058/draft-dbqueue__infra.md — 10 findings, 1001s elapsed
+
+Token usage:
+  prompt: 81775  output: 14560  reasoning: 11249  cache_hit: 6656/81775
+
+→ Next: adjudicate with Claude Sonnet. Feed audits/.drafts/pilot-1779343058/draft-dbqueue__infra.md + the same scope to Sonnet
+  asking it to verify findings, refine tiers, fix wrong fix recommendations,
+  and emit audit-$(date +%F)-<lens>.md in the canonical format.

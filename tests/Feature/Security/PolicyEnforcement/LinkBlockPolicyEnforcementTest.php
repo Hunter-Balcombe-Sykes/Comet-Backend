@@ -1,9 +1,12 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
-use App\Http\Requests\Api\Professional\Site\DestroyLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
+use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -26,7 +29,7 @@ it('allows the owner to update their own link block', function () {
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(ProfessionalLinkBlockController::class)->update($formReq, $block);
+    $response = app(UserLinkBlockController::class)->update($formReq, $block);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -38,7 +41,7 @@ it('blocks a non-owner from updating a link block with 404', function () {
     $req = tenantRequestAs($intruder, ['title' => 'Hacked'], 'PATCH');
 
     try {
-        app(ProfessionalLinkBlockController::class)->update(
+        app(UserLinkBlockController::class)->update(
             UpdateLinkBlockRequest::createFrom($req),
             $block
         );
@@ -50,7 +53,7 @@ it('blocks a non-owner from updating a link block with 404', function () {
 
 it('blocks a pending-deletion owner from updating a link block with 423', function () {
     $owner = createTenant('lb-update-pending');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -59,7 +62,7 @@ it('blocks a pending-deletion owner from updating a link block with 423', functi
     $req = tenantRequestAs($owner, ['title' => 'Updated'], 'PATCH');
 
     try {
-        app(ProfessionalLinkBlockController::class)->update(
+        app(UserLinkBlockController::class)->update(
             UpdateLinkBlockRequest::createFrom($req),
             $block
         );
@@ -83,7 +86,7 @@ it('allows the owner to delete their own link block', function () {
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(ProfessionalLinkBlockController::class)->destroy($formReq, $block);
+    $response = app(UserLinkBlockController::class)->destroy($formReq, $block);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -105,9 +108,113 @@ it('blocks a non-owner from deleting a link block with 404', function () {
     $formReq->validateResolved();
 
     try {
-        app(ProfessionalLinkBlockController::class)->destroy($formReq, $block);
+        app(UserLinkBlockController::class)->destroy($formReq, $block);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
     }
+});
+
+// ── store() ────────────────────────────────────────────────────────────────
+
+it('blocks pending-deletion professional from creating a link block (423)', function () {
+    $pro = createTenant('lb-store-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro->refresh();
+
+    $req = tenantRequestAs($pro, [
+        'title' => 'My Link',
+        'url'   => 'https://example.com',
+    ], 'POST');
+
+    try {
+        app(UserLinkBlockController::class)
+            ->store(StoreLinkBlockRequest::createFrom($req));
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+});
+
+it('allows active professional to create a link block (no 423 thrown)', function () {
+    $pro = createTenant('lb-store-active');
+
+    $req = tenantRequestAs($pro, [
+        'title'    => 'My Link',
+        'url'      => 'https://example.com',
+        'category' => 'other',
+    ], 'POST');
+    $req->headers->set('Accept', 'application/json');
+
+    $formReq = StoreLinkBlockRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    // Verify the authorization gate does not block an active professional.
+    // The store() method passes the policy check and proceeds to the DB insert;
+    // we catch QueryException (pg_advisory_xact_lock is Postgres-only, not SQLite)
+    // to confirm auth succeeded without testing the full DB flow here.
+    $authBlocked = false;
+    try {
+        app(UserLinkBlockController::class)
+            ->store($formReq);
+    } catch (AuthorizationException $e) {
+        $authBlocked = true;
+    } catch (QueryException $e) {
+        // Advisory lock uses pg_advisory_xact_lock(hashtext(?)) — not available in
+        // the SQLite test driver. Reaching this point means auth passed.
+    }
+
+    expect($authBlocked)->toBeFalse();
+});
+
+// ── reorder() ──────────────────────────────────────────────────────────────
+
+it('blocks pending-deletion professional from reordering link blocks (423)', function () {
+    $pro = createTenant('lb-reorder-pending');
+    $block = createLinkBlockFor($pro);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro->refresh();
+
+    $req = tenantRequestAs($pro, ['ids' => [$block->id]], 'POST');
+
+    try {
+        app(UserLinkBlockController::class)
+            ->reorder(ReorderBlocksRequest::createFrom($req));
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+});
+
+it('allows active professional to reorder their link blocks (no 423 thrown)', function () {
+    $pro = createTenant('lb-reorder-active');
+    $block = createLinkBlockFor($pro);
+
+    $req = tenantRequestAs($pro, ['ids' => [$block->id]], 'POST');
+
+    $formReq = ReorderBlocksRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    // Verify the authorization gate does not block an active professional.
+    // The reorder() method passes the policy check and proceeds to advisory-lock
+    // DB queries; we catch QueryException (pg_advisory_xact_lock / hashtext are
+    // Postgres-only) to confirm auth succeeded without testing the full DB flow.
+    $authBlocked = false;
+    try {
+        app(UserLinkBlockController::class)
+            ->reorder($formReq);
+    } catch (AuthorizationException $e) {
+        $authBlocked = true;
+    } catch (QueryException $e) {
+        // Advisory lock uses pg_advisory_xact_lock(hashtext(?)) — not available in
+        // the SQLite test driver. Reaching this point means auth passed.
+    }
+
+    expect($authBlocked)->toBeFalse();
 });

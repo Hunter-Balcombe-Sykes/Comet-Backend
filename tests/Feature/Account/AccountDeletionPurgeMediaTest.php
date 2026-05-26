@@ -4,17 +4,17 @@ use App\Jobs\DeleteMediaArtifactsJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
-use App\Services\Professional\AccountDeletionService;
+use App\Services\User\AccountDeletionService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
-    setupProfessionalDeletionAuditTable();
+    setupUserDeletionAuditTable();
 
     config([
         'partna.media_disk' => 'media',

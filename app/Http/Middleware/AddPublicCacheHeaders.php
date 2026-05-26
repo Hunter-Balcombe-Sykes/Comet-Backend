@@ -16,10 +16,6 @@ class AddPublicCacheHeaders
      */
     public const CACHEABLE_PATH_PREFIXES = [
         'api/public/site-by-slug',
-        'api/public/booking/config-by-slug',
-        'api/public/booking/services-by-slug',
-        'api/public/store/featured-products-by-slug',
-        'api/public/shopify/storefront-config',
     ];
 
     /**
@@ -29,7 +25,6 @@ class AddPublicCacheHeaders
      */
     private const NO_STORE_PATH_PREFIXES = [
         'api/public/unsubscribe/',
-        'api/public/brand-affiliate-invites/',
     ];
 
     public function handle(Request $request, Closure $next): Response

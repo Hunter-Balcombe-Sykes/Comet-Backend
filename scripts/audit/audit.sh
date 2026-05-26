@@ -7,13 +7,25 @@
 #     --scope app/Policies/SitePolicy.php \
 #     --scope app/Http/Controllers/Api/Professional/Uploads/
 #
-# Full mode (5 lens-focused scans, then one adjudication):
+# Full mode (8 lens-focused scans, then one adjudication):
 #   scripts/audit/audit.sh --full --scope app/Services/Stripe
 #
-#   Runs five focused DeepSeek scans against the same scope (security,
-#   lifecycle-correctness, scaling-antipatterns, database-and-queue-scaling,
-#   schema-rls) then ONE Claude adjudication over the merged drafts. Use this
-#   when you want broad coverage and don't have a specific theme.
+#   Alias for --bundle core. Runs eight focused DeepSeek scans against the same
+#   scope (security, lifecycle-correctness, scaling-antipatterns,
+#   database-and-queue-scaling, schema-rls, caching-gold-standard,
+#   webhook-idempotency, transaction-boundaries) then ONE Claude adjudication
+#   over the merged drafts. Use this when you want broad correctness coverage
+#   and don't have a specific theme.
+#
+# Bundle mode (named lens groups):
+#   scripts/audit/audit.sh --bundle <name> --scope <path>
+#
+#   Available bundles:
+#     core         — the 8 always-relevant correctness lenses (same as --full)
+#     concurrency  — caching-gold-standard + webhook-idempotency + transaction-boundaries
+#                    (correctness-under-concurrency trio: silent state drift bugs)
+#     pre-merge    — migration-safety + api-contract + configuration-hygiene + test-coverage
+#                    (run before merging a PR that touches schema or public API)
 #
 # Phase organization (optional):
 #   Output always lands in audits/. Pass --phase <name> to organize further
@@ -51,11 +63,12 @@ fi
 SCOPE_ARGS=()
 LENS_ARG=()
 FULL=false
+BUNDLE=""
 OUT=""
 PHASE=""
 KEEP_DRAFTS=false
 
-usage() { sed -n '2,32p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '2,47p' "$0" | sed 's/^# \?//'; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --lens)          LENS_ARG=("--lens" "$2"); shift 2 ;;
         --lens-file)     LENS_ARG=("--lens-file" "$2"); shift 2 ;;
         --full)          FULL=true; shift ;;
+        --bundle)        BUNDLE="$2"; shift 2 ;;
         --out)           OUT="$2"; shift 2 ;;
         --phase)         PHASE="$2"; shift 2 ;;
         --keep-drafts)   KEEP_DRAFTS=true; shift ;;
@@ -72,10 +86,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validate ---
-if $FULL; then
-    [[ ${#LENS_ARG[@]} -eq 0 ]] || { echo "--full and --lens/--lens-file are mutually exclusive" >&2; exit 2; }
+# --full is sugar for --bundle core
+$FULL && [[ -z "$BUNDLE" ]] && BUNDLE="core"
+$FULL && [[ -n "$BUNDLE" && "$BUNDLE" != "core" ]] && { echo "--full and --bundle <other> are mutually exclusive" >&2; exit 2; }
+
+if [[ -n "$BUNDLE" ]]; then
+    [[ ${#LENS_ARG[@]} -eq 0 ]] || { echo "--bundle/--full and --lens/--lens-file are mutually exclusive" >&2; exit 2; }
+    FULL=true  # downstream logic gates on $FULL for the multi-lens path
 else
-    [[ ${#LENS_ARG[@]} -gt 0 ]] || { echo "--lens or --full is required" >&2; exit 2; }
+    [[ ${#LENS_ARG[@]} -gt 0 ]] || { echo "--lens, --bundle, or --full is required" >&2; exit 2; }
 fi
 [[ ${#SCOPE_ARGS[@]} -gt 0 ]]     || { echo "--scope is required (one or more)" >&2; exit 2; }
 [[ -n "${DEEPSEEK_API_KEY:-}" ]]  || { echo "DEEPSEEK_API_KEY not found (set in scripts/audit/.env or export)" >&2; exit 2; }
@@ -109,14 +128,44 @@ ADJ_BUDGET="2.00"
 $FULL && ADJ_BUDGET="5.00"
 
 if $FULL; then
-    # --- Lens set for --full mode (5 themes) ---
-    LENS_FILES=(
-        "$SCRIPT_DIR/lenses/security.md"
-        "$SCRIPT_DIR/lenses/lifecycle-correctness.md"
-        "$SCRIPT_DIR/lenses/scaling-antipatterns.md"
-        "$SCRIPT_DIR/lenses/database-and-queue-scaling.md"
-        "$SCRIPT_DIR/lenses/schema-rls.md"
-    )
+    # --- Resolve bundle name → (lens files, meta-lens prefix list) ---
+    case "$BUNDLE" in
+        core)
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/security.md"
+                "$SCRIPT_DIR/lenses/lifecycle-correctness.md"
+                "$SCRIPT_DIR/lenses/scaling-antipatterns.md"
+                "$SCRIPT_DIR/lenses/database-and-queue-scaling.md"
+                "$SCRIPT_DIR/lenses/schema-rls.md"
+                "$SCRIPT_DIR/lenses/caching-gold-standard.md"
+                "$SCRIPT_DIR/lenses/webhook-idempotency.md"
+                "$SCRIPT_DIR/lenses/transaction-boundaries.md"
+            )
+            META_PREFIXES="security/policy (SEC-*), lifecycle correctness (LIFE-*), scaling antipatterns (CACHE-*), database/queue scaling — N+1/throughput (SCALE-*), schema/RLS correctness (SCHEMA-*), caching gold-standard adherence (CCH-*), webhook idempotency & delivery (WHK-*), and transaction-boundary correctness (TXN-*)"
+            ;;
+        concurrency)
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/caching-gold-standard.md"
+                "$SCRIPT_DIR/lenses/webhook-idempotency.md"
+                "$SCRIPT_DIR/lenses/transaction-boundaries.md"
+            )
+            META_PREFIXES="caching gold-standard adherence (CCH-*), webhook idempotency & delivery (WHK-*), and transaction-boundary correctness (TXN-*) — the correctness-under-concurrency trio (silent state drift on rollback, replay, or stampede)"
+            ;;
+        pre-merge)
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/migration-safety.md"
+                "$SCRIPT_DIR/lenses/api-contract.md"
+                "$SCRIPT_DIR/lenses/configuration-hygiene.md"
+                "$SCRIPT_DIR/lenses/test-coverage.md"
+            )
+            META_PREFIXES="migration safety (MIG-*), API contract (API-*), configuration hygiene (CFG-*), and test coverage gaps (TEST-*) — pre-merge sweep for PRs touching schema, public API, or config"
+            ;;
+        *)
+            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge)" >&2
+            exit 2
+            ;;
+    esac
+    LENS_COUNT=${#LENS_FILES[@]}
 
     # Verify all lens files exist BEFORE starting expensive scans
     for lf in "${LENS_FILES[@]}"; do
@@ -124,7 +173,7 @@ if $FULL; then
     done
 
     echo "" >&2
-    echo "════════ Full audit — 5 lens-focused scans + 1 adjudication ════════" >&2
+    echo "════════ Bundle '$BUNDLE' — $LENS_COUNT lens-focused scans + 1 adjudication ════════" >&2
 
     : > "$DRAFTS"  # truncate / create
 
@@ -133,7 +182,7 @@ if $FULL; then
         LENS_NUM=$((LENS_NUM + 1))
         LENS_NAME=$(basename "$lf" .md)
         echo "" >&2
-        echo "──── Scan ${LENS_NUM}/5: $LENS_NAME ────" >&2
+        echo "──── Scan ${LENS_NUM}/${LENS_COUNT}: $LENS_NAME ────" >&2
         LENS_DRAFTS="$DRAFTS_DIR/drafts-${LENS_NAME}.md"
         "$SCRIPT_DIR/audit-scan.sh" --lens-file "$lf" "${SCOPE_ARGS[@]}" --out "$LENS_DRAFTS"
         {
@@ -144,13 +193,13 @@ if $FULL; then
         } >> "$DRAFTS"
     done
 
-    # Meta-lens describing the full audit for the adjudicator
-    META_LENS="Full audit across 5 focused themes: security/policy (SEC-*), lifecycle correctness (LIFE-*), scaling antipatterns / read-side caching (CACHE-*), database/queue scaling — N+1/throughput (SCALE-*), and schema/RLS correctness (SCHEMA-*). Drafts below are concatenated from 5 lens-focused scans, each prefixed with a <!-- LENS: name --> marker. Dedupe across lenses where the same finding appears under multiple prefixes."
+    # Meta-lens describing the bundle for the adjudicator
+    META_LENS="Bundle '$BUNDLE' audit across $LENS_COUNT focused themes: ${META_PREFIXES}. Drafts below are concatenated from $LENS_COUNT lens-focused scans, each prefixed with a <!-- LENS: name --> marker. Dedupe across lenses where the same finding appears under multiple prefixes."
     LENS_PASS_ARGS=(--lens "$META_LENS")
 
-    # Default output name for --full mode (apply phase prefix if set)
+    # Default output name for bundle mode (apply phase prefix if set)
     if [[ -z "$OUT" ]]; then
-        OUT="audit-$(date +%F)-full.md"
+        OUT="audit-$(date +%F)-${BUNDLE}.md"
         [[ -n "$BASE_DIR" ]] && OUT="${BASE_DIR}/${OUT}"
     fi
 else
@@ -164,7 +213,7 @@ fi
 # --- Adjudicate ---
 echo "" >&2
 if $FULL; then
-    echo "════════ Final step: Claude adjudication across all 5 lenses ════════" >&2
+    echo "════════ Final step: Claude adjudication across all ${LENS_COUNT} lenses ════════" >&2
 else
     echo "════════ Step 2/2: Claude adjudication ════════" >&2
 fi

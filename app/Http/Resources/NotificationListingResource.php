@@ -4,13 +4,12 @@ namespace App\Http\Resources;
 
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 // Wire-format gate for GET /me/notifications and the staff on-behalf-of mirror.
 // The underlying query uses DB::table()->get([...]) which returns stdClass rows;
 // JsonResource accepts any object with public properties, so wrapping each row
 // here gives us an explicit allowlist of fields that ship to the frontend.
-class NotificationListingResource extends JsonResource
+class NotificationListingResource extends ApiResource
 {
     /**
      * @return array<string, mixed>
@@ -19,7 +18,7 @@ class NotificationListingResource extends JsonResource
     {
         return [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id !== null ? (string) $this->professional_id : null,
+            'user_id' => $this->user_id !== null ? (string) $this->user_id : null,
             'type' => $this->type,
             'title' => $this->title,
             'body' => $this->body,

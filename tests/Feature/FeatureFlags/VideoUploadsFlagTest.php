@@ -2,12 +2,11 @@
 
 /** @phpstan-ignore-all */
 
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
-use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
+use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\FeatureFlags\FeatureFlagService;
-use App\Services\Media\BrandDesignMediaService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\VideoVariantService;
 use Illuminate\Contracts\Validation\Validator;
@@ -17,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
 
@@ -27,12 +26,11 @@ beforeEach(function () {
 });
 
 it('returns 403 when video_uploads flag is off for the professional', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => $professionalId,
-        'professional_type' => 'professional',
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
         'display_name' => 'Flag Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -40,14 +38,14 @@ it('returns 403 when video_uploads flag is off for the professional', function (
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'flag-test-pro',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\Professional\Professional::query()->findOrFail($professionalId);
+    $professional = \App\Models\Core\User\User::query()->findOrFail($userId);
     $professional->load('site');
 
     // Flag service returns false for video_uploads
@@ -70,7 +68,9 @@ it('returns 403 when video_uploads flag is off for the professional', function (
 
     $mediaService = Mockery::mock(ImageVariantService::class);
     $videoVariant = Mockery::mock(VideoVariantService::class);
-    $controller = new ProfessionalUploadController($mediaService, new BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
 
     $response = $controller->upload($request);
 
@@ -83,12 +83,11 @@ it('returns 403 when video_uploads flag is off for the professional', function (
 });
 
 it('allows image uploads regardless of video_uploads flag state', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
-        'id' => $professionalId,
-        'professional_type' => 'professional',
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
         'display_name' => 'Flag Test Pro 2',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -96,14 +95,14 @@ it('allows image uploads regardless of video_uploads flag state', function () {
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'flag-test-pro-2',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\Professional\Professional::query()->findOrFail($professionalId);
+    $professional = \App\Models\Core\User\User::query()->findOrFail($userId);
     $professional->load('site');
 
     // Flag service returns false, but image uploads should not be blocked
@@ -127,7 +126,9 @@ it('allows image uploads regardless of video_uploads flag state', function () {
     $mediaService->shouldReceive('storeOriginal')->andReturn('images/test/original.jpg');
     $videoVariant = Mockery::mock(VideoVariantService::class);
 
-    $controller = new ProfessionalUploadController($mediaService, new BrandDesignMediaService($mediaService), $videoVariant);
+    app()->instance(ImageVariantService::class, $mediaService);
+    app()->instance(VideoVariantService::class, $videoVariant);
+    $controller = app(UserUploadController::class);
 
     $response = $controller->upload($request);
 

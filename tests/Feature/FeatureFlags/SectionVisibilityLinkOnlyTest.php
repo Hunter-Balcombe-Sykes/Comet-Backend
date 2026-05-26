@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\Professional\SectionVisibilityService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Feature\FeatureFlags\SectionVisibilityTestCase;
@@ -14,7 +14,7 @@ function seedProAndSite(): array
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'test-pro',
         'display_name' => 'Test Pro',
@@ -29,7 +29,7 @@ function seedActiveService(string $proId): void
 {
     DB::connection('pgsql')->table('site.services')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'title' => 'Test Service',
         'price_cents' => 5000,
         'is_active' => 1,
@@ -40,7 +40,7 @@ function seedSquareIntegration(string $proId): void
 {
     DB::connection('pgsql')->table('core.professional_integrations')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'provider' => 'square',
         'access_token' => 'tok',
         'external_account_id' => 'merchant-1',
@@ -90,7 +90,7 @@ it('allows booking section via booking link block', function () {
     // links block_group, not on the booking section block itself.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'links',
         'block_type' => 'link',
@@ -111,7 +111,7 @@ it('allows booking section via manual booking_url when smart_booking flag is off
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'sections',
         'block_type' => 'booking',

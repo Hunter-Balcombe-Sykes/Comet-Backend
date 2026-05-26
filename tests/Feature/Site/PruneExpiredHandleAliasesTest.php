@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();
@@ -17,13 +17,13 @@ function makePrunePro(string $handle): string
 {
     $proId = (string) Str::uuid();
     $now = now()->toDateTimeString();
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id'               => $proId,
         'handle'           => $handle,
         'handle_lc'        => $handle,
         'status'           => 'active',
         'primary_email'    => $handle.'@example.test',
-        'professional_type'=> 'professional',
+        
         'created_at'       => $now,
         'updated_at'       => $now,
     ]);
@@ -39,7 +39,7 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id'              => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain'       => 'prunetest',
         'is_published'    => 0,
         'created_at'      => $now,
@@ -47,9 +47,9 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Expired handle alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle'          => 'gone-handle',
         'reclaim_until'   => now()->subDays(91)->toDateTimeString(),
         'expires_at'      => now()->subDay()->toDateTimeString(),
@@ -58,9 +58,9 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Active handle alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle'          => 'alive-handle',
         'reclaim_until'   => now()->addDays(5)->toDateTimeString(),
         'expires_at'      => now()->addDays(60)->toDateTimeString(),
@@ -69,9 +69,9 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Legacy NULL-expires_at alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle'          => 'legacy-handle',
         'reclaim_until'   => null,
         'expires_at'      => null,
@@ -91,14 +91,14 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
 
     $this->artisan(PruneExpiredHandleAliases::class)->assertSuccessful();
 
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.user_handle_aliases')
         ->where('handle', 'gone-handle')->exists())->toBeFalse();
     expect(DB::connection('pgsql')->table('site.site_subdomain_aliases')
         ->where('subdomain', 'gone-sub')->exists())->toBeFalse();
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.user_handle_aliases')
         ->where('handle', 'alive-handle')->exists())->toBeTrue();
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.user_handle_aliases')
         ->where('handle', 'legacy-handle')->exists())->toBeTrue();
 
-    Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($j) => $j->professionalId === $proId);
+    Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($j) => $j->userId === $proId);
 });

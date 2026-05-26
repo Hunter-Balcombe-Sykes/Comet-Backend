@@ -1,10 +1,10 @@
 <?php
 
 use App\Http\Requests\Api\BootstrapRequest;
-use App\Http\Requests\Api\Professional\Site\DestroyLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
-use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
 use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
 use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;
@@ -18,10 +18,11 @@ it('rejects missing bootstrap fields', function () {
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('display_name'))->toBeTrue();
     expect($validator->errors()->has('primary_email'))->toBeTrue();
-    // phone and first_name are nullable — OAuth sign-ups don't provide them
+    // phone, first_name, and professional_type are nullable — OAuth sign-ups don't provide them;
+    // professional_type is legacy (individual-only platform now)
     expect($validator->errors()->has('phone'))->toBeFalse();
     expect($validator->errors()->has('first_name'))->toBeFalse();
-    expect($validator->errors()->has('professional_type'))->toBeTrue();
+    expect($validator->errors()->has('professional_type'))->toBeFalse();
 });
 
 it('rejects invalid public customer lead payload', function () {
@@ -63,21 +64,6 @@ it('rejects invalid public waitlist payload', function () {
 });
 
 it('requires conditional fields for public waitlist payload', function () {
-    $brandPayload = [
-        'name' => 'Brand Owner',
-        'email' => 'brand@example.com',
-        'phone' => '+61411111111',
-        'type' => 'brand',
-        'industry' => 'beauty_products',
-        'pilot_program_opt_in' => true,
-    ];
-
-    $brandValidator = Validator::make($brandPayload, (new PublicWaitlistSignupRequest)->rules());
-
-    expect($brandValidator->fails())->toBeTrue();
-    expect($brandValidator->errors()->has('number_of_team_members'))->toBeTrue();
-    expect($brandValidator->errors()->has('number_of_affiliates_ambassadors'))->toBeTrue();
-
     $otherPayload = [
         'name' => 'Other Person',
         'email' => 'other@example.com',

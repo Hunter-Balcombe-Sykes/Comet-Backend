@@ -2,7 +2,7 @@
 
 /** @phpstan-ignore-all */
 
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Carbon;
@@ -13,11 +13,11 @@ use Illuminate\Validation\ValidationException;
 beforeEach(function () {
     setupCoreSchema();
 
-    DB::table('site.professional_handle_aliases')->delete();
+    DB::table('core.user_handle_aliases')->delete();
     DB::table('site.site_subdomain_aliases')->delete();
     DB::table('site.public_site_payload')->delete();
     DB::table('site.sites')->delete();
-    DB::table('core.professionals')->delete();
+    DB::table('core.users')->delete();
 })->group('subdomain');
 
 it('prevents professionals from changing subdomain within 30 days', function () {
@@ -26,19 +26,19 @@ it('prevents professionals from changing subdomain within 30 days', function () 
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(10)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
 
     $action = app(UpdateSiteAction::class);
 
@@ -52,19 +52,19 @@ it('stores old subdomain as alias after a valid change', function () {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
     $action = app(UpdateSiteAction::class);
 
     $action->execute($professional, ['subdomain' => 'new']);
@@ -87,7 +87,7 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
         'handle' => 'old',
@@ -96,23 +96,23 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
 
-    $professional = Professional::findOrFail($proId);
+    $professional = User::findOrFail($proId);
     $action = app(UpdateSiteAction::class);
 
     $action->execute($professional, ['subdomain' => 'new']);
 
     // Site, professional, and alias rows must all reflect the new handle.
-    $proRow = DB::table('core.professionals')->where('id', $proId)->first();
+    $proRow = DB::table('core.users')->where('id', $proId)->first();
     expect($proRow->handle)->toBe('new');
     expect($proRow->handle_lc)->toBe('new');
 
-    $handleAlias = DB::table('site.professional_handle_aliases')
-        ->where('professional_id', $proId)
+    $handleAlias = DB::table('core.user_handle_aliases')
+        ->where('user_id', $proId)
         ->first();
 
     expect($handleAlias)->not->toBeNull();
@@ -128,14 +128,14 @@ it('redirects old subdomain to new site host', function () {
     $siteId = (string) Str::uuid();
     $aliasId = (string) Str::uuid();
 
-    DB::table('core.professionals')->insert([
+    DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
     ]);
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'new',
         'is_published' => 1,
     ]);
@@ -170,7 +170,7 @@ function setupCoreSchema(): void
 
     if ($driver === 'sqlite') {
         // SQLite doesn't have schemas; fake them via ATTACH DATABASE so
-        // models that reference 'core.professionals' / 'site.public_site_payload'
+        // models that reference 'core.users' / 'site.public_site_payload'
         // resolve correctly.
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS core");
@@ -184,17 +184,21 @@ function setupCoreSchema(): void
             // Ignore if already attached.
         }
 
+        try {
+            $conn->statement("ATTACH DATABASE ':memory:' AS audit");
+        } catch (\Throwable $e) {
+            // Ignore if already attached.
+        }
+
         // Permissive professionals table — only the columns this test (and
         // soft-delete scopes added by Eloquent) need. Everything nullable
         // because we don't care about prod constraints in tests.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professionals (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,
             display_name TEXT NULL,
             handle TEXT NULL,
             handle_lc TEXT NULL,
-            professional_type TEXT NULL,
             account_type TEXT NULL,
-            has_historical_partner_links INTEGER NULL,
             status TEXT NULL,
             deleted_at TEXT NULL,
             created_at TEXT NULL,
@@ -205,7 +209,7 @@ function setupCoreSchema(): void
         // Add deleted_at for soft-delete scope compatibility.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NULL,
+            user_id TEXT NULL,
             subdomain TEXT NULL,
             subdomain_changed_at TEXT NULL,
             is_published INTEGER NULL,
@@ -225,13 +229,13 @@ function setupCoreSchema(): void
             created_at TEXT NOT NULL
         )');
 
-        // professional_handle_aliases — historical handle row written when a
+        // user_handle_aliases — historical handle row written when a
         // professional's subdomain changes (the canonical handle changes too,
         // so the old handle becomes an alias for HydrogenAffiliateController
         // lookups to keep resolving).
-        $conn->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
             handle TEXT NOT NULL,
             reclaim_until TEXT NULL,
             expires_at TEXT NULL,
@@ -251,9 +255,9 @@ function setupCoreSchema(): void
 
         // Append-only audit log for handle/subdomain renames. Trigger-locked in
         // production; in SQLite we just create it so the action can INSERT rows.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NULL,
+            user_id TEXT NULL,
             old_handle TEXT NULL,
             new_handle TEXT NULL,
             reason TEXT NULL,
@@ -268,14 +272,14 @@ function setupCoreSchema(): void
 
     DB::statement('CREATE SCHEMA IF NOT EXISTS core');
 
-    DB::statement('CREATE TABLE IF NOT EXISTS core.professionals (
+    DB::statement('CREATE TABLE IF NOT EXISTS core.users (
         id uuid PRIMARY KEY,
         display_name varchar(255) NULL
     )');
 
     DB::statement('CREATE TABLE IF NOT EXISTS core.sites (
         id uuid PRIMARY KEY,
-        professional_id uuid NULL,
+        user_id uuid NULL,
         subdomain varchar(63) NULL,
         subdomain_changed_at timestamptz NULL,
         is_published boolean NULL,

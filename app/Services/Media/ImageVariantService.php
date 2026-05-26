@@ -213,15 +213,45 @@ class ImageVariantService
      * Store the original upload to a location on the media disk
      * (kept for disaster-recovery / re-processing).
      *
+     * Byte-sniffs the MIME via finfo BEFORE writing — the client-supplied
+     * extension/MIME is never trusted as the gate. Uploads stream through
+     * fopen() so we don't buffer the whole file in PHP memory.
+     *
      * Returns the storage path of the original.
      */
     public function storeOriginal(UploadedFile $file, string $basePath): string
     {
+        $realPath = $file->getRealPath();
+        if ($realPath === false) {
+            throw new \RuntimeException('Uploaded file is not resolvable to a real path.');
+        }
+
+        // Sniff before doing anything else — bad input is rejected before we
+        // hash, derive a key, or open a disk connection.
+        $this->assertImageMime($realPath);
+
         $ext = $this->safeExtension($file->getClientOriginalExtension() ?? '', 'jpg');
-        $hash = substr(hash_file('sha256', $file->getRealPath()), 0, 16);
+        $hash = substr(hash_file('sha256', $realPath), 0, 16);
         $path = "{$basePath}/original_{$hash}.{$ext}";
 
-        $this->disk()->put($path, file_get_contents($file->getRealPath()), 'public');
+        $stream = fopen($realPath, 'rb');
+        if ($stream === false) {
+            throw new \RuntimeException('Failed to open uploaded file for streaming.');
+        }
+
+        try {
+            // 'private' — originals are kept only as a re-processing source;
+            // the public deliverable is the variants (ACL 'public') in
+            // MediaVariant rows. Document originals are a separate path
+            // (UserDocumentController) and remain 'public'.
+            $this->disk()->put($path, $stream, 'private');
+        } finally {
+            // Flysystem-S3 closes the resource on success; the finally covers
+            // failure paths. Double-fclose on a closed handle is harmless.
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
 
         return $path;
     }
@@ -333,12 +363,7 @@ class ImageVariantService
     {
         // Sniff actual bytes before getimagesize — prevents a crafted file from
         // claiming a safe format while hiding a decompression bomb in its content stream.
-        $actualMime = (new \finfo(FILEINFO_MIME_TYPE))->file($path);
-        if (! in_array($actualMime, self::ALLOWED_IMAGE_MIMES, true)) {
-            throw new UnprocessableImageException(
-                "Rejected: MIME type '{$actualMime}' is not an accepted image format."
-            );
-        }
+        $this->assertImageMime($path);
 
         $info = @getimagesize($path);
         if (! $info) {
@@ -365,6 +390,23 @@ class ImageVariantService
             IMAGETYPE_WEBP => @imagecreatefromwebp($path),
             default => false,
         };
+    }
+
+    /**
+     * Byte-sniff the file's MIME via finfo and reject anything outside the
+     * allowed-image allowlist. Throws UnprocessableImageException on miss.
+     *
+     * Used by both storeOriginal() (gate the upload to disk) and loadImage()
+     * (gate GD decoding) so client-supplied extension/MIME is never trusted.
+     */
+    private function assertImageMime(string $path): void
+    {
+        $actualMime = (new \finfo(FILEINFO_MIME_TYPE))->file($path);
+        if (! in_array($actualMime, self::ALLOWED_IMAGE_MIMES, true)) {
+            throw new UnprocessableImageException(
+                "Rejected: MIME type '{$actualMime}' is not an accepted image format."
+            );
+        }
     }
 
     /**

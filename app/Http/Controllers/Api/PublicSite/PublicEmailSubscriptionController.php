@@ -7,7 +7,7 @@ use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEmailSubscribeRequest;
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\Customer;
+use App\Models\Core\User\Customer;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -58,14 +58,14 @@ class PublicEmailSubscriptionController extends ApiController
         $overwriteName = $providedName !== '';
 
         $subscription = EmailSubscription::query()
-            ->where('professional_id', $site->professional_id)
+            ->where('user_id', $site->user_id)
             ->where('list_key', $listKey)
             ->whereRaw('lower(email) = ?', [$email])
             ->first();
 
         if (! $subscription) {
             $subscription = new EmailSubscription([
-                'professional_id' => $site->professional_id,
+                'user_id' => $site->user_id,
                 'list_key' => $listKey,
                 'email' => $email,
                 'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
@@ -95,7 +95,7 @@ class PublicEmailSubscriptionController extends ApiController
 
         try {
             $this->upsertMarketingCustomer(
-                (string) $site->professional_id,
+                (string) $site->user_id,
                 $email,
                 $resolvedName,
                 $overwriteName,
@@ -108,7 +108,7 @@ class PublicEmailSubscriptionController extends ApiController
             // GDPR scrubbing scope; a hash preserves cross-reference ability
             // without storing raw PII in the log.
             Log::warning('Public subscribe customer upsert failed', [
-                'professional_id' => (string) $site->professional_id,
+                'user_id' => (string) $site->user_id,
                 'email_hash' => hash('sha256', $email),
                 'error' => $exception->getMessage(),
             ]);
@@ -122,7 +122,7 @@ class PublicEmailSubscriptionController extends ApiController
     }
 
     private function upsertMarketingCustomer(
-        string $professionalId,
+        string $userId,
         string $email,
         ?string $fullName,
         bool $overwriteName = false,
@@ -136,7 +136,7 @@ class PublicEmailSubscriptionController extends ApiController
 
         $existing = Customer::query()
             ->withTrashed()
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereRaw('lower(email) = ?', [$normalizedEmail])
             ->first();
 
@@ -160,7 +160,7 @@ class PublicEmailSubscriptionController extends ApiController
         }
 
         $customer = new Customer;
-        $customer->professional_id = $professionalId;
+        $customer->user_id = $userId;
         $customer->email = $normalizedEmail;
         $customer->full_name = $name !== '' ? $name : null;
         $customer->source = 'site';

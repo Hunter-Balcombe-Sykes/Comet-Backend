@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
+use App\Http\Controllers\Api\User\Customers\UserCustomerController;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -15,7 +15,7 @@ it('allows the owner to view their own customer', function () {
     $req = tenantRequestAs($owner);
 
     // No AuthorizationException thrown means the policy permitted the action.
-    $response = app(ProfessionalCustomerController::class)->show($req, $customer);
+    $response = app(UserCustomerController::class)->show($req, $customer);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -27,7 +27,7 @@ it('blocks a non-owner from viewing another tenants customer with 404', function
     $req = tenantRequestAs($intruder);
 
     try {
-        app(ProfessionalCustomerController::class)->show($req, $customer);
+        app(UserCustomerController::class)->show($req, $customer);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
@@ -43,8 +43,8 @@ it('blocks a non-owner from updating another tenants customer with 404', functio
     $req = tenantRequestAs($intruder, ['full_name' => 'Hacked'], 'PATCH');
 
     try {
-        app(ProfessionalCustomerController::class)->update(
-            \App\Http\Requests\Api\Professional\Customer\UpdateCustomerRequest::createFrom($req),
+        app(UserCustomerController::class)->update(
+            \App\Http\Requests\Api\User\Customer\UpdateCustomerRequest::createFrom($req),
             $customer
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
@@ -60,7 +60,7 @@ it('blocks a non-owner from deleting another tenants customer with 404', functio
     $req = tenantRequestAs($intruder, [], 'DELETE');
 
     try {
-        app(ProfessionalCustomerController::class)->destroy($req, $customer);
+        app(UserCustomerController::class)->destroy($req, $customer);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
@@ -69,7 +69,7 @@ it('blocks a non-owner from deleting another tenants customer with 404', functio
 
 it('blocks a pending-deletion owner from updating a customer with 423', function () {
     $owner = createTenant('pro-pending-update');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -78,8 +78,8 @@ it('blocks a pending-deletion owner from updating a customer with 423', function
     $req = tenantRequestAs($owner, ['full_name' => 'New Name'], 'PATCH');
 
     try {
-        app(ProfessionalCustomerController::class)->update(
-            \App\Http\Requests\Api\Professional\Customer\UpdateCustomerRequest::createFrom($req),
+        app(UserCustomerController::class)->update(
+            \App\Http\Requests\Api\User\Customer\UpdateCustomerRequest::createFrom($req),
             $customer
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
@@ -91,7 +91,7 @@ it('blocks a pending-deletion owner from updating a customer with 423', function
 
 it('blocks a pending-deletion owner from deleting a customer with 423', function () {
     $owner = createTenant('pro-pending-destroy');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -100,7 +100,7 @@ it('blocks a pending-deletion owner from deleting a customer with 423', function
     $req = tenantRequestAs($owner, [], 'DELETE');
 
     try {
-        app(ProfessionalCustomerController::class)->destroy($req, $customer);
+        app(UserCustomerController::class)->destroy($req, $customer);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(423);
@@ -110,7 +110,7 @@ it('blocks a pending-deletion owner from deleting a customer with 423', function
 
 it('blocks a pending-deletion owner from creating a customer with 423', function () {
     $owner = createTenant('pro-pending-store');
-    DB::connection('pgsql')->table('core.professionals')->where('id', $owner->id)->update([
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
         'status' => 'pending_deletion',
     ]);
     $owner->refresh();
@@ -123,8 +123,8 @@ it('blocks a pending-deletion owner from creating a customer with 423', function
     ], 'POST');
 
     try {
-        app(ProfessionalCustomerController::class)->store(
-            \App\Http\Requests\Api\Professional\Customer\StoreCustomerRequest::createFrom($req)
+        app(UserCustomerController::class)->store(
+            \App\Http\Requests\Api\User\Customer\StoreCustomerRequest::createFrom($req)
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {

@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 
     Route::middleware(['supabase.jwt', 'require.aal2'])
         ->get('/__test/aal2-gate', fn () => response()->json(['ok' => true]));
@@ -12,7 +12,7 @@ beforeEach(function () {
 it('returns 401 with mfa_required code when the session is aal1', function () {
     $pro = createAffiliateTenant('aal1-user');
 
-    actingAsProfessional($pro) // default aal1
+    actingAsUser($pro) // default aal1
         ->getJson('/__test/aal2-gate')
         ->assertStatus(401)
         ->assertJson([
@@ -23,7 +23,7 @@ it('returns 401 with mfa_required code when the session is aal1', function () {
 it('passes through when the session is aal2', function () {
     $pro = createAffiliateTenant('aal2-user');
 
-    actingAsProfessional($pro, aal2ClaimsWithFreshTotp())
+    actingAsUser($pro, aal2ClaimsWithFreshTotp())
         ->getJson('/__test/aal2-gate')
         ->assertOk()
         ->assertJson(['ok' => true]);

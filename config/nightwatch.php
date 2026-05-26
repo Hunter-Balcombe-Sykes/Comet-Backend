@@ -19,8 +19,8 @@ return [
     'deployment' => env('NIGHTWATCH_DEPLOY', env('LARAVEL_CLOUD_COMMIT', env('FORGE_DEPLOY_COMMIT', env('VAPOR_COMMIT_HASH')))),
     'server' => env('NIGHTWATCH_SERVER', (string) gethostname()),
 
-    // Capture surrounding lines around exception sites — helps debugging, slightly larger payloads.
-    'capture_exception_source_code' => env('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', true),
+    // Capture surrounding lines around exception sites — opt-in; set NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE=true when actively debugging.
+    'capture_exception_source_code' => env('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', false),
 
     // Off by default: request bodies often contain PII (Supabase JWTs, Shopify tokens, customer data).
     'capture_request_payload' => env('NIGHTWATCH_CAPTURE_REQUEST_PAYLOAD', false),
@@ -45,7 +45,7 @@ return [
         'ignore_notifications' => env('NIGHTWATCH_IGNORE_NOTIFICATIONS', false),
         'ignore_outgoing_requests' => env('NIGHTWATCH_IGNORE_OUTGOING_REQUESTS', false),
         'ignore_queries' => env('NIGHTWATCH_IGNORE_QUERIES', false),
-        'log_level' => env('NIGHTWATCH_LOG_LEVEL', env('LOG_LEVEL', 'debug')),
+        'log_level' => env('NIGHTWATCH_LOG_LEVEL', env('LOG_LEVEL', 'warning')),
     ],
 
     // Local ingest agent — Laravel Cloud runs the daemon on 127.0.0.1:2407.

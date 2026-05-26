@@ -2,7 +2,7 @@
 
 ## Project Identity
 
-**Partna** — Laravel 12 + Supabase + PostgreSQL multi-tenant affiliate SaaS platform.
+**Partna** — Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 For full business context, domain model, and entity relationships, read `AI_CONTEXT.md`.
 For API endpoint reference, read `docs/api.md`.
 Cross-project rules (git workflow, cost discipline, pre-agent gate) live in `../CLAUDE.md`.
@@ -32,14 +32,13 @@ Dev (`glncumufgaqcmqhzwrxm`) — iterate freely. Prod (`edplucmvkcnokyygxqsb`) �
 | Layer | Technology |
 |-------|-----------|
 | Backend | PHP 8.2, Laravel 12 |
-| Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `brand`, `commerce`, `notifications`, `analytics`, `billing` |
+| Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit` |
 | Auth | Supabase Auth (JWT) — no backend login; frontend forwards token |
 | Cache/Queue | Redis (DB 0 = cache, DB 1 = sessions, DB 2 = queue) |
 | Jobs | Laravel Horizon (Redis-backed), separate `redis_video` connection for video processing |
 | Frontend | Vite 7, Tailwind CSS 4 (minimal — mostly API backend) |
 | Testing | Pest 4 + PHPUnit, Mockery, SQLite in-memory for tests |
 | Monitoring | Laravel Nightwatch (exceptions, slow routes/jobs/commands/tasks) |
-| Integrations | Shopify, Square, Fresha, Stripe |
 
 ## MCP servers (this project only — see `../CLAUDE.md` for full catalog)
 
@@ -81,42 +80,38 @@ See what the server is actually saying. THEN form a hypothesis. The user reads t
 ### Database — Supabase Only
 - **Never create Laravel migration files.** A composer guard (`guard:no-laravel-migrations`) will reject them.
 - All schema changes go in `supabase/migrations/` as raw SQL files.
-- PostgreSQL uses multiple schemas set via `search_path`: `public`, `core`, `site`, `brand`, `commerce`, `notifications`, `analytics`, `billing`. Commerce-domain tables (orders, ledger entries, payouts, rollups, affiliate selections) live under `commerce.*`. Brand-team and brand-store-settings tables live under `brand.*`.
-- **Order-lifecycle source of truth (post-Phase-3):** `commerce.orders` (mutable projection), `commerce.order_events` (append-only audit log keyed by `shopify_event_id` for webhook idempotency), `commerce.order_items` (trigger-mirrored from `line_items` JSONB), `commerce.brand_affiliate_rollup` (trigger-maintained per-day rollup). `commerce.commission_movements` (renamed from `commission_ledger_entries` in `20260506600000_rename_ledger_to_movements.sql`) is narrowed (post-Phase-4) to money-movement rows only — `entry_type IN ('payout','clawback','adjustment')`. Accruals/reversals are derived from `commerce.orders.commission_cents` + `brand_affiliate_rollup.reversed_commission_cents`, not stored as ledger rows.
-- **`orders/edited` policy:** the snapshot updates but commission stays frozen at the original-paid value. Reductions only flow through `refunds/create`. Affiliates don't earn extra on upsells; symmetric tradeoff accepted (ADR 0001 Decision #3).
-- **Commerce read pattern:** live queries against `commerce.orders` + `brand_affiliate_rollup` + raw event tables, fronted by `CacheLockService::rememberLocked` with a 60s TTL + jitter + SWR (single-flight, push-invalidated on every commerce write).
-- **`commerce.orders.payout_id` writer (Phase 3.1):** populated by `CommissionPayoutService` when a payout settles; feeds `paid_cents` in analytics. Backfill SQL lives in `20260506400000_backfill_orders_payout_id.sql`.
+- The database uses a single consolidated baseline migration: `supabase/migrations/20260526000000_baseline_standalone_user.sql`. The 147 historical migrations are archived in `supabase/migrations-archive/`.
+- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas. `site.themes` table is being removed via the skeleton-system cleanup (see "Skeleton system" below).
 
 ### Code Organization
 ```
 app/
-  Http/Controllers/Api/{Professional,PublicSite,Staff,Shopify,Webhooks,Internal}/
+  Http/Controllers/Api/{User,PublicSite,Staff,Internal}/
   Http/Middleware/{Auth,Context,Logging}/
   Http/Requests/                                      — Form Request validation
   Http/Resources/                                     — API response transformers (always use these)
-  Jobs/{Analytics,Cache,Notifications,Square,Fresha,Shopify,Stripe}/
-  Models/{Core,Brand,Commerce,Analytics,Billing,Views}/ — organized by DB schema
+  Jobs/{Analytics,Cache,Notifications}/
+  Models/{Core,Analytics,Views}/                      — organized by DB schema
   Models/BaseModel.php                                — all models extend this (forces pgsql connection)
   Observers/                                          — model lifecycle hooks
-  Services/{Analytics,Auth,Billing,Cache,Customers,Fresha,Media,Notifications,Professional,PublicSite,Shopify,Site,Square,Store,Stripe,Streaming}/
+  Services/{Analytics,Auth,Cache,Customers,Media,Notifications,User,PublicSite,Site,Streaming}/
 routes/
-  api.php                                             — bootstrap, health, webhooks, Shopify OAuth
-  api/{professional,publicSite,staff}.php             — domain-specific routes
+  api.php                                             — bootstrap, health
+  api/{user,publicSite,staff}.php                     — domain-specific routes
 config/
-  sidest.php                                           — all Partna feature config & limits
+  partna.php                                           — all Partna feature config & limits
 ```
 
 ### Patterns
-- **Business logic in `Services/`**, not controllers. Controllers handle HTTP concerns only. There is no separate `Actions/` namespace — single-shot operations live alongside other services in the relevant domain folder (e.g. `Services/Billing/CreateProfessionalSubscriptionAction.php`).
+- **Business logic in `Services/`**, not controllers. Controllers handle HTTP concerns only. There is no separate `Actions/` namespace — single-shot operations live alongside other services in the relevant domain folder.
 - **Resource classes** for all API responses — never return raw Eloquent models.
 - **Form Request classes** for input validation.
 - **Observer pattern** for model lifecycle side-effects (auto-triggering jobs, cache invalidation).
-- **Feature flags** via env vars (e.g., `SIDEST_VIDEO_UPLOADS_ENABLED`). Check `config/sidest.php` for all flags.
+- **Feature flags** via env vars (e.g., `SIDEST_VIDEO_UPLOADS_ENABLED`). Check `config/partna.php` for all flags.
 - **UUID primary keys** on all tables.
 - **Soft deletes** with 30-day retention (configurable via `SOFT_DELETE_RETENTION_DAYS`).
-- **JSON columns** for flexible settings (site.settings, brand product configs, etc.).
+- **JSON columns** for flexible settings (site.settings, etc.).
 - **Authorization via Policies** — never inline 403 checks in controllers. See below.
-- **Queue jobs for vendor I/O — check for existing jobs before adding a new one.** Before proposing a new `App\Jobs\<Vendor>\<Action>Job`, run `rg --files-with-matches "<vendor>Service" app/Jobs/` to confirm an analogous job doesn't already exist. Master Pattern 16 (DB-F#SCALE-5) found that `ProvisionBrandDnsJob` already existed but a controller bypassed it — duplicate jobs and bypassed jobs both leak vendor I/O onto request threads.
 
 ### Authorization Pattern
 
@@ -124,27 +119,23 @@ All resource-level authorization goes through Laravel Policies in `app/Policies/
 
 **Never do this in a controller:**
 ```php
-if (! $this->brandAccess->canManageShopify($pro, $brandId)) {
-    return $this->error('Forbidden', 403);
-}
-// or
-abort_unless($pro->id === $resource->professional_id, 403);
+abort_unless($user->id === $resource->user_id, 403);
 ```
 
 **Always do this:**
 ```php
-$this->authorizeForUser($pro, 'manage', $integration);
+$this->authorizeForUser($user, 'manage', $resource);
 ```
 
-**Why `authorizeForUser` not `authorize`:** This app uses Supabase JWT — `Auth::user()` is always null. `authorize()` calls `Gate::forUser(null)`, which silently passes or type-errors depending on the policy. `authorizeForUser($pro, ...)` passes the resolved professional explicitly.
+**Why `authorizeForUser` not `authorize`:** This app uses Supabase JWT — `Auth::user()` is always null. `authorize()` calls `Gate::forUser(null)`, which silently passes or type-errors depending on the policy. `authorizeForUser($user, ...)` passes the resolved user explicitly.
 
 **Skeleton pattern for pre-create checks** (no DB row yet):
 ```php
-$skeleton = new ProfessionalIntegration([
-    'professional_id' => $pro->id,
-    'provider' => ProfessionalIntegration::PROVIDER_FRESHA,
+$skeleton = new SiteMedia([
+    'user_id' => $user->id,
+    'pool' => 'gallery',
 ]);
-$this->authorizeForUser($pro, 'manage', $skeleton);
+$this->authorizeForUser($user, 'create', $skeleton);
 ```
 
 **Registering a new policy:** Add one line to `AppServiceProvider::boot()`:
@@ -152,7 +143,7 @@ $this->authorizeForUser($pro, 'manage', $skeleton);
 Gate::policy(YourModel::class, YourPolicy::class);
 ```
 
-**CI enforces:** Direct `BrandAccessService` capability calls (`canManageShopify`, `canManageBrand`, `canReadBrandAnalytics`, `canReadBrandFinancialAnalytics`) and inline 403 aborts in controllers fail the build. When you add a new capability method to `BrandAccessService`, also add it to the `CAPABILITY_PATTERN` in `.github/workflows/ci.yml`.
+**CI enforces:** Inline 403 aborts in controllers fail the build.
 
 **Coverage is sweep-tested:** `tests/Feature/Security/PolicyCoverageTest.php` asserts every model under `app/Models/` either has a `Gate::policy()` registration in `AppServiceProvider::boot()` or appears in the `POLICY_EXEMPT` allowlist with a justification. Adding a new tenant-owned model? Register a policy or add an exempt entry — silent omissions fail CI.
 
@@ -164,7 +155,7 @@ This codebase reads `aal` and `amr` from Supabase JWTs and exposes them as reque
 
 ### Handle / subdomain lifecycle
 
-Renames write the old subdomain to `site.site_subdomain_aliases` and the old handle to `site.professional_handle_aliases` with two timestamps:
+Renames write the old subdomain to `site.site_subdomain_aliases` and the old handle to `core.user_handle_aliases` with two timestamps:
 
 - `reclaim_until` (default +14d) — only the original owner can rename back for free.
 - `expires_at`    (default +90d) — after this the row is hard-deleted by `handles:prune-expired-aliases` and the handle returns to the pool.
@@ -172,10 +163,6 @@ Renames write the old subdomain to `site.site_subdomain_aliases` and the old han
 Resolvers (`PublicSiteResolver`, `ResolvesSiteFromRequest`, `SiteCacheService`) filter expired rows with the `->active()` scope. Alias hits return **HTTP 301** to the canonical URL — never serve content under both. Cloudflare KV writes alias entries with `expirationTtl` so the edge auto-evicts in parallel.
 
 Configurable via `config('partna.handle.*')`. Full spec: `docs/handle-redirects.md`.
-
-## Shopify Integration
-
-Load-bearing quirks (Admin-vs-Storefront API, 100× price scaling, ACTIVE-only catalog, `disconnected_at` reinstall, embedded auth): **see `docs/shopify-quirks.md`** before touching catalog, pricing, or reinstall paths.
 
 ## Development Commands
 
@@ -197,7 +184,7 @@ php artisan tinker # Interactive REPL
 
 Comment enough that a reader (Tobias, frontend Claude, future-you) can understand a file without tracing every call. **Not extensive — purposeful.**
 
-- **Always comment**: non-obvious WHY (a constraint, a Shopify quirk, an ordering requirement, a workaround), the contract a method enforces, the meaning of "magic" defaults (e.g. `null = all enabled`), and the shape of complex JSON/array structures.
+- **Always comment**: non-obvious WHY (a constraint, an ordering requirement, a workaround), the contract a method enforces, the meaning of "magic" defaults (e.g. `null = all enabled`), and the shape of complex JSON/array structures.
 - **Brief docblocks** on public service methods and controller actions: 1-3 lines explaining purpose + return shape. Use `@return array{...}` shape annotations for complex returns.
 - **Inline comments** above non-trivial blocks (filtering, validation, cache busting) — one short line saying *why*, not *what*.
 - **Avoid**: paragraph-long essays, comments that just restate the next line, decorative banners, TODO graveyards.
@@ -269,59 +256,63 @@ Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.
 
 ## Individual sitepages — architectural ground truth
 
-Partna supports three account types stored as `Professional.account_type`:
-- `brand` — Shopify-connected commerce operator (terminal; cannot transition away)
-- `partner` — professional affiliated with a brand; sells on brand's storefront
-- `individual` — professional with public profile sitepage; no commerce
+Partna is an individual-user-only platform. The model is `App\Models\Core\User\User`
+(DB table `core.users`; FK columns on other tables use `user_id`).
+`account_type` is always `'individual'`; the `AccountType` enum has only an `Individual` case.
 
 All `<handle>.partna.au` requests route through one Cloudflare Worker
 (`cloudflare-worker/` in this repo) that reads `SUBDOMAIN_KV` and uses
 the Cache API:
-- `{type:"brand"}` → pass-through to Hydrogen on Shopify Oxygen
-- `{type:"affiliate", redirect}` → 301 to `<brand>.partna.au/<handle>` (Hydrogen)
 - `{type:"individual"}` → `caches.default.match`; on miss, Service Binding to
   Astro app on Cloudflare Workers Static Assets; on success, `caches.default.put`
+- `{type:"alias"}` → 301 to the canonical subdomain URL
 
 The Worker has ONE writer: `SyncSubdomainToKvJob`. Never write KV elsewhere.
 
-Both apps render from `@partna/themes` (GitHub Packages, per-theme bundles +
-shared engines/brand/analytics/icons/motion). The package is Shopify-free
-and framework-free. Hydrogen adds the Shop section locally; Astro doesn't.
+Site pages render from `@partna/themes` (GitHub Packages, per-theme bundles +
+shared engines). The package is framework-free and Shopify-free.
 
-Account capabilities (backend: `App\Services\Accounts\AccountCapabilities`;
-frontend: `lib/account-capabilities.ts`) are the source of truth for what
-features each type sees. Every notification dispatcher, route guard, and API
-response checks capabilities before acting. Defence in depth.
+Account capabilities (backend: `App\Services\Accounts\AccountCapabilities`)
+are the source of truth for what features are available. Every notification
+dispatcher, route guard, and API response checks capabilities before acting.
 
-The ONLY allowed `account_type` transitions are `individual ↔ partner` (both
-directions), via `AccountTypeTransitionService`. Brand is set at signup only
-by `BootstrapController` and never changes — there is NO promotion path from
-individual or partner to brand, and brand is terminal. Partner ↔ individual
-is seamless; historical brand-partner data persists indefinitely in an
-"ex-partner panel" via SOFT-DELETED `BrandPartnerLink` rows (Laravel
-SoftDeletes trait). Transitions are NEVER blocked by pending payouts.
-
-Per-individual styling uses the existing per-Site `settings.design` JSONB.
-Partners inherit brand styling (no per-affiliate overrides). Brand fallback
-content (placeholders, fallback gallery) lives ONLY in Hydrogen's data path.
+Per-user styling is being migrated from `site.sites.settings.design` JSONB → `site.design_kits` table (one row per site, column-per-var). The `settings.design.*` JSONB path is being removed via the cleanup deploy. See "Skeleton system" below + spec doc at `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`.
 
 Worker responses are NOT auto-cached from `Cache-Control` alone. The router
 Worker MUST call `caches.default.put(request, response.clone())` to populate
 the edge cache. The cache-purge job invalidates by URL.
 
-Full plan: `~/Developer/PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` (mirrored at
-`PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` in this repo root).
-
 ### Backend-specific rules
 
-- `Professional.account_type` is the source of truth. `professional_type` is
-  legacy (dual-write for migration). Don't read `professional_type` in new code.
-- Notification jobs and API endpoints MUST check `AccountCapabilities::for($pro)`
+- `User.account_type` is always `individual`. Do not write code that branches on other account types.
+- Notification jobs and API endpoints MUST check `AccountCapabilities::for($user)`
   before acting.
 - `SyncSubdomainToKvJob` is the ONLY writer to `SUBDOMAIN_KV`. All routing
   changes go through it.
-- `BrandPartnerLink` uses soft-delete. To query historical links, use
-  `withTrashed()`.
+
+## Skeleton system (current architectural shift)
+
+🚧 **In progress.** Full spec: `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`. The V3+V4 theme model is being replaced with a skeleton + design-kit system.
+
+**Backend changes at cleanup (spec §8):**
+
+- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'skeleton-1'..'skeleton-4'`). Default `'skeleton-1'`.
+- `site.themes` table → DROPPED entirely. Skeletons are code constants in `partna-pages/src/skeletons/`, not DB records.
+- `set_default_theme_for_site()` Postgres function → DROPPED with CASCADE (kills the trigger too).
+- `site.sites.settings.design.*` JSONB path → STRIPPED via `UPDATE site.sites SET settings = settings - 'design'`.
+- NEW `site.design_kits` table → 1:1 with `site.sites` (PK = site_id, FK with ON DELETE CASCADE). All columns NULLABLE. Per-user design vars stored column-per-var. Trigger `trg_create_empty_design_kit` auto-inserts an empty row on site creation.
+- NEW migration trigger per layer-sweep step 4: every new design kit var introduces a new column on `site.design_kits` (NULLABLE, no DB-level default — code-side defaults in the `@partnaau/design-system/design-kit` package fill nulls at read time).
+
+**API changes:**
+
+- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `skeleton-1..4`). `partna-pages` does the read-time merge with defaults before passing to the skeleton.
+- `PATCH /api/professional/site` mutation: writes `skeleton_id` and individual `design_kits` columns. No longer accepts `settings.design.*`.
+
+**Hard rules:**
+
+- Adding a new design kit var = new SQL migration in `supabase/migrations/` adding a NULLABLE column to `site.design_kits`. Never with a DB-level DEFAULT — defaults live in the package.
+- `site.sites.skeleton_id` values are constrained by the CHECK. Adding a new skeleton means: (1) update the CHECK constraint via migration, (2) add `partna-pages/src/skeletons/skeleton-N/`, (3) wire the dispatcher in `partna-pages/src/pages/index.astro`. No new DB tables.
+- Don't reintroduce `site.themes`, `settings.design.*`, or any "theme" terminology after the cleanup lands.
 
 ## Do NOT
 
@@ -330,4 +321,5 @@ Full plan: `~/Developer/PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` (mirrored at
 - Return raw Eloquent models from API endpoints (use Resource classes)
 - Over-engineer simple fixes — three similar lines > a premature abstraction
 - Drown files in comments — see "Commenting" above for the bar
+- Reintroduce `site.themes` table or `settings.design.*` after the skeleton-system cleanup (see "Skeleton system" above)
 

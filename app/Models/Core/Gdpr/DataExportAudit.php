@@ -3,7 +3,7 @@
 namespace App\Models\Core\Gdpr;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,7 +30,7 @@ class DataExportAudit extends BaseModel
 
     public const STATUS_FAILED = 'failed';
 
-    protected $table = 'core.data_export_audit';
+    protected $table = 'audit.data_export_audit';
 
     public $incrementing = false;
 
@@ -39,7 +39,7 @@ class DataExportAudit extends BaseModel
     public $timestamps = false; // only created_at + completed_at; no updated_at
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'professional_handle_snapshot',
         'professional_email_snapshot',
         'triggered_by',
@@ -52,6 +52,7 @@ class DataExportAudit extends BaseModel
         'file_sha256',
         'record_counts',
         'error_message',
+        'email_sent_at',
     ];
 
     protected $casts = [
@@ -59,6 +60,7 @@ class DataExportAudit extends BaseModel
         'file_size_bytes' => 'integer',
         'created_at' => 'datetime',
         'completed_at' => 'datetime',
+        'email_sent_at' => 'datetime',
     ];
 
     // PII fields — never expose in API responses or job payloads
@@ -80,9 +82,9 @@ class DataExportAudit extends BaseModel
         });
     }
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class);
+        return $this->belongsTo(User::class);
     }
 
     public function triggeringStaff(): BelongsTo
@@ -109,6 +111,11 @@ class DataExportAudit extends BaseModel
             'file_sha256' => $fileSha256,
             'record_counts' => $recordCounts,
         ]);
+    }
+
+    public function markEmailSent(): void
+    {
+        $this->forceFill(['email_sent_at' => now()])->saveQuietly();
     }
 
     public function markFailed(string $error): void

@@ -3,7 +3,7 @@
 namespace App\Models\Core\Notifications;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\Professional;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -20,7 +20,7 @@ class NotificationReceipt extends BaseModel
 
     protected $fillable = [
         'notification_id',
-        'professional_id',
+        'user_id',
         'read_at',
         'dismissed_at',
     ];
@@ -37,8 +37,8 @@ class NotificationReceipt extends BaseModel
         return $this->belongsTo(Notification::class, 'notification_id');
     }
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Professional::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

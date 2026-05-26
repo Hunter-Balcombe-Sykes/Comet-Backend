@@ -18,7 +18,7 @@ function setupContactSubmissionSchema(): void
     // Core + site + analytics tables required for the full enquiry submission
     // flow: site resolution, block lookup, customer upsert, enquiry persistence,
     // and lead-submission analytics logging.
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
 
@@ -26,7 +26,7 @@ function setupContactSubmissionSchema(): void
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         site_id TEXT NOT NULL,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -41,9 +41,9 @@ function setupContactSubmissionSchema(): void
         updated_at TEXT NOT NULL
     )');
 
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.customers (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         email TEXT NOT NULL,
         phone TEXT NULL,
         full_name TEXT NULL,
@@ -61,7 +61,7 @@ function setupContactSubmissionSchema(): void
         occurred_at TEXT NULL,
         subdomain TEXT NULL,
         site_id TEXT NULL,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         customer_id TEXT NULL,
         ip_hash TEXT NULL,
         user_agent TEXT NULL,
@@ -76,26 +76,25 @@ function seedPublishedContactSite(string $subdomain = 'testpro'): array
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.professionals')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => $subdomain,
         'handle_lc' => $subdomain,
         'display_name' => 'Test Pro',
         'primary_email' => 'test@example.com',
-        'professional_type' => 'professional',
         'status' => 'active',
     ]);
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => $subdomain,
         'is_published' => 1,
     ]);
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'sections',
         'block_type' => 'contact',
@@ -136,7 +135,7 @@ it('accepts a valid submission and saves a site.enquiries row', function () {
     expect($row->name)->toBe('Sarah Jones');
     expect($row->email)->toBe('sarah@example.com');
     expect($row->subject)->toBe('Wholesale');
-    expect($row->professional_id)->toBe($proId);
+    expect($row->user_id)->toBe($proId);
     expect($row->site_id)->toBe($siteId);
 });
 
@@ -148,14 +147,14 @@ it('upserts submitter as a Customer with source=enquiry', function () {
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    $customer = DB::connection('pgsql')->table('core.customers')->first();
+    $customer = DB::connection('pgsql')->table('site.customers')->first();
     expect($customer)->not->toBeNull();
     expect($customer->email)->toBe('sarah@example.com');
     expect($customer->source)->toBe('enquiry');
-    expect($customer->professional_id)->toBe($proId);
+    expect($customer->user_id)->toBe($proId);
 });
 
-it('dispatches SendEnquiryNotificationJob with the configured inbox', function () {
+it('dispatches SendEnquiryNotificationJob carrying the contact block id (not the email)', function () {
     seedPublishedContactSite();
     Bus::fake();
 
@@ -163,7 +162,17 @@ it('dispatches SendEnquiryNotificationJob with the configured inbox', function (
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    Bus::assertDispatched(SendEnquiryNotificationJob::class, fn ($job) => $job->notificationEmail === 'hello@mybrand.com');
+    // B3/P1-10: notification_email is no longer a constructor prop. The job
+    // looks it up from the contact block at handle() time so the Redis
+    // payload contains only UUIDs.
+    $contactBlock = DB::connection('pgsql')->table('site.blocks')->where('block_type', 'contact')->first();
+    $enquiry = DB::connection('pgsql')->table('site.enquiries')->first();
+
+    Bus::assertDispatched(SendEnquiryNotificationJob::class, function ($job) use ($contactBlock, $enquiry) {
+        return $job->enquiryId === $enquiry->id
+            && $job->blockId === $contactBlock->id
+            && ! property_exists($job, 'notificationEmail');
+    });
 });
 
 it('rejects a subject not in the merged options list', function () {
