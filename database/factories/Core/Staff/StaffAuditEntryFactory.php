@@ -21,7 +21,7 @@ class StaffAuditEntryFactory extends Factory
             'staff_email_snapshot' => fake()->safeEmail(),
             'impersonator_staff_id' => null,
             'impersonator_email_snapshot' => null,
-            'professional_id' => (string) Str::uuid(),
+            'user_id' => (string) Str::uuid(),
             'professional_handle_snapshot' => 'test-brand',
             'route' => 'staff.professionals.update',
             'http_method' => 'PATCH',
