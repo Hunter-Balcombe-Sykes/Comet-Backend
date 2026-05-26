@@ -33,9 +33,19 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'skeleton_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Object keyed by site.design_kits column
-            // names. At this phase no var columns exist, so only an empty {}
-            // is meaningfully accepted.
+            // names (snake_case, matching the DB). The controller's
+            // writeDesignKit() filters against information_schema.columns so
+            // unknown keys are silently dropped, but we allowlist the known
+            // shapes here for clear 422s on typos.
             'design_kit' => ['sometimes', 'array'],
+            // Colors group (spec §5.1)
+            'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Typography group — font slugs that resolve to
+            // @partnaau/design-system/design-assets/fonts/<slug>/.
+            'design_kit.typography_font_heading' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'design_kit.typography_font_body' => ['sometimes', 'nullable', 'string', 'max:64'],
 
             'settings' => ['sometimes', 'array'],
             // settings.design.* is dead — reject any incoming key under it.

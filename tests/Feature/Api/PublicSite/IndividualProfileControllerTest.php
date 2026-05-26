@@ -20,14 +20,23 @@ beforeEach(function () {
 
     // Skeleton-system cleanup column shim — production has skeleton_id with
     // CHECK enum default 'skeleton-1', and the SitepageDataResolverService
-    // reads it via $site->skeleton_id. Plus a stub design_kits table so the
-    // PayloadBuilder's loadDesignKit() lookup returns empty cleanly.
+    // reads it via $site->skeleton_id. Plus a stub design_kits table whose
+    // shape mirrors the post-phase-7a column set so the PayloadBuilder's
+    // loadDesignKit() lookup + grouping logic exercises real columns even on
+    // SQLite.
     try {
         DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'skeleton-1'");
     } catch (Throwable $e) {
         // Column already exists from a prior test in the same process.
     }
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (site_id TEXT PRIMARY KEY)');
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
+        site_id TEXT PRIMARY KEY,
+        color_accent TEXT NULL,
+        color_bg TEXT NULL,
+        color_text TEXT NULL,
+        typography_font_heading TEXT NULL,
+        typography_font_body TEXT NULL
+    )');
 
     Cache::flush();
     // Disable throttling so the test isn't tied to RateLimiter internals.
@@ -93,23 +102,41 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     $res = $this->getJson('/api/public/profiles/solo1')->assertOk();
     $data = $res->json('data');
 
-    // Top-level keys are now { profile, designKit, skeletonId } — no more
-    // legacy themeMode/accent/fontFamily/design.
-    expect($data)->toHaveKeys(['profile', 'designKit', 'skeletonId']);
+    // Top-level keys are now { profile, designKit, skeletonId, publicConfig }
+    // — no more legacy themeMode/accent/fontFamily/design. publicConfig was
+    // restored in phase 7a (was missing in phase 2 reshape).
+    expect($data)->toHaveKeys(['profile', 'designKit', 'skeletonId', 'publicConfig']);
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
     expect($data['skeletonId'])->toBe('skeleton-1');
-    expect($data['designKit'])->toEqual([]); // partial — empty at this phase.
+    // Empty designKit decodes to [] under json() because PHP can't tell
+    // {} from [] post-decode; the wire byte-level check happens below.
+    expect($data['designKit'])->toEqual([]);
+
+    // publicConfig is always emitted (object on the wire). analyticsEndpoint
+    // is the only field for now; tested with a partial-shape check so future
+    // additions don't break this test.
+    expect($data['publicConfig'])->toBeArray();
+    expect($data['publicConfig'])->toHaveKey('analyticsEndpoint');
 
     $profile = $data['profile'];
     expect($profile)->toHaveKeys([
-        'handle', 'display_name',
+        'handle', 'displayName',
         'content_images', 'gallery', 'links', 'bio',
         'document', 'newsletter', 'services', 'booking',
     ]);
     expect($profile['handle'])->toBe('solo1');
-    expect($profile['display_name'])->toBe('Solo Pro');
+    expect($profile['displayName'])->toBe('Solo Pro');
+
+    // Wire-level check: empty designKit / publicConfig must serialise as `{}`
+    // (object), never `[]` (array). PHP defaults to `[]` for empty assoc
+    // arrays, so the Resource casts to stdClass when there's nothing to emit.
+    $raw = $res->getContent();
+    expect($raw)->toContain('"designKit":{}');
+    // publicConfig has analyticsEndpoint, so it's never `{}` in this assertion
+    // — but we still confirm it serialises as an object.
+    expect($raw)->toContain('"publicConfig":{');
 
     // Link block surfaces as a structured row in the `links` array — not as
     // a raw `blocks[]` JSONB blob (the old shape).
@@ -126,6 +153,28 @@ it('returns the user-selected skeleton_id', function () {
     seedIndividualProfile('solo-sk2', 'skeleton-2');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
     expect($data['skeletonId'])->toBe('skeleton-2');
+});
+
+it('groups stored design_kit columns into nested camelCase wire shape', function () {
+    // Stored: flat snake_case columns (color_accent, typography_font_heading).
+    // Wire:   nested camelCase under group keys (colors.accent, typography.fontHeading).
+    $pro = seedIndividualProfile('solo-dk');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // The trigger that auto-inserts an empty design_kits row only exists in
+    // prod; the test stub doesn't run it. Insert manually with stored values.
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'color_accent' => '#ff0080',
+        'typography_font_heading' => 'inter',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk')->assertOk()->json('data');
+
+    expect($data['designKit'])->toEqual([
+        'colors' => ['accent' => '#ff0080'],
+        'typography' => ['fontHeading' => 'inter'],
+    ]);
 });
 
 it('excludes brand-only and commerce fields', function () {
