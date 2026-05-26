@@ -10,7 +10,7 @@ beforeEach(function () {
     setupBlocksTable();
     setupMediaTables();
     setupServicesTable();
-    setupProfessionalIntegrationsTable();
+    setupUserIntegrationsTable();
     shimPgAdvisoryLockForSqlite();
 });
 

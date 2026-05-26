@@ -14,7 +14,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function makeDeletionTestProfessional(array $overrides = []): User
+function makeDeletionTestUser(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -34,7 +34,7 @@ function makeDeletionTestProfessional(array $overrides = []): User
 }
 
 it('stores hashed token, sets requested_at, and sends confirmation mail', function () {
-    $pro = makeDeletionTestProfessional();
+    $pro = makeDeletionTestUser();
 
     $service = new AccountDeletionService;
     $request = Request::create('/', 'POST');
@@ -56,7 +56,7 @@ it('stores hashed token, sets requested_at, and sends confirmation mail', functi
 });
 
 it('writes a requested audit entry on successful request', function () {
-    $pro = makeDeletionTestProfessional();
+    $pro = makeDeletionTestUser();
     $service = new AccountDeletionService;
     $request = Request::create('/', 'POST', [], [], [], ['REMOTE_ADDR' => '1.2.3.4', 'HTTP_USER_AGENT' => 'TestAgent']);
 
@@ -76,7 +76,7 @@ it('writes a requested audit entry on successful request', function () {
 });
 
 it('rolls back token storage if mail send throws', function () {
-    $pro = makeDeletionTestProfessional();
+    $pro = makeDeletionTestUser();
 
     Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP down'));
 

@@ -45,7 +45,7 @@ beforeEach(function () {
 it('dispatches video cleanup with directory base path when deleting media', function () {
     Queue::fake();
 
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     $mediaId = (string) Str::uuid();
 
@@ -90,7 +90,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
 });
 
 it('returns 503 and soft-deletes media when video dispatch fails', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'database',
@@ -144,7 +144,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
 });
 
 it('returns 422 and creates no DB row when probe finds no video stream', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -184,7 +184,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
 });
 
 it('returns 422 and creates no DB row when video exceeds maximum duration', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -224,7 +224,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
 });
 
 it('returns 422 and creates no DB row when ffprobe cannot parse the container', function () {
-    [$professional] = createProfessionalAndSiteForMediaUploadTests();
+    [$professional] = createUserAndSiteForMediaUploadTests();
 
     config([
         'queue.default' => 'sync',
@@ -268,7 +268,7 @@ function bootstrapMediaUploadFailureSchema(): void
     // Models reference schema-qualified tables (core.users, site.sites,
     // site.site_media). The shared helpers in tests/Pest.php attach the right
     // schemas and create tables under them.
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
 }
@@ -276,7 +276,7 @@ function bootstrapMediaUploadFailureSchema(): void
 /**
  *  array{0: User, 1: Site}
  */
-function createProfessionalAndSiteForMediaUploadTests(): array
+function createUserAndSiteForMediaUploadTests(): array
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();

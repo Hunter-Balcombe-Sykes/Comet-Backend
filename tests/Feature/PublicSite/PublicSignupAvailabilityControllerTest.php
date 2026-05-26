@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 
     config([
         'supabase.url' => 'https://test.supabase.co',

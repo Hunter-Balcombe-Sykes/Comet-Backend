@@ -29,7 +29,7 @@ beforeEach(function () {
     )');
 });
 
-function seedProfessionals(int $n, string $status = 'active'): array
+function seedUsers(int $n, string $status = 'active'): array
 {
     $ids = [];
     for ($i = 0; $i < $n; $i++) {
@@ -47,7 +47,7 @@ function seedProfessionals(int $n, string $status = 'active'): array
 }
 
 it('bulk-suspends a wave of professionals', function () {
-    $ids = seedProfessionals(5);
+    $ids = seedUsers(5);
 
     $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
@@ -72,7 +72,7 @@ it('bulk-suspends a wave of professionals', function () {
 });
 
 it('accepts exactly 100 IDs', function () {
-    $ids = seedProfessionals(100);
+    $ids = seedUsers(100);
 
     $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
@@ -123,7 +123,7 @@ it('rejects non-UUID IDs', function () {
 });
 
 it('returns missing_ids for unknown UUIDs without rolling back valid ones', function () {
-    $valid = seedProfessionals(2);
+    $valid = seedUsers(2);
     $missing = [(string) Str::uuid(), (string) Str::uuid()];
 
     $controller = new StaffUserController;

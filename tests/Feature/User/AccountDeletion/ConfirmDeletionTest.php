@@ -16,7 +16,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): User
+function seedRequestedUser(string $rawToken = 'a-raw-token-64-chars-long-for-testing-purposes-1234567890123456', array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -39,7 +39,7 @@ function seedRequestedProfessional(string $rawToken = 'a-raw-token-64-chars-long
 
 it('confirms with valid token: flips status, snapshots previous status, nulls token', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
+    $pro = seedRequestedUser($rawToken);
 
     $service = new AccountDeletionService;
     $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
@@ -59,7 +59,7 @@ it('confirms with valid token: flips status, snapshots previous status, nulls to
 
 it('rejects with 410 when token is older than 24 hours', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken, [
+    $pro = seedRequestedUser($rawToken, [
         'deletion_requested_at' => Carbon::now()->subHours(25)->toIso8601String(),
     ]);
 
@@ -76,7 +76,7 @@ it('rejects with 410 when token is older than 24 hours', function () {
 
 it('rejects with 404 when token does not match', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
+    $pro = seedRequestedUser($rawToken);
 
     $service = new AccountDeletionService;
     $result = $service->confirm($pro, 'wrong-token', Request::create('/', 'POST'));
@@ -110,7 +110,7 @@ it('rejects with 404 when no deletion request exists', function () {
 
 it('pseudonymises PII columns at confirm time so live row is unreadable during grace window', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken, [
+    $pro = seedRequestedUser($rawToken, [
         'phone' => '+61400000000',
         'first_name' => 'Jane',
         'last_name' => 'Doer',
@@ -161,7 +161,7 @@ it('pseudonymises PII columns at confirm time so live row is unreadable during g
 
 it('cancel after confirm restores primary_email from audit snapshot for the cancel mail', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
+    $pro = seedRequestedUser($rawToken);
     $originalEmail = (string) $pro->primary_email;
 
     $service = new AccountDeletionService;
@@ -185,7 +185,7 @@ it('cancel after confirm restores primary_email from audit snapshot for the canc
 
 it('writes confirmed audit event', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
+    $pro = seedRequestedUser($rawToken);
 
     $service = new AccountDeletionService;
     $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
@@ -201,7 +201,7 @@ it('writes confirmed audit event', function () {
 
 it('unpublishes the site immediately when deletion is confirmed', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken);
+    $pro = seedRequestedUser($rawToken);
 
     // Seed a published site for this professional.
     $siteId = (string) Str::uuid();
@@ -230,7 +230,7 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
 
 it('pseudonymises professionals public_contact and about PII at confirm time', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken, [
+    $pro = seedRequestedUser($rawToken, [
         'public_contact_email' => 'public@example.com',
         'public_contact_number' => '+61400111222',
         'about' => '{"headline":"Test bio"}',
@@ -251,7 +251,7 @@ it('pseudonymises professionals public_contact and about PII at confirm time', f
 
 it('rolls back the entire confirmation when pseudonymisation fails — status, audit row, and PII all reverted', function () {
     $rawToken = 'raw-token-'.Str::random(54);
-    $pro = seedRequestedProfessional($rawToken, [
+    $pro = seedRequestedUser($rawToken, [
         'phone' => '+61400000000',
         'first_name' => 'Jane',
     ]);

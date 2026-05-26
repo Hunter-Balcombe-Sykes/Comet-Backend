@@ -28,7 +28,7 @@ it('implements ShouldBeUnique with a 45s window keyed by user_id (§28.6a)', fun
 });
 
 it('writes {type:"individual"} for an individual professional (§28.6)', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupHandleAliasesTable();
 
     $proId = (string) Str::uuid();

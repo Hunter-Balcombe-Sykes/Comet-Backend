@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
  * them, but the helper keeps the test data coherent).
  */
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
 });

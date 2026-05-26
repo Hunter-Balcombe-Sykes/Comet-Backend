@@ -14,7 +14,7 @@ use Tests\TestCase;
 uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupContactInboxSchema();
 });
 
@@ -39,7 +39,7 @@ function setupContactInboxSchema(): void
     )');
 }
 
-function makeInboxProfessional(): User
+function makeInboxUser(): User
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -83,7 +83,7 @@ function requestAs(User $pro, string $method = 'GET', array $data = []): Request
 }
 
 it('lists the current professional enquiries newest first', function () {
-    $pro = makeInboxProfessional();
+    $pro = makeInboxUser();
     $siteId = (string) Str::uuid();
 
     seedInboxEnquiry($pro->id, $siteId, ['name' => 'Older', 'created_at' => now()->subDay()->toDateTimeString()]);
@@ -97,7 +97,7 @@ it('lists the current professional enquiries newest first', function () {
 });
 
 it('does not leak other professionals enquiries', function () {
-    $me = makeInboxProfessional();
+    $me = makeInboxUser();
 
     $otherId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -117,7 +117,7 @@ it('does not leak other professionals enquiries', function () {
 });
 
 it('marks an enquiry as read', function () {
-    $pro = makeInboxProfessional();
+    $pro = makeInboxUser();
     $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid());
 
     app(UserEnquiryController::class)->update(requestAs($pro, 'PATCH', ['read' => true]), $enquiryId);
@@ -127,7 +127,7 @@ it('marks an enquiry as read', function () {
 });
 
 it('marks an enquiry as unread', function () {
-    $pro = makeInboxProfessional();
+    $pro = makeInboxUser();
     $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid(), ['read_at' => now()->toDateTimeString()]);
 
     app(UserEnquiryController::class)->update(requestAs($pro, 'PATCH', ['read' => false]), $enquiryId);
@@ -137,7 +137,7 @@ it('marks an enquiry as unread', function () {
 });
 
 it('soft-deletes an enquiry', function () {
-    $pro = makeInboxProfessional();
+    $pro = makeInboxUser();
     $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid());
 
     app(UserEnquiryController::class)->destroy(requestAs($pro, 'DELETE'), $enquiryId);
@@ -147,7 +147,7 @@ it('soft-deletes an enquiry', function () {
 });
 
 it('returns 404 when acting on another professionals enquiry', function () {
-    $me = makeInboxProfessional();
+    $me = makeInboxUser();
 
     $otherId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([

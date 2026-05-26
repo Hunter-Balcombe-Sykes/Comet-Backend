@@ -7,7 +7,7 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     attachTestSchemas();
-    setupProfessionalsTable();
+    setupUsersTable();
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,

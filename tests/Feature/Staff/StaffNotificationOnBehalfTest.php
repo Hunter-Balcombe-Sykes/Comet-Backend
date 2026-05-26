@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     attachTestSchemas();
-    setupProfessionalsTable();
+    setupUsersTable();
 
     $conn = DB::connection('pgsql');
 

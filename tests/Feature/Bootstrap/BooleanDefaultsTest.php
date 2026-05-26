@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 //      "look it up against email_subscriptions" — not "true / opted-in".
 beforeEach(function () {
     setupSitesTable();
-    setupProfessionalsTable();
+    setupUsersTable();
     setupCustomersTable();
     setupEmailSubscriptionsTable();
 

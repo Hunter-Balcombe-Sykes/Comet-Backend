@@ -12,7 +12,7 @@ beforeEach(function () {
 
     // TestCase::setUp redirects 'pgsql' to in-memory SQLite. Use the shared
     // helper to attach 'core' and create core.users.
-    setupProfessionalsTable();
+    setupUsersTable();
 })->group('bootstrap-waitlist-gate');
 
 it('blocks bootstrap for new users when waitlist mode is enabled', function () {

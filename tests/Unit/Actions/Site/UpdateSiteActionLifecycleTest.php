@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 uses(Tests\TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();

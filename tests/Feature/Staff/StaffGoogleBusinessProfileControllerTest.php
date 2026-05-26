@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
 });
 
-function makeStaffGbpProfessional(?array $gbp = null): User
+function makeStaffGbpUser(?array $gbp = null): User
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -38,7 +38,7 @@ function makeStaffGbpProfessional(?array $gbp = null): User
 }
 
 it('returns null profile when the site has no google_business_profile key', function () {
-    $pro = makeStaffGbpProfessional(null);
+    $pro = makeStaffGbpUser(null);
     $controller = new StaffGoogleBusinessProfileController;
 
     $response = $controller->show($pro);
@@ -49,7 +49,7 @@ it('returns null profile when the site has no google_business_profile key', func
 });
 
 it('returns the normalised profile when stored', function () {
-    $pro = makeStaffGbpProfessional([
+    $pro = makeStaffGbpUser([
         'place_id' => 'ChIJabc',
         'name' => 'My Shop',
         'address' => '1 Smith St',

@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupAuthFactorEventsTable();
 
     config([
@@ -18,7 +18,7 @@ beforeEach(function () {
 it('rejects unenroll when session is aal1', function () {
     $pro = createAffiliateTenant();
 
-    actingAsProfessional($pro) // aal1
+    actingAsUser($pro) // aal1
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
         ->assertStatus(401)
         ->assertJsonPath('message', fn ($msg) => str_contains((string) $msg, 'MFA'));
@@ -27,7 +27,7 @@ it('rejects unenroll when session is aal1', function () {
 it('rejects unenroll when most-recent totp is older than 60s', function () {
     $pro = createAffiliateTenant();
 
-    actingAsProfessional($pro, aal2ClaimsWithFreshTotp(90)) // 90s old
+    actingAsUser($pro, aal2ClaimsWithFreshTotp(90)) // 90s old
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
         ->assertStatus(401);
 });
@@ -40,7 +40,7 @@ it('calls Supabase Admin API and records unenroll event when within 60s', functi
     $pro = createAffiliateTenant();
     $factorId = (string) Str::uuid();
 
-    actingAsProfessional($pro, aal2ClaimsWithFreshTotp(30)) // 30s old, inside 60s
+    actingAsUser($pro, aal2ClaimsWithFreshTotp(30)) // 30s old, inside 60s
         ->deleteJson("/api/account/mfa/factors/{$factorId}")
         ->assertOk();
 
@@ -65,7 +65,7 @@ it('surfaces Supabase Admin API failure as 502', function () {
 
     $pro = createAffiliateTenant();
 
-    actingAsProfessional($pro, aal2ClaimsWithFreshTotp(30))
+    actingAsUser($pro, aal2ClaimsWithFreshTotp(30))
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
         ->assertStatus(502);
 });

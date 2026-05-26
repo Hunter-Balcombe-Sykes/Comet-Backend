@@ -18,7 +18,7 @@ function setupContactSubmissionSchema(): void
     // Core + site + analytics tables required for the full enquiry submission
     // flow: site resolution, block lookup, customer upsert, enquiry persistence,
     // and lead-submission analytics logging.
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
 
