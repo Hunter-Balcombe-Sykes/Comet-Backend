@@ -5,7 +5,6 @@ namespace App\Providers;
 use App\Services\BotProtection\CaptchaManager;
 use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaConfigurationException;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 
 final class BotProtectionServiceProvider extends ServiceProvider
@@ -24,7 +23,6 @@ final class BotProtectionServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->runBootGuards();
-        $this->bridgeLegacyFlag();
     }
 
     private function runBootGuards(): void
@@ -57,22 +55,6 @@ final class BotProtectionServiceProvider extends ServiceProvider
                     "BOT_PROTECTION_DRIVER={$driver} but the driver secret is not set."
                 );
             }
-        }
-    }
-
-    private function bridgeLegacyFlag(): void
-    {
-        // Static flag → log fires once per worker boot, not once per request.
-        static $warned = false;
-
-        $legacy = config('partna.features.captcha');
-        if ($legacy !== false && $legacy !== null && ! $warned) {
-            $warned = true;
-            Log::warning('PARTNA_CAPTCHA_ENABLED / partna.features.captcha is deprecated; use BOT_PROTECTION_MODE=off|shadow|enforce.');
-        }
-
-        if ($legacy === true && config('partna.bot_protection.mode') === 'off') {
-            config(['partna.bot_protection.mode' => 'enforce']);
         }
     }
 }

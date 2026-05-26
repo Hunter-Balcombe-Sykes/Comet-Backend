@@ -4,7 +4,6 @@ use App\Providers\BotProtectionServiceProvider;
 use App\Services\BotProtection\CaptchaManager;
 use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaConfigurationException;
-use Illuminate\Support\Facades\Log;
 
 uses(Tests\TestCase::class)->in(__FILE__);
 
@@ -62,19 +61,4 @@ it('allows null driver + enforce mode outside production', function () {
 
     (new BotProtectionServiceProvider(app()))->boot();
     expect(true)->toBeTrue();
-});
-
-it('legacy bridge maps partna.features.captcha=true to mode=enforce when mode=off', function () {
-    Log::spy();
-    config([
-        'partna.features.captcha'      => true,
-        'partna.bot_protection.driver' => 'null',  // avoid guard 3
-        'partna.bot_protection.mode'   => 'off',
-    ]);
-    app()->detectEnvironment(fn () => 'local');
-
-    (new BotProtectionServiceProvider(app()))->boot();
-
-    expect(config('partna.bot_protection.mode'))->toBe('enforce');
-    Log::shouldHaveReceived('warning')->with(\Mockery::on(fn ($msg) => str_contains($msg, 'deprecated')))->once();
 });

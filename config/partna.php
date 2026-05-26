@@ -1005,9 +1005,6 @@ return [
         'smart_booking' => (bool) env('PARTNA_SMART_BOOKING_ENABLED', env('SIDEST_SMART_BOOKING_ENABLED', false)),
         'square_sync' => (bool) env('PARTNA_SQUARE_SYNC_ENABLED', env('SIDEST_SQUARE_SYNC_ENABLED', false)),
         'fresha_sync' => (bool) env('PARTNA_FRESHA_SYNC_ENABLED', env('SIDEST_FRESHA_SYNC_ENABLED', false)),
-        // Gates Turnstile CAPTCHA on public lead-capture endpoints. Enable only after
-        // the frontend has integrated the Turnstile widget and sends cf_turnstile_response.
-        'captcha' => (bool) env('PARTNA_CAPTCHA_ENABLED', env('SIDEST_CAPTCHA_ENABLED', false)),
     ],
 
     /*
