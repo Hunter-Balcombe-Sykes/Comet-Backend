@@ -101,7 +101,7 @@ Route::post('/public/signup/availability', [PublicSignupAvailabilityController::
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
     ->middleware('throttle:public-site');
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
-    ->middleware(['throttle:waitlist', 'captcha']);
+    ->middleware(['throttle:waitlist', 'bot.token:waitlist']);
 
 // §28.8 — Individual public profile (Astro Worker subrequest target).
 // Public, unauthenticated. Rate limit + cache key isolated from generic public-site.
@@ -110,10 +110,10 @@ Route::get('/public/profiles/{handle}', [\App\Http\Controllers\Api\PublicSite\In
     ->middleware('throttle:public-profile');
 
 Route::post('/public/customers', [PublicCustomerLeadController::class, 'store'])
-    ->middleware(['lead.log', 'throttle:leads', 'captcha']);
+    ->middleware(['lead.log', 'throttle:leads', 'bot.token:lead']);
 
 Route::post('/public/enquiry', [PublicEnquiryController::class, 'submit'])
-    ->middleware(['lead.log', 'throttle:leads', 'captcha']);
+    ->middleware(['lead.log', 'throttle:leads', 'bot.token:enquiry']);
 
 // Self-diagnostic env-var check. Independent of every other auth subsystem on
 // purpose — this is the endpoint you hit when something else is misconfigured.
