@@ -56,10 +56,11 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // but the columns store NULL and nothing reads them.
             'design_kit.typography_font_heading' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_font_body' => ['sometimes', 'nullable', 'string', 'max:64'],
-            // Borders
+            // Borders (focus color is a derived default — null = follow accent)
             'design_kit.border_thickness' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.border_radius' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.border_focus_color' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Spacing
             'design_kit.spacing_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.spacing_small' => ['sometimes', 'nullable', 'string', 'max:16'],
@@ -79,6 +80,14 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // Sizing — UI control intrinsic dimensions
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Buttons — all derived-default colors (null = follow the linked
+            // colors.* var via vars.css; non-null = explicit override).
+            'design_kit.button_primary_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.button_primary_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.button_secondary_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.button_secondary_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.button_general_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.button_general_text' => ['sometimes', 'nullable', 'string', 'max:32'],
 
             'settings' => ['sometimes', 'array'],
             // settings.design.* is dead — reject any incoming key under it.

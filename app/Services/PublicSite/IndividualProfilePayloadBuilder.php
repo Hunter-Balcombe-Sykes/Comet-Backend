@@ -328,6 +328,7 @@ class IndividualProfilePayloadBuilder
             'icon' => 'icons',
             'effect' => 'effects',
             'sizing' => 'sizing',
+            'button' => 'buttons',
         ];
 
         $out = [];
