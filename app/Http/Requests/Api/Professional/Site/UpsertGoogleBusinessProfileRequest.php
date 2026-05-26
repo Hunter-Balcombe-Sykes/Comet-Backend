@@ -5,6 +5,12 @@ namespace App\Http\Requests\Api\Professional\Site;
 use App\Http\Requests\BaseFormRequest;
 
 // V2: Validates Google Business Profile upsert — place ID, name, address, coordinates, phone, website, and hours array.
+//
+// Two entry paths share this request:
+//   1. Google Places autofill — visitor picks a result; we get a place_id + name + full structured data.
+//   2. Manual entry          — visitor types the workplace by hand; no place_id, just a name (and
+//                              whatever address/contact details they provide). place_id is nullable
+//                              for this case; name remains the minimum to identify the workplace.
 class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
 {
     protected function prepareForValidation(): void
@@ -33,7 +39,9 @@ class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'place_id' => ['required', 'string', 'max:255'],
+            // Nullable so manual entries (no Google pick) can save. Still capped
+            // at 255 so a Google ID never silently overflows the JSONB column.
+            'place_id' => ['nullable', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],

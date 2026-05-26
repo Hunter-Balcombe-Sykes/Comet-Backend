@@ -51,9 +51,11 @@ class StaffGoogleBusinessProfileController extends ApiController
             return null;
         }
 
+        // place_id is optional — manual workplace entries (no Google pick)
+        // still surface to staff. A row with no name has no identity, drop it.
         $placeId = $this->trimOrNull($raw['place_id'] ?? null);
         $name = $this->trimOrNull($raw['name'] ?? null);
-        if (! $placeId || ! $name) {
+        if (! $name) {
             return null;
         }
 
