@@ -13,8 +13,8 @@ final class BotProtectionServiceProvider extends ServiceProvider
     {
         $this->app->singleton(CircuitBreaker::class, fn () => new CircuitBreaker(
             failureThreshold: (int) config('partna.bot_protection.circuit_breaker.failure_threshold', 5),
-            windowSeconds:    (int) config('partna.bot_protection.circuit_breaker.window_seconds', 60),
-            cooldownSeconds:  (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300),
+            windowSeconds: (int) config('partna.bot_protection.circuit_breaker.window_seconds', 60),
+            cooldownSeconds: (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300),
         ));
 
         $this->app->singleton(CaptchaManager::class, fn ($app) => new CaptchaManager($app));
@@ -27,9 +27,9 @@ final class BotProtectionServiceProvider extends ServiceProvider
 
     private function runBootGuards(): void
     {
-        $env    = $this->app->environment();
+        $env = $this->app->environment();
         $driver = (string) config('partna.bot_protection.driver');
-        $mode   = (string) config('partna.bot_protection.mode');
+        $mode = (string) config('partna.bot_protection.mode');
 
         // Guard 1: null driver in production with enforce mode = silent disable.
         if ($env === 'production' && $driver === 'null' && $mode === 'enforce') {
@@ -39,7 +39,7 @@ final class BotProtectionServiceProvider extends ServiceProvider
         }
 
         // Guard 2: Cloudflare test site key in production.
-        $siteKey  = (string) config("partna.bot_protection.drivers.{$driver}.site_key", '');
+        $siteKey = (string) config("partna.bot_protection.drivers.{$driver}.site_key", '');
         $testKeys = (array) config('partna.bot_protection.known_test_site_keys', []);
         if ($env === 'production' && $siteKey !== '' && in_array($siteKey, $testKeys, true)) {
             throw new CaptchaConfigurationException(

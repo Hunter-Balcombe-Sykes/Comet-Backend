@@ -17,15 +17,15 @@ final class HCaptchaProvider implements CaptchaProvider
         ?string $action = null,
         ?int $timeoutMs = null,
     ): VerificationResult {
-        $config     = config('partna.bot_protection.drivers.hcaptcha');
-        $defaultMs  = (int) config('partna.bot_protection.enforce_timeout_ms', 3000);
+        $config = config('partna.bot_protection.drivers.hcaptcha');
+        $defaultMs = (int) config('partna.bot_protection.enforce_timeout_ms', 3000);
         $timeoutSec = ($timeoutMs ?? $defaultMs) / 1000;
 
         try {
             $response = Http::asForm()
                 ->timeout((float) $timeoutSec)
                 ->post($config['verify_url'], [
-                    'secret'   => $config['secret'],
+                    'secret' => $config['secret'],
                     'response' => $token,
                     'remoteip' => $remoteIp,
                 ]);
@@ -41,10 +41,10 @@ final class HCaptchaProvider implements CaptchaProvider
         }
 
         return new VerificationResult(
-            success:     (bool) ($data['success'] ?? false),
-            errorCodes:  (array) ($data['error-codes'] ?? []),
-            hostname:    $data['hostname']     ?? null,
-            action:      $action,                                 // hCaptcha ignores action; preserve caller's tag for observability
+            success: (bool) ($data['success'] ?? false),
+            errorCodes: (array) ($data['error-codes'] ?? []),
+            hostname: $data['hostname'] ?? null,
+            action: $action,                                 // hCaptcha ignores action; preserve caller's tag for observability
             challengeTs: $data['challenge_ts'] ?? null,
         );
     }

@@ -8,7 +8,6 @@ use App\Services\BotProtection\VerificationResult;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
-use Throwable;
 
 final class TurnstileProvider implements CaptchaProvider
 {
@@ -18,15 +17,15 @@ final class TurnstileProvider implements CaptchaProvider
         ?string $action = null,
         ?int $timeoutMs = null,
     ): VerificationResult {
-        $config     = config('partna.bot_protection.drivers.turnstile');
-        $defaultMs  = (int) config('partna.bot_protection.enforce_timeout_ms', 3000);
+        $config = config('partna.bot_protection.drivers.turnstile');
+        $defaultMs = (int) config('partna.bot_protection.enforce_timeout_ms', 3000);
         $timeoutSec = ($timeoutMs ?? $defaultMs) / 1000;
 
         try {
             $response = Http::asForm()
                 ->timeout((float) $timeoutSec)
                 ->post($config['verify_url'], [
-                    'secret'   => $config['secret'],
+                    'secret' => $config['secret'],
                     'response' => $token,
                     'remoteip' => $remoteIp,
                 ]);
@@ -51,10 +50,10 @@ final class TurnstileProvider implements CaptchaProvider
         }
 
         return new VerificationResult(
-            success:     (bool) ($data['success'] ?? false),
-            errorCodes:  $errorCodes,
-            hostname:    $data['hostname']     ?? null,
-            action:      $data['action']       ?? $action,
+            success: (bool) ($data['success'] ?? false),
+            errorCodes: $errorCodes,
+            hostname: $data['hostname'] ?? null,
+            action: $data['action'] ?? $action,
             challengeTs: $data['challenge_ts'] ?? null,
         );
     }

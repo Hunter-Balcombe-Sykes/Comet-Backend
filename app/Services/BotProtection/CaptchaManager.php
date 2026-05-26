@@ -12,20 +12,18 @@ use Illuminate\Contracts\Foundation\Application;
 
 final class CaptchaManager
 {
-    public function __construct(private readonly Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     public function driver(?string $name = null): CaptchaProvider
     {
         $name = $name ?? (string) config('partna.bot_protection.driver');
 
         return match ($name) {
-            'null'      => $this->app->make(NullProvider::class),
+            'null' => $this->app->make(NullProvider::class),
             'turnstile' => $this->app->make(TurnstileProvider::class),
-            'hcaptcha'  => $this->app->make(HCaptchaProvider::class),
-            'fake'      => $this->app->make(FakeProvider::class),
-            default     => throw new CaptchaConfigurationException("Unknown bot protection driver: {$name}"),
+            'hcaptcha' => $this->app->make(HCaptchaProvider::class),
+            'fake' => $this->app->make(FakeProvider::class),
+            default => throw new CaptchaConfigurationException("Unknown bot protection driver: {$name}"),
         };
     }
 

@@ -3,7 +3,6 @@
 namespace App\Services\BotProtection\Providers;
 
 use App\Services\BotProtection\Contracts\CaptchaProvider;
-use App\Services\BotProtection\Exceptions\CaptchaProviderException;
 use App\Services\BotProtection\VerificationResult;
 
 // Test double. Scripted responses via queueResult() / queueException().
@@ -21,12 +20,14 @@ final class FakeProvider implements CaptchaProvider
     public function queueResult(VerificationResult $result): self
     {
         $this->queued[] = $result;
+
         return $this;
     }
 
     public function queueException(\Throwable $e): self
     {
         $this->queued[] = $e;
+
         return $this;
     }
 
@@ -46,6 +47,7 @@ final class FakeProvider implements CaptchaProvider
         if ($next instanceof \Throwable) {
             throw $next;
         }
+
         return $next;
     }
 

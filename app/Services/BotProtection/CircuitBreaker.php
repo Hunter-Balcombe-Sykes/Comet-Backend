@@ -9,10 +9,9 @@ final class CircuitBreaker
 {
     public function __construct(
         private int $failureThreshold = 5,
-        private int $windowSeconds    = 60,
-        private int $cooldownSeconds  = 300,
-    ) {
-    }
+        private int $windowSeconds = 60,
+        private int $cooldownSeconds = 300,
+    ) {}
 
     public function isOpen(string $driver): bool
     {

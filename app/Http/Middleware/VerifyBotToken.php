@@ -8,6 +8,7 @@ use App\Services\BotProtection\Exceptions\CaptchaProviderException;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -16,8 +17,7 @@ final class VerifyBotToken
     public function __construct(
         private readonly CaptchaManager $captcha,
         private readonly CircuitBreaker $breaker,
-    ) {
-    }
+    ) {}
 
     public function handle(Request $request, Closure $next, string $action = 'default'): Response
     {
@@ -29,14 +29,16 @@ final class VerifyBotToken
         }
 
         $driver = (string) config('partna.bot_protection.driver', 'null');
-        $token  = $this->extractToken($request);
+        $token = $this->extractToken($request);
 
         if ($token === null) {
             Log::info('bot_protection.missing_token', ['action' => $action]);
             if ($mode === 'shadow') {
                 Log::info('bot_protection.shadow_reject', ['driver' => $driver, 'action' => $action, 'codes' => ['captcha_missing'], 'has_token' => false]);
+
                 return $next($request);
             }
+
             return $this->reject('captcha_missing');
         }
 
@@ -44,10 +46,12 @@ final class VerifyBotToken
         try {
             if ($this->breaker->isOpen($driver)) {
                 $this->logFailOpenOnce($driver, $action, $request, 'circuit_open');
+
                 return $next($request);
             }
         } catch (Throwable $e) {
             $this->logBreakerUnavailable($driver, $action, $request);
+
             return $next($request);
         }
 
@@ -60,13 +64,14 @@ final class VerifyBotToken
         } catch (CaptchaProviderException $e) {
             $this->safelyRecord(fn () => $this->breaker->recordFailure($driver));
             Log::warning('bot_protection.fail_open', [
-                'driver'     => $driver,
-                'reason'     => 'provider_error',
-                'action'     => $action,
-                'route'      => $request->path(),
-                'ip'         => $request->ip(),
+                'driver' => $driver,
+                'reason' => 'provider_error',
+                'action' => $action,
+                'route' => $request->path(),
+                'ip' => $request->ip(),
                 'request_id' => $request->header('X-Request-Id'),
             ]);
+
             return $next($request);
         }
 
@@ -80,6 +85,7 @@ final class VerifyBotToken
             Log::info('bot_protection.shadow_reject', [
                 'driver' => $driver, 'action' => $action, 'codes' => $result->errorCodes, 'score' => $result->score, 'has_token' => true,
             ]);
+
             return $next($request);
         }
 
@@ -98,7 +104,10 @@ final class VerifyBotToken
             ?? $request->input('captcha_token')
             ?? $request->input('cf_turnstile_response');  // legacy alias — accepted for one release
 
-        if (! is_string($raw)) return null;
+        if (! is_string($raw)) {
+            return null;
+        }
+
         return blank($raw) ? null : trim($raw);
     }
 
@@ -106,15 +115,15 @@ final class VerifyBotToken
     {
         return response()->json([
             'message' => 'Verification failed.',
-            'error'   => $error,
+            'error' => $error,
             'captcha' => [
-                'should_retry'    => true,
+                'should_retry' => true,
                 'should_rerender' => true,
             ],
         ], 422);
     }
 
-    private function safelyRecord(\Closure $op): void
+    private function safelyRecord(Closure $op): void
     {
         try {
             $op();
@@ -129,9 +138,9 @@ final class VerifyBotToken
         // we already passed-through in the caller; we just skip logging here.
         try {
             $key = "bot_protection:fail_open_logged:{$driver}:{$reason}";
-            $count = \Illuminate\Support\Facades\Redis::incr($key);
+            $count = Redis::incr($key);
             if ($count === 1) {
-                \Illuminate\Support\Facades\Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
+                Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
                 Log::warning('bot_protection.fail_open', [
                     'driver' => $driver, 'reason' => $reason, 'action' => $action,
                     'route' => $request->path(), 'ip' => $request->ip(),
@@ -146,7 +155,9 @@ final class VerifyBotToken
     private function logBreakerUnavailable(string $driver, string $action, Request $request): void
     {
         static $warned = false;
-        if ($warned) return;
+        if ($warned) {
+            return;
+        }
         $warned = true;
         Log::warning('bot_protection.breaker_unavailable', [
             'driver' => $driver, 'action' => $action, 'route' => $request->path(),
