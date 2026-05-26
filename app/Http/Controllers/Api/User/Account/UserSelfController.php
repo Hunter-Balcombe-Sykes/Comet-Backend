@@ -44,6 +44,12 @@ class UserSelfController extends ApiController
                     ? $pro->site->subdomain_changed_at->copy()->addDays(UpdateSiteAction::SUBDOMAIN_COOLDOWN_DAYS)->toIso8601String()
                     : null,
                 'is_published' => (bool) $pro->site->is_published,
+                // skeleton_id is a TEXT enum on site.sites (replaces the
+                // old theme model). The dashboard's design editor reads
+                // this to highlight the active skeleton; without it,
+                // map-snapshot-to-account falls through to null and the
+                // picker defaults to skeleton-1 on every render.
+                'skeleton_id' => $pro->site->skeleton_id,
                 'settings' => $siteSettings,
             ] : null,
         ];
