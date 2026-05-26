@@ -2,7 +2,6 @@
 
 namespace App\Services\Professional;
 
-use App\Models\Core\Professional\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
@@ -88,7 +87,7 @@ class SiteProvisioningService
             $site = new Site([
                 'subdomain' => $candidate,
                 'theme_id' => null,
-                'is_published' => false,
+                'is_published' => true,
                 'settings' => [],
             ]);
 
