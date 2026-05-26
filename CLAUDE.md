@@ -81,7 +81,7 @@ See what the server is actually saying. THEN form a hypothesis. The user reads t
 - **Never create Laravel migration files.** A composer guard (`guard:no-laravel-migrations`) will reject them.
 - All schema changes go in `supabase/migrations/` as raw SQL files.
 - The database uses a single consolidated baseline migration: `supabase/migrations/20260526000000_baseline_standalone_user.sql`. The 147 historical migrations are archived in `supabase/migrations-archive/`.
-- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, themes, feature flags, handle aliases, platform config), `site` (sites, blocks, services, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas.
+- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, themes, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas.
 
 ### Code Organization
 ```

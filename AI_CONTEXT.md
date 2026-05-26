@@ -120,7 +120,7 @@ Visitor analytics + lead capture → analytics.* tables
 | `Notification` | — | `notifications.notifications` | In-app notification records |
 | `EmailSubscription` | — | `notifications.email_subscriptions` | Marketing email opt-in per user |
 | `SiteSubdomainAlias` | — | `site.site_subdomain_aliases` | Subdomain alias management |
-| `Theme` | — | `core.themes` | Site theme definitions (platform-wide catalog) |
+| `Theme` | — | `site.themes` | Site theme definitions (platform-wide catalog, lives in site for render-data co-location) |
 | `WaitlistSignup` | — | `core.waitlist_signups` | Pre-launch waitlist |
 | `SiteVisit` | — | `analytics.site_visits` | Page view events |
 | `LinkClick` | — | `analytics.link_clicks` | Link/section click events |
