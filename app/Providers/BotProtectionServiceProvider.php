@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Services\BotProtection\CaptchaManager;
 use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaConfigurationException;
+use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 
 final class BotProtectionServiceProvider extends ServiceProvider
@@ -56,5 +58,41 @@ final class BotProtectionServiceProvider extends ServiceProvider
                 );
             }
         }
+
+        // Guard 4: Trusted proxies unconfigured. Soft warn — log only, do not refuse boot.
+        // Without trusted-proxy config, $request->ip() returns the Cloudflare edge IP
+        // instead of the real client IP — Turnstile fraud scoring is degraded and per-IP
+        // rate limits collapse to a single bucket. Only meaningful in deployed envs;
+        // skip in local/testing where there's no proxy at all.
+        if (! in_array($env, ['local', 'testing'], true) && ! $this->trustedProxiesConfigured()) {
+            Log::warning('bot_protection.trusted_proxies_unconfigured', [
+                'note' => '$request->ip() may return the proxy IP instead of the real client IP; Turnstile siteverify scoring is degraded and per-IP rate limits collapse.',
+            ]);
+        }
+    }
+
+    private function trustedProxiesConfigured(): bool
+    {
+        // Laravel 12 stores trusted proxies on TrustProxies::$alwaysTrustProxies after
+        // $middleware->trustProxies(at: ...) wires them up. The property is protected
+        // and has no public getter, so we read it via reflection. '*' (trust all) counts
+        // as configured — it's the recommended setting when the app sits behind a
+        // single trusted edge (Cloudflare, Laravel Cloud).
+        try {
+            $reflection = new \ReflectionProperty(TrustProxies::class, 'alwaysTrustProxies');
+            $reflection->setAccessible(true);
+            $proxies = $reflection->getValue();
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        if ($proxies === null) {
+            return false;
+        }
+        if (is_array($proxies)) {
+            return $proxies !== [];
+        }
+
+        return (string) $proxies !== '';
     }
 }
