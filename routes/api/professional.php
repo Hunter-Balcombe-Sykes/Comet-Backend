@@ -88,6 +88,7 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
             ->name('professional.site.reclaim-handle');
         Route::put('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'upsert']);
+        Route::delete('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'destroy']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
 
         // Booking settings (manual mode — plain external-URL link)
