@@ -34,17 +34,17 @@ class StaffSiteController extends ApiController
 
             'professional' => [
                 'id' => $row->user_id,
-                'handle' => $row->professional_handle,
-                'display_name' => $row->professional_display_name,
+                'handle' => $row->handle,
+                'display_name' => $row->display_name,
                 // account_type is the authoritative field
                 // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
                 'account_type' => $row->account_type,
-                'bio' => $row->professional_bio,
-                'location_street_address' => $row->professional_location_street_address,
-                'location_city' => $row->professional_location_city,
-                'location_state' => $row->professional_location_state,
-                'location_postcode' => $row->professional_location_postcode,
-                'location_country' => $row->professional_location_country,
+                'bio' => $row->bio,
+                'location_street_address' => $row->location_street_address,
+                'location_city' => $row->location_city,
+                'location_state' => $row->location_state,
+                'location_postcode' => $row->location_postcode,
+                'location_country' => $row->location_country,
             ],
 
             'theme' => [
@@ -81,17 +81,17 @@ class StaffSiteController extends ApiController
 
             'professional' => [
                 'id' => $row->user_id,
-                'handle' => $row->professional_handle,
-                'display_name' => $row->professional_display_name,
+                'handle' => $row->handle,
+                'display_name' => $row->display_name,
                 // account_type is the authoritative field
                 // during the §28.1 dual-write window. Both fields exposed until frontend fully migrates.
                 'account_type' => $row->account_type,
-                'bio' => $row->professional_bio,
-                'location_street_address' => $row->professional_location_street_address,
-                'location_city' => $row->professional_location_city,
-                'location_state' => $row->professional_location_state,
-                'location_postcode' => $row->professional_location_postcode,
-                'location_country' => $row->professional_location_country,
+                'bio' => $row->bio,
+                'location_street_address' => $row->location_street_address,
+                'location_city' => $row->location_city,
+                'location_state' => $row->location_state,
+                'location_postcode' => $row->location_postcode,
+                'location_country' => $row->location_country,
             ],
 
             'theme' => [
