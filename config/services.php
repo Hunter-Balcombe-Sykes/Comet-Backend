@@ -70,12 +70,6 @@ return [
         'cache_purge_token' => env('CLOUDFLARE_CACHE_PURGE_TOKEN'),
     ],
 
-    // Cloudflare Turnstile — bot-protection for public lead-capture endpoints.
-    // Only required when PARTNA_CAPTCHA_ENABLED=true.
-    'turnstile' => [
-        'secret_key' => env('CLOUDFLARE_TURNSTILE_SECRET_KEY'),
-    ],
-
     'twitch' => [
         'client_id' => env('TWITCH_CLIENT_ID'),
         'client_secret' => env('TWITCH_CLIENT_SECRET'),

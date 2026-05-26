@@ -81,8 +81,9 @@ class EnvCheckService
             'mail.from.address' => 'MAIL_FROM_ADDRESS',
             'mail.from.name' => 'MAIL_FROM_NAME',
         ],
-        'Cloudflare Turnstile (captcha)' => [
-            'services.turnstile.secret_key' => 'CLOUDFLARE_TURNSTILE_SECRET_KEY',
+        'Bot Protection (Turnstile)' => [
+            'partna.bot_protection.drivers.turnstile.secret' => 'TURNSTILE_SECRET',
+            'partna.bot_protection.drivers.turnstile.site_key' => 'TURNSTILE_SITE_KEY',
         ],
         'Google Maps (address autocomplete)' => [
             'services.google_maps.api_key' => 'GOOGLE_MAPS_API_KEY',
