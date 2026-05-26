@@ -68,6 +68,64 @@ it('does not dispatch retirement job when old handle is empty', function () {
     Queue::assertNotPushed(RetireSubdomainFromKvJob::class);
 });
 
+// ── Site touch on public-visible User-field changes (PR #120) ─────────────
+
+it('touches parent site when a public-visible field changes', function (string $field) {
+    Queue::fake();
+
+    $site = Mockery::mock(Site::class);
+    $site->shouldReceive('touch')->once();
+
+    $pro = new User;
+    $pro->setRawAttributes(['id' => (string) Str::uuid(), $field => 'old']);
+    $pro->syncOriginal();
+    $pro->{$field} = 'new';
+    $pro->syncChanges();
+    $pro->setRelation('site', $site);
+
+    app(ProfessionalObserver::class)->updated($pro);
+})->with(['handle', 'display_name', 'first_name', 'last_name', 'bio']);
+
+it('touches parent site when about JSONB changes', function () {
+    Queue::fake();
+
+    $site = Mockery::mock(Site::class);
+    $site->shouldReceive('touch')->once();
+
+    // `about` is cast to array, so raw attributes hold the JSON string (matches
+    // what Eloquent reads from Postgres). The assignment below sets the typed
+    // value and `syncChanges` records the diff.
+    $pro = new User;
+    $pro->setRawAttributes([
+        'id' => (string) Str::uuid(),
+        'about' => json_encode(['credentials' => []]),
+    ]);
+    $pro->syncOriginal();
+    $pro->about = ['credentials' => [['title' => 'New cert']]];
+    $pro->syncChanges();
+    $pro->setRelation('site', $site);
+
+    app(ProfessionalObserver::class)->updated($pro);
+});
+
+it('survives a null site relation when a public field changes', function () {
+    Queue::fake();
+
+    $pro = new User;
+    $pro->setRawAttributes(['id' => (string) Str::uuid(), 'bio' => 'old']);
+    $pro->syncOriginal();
+    $pro->bio = 'new';
+    $pro->syncChanges();
+    $pro->setRelation('site', null);
+
+    // Should complete without throwing — `?->touch()` short-circuits.
+    app(ProfessionalObserver::class)->updated($pro);
+
+    expect(true)->toBeTrue();
+});
+
+// ── public_contact section re-evaluation (PR #121) ────────────────────────
+
 it('re-evaluates the public_contact section when a public contact field changes', function (string $field) {
     Queue::fake();
 
@@ -92,25 +150,6 @@ it('re-evaluates the public_contact section when a public contact field changes'
     app(ProfessionalObserver::class)->updated($pro);
 })->with(['public_contact_number', 'public_contact_email']);
 
-it('does not re-evaluate public_contact when only non-public fields change', function () {
-    Queue::fake();
-
-    $pro = new User;
-    $pro->setRawAttributes([
-        'id' => (string) Str::uuid(),
-        'phone' => '+61400000000',
-    ]);
-    $pro->syncOriginal();
-    $pro->phone = '+61400000001';
-    $pro->syncChanges();
-    $pro->setRelation('site', new Site);
-
-    $visibility = mock(SectionVisibilityService::class);
-    $visibility->shouldNotReceive('reevaluateEnabled');
-
-    app(ProfessionalObserver::class)->updated($pro);
-});
-
 it('does not throw when a public contact change happens with no site relation', function () {
     Queue::fake();
 
@@ -127,4 +166,28 @@ it('does not throw when a public contact change happens with no site relation', 
     app(ProfessionalObserver::class)->updated($pro);
 
     expect(true)->toBeTrue();
+});
+
+// ── Joint negative — non-public field changes trigger neither path ────────
+
+it('skips both site touch and public_contact reeval when only a non-public field changes', function () {
+    Queue::fake();
+
+    $site = Mockery::mock(Site::class);
+    $site->shouldNotReceive('touch');
+
+    $visibility = mock(SectionVisibilityService::class);
+    $visibility->shouldNotReceive('reevaluateEnabled');
+
+    $pro = new User;
+    $pro->setRawAttributes([
+        'id' => (string) Str::uuid(),
+        'phone' => '+61400000000',
+    ]);
+    $pro->syncOriginal();
+    $pro->phone = '+61400000001';
+    $pro->syncChanges();
+    $pro->setRelation('site', $site);
+
+    app(ProfessionalObserver::class)->updated($pro);
 });
