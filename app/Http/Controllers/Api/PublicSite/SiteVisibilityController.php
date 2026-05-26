@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\UpdateVisibilityRequest;
 use App\Http\Resources\SiteResource;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
@@ -23,7 +23,7 @@ class SiteVisibilityController extends ApiController
         }
 
         $site = Site::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->firstOrFail();
 
         $site->published = (bool) $request->validated('published');

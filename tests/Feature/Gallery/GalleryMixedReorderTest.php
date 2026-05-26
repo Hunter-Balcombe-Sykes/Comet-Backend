@@ -7,9 +7,9 @@
 // silently defaulted `media_type` to 'image', which dropped video ids from
 // the reorder payload and corrupted the displayed order.
 
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
-use App\Http\Requests\Api\Professional\Uploads\ReorderPoolImagesRequest;
-use App\Models\Core\Professional\User;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
+use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
@@ -62,18 +62,18 @@ function callReorderController(User $professional, array $body): \Illuminate\Htt
     $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(\App\Services\Media\VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
 
     return $controller->reorder($formRequest);
 }
 
 function seedProfessionalAndSite(): array
 {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $professionalId,
+        'id' => $userId,
         'display_name' => 'Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -81,14 +81,14 @@ function seedProfessionalAndSite(): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'mixed-reorder-test',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = User::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

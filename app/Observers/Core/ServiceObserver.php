@@ -2,10 +2,10 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\Service;
-use App\Services\Cache\ProfessionalCacheService;
-use App\Services\Professional\SectionVisibilityService;
+use App\Models\Core\User\User;
+use App\Models\Core\User\Service;
+use App\Services\Cache\UserCacheService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
 
 // V2: Invalidates cache and re-evaluates section visibility on service changes.
@@ -14,7 +14,7 @@ class ServiceObserver
     public bool $afterCommit = true;
 
     public function __construct(
-        private readonly ProfessionalCacheService $professionalCache,
+        private readonly UserCacheService $userCache,
         private readonly SectionVisibilityService $visibilityService,
     ) {}
 
@@ -22,11 +22,11 @@ class ServiceObserver
     {
         $pro = null;
         try {
-            $pro = User::query()->with('site')->find($service->professional_id);
+            $pro = User::query()->with('site')->find($service->user_id);
         } catch (\Throwable $e) {
             Log::warning('Professional lookup failed during cache bust', [
                 'service_id' => $service->id,
-                'professional_id' => $service->professional_id,
+                'user_id' => $service->user_id,
                 'message' => $e->getMessage(),
             ]);
 
@@ -35,12 +35,12 @@ class ServiceObserver
 
         try {
             if ($pro) {
-                $this->professionalCache->invalidateProfessional($pro);
+                $this->userCache->invalidateUser($pro);
             }
         } catch (\Throwable $e) {
             Log::warning('Professional cache invalidation failed on service change', [
                 'service_id' => $service->id,
-                'professional_id' => $service->professional_id,
+                'user_id' => $service->user_id,
                 'message' => $e->getMessage(),
             ]);
         }
@@ -72,7 +72,7 @@ class ServiceObserver
         } catch (\Throwable $e) {
             Log::error('ServiceObserver hook failed', [
                 'service_id' => $service->id,
-                'professional_id' => $service->professional_id,
+                'user_id' => $service->user_id,
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -97,7 +97,7 @@ class ServiceObserver
         } catch (\Throwable $e) {
             Log::warning('Parent site touch() failed on service mutation', [
                 'service_id' => $service->id,
-                'professional_id' => $service->professional_id,
+                'user_id' => $service->user_id,
                 'message' => $e->getMessage(),
             ]);
         }
@@ -113,7 +113,7 @@ class ServiceObserver
 
             foreach (['booking', 'services'] as $blockType) {
                 $this->visibilityService->reevaluateEnabled(
-                    (string) $service->professional_id,
+                    (string) $service->user_id,
                     (string) $site->id,
                     $blockType,
                 );
@@ -121,7 +121,7 @@ class ServiceObserver
         } catch (\Throwable $e) {
             Log::warning('Section visibility reevaluation failed on service change', [
                 'service_id' => $service->id,
-                'professional_id' => $service->professional_id,
+                'user_id' => $service->user_id,
                 'message' => $e->getMessage(),
             ]);
         }

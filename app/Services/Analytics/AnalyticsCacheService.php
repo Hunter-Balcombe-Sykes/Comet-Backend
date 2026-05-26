@@ -2,7 +2,7 @@
 
 namespace App\Services\Analytics;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;

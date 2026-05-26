@@ -5,7 +5,7 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 
 // Wire-format gate for /staff/professionals/{p}/email-subscribers. Currently
-// identical to ProfessionalEmailSubscriptionResource — the value is the
+// identical to UserEmailSubscriptionResource — the value is the
 // architectural separation so a future staff-only field (e.g. admin_notes,
 // suppression source) has an obvious home without leaking to brands.
 class StaffEmailSubscriptionResource extends ApiResource

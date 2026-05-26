@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -44,7 +44,7 @@ function seedIndividualProfile(string $handle, array $design = []): User
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => strtolower($handle),
         'settings' => json_encode(['design' => $design]),
         'is_published' => 1,
@@ -60,8 +60,8 @@ it('returns 200 with the full envelope shape for an individual', function () {
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
-        'site_id' => DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id'),
+        'user_id' => $pro->id,
+        'site_id' => DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id'),
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'Example',
@@ -118,11 +118,11 @@ it('excludes brand-only and commerce fields (audit TEST-4)', function () {
 // prevented by typed projection rather than a string allow-list.
 it('link projection emits only the structured shape (no extra JSONB leaks)', function () {
     $pro = seedIndividualProfile('solo3');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'site_id' => $siteId,
         'block_type' => 'link',
         'block_group' => 'links',
@@ -157,11 +157,11 @@ it('link projection emits only the structured shape (no extra JSONB leaks)', fun
 
 it('unknown block_type does not appear in the structured response', function () {
     $pro = seedIndividualProfile('solo4');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'site_id' => $siteId,
         'block_type' => 'experimental_unknown_type',
         'block_group' => 'sections',
@@ -224,12 +224,12 @@ it('is case-insensitive on the handle path param', function () {
 
 it('surfaces content-pool site_media as content_images[]', function () {
     $pro = seedIndividualProfile('content1');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/original.jpg',
         'media_type' => 'image',
@@ -251,12 +251,12 @@ it('surfaces content-pool site_media as content_images[]', function () {
 
 it('omits soft-deleted content_images', function () {
     $pro = seedIndividualProfile('content2');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/deleted.jpg',
         'media_type' => 'image',
@@ -274,12 +274,12 @@ it('omits soft-deleted content_images', function () {
 
 it('omits processing-state != ready content_images', function () {
     $pro = seedIndividualProfile('content3');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('professional_id', $pro->id)->value('id');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/processing.jpg',
         'media_type' => 'image',

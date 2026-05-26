@@ -4,7 +4,7 @@ namespace App\Observers\Core;
 
 use App\Models\Core\Site\SiteMedia;
 use App\Observers\Concerns\LogsWithRequestContext;
-use App\Services\Professional\SectionVisibilityService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
 
 // V2: Re-evaluates section visibility when media rows are saved, deleted, or restored.
@@ -78,12 +78,12 @@ class SiteMediaObserver
         $site = null;
         try {
             $site = $media->site;
-            if (! $site || ! $site->professional_id) {
+            if (! $site || ! $site->user_id) {
                 return;
             }
 
             $this->visibilityService->reevaluateEnabled(
-                (string) $site->professional_id,
+                (string) $site->user_id,
                 (string) $media->site_id,
                 $blockType
             );
@@ -91,7 +91,7 @@ class SiteMediaObserver
             Log::warning('Section visibility reevaluation failed on SiteMedia event', $this->logContext(__METHOD__, [
                 'site_media_id' => $media->id,
                 'site_id' => $media->site_id,
-                'professional_id' => $site?->professional_id,
+                'user_id' => $site?->user_id,
                 'pool' => $media->pool,
                 'block_type' => $blockType,
                 'message' => $e->getMessage(),

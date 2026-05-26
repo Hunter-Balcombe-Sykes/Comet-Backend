@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 

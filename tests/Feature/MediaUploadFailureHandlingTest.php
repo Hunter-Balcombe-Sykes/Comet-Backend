@@ -2,10 +2,10 @@
 
 /** @phpstan-ignore-all */
 
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
-use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
+use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
@@ -23,7 +23,7 @@ beforeEach(function () {
     bootstrapMediaUploadFailureSchema();
     setupFeatureFlagsTable();
 
-    // ProfessionalUploadController gates video uploads behind the video_uploads
+    // UserUploadController gates video uploads behind the video_uploads
     // feature flag (FeatureFlagService::enabled). With an empty registry it
     // resolves via the config fallback — enable it so these tests reach the
     // actual upload-failure paths under test rather than a 403.
@@ -70,7 +70,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
     $videoVariant = Mockery::mock(VideoVariantService::class);
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
     $siteImage = SiteMedia::query()->findOrFail($mediaId);
 
     // Controller signature was changed to (Request, SiteMedia) — test was
@@ -129,7 +129,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(503);
@@ -174,7 +174,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -214,7 +214,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -254,7 +254,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
-    $controller = app(ProfessionalUploadController::class);
+    $controller = app(UserUploadController::class);
     $response = $controller->upload($request);
 
     expect($response->getStatusCode())->toBe(422);
@@ -278,11 +278,11 @@ function bootstrapMediaUploadFailureSchema(): void
  */
 function createProfessionalAndSiteForMediaUploadTests(): array
 {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $professionalId,
+        'id' => $userId,
         'display_name' => 'Test Professional',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -290,14 +290,14 @@ function createProfessionalAndSiteForMediaUploadTests(): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'subdomain' => 'test-pro',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = User::query()->findOrFail($professionalId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
     $site = Site::query()->findOrFail($siteId);
 

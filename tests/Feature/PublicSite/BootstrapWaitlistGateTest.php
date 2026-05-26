@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Models\Core\Site\Site;
-use App\Services\Professional\ProfessionalBootstrapService;
+use App\Services\User\UserBootstrapService;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -27,7 +27,7 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
 });
 
 it('does not gate existing professionals when waitlist mode is enabled', function () {
-    $existing = new App\Models\Core\Professional\User([
+    $existing = new App\Models\Core\User\User([
         'handle' => 'existing',
         'handle_lc' => 'existing',
         'display_name' => 'Existing User',
@@ -52,7 +52,7 @@ it('does not gate existing professionals when waitlist mode is enabled', functio
     // full bootstrap path. If the gate fires, the service is never called; if
     // the gate lets the request through, the stub returns a known-good shape.
     $site = new Site(['id' => '00000000-0000-0000-0000-000000000002', 'subdomain' => 'existing']);
-    $this->instance(ProfessionalBootstrapService::class, Mockery::mock(ProfessionalBootstrapService::class, function ($mock) use ($existing, $site) {
+    $this->instance(UserBootstrapService::class, Mockery::mock(UserBootstrapService::class, function ($mock) use ($existing, $site) {
         $mock->shouldReceive('bootstrap')->once()->andReturn([
             'professional' => $existing,
             'site' => $site,

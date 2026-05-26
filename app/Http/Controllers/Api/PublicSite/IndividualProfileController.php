@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
@@ -48,7 +48,7 @@ class IndividualProfileController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $site = Site::query()->where('professional_id', $pro->id)->first();
+        $site = Site::query()->where('user_id', $pro->id)->first();
         $key = $this->builder->cacheKey($handleLc, $site, $pro);
 
         $payload = $this->cache->rememberLocked(

@@ -3,7 +3,7 @@
 namespace App\Jobs\Notifications;
 
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\Customer;
+use App\Models\Core\User\Customer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -38,7 +38,7 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
     public int $timeout = 30;
 
     public function __construct(
-        public readonly string $professionalId,
+        public readonly string $userId,
         public readonly string $subscriptionId,
     ) {
         $this->onQueue('notifications');
@@ -55,7 +55,7 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
         }
 
         $customer = Customer::query()
-            ->where('professional_id', $subscription->professional_id)
+            ->where('user_id', $subscription->user_id)
             ->where('email', $subscription->email)
             ->first();
 
@@ -75,7 +75,7 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
     {
         report($e);
         Log::error('notifications.sync_customer_marketing_opt_in.failed', [
-            'professional_id' => $this->professionalId,
+            'user_id' => $this->userId,
             'subscription_id' => $this->subscriptionId,
             'error' => $e->getMessage(),
         ]);

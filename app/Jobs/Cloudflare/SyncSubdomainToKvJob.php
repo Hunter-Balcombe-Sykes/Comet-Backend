@@ -3,7 +3,7 @@
 namespace App\Jobs\Cloudflare;
 
 use App\Jobs\Concerns\HasCloudflareRetryPolicy;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -30,19 +30,19 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 45;
 
-    public function __construct(public readonly string $professionalId)
+    public function __construct(public readonly string $userId)
     {
         $this->onQueue('default');
     }
 
     public function uniqueId(): string
     {
-        return $this->professionalId;
+        return $this->userId;
     }
 
     public function handle(CloudflareKvService $kv): void
     {
-        $pro = User::query()->find($this->professionalId);
+        $pro = User::query()->find($this->userId);
 
         if (! $pro || ! $pro->handle) {
             return;
@@ -60,7 +60,7 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
     {
         report($e);
         Log::error('cloudflare.sync_subdomain_to_kv.failed', [
-            'professional_id' => $this->professionalId,
+            'user_id' => $this->userId,
             'error' => $e->getMessage(),
         ]);
     }
@@ -72,8 +72,8 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
      */
     private function writeAliasEntries(CloudflareKvService $kv, string $proId, string $current): void
     {
-        $aliases = DB::table('core.professional_handle_aliases')
-            ->where('professional_id', $proId)
+        $aliases = DB::table('core.user_handle_aliases')
+            ->where('user_id', $proId)
             ->where(function ($q) {
                 $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
             })

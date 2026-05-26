@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -30,7 +30,7 @@ function seedSubscription(string $proId, array $overrides = []): void
 {
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert(array_merge([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'list_key' => 'marketing',
         'email' => 'fan@example.com',
         'email_lc' => 'fan@example.com',

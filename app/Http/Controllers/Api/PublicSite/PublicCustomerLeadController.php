@@ -64,7 +64,7 @@ class PublicCustomerLeadController extends ApiController
             return $this->error('Site not found.', 404);
         }
 
-        if (! $site->professional_id) {
+        if (! $site->user_id) {
             $this->logLead($request, $subdomain, $site->id, null, null, 'site_unlinked', $startedMs);
 
             return $this->error('Site is not linked to a professional.', 422);
@@ -72,13 +72,13 @@ class PublicCustomerLeadController extends ApiController
 
         $site->loadMissing('professional');
 
-        if (! $site->professional) {
+        if (! $site->user) {
             $this->logLead($request, $subdomain, $site->id, null, null, 'site_unlinked', $startedMs);
 
             return $this->error('Site is not linked to a professional.', 422);
         }
 
-        $pro = $site->professional;
+        $pro = $site->user;
 
         // Check if customer with this email already exists (excluding soft-deleted)
         $customer = $pro->customers()
@@ -109,7 +109,7 @@ class PublicCustomerLeadController extends ApiController
 
         if ($marketingOptIn && ! empty($data['email'])) {
             $this->upsertMarketingSubscription(
-                professionalId: $pro->id,
+                userId: $pro->id,
                 email: (string) $data['email'],
                 fullName: $data['full_name'] ?? null,
                 request: $request
@@ -128,7 +128,7 @@ class PublicCustomerLeadController extends ApiController
         Request $request,
         ?string $subdomain,
         ?string $siteId,
-        ?string $professionalId,
+        ?string $userId,
         ?string $customerId,
         string $outcome,
         ?int $formStartedAtMs
@@ -137,7 +137,7 @@ class PublicCustomerLeadController extends ApiController
             'occurred_at' => now(),
             'subdomain' => $subdomain,
             'site_id' => $siteId,
-            'professional_id' => $professionalId,
+            'user_id' => $userId,
             'customer_id' => $customerId,
             'ip_hash' => $this->hashIp($request->ip()),
             'user_agent' => $request->userAgent(),
@@ -147,7 +147,7 @@ class PublicCustomerLeadController extends ApiController
         ]);
     }
 
-    private function upsertMarketingSubscription(string $professionalId, string $email, ?string $fullName, Request $request): void
+    private function upsertMarketingSubscription(string $userId, string $email, ?string $fullName, Request $request): void
     {
         $email = strtolower(trim($email));
         if ($email === '') {
@@ -158,14 +158,14 @@ class PublicCustomerLeadController extends ApiController
 
         try {
             $sub = EmailSubscription::query()
-                ->where('professional_id', $professionalId)
+                ->where('user_id', $userId)
                 ->where('list_key', $listKey)
                 ->where('email_lc', $email)
                 ->first();
 
             if (! $sub) {
                 $sub = new EmailSubscription([
-                    'professional_id' => $professionalId,
+                    'user_id' => $userId,
                     'list_key' => $listKey,
                     'email' => $email,
                     'email_lc' => $email,
@@ -189,7 +189,7 @@ class PublicCustomerLeadController extends ApiController
 
             $sub->save();
         } catch (UniqueConstraintViolationException) {
-            // Race: another request inserted the same (professional_id, list_key, email_lc)
+            // Race: another request inserted the same (user_id, list_key, email_lc)
             // row between our SELECT and INSERT. Idempotent — nothing more to do.
         }
     }

@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
 
 // DataExportAudit — server-controlled timestamps must not be mass-assignable
@@ -13,9 +13,9 @@ it('does not allow completed_at to be mass-assigned on DataExportAudit', functio
     expect((new DataExportAudit)->getFillable())->not->toContain('completed_at');
 });
 
-// ProfessionalDeletionAuditEntry — server-controlled timestamp must not be mass-assignable
-it('does not allow created_at to be mass-assigned on ProfessionalDeletionAuditEntry', function () {
-    expect((new ProfessionalDeletionAuditEntry)->getFillable())->not->toContain('created_at');
+// UserDeletionAuditEntry — server-controlled timestamp must not be mass-assignable
+it('does not allow created_at to be mass-assigned on UserDeletionAuditEntry', function () {
+    expect((new UserDeletionAuditEntry)->getFillable())->not->toContain('created_at');
 });
 
 // PartnaStaff — role must not be mass-assignable (privilege-escalation guard, SEC-1).

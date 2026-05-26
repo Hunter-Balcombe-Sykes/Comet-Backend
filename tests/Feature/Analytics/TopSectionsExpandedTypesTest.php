@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 // already reads `partna.section_block_types` from config; this test pins the
 // expected member list and asserts the click controller writes a row when the
 // section block is `bio` or `documents` (previously rejected by a hardcoded
-// 4-type filter in ProfessionalAnalyticsController). It also pins the
+// 4-type filter in UserAnalyticsController). It also pins the
 // section_block_types config contents against accidental shrinkage.
 
 beforeEach(function (): void {

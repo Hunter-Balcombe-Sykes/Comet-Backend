@@ -1,10 +1,10 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffProfessionalController;
-use App\Http\Requests\Api\Staff\ProfessionalSite\StaffUpdateProfessionalRequest;
-use App\Http\Resources\ProfessionalResource;
-use App\Http\Resources\ProfessionalStaffResource;
-use App\Models\Core\Professional\User;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
+use App\Http\Resources\UserResource;
+use App\Http\Resources\UserStaffResource;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -31,7 +31,7 @@ beforeEach(function () {
 });
 
 it('accepts admin_notes through the staff update form request', function () {
-    $request = StaffUpdateProfessionalRequest::create('/', 'PATCH', [
+    $request = StaffUpdateUserRequest::create('/', 'PATCH', [
         'admin_notes' => 'VIP brand — do not suspend',
     ]);
     $request->setContainer(app())->setRedirector(app('redirect'));
@@ -52,13 +52,13 @@ it('persists admin_notes when staff PATCHes the professional', function () {
 
     $professional = User::query()->findOrFail($id);
 
-    $request = StaffUpdateProfessionalRequest::create('/', 'PATCH', [
+    $request = StaffUpdateUserRequest::create('/', 'PATCH', [
         'admin_notes' => 'DMCA pending — flag any takedown requests',
     ]);
     $request->setContainer(app())->setRedirector(app('redirect'));
     $request->validateResolved();
 
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $controller->update($request, $professional);
 
     $fresh = User::query()->findOrFail($id);
@@ -71,8 +71,8 @@ it('exposes admin_notes in staff resource but not in self-service resource', fun
     $professional->admin_notes = 'Internal: do not contact this brand directly';
     $professional->display_name = 'Test';
 
-    $staffShape = (new ProfessionalStaffResource($professional))->toArray(request());
-    $selfShape = (new ProfessionalResource($professional))->toArray(request());
+    $staffShape = (new UserStaffResource($professional))->toArray(request());
+    $selfShape = (new UserResource($professional))->toArray(request());
 
     expect($staffShape)->toHaveKey('admin_notes')
         ->and($staffShape['admin_notes'])->toBe('Internal: do not contact this brand directly')
@@ -80,7 +80,7 @@ it('exposes admin_notes in staff resource but not in self-service resource', fun
 });
 
 it('rejects admin_notes longer than 5000 chars', function () {
-    $request = StaffUpdateProfessionalRequest::create('/', 'PATCH', [
+    $request = StaffUpdateUserRequest::create('/', 'PATCH', [
         'admin_notes' => str_repeat('a', 5001),
     ]);
     $request->setContainer(app())->setRedirector(app('redirect'));

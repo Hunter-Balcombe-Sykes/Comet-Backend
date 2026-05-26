@@ -4,7 +4,7 @@ namespace App\Http\Requests\Api;
 
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Requests\BaseFormRequest;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,9 +19,9 @@ class BootstrapRequest extends BaseFormRequest
     {
         $uid = $this->attributes->get('supabase_uid');
 
-        $existingProfessionalId = null;
+        $existingUserId = null;
         if (is_string($uid) && $uid !== '') {
-            $existingProfessionalId = User::query()
+            $existingUserId = User::query()
                 ->where('auth_user_id', $uid)
                 ->value('id');
         }
@@ -35,7 +35,7 @@ class BootstrapRequest extends BaseFormRequest
             'display_name' => ['required', 'string', 'max:80'],
             'primary_email' => [
                 'required', 'email:rfc', 'max:255',
-                Rule::unique(User::class, 'primary_email')->ignore($existingProfessionalId, 'id'),
+                Rule::unique(User::class, 'primary_email')->ignore($existingUserId, 'id'),
             ],
             'phone' => ['nullable', ...$this->phoneRule()],
             'first_name' => ['nullable', 'string', 'max:80'],
@@ -52,10 +52,10 @@ class BootstrapRequest extends BaseFormRequest
                 'nullable',
                 'string',
                 'max:50',
-                Rule::unique(User::class, 'handle_lc')->ignore($existingProfessionalId, 'id'),
+                Rule::unique(User::class, 'handle_lc')->ignore($existingUserId, 'id'),
                 // Also block handles that appear in the alias table — these are handles
                 // previously used by other professionals and must not be re-claimed.
-                function (string $attribute, mixed $value, \Closure $fail) use ($existingProfessionalId): void {
+                function (string $attribute, mixed $value, \Closure $fail) use ($existingUserId): void {
                     if (! is_string($value) || $value === '') {
                         return;
                     }
@@ -65,12 +65,12 @@ class BootstrapRequest extends BaseFormRequest
                         // connection is redirected to a separate SQLite handle without schema
                         // attachments, so the dot-prefixed table name only resolves on pgsql.
                         $query = DB::connection('pgsql')
-                            ->table('core.professional_handle_aliases')
+                            ->table('core.user_handle_aliases')
                             ->whereRaw('LOWER(handle) = ?', [strtolower($value)]);
 
                         // Exclude the current professional's own aliases (re-bootstrap scenario)
-                        if ($existingProfessionalId) {
-                            $query->where('professional_id', '!=', $existingProfessionalId);
+                        if ($existingUserId) {
+                            $query->where('user_id', '!=', $existingUserId);
                         }
 
                         $taken = $query->exists();

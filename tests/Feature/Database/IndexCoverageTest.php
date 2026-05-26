@@ -54,13 +54,13 @@ it('sites table has a supporting index on theme_id', function () {
     assertIndexExists('site', 'sites', 'idx_sites_theme_id');
 });
 
-// ─── commerce.affiliate_product_selections.brand_professional_id ────────────
+// ─── commerce.affiliate_product_selections.brand_user_id ────────────
 
-it('affiliate_product_selections table has a supporting index on brand_professional_id', function () {
+it('affiliate_product_selections table has a supporting index on brand_user_id', function () {
     if (! indexCoverageSuiteIsPostgres()) {
         $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
     }
-    assertIndexExists('commerce', 'affiliate_product_selections', 'idx_aps_brand_professional_id');
+    assertIndexExists('commerce', 'affiliate_product_selections', 'idx_aps_brand_user_id');
 });
 
 // ─── core.wallet_currency_switch_audit.topup_id ─────────────────────────────

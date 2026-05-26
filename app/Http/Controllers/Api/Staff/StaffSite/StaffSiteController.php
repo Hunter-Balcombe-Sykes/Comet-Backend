@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Views\AllSiteData;
 use Illuminate\Http\JsonResponse;
 
@@ -33,7 +33,7 @@ class StaffSiteController extends ApiController
             ],
 
             'professional' => [
-                'id' => $row->professional_id,
+                'id' => $row->user_id,
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
                 // account_type is the authoritative field
@@ -61,7 +61,7 @@ class StaffSiteController extends ApiController
     public function showByProfessional(User $professional): JsonResponse
     {
         $row = AllSiteData::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->first();
 
         if (! $row) {
@@ -80,7 +80,7 @@ class StaffSiteController extends ApiController
             ],
 
             'professional' => [
-                'id' => $row->professional_id,
+                'id' => $row->user_id,
                 'handle' => $row->professional_handle,
                 'display_name' => $row->professional_display_name,
                 // account_type is the authoritative field

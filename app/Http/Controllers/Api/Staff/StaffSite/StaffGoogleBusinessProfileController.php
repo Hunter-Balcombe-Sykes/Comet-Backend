@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
 // Staff inspector for a brand's Google Business Profile config (#GBP-1).
-// Mirrors ProfessionalGoogleBusinessProfileController::show. Upsert is an admin
+// Mirrors UserGoogleBusinessProfileController::show. Upsert is an admin
 // write — out of scope here.
 class StaffGoogleBusinessProfileController extends ApiController
 {
@@ -20,7 +20,7 @@ class StaffGoogleBusinessProfileController extends ApiController
     public function show(User $professional): JsonResponse
     {
         $site = Site::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->first();
 
         if (! $site) {

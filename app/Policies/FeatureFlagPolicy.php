@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 
 /**
  * Defensive deny-all policy for FeatureFlag and FeatureFlagOverride.

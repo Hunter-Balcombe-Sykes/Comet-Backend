@@ -3,7 +3,7 @@
 namespace App\Models\Core;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -28,7 +28,7 @@ class HandleChangeLog extends BaseModel
     public $timestamps = false;
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'old_handle',
         'new_handle',
         'reason',
@@ -44,6 +44,6 @@ class HandleChangeLog extends BaseModel
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Site\UpsertGoogleBusinessProfileRequest;
+use App\Http\Requests\Api\User\Site\UpsertGoogleBusinessProfileRequest;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;

@@ -1,10 +1,10 @@
 <?php
 
 use App\Http\Requests\Api\BootstrapRequest;
-use App\Http\Requests\Api\Professional\Site\DestroyLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
-use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
 use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
 use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;

@@ -8,13 +8,13 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\StaffEmailSubscriptionResource;
 use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 // Staff inspector for a brand's marketing-list subscribers (#GDPR-1).
-// Mirrors the brand-side ProfessionalEmailSubscriptionController so support
+// Mirrors the brand-side UserEmailSubscriptionController so support
 // can answer Article 15/20 requests routed via the platform inbox.
 class StaffEmailSubscriberController extends ApiController
 {
@@ -42,7 +42,7 @@ class StaffEmailSubscriberController extends ApiController
         $searchLike = $this->prepareSearchLike($request, 'search');
 
         $query = EmailSubscription::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->where('list_key', $listKey)
             ->orderByDesc('subscribed_at')
             ->orderByDesc('created_at');
@@ -88,7 +88,7 @@ class StaffEmailSubscriberController extends ApiController
         $status = is_string($status) ? trim($status) : 'subscribed';
 
         $query = EmailSubscription::query()
-            ->where('professional_id', $professional->id)
+            ->where('user_id', $professional->id)
             ->where('list_key', $listKey)
             ->orderBy('email');
 

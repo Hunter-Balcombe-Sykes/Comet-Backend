@@ -9,7 +9,7 @@
  * management endpoint:
  *
  *   - Self path  → resolved via $request->attributes->get('professional')
- *                  (set by Context\LoadCurrentProfessional middleware).
+ *                  (set by Context\LoadCurrentUser middleware).
  *   - Staff path → resolved via $request->route('professional')
  *                  (route-bound target professional whose site is being
  *                  edited; the staff member's own pro lives on the
@@ -19,8 +19,8 @@
  * runs in shared code — both subclasses must resolve the right professional.
  */
 
-use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
-use App\Http\Requests\Api\Staff\ProfessionalSite\Links\StaffStoreLinkRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\Staff\UserSite\Links\StaffStoreLinkRequest;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -31,13 +31,13 @@ use Illuminate\Validation\Validator;
  * Mirrors the production schema enough to satisfy the cap query
  * (`whereIn('settings->category', $cappedCategories)`).
  */
-function seedCappedLinks(string $professionalId, string $siteId, int $count, string $category = 'social'): void
+function seedCappedLinks(string $userId, string $siteId, int $count, string $category = 'social'): void
 {
     $now = now()->toDateTimeString();
     for ($i = 0; $i < $count; $i++) {
         DB::connection('pgsql')->table('site.blocks')->insert([
             'id' => (string) Str::uuid(),
-            'professional_id' => $professionalId,
+            'user_id' => $userId,
             'site_id' => $siteId,
             'block_group' => 'links',
             'block_type' => 'link',

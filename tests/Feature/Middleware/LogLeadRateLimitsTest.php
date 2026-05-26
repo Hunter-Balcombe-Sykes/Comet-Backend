@@ -18,7 +18,7 @@ beforeEach(function () {
         occurred_at TEXT NULL,
         subdomain TEXT NULL,
         site_id TEXT NULL,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         customer_id TEXT NULL,
         ip_hash TEXT NULL,
         user_agent TEXT NULL,

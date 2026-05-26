@@ -62,7 +62,7 @@ Visitor analytics + lead capture → analytics.* tables
 ├── app/
 │   ├── Models/
 │   │   ├── Core/
-│   │   │   ├── Professional/  — User (class App\Models\Core\Professional\User, table core.users)
+│   │   │   ├── User/          — User (class App\Models\Core\User\User, table core.users), Customer, Service, ServiceCategory, UserConfirmationPreference, UserDeletionAuditEntry
 │   │   │   ├── Site/          — Site, Block, SiteMedia, SiteSubdomainAlias, Theme
 │   │   │   ├── Notifications/ — Notification, NotificationReceipt, EmailSubscription, NotificationEmailPolicy, NotificationEmailPreference
 │   │   │   ├── Staff/         — PartnaStaff
@@ -108,11 +108,11 @@ Visitor analytics + lead capture → analytics.* tables
 
 | Model | Class | Table | Role |
 |-------|-------|-------|------|
-| `User` | `App\Models\Core\Professional\User` | `core.users` | Central identity for individual professionals |
+| `User` | `App\Models\Core\User\User` | `core.users` | Central identity for individual users |
 | `Site` | `App\Models\Core\Site\Site` | `site.sites` | Mini-site config (subdomain, theme, settings, publish state) |
 | `Service` | `App\Models\Core\Site\Service` | `site.services` | Display-only service catalog |
 | `ServiceCategory` | `App\Models\Core\Site\ServiceCategory` | `site.service_categories` | Groups services for display |
-| `Customer` | `App\Models\Core\Professional\Customer` | `site.customers` | CRM contact records per user |
+| `Customer` | `App\Models\Core\User\Customer` | `site.customers` | CRM contact records per user |
 | `Block` | `App\Models\Core\Site\Block` | `site.blocks` | Site content blocks (links, sections) |
 | `SiteMedia` | `App\Models\Core\Site\SiteMedia` | `site.site_media` | Images/videos with processing states |
 | `MediaVariant` | `App\Models\Core\MediaVariant` | `site.media_variants` | Processed variants (WebP, MP4, HLS, poster) |

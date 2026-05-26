@@ -3,7 +3,7 @@
 namespace App\Jobs\Account;
 
 use App\Mail\Notifications\AccountDeletionRequestedMail;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -30,7 +30,7 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
     public int $timeout = 15;
 
     public function __construct(
-        public readonly string $professionalId,
+        public readonly string $userId,
         public readonly string $rawToken,
     ) {
         $this->onQueue('notifications');
@@ -43,7 +43,7 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
 
     public function handle(): void
     {
-        $professional = User::query()->find($this->professionalId);
+        $professional = User::query()->find($this->userId);
         if ($professional === null) {
             // User was purged/cancelled between dispatch and execution — nothing to send.
             return;
@@ -71,7 +71,7 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
         $tokenHash = hash('sha256', $this->rawToken);
         $rowsCleared = DB::connection('pgsql')
             ->table('core.users')
-            ->where('id', $this->professionalId)
+            ->where('id', $this->userId)
             ->where('deletion_token_hash', $tokenHash)
             ->update([
                 'deletion_token_hash' => null,
@@ -79,7 +79,7 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
             ]);
 
         Log::error('Account deletion request mail failed', [
-            'professional_id' => $this->professionalId,
+            'user_id' => $this->userId,
             'token_cleared' => $rowsCleared > 0,
             'error' => $e->getMessage(),
         ]);

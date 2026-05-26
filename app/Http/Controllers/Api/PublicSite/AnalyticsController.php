@@ -64,12 +64,12 @@ class AnalyticsController extends ApiController
             'country_code' => $this->detectCountryCode($request),
             'device_type' => $this->detectDeviceType($request->userAgent()),
         ]);
-        $visit->professional_id = $site->professional_id;
+        $visit->user_id = $site->user_id;
         $visit->site_id = $site->id;
         $visit->save();
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on pageview', ['site_id' => $site->id, 'error' => $e->getMessage()]);
@@ -173,14 +173,14 @@ class AnalyticsController extends ApiController
                 'utm_medium' => $data['utm_medium'] ?? null,
                 'utm_campaign' => $data['utm_campaign'] ?? null,
             ]);
-            $click->professional_id = $site->professional_id;
+            $click->user_id = $site->user_id;
             $click->site_id = $site->id;
             $click->link_block_id = $block->id;
             $click->save();
         }
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on click', ['site_id' => $site->id, 'error' => $e->getMessage()]);
@@ -262,13 +262,13 @@ class AnalyticsController extends ApiController
                 'country_code' => $this->detectCountryCode($request),
                 'device_type' => $this->detectDeviceType($request->userAgent()),
             ]);
-            $view->professional_id = $site->professional_id;
+            $view->user_id = $site->user_id;
             $view->site_id = $site->id;
             $view->save();
         }
 
         try {
-            $this->debounceInvalidateAnalytics($site->professional_id);
+            $this->debounceInvalidateAnalytics($site->user_id);
         } catch (Throwable $e) {
             report($e);
             Log::warning('Analytics cache invalidation failed on section view', [
@@ -289,10 +289,10 @@ class AnalyticsController extends ApiController
      * High-volume ingest (pageviews, clicks, section views) would otherwise bust SWR
      * on every event.
      */
-    private function debounceInvalidateAnalytics(string $professionalId): void
+    private function debounceInvalidateAnalytics(string $userId): void
     {
-        if (Cache::add("analytics:ingest-debounce:{$professionalId}", 1, 30)) {
-            Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($professionalId));
+        if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
+            Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
         }
     }
 }

@@ -18,7 +18,7 @@ function readSource(string $relativePath): string
 }
 
 it('B3/P1-09: no $response->body() leaks in AccountDeletionService log contexts', function () {
-    $src = readSource('app/Services/Professional/AccountDeletionService.php');
+    $src = readSource('app/Services/User/AccountDeletionService.php');
 
     expect($src)
         ->not->toContain("'body' => \$response->body()")
@@ -39,7 +39,7 @@ it('B3/P1-10: SyncCustomerMarketingOptInJob constructor takes UUIDs only', funct
     $paramNames = array_map(fn ($p) => $p->getName(), $ctor->getParameters());
 
     expect($paramNames)
-        ->toContain('professionalId')
+        ->toContain('userId')
         ->and($paramNames)->toContain('subscriptionId')
         ->and($paramNames)->not->toContain('email')
         ->and($paramNames)->not->toContain('subscribed');

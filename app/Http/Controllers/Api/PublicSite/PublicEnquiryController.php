@@ -8,7 +8,7 @@ use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Core\Professional\Customer;
+use App\Models\Core\User\Customer;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Services\PublicSite\PublicSiteResolver;
@@ -58,7 +58,7 @@ class PublicEnquiryController extends ApiController
         }
 
         $site = $resolver->resolvePublishedSite($subdomain);
-        if (! $site || ! $site->professional_id) {
+        if (! $site || ! $site->user_id) {
             $this->logLead($request, $subdomain, $site?->id, null, 'site_not_found', $startedMs);
 
             return $this->error('Site not found.', 404);
@@ -89,7 +89,7 @@ class PublicEnquiryController extends ApiController
 
         // 5) Save the enquiry.
         $enquiry = Enquiry::query()->create([
-            'professional_id' => $site->professional_id,
+            'user_id' => $site->user_id,
             'site_id' => $site->id,
             'name' => $data['name'],
             'email' => $data['email'],
@@ -101,10 +101,10 @@ class PublicEnquiryController extends ApiController
         ]);
 
         // 6) Upsert submitter as Customer lead.
-        $this->upsertEnquiryCustomer((string) $site->professional_id, $data['email'], $data['name'], $data['phone'] ?? null);
+        $this->upsertEnquiryCustomer((string) $site->user_id, $data['email'], $data['name'], $data['phone'] ?? null);
 
         // 7) Log unified lead analytics.
-        $this->logLead($request, $subdomain, $site->id, (string) $site->professional_id, 'created', $startedMs);
+        $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);
 
         // 8) Dispatch notification email (only if settings.notification_email is present and per-brand hourly limit not reached).
         // B3/P1-10: the job re-reads notification_email from $block->settings inside
@@ -112,7 +112,7 @@ class PublicEnquiryController extends ApiController
         // inbox address never sits in a serialised Redis payload.
         $notificationEmail = data_get($block->settings, 'notification_email');
         if (is_string($notificationEmail) && trim($notificationEmail) !== '') {
-            $notifyKey = 'enquiry_notify:'.$site->professional_id;
+            $notifyKey = 'enquiry_notify:'.$site->user_id;
             $notifyLimit = config('partna.throttle.enquiry_notification_per_hour', 10);
 
             if (! RateLimiter::tooManyAttempts($notifyKey, $notifyLimit)) {
@@ -124,7 +124,7 @@ class PublicEnquiryController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    private function upsertEnquiryCustomer(string $professionalId, string $email, ?string $fullName, ?string $phone): void
+    private function upsertEnquiryCustomer(string $userId, string $email, ?string $fullName, ?string $phone): void
     {
         $normalizedEmail = strtolower(trim($email));
         if ($normalizedEmail === '') {
@@ -133,7 +133,7 @@ class PublicEnquiryController extends ApiController
 
         $existing = Customer::query()
             ->withTrashed()
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereRaw('lower(email) = ?', [$normalizedEmail])
             ->first();
 
@@ -160,7 +160,7 @@ class PublicEnquiryController extends ApiController
         }
 
         $customer = new Customer;
-        $customer->professional_id = $professionalId;
+        $customer->user_id = $userId;
         $customer->email = $normalizedEmail;
         $customer->full_name = $fullName ?: null;
         $customer->phone = $phone ?: null;
@@ -172,7 +172,7 @@ class PublicEnquiryController extends ApiController
         Request $request,
         ?string $subdomain,
         ?string $siteId,
-        ?string $professionalId,
+        ?string $userId,
         string $outcome,
         ?int $formStartedAtMs,
     ): void {
@@ -180,7 +180,7 @@ class PublicEnquiryController extends ApiController
             'occurred_at' => now(),
             'subdomain' => $subdomain,
             'site_id' => $siteId,
-            'professional_id' => $professionalId,
+            'user_id' => $userId,
             'customer_id' => null,
             'ip_hash' => $this->hashIp($request->ip()),
             'user_agent' => $request->userAgent(),

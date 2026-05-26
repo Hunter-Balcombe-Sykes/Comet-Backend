@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Uploads\UploadImageRequest;
+use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -65,7 +65,7 @@ it('UpdateGalleryImageRequest accepts caption and alt_text within limits', funct
         'caption' => 'Before and after haircut',
         'alt_text' => 'Short back and sides',
     ]);
-    $formRequest = \App\Http\Requests\Api\Professional\ImageGallery\UpdateGalleryImageRequest::createFrom($request);
+    $formRequest = \App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest::createFrom($request);
     $formRequest->setContainer(app())->setRedirector(app('redirect'));
 
     $thrown = null;
@@ -82,7 +82,7 @@ it('UpdateGalleryImageRequest rejects caption longer than 200 characters', funct
     $request = Request::create('/test', 'PATCH', [
         'caption' => str_repeat('a', 201),
     ]);
-    $formRequest = \App\Http\Requests\Api\Professional\ImageGallery\UpdateGalleryImageRequest::createFrom($request);
+    $formRequest = \App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest::createFrom($request);
     $formRequest->setContainer(app())->setRedirector(app('redirect'));
 
     $thrown = null;
@@ -96,12 +96,12 @@ it('UpdateGalleryImageRequest rejects caption longer than 200 characters', funct
     expect($thrown->errors())->toHaveKey('caption');
 });
 
-it('route PATCH api/gallery/{image} maps to ProfessionalGalleryController@update', function () {
+it('route PATCH api/gallery/{image} maps to UserGalleryController@update', function () {
     $route = collect(\Illuminate\Support\Facades\Route::getRoutes()->getRoutes())
         ->first(fn ($r) => in_array('PATCH', $r->methods()) && $r->uri() === 'api/gallery/{image}');
 
     expect($route)->not->toBeNull();
-    expect($route->getActionName())->toContain('ProfessionalGalleryController@update');
+    expect($route->getActionName())->toContain('UserGalleryController@update');
 });
 
 it('route PATCH api/gallery/{image} has per-route throttle:30,1 middleware', function () {

@@ -9,7 +9,7 @@ class FeatureFlagOverrideResource extends ApiResource
         return [
             'id' => (string) $this->id,
             'flag_key' => $this->flag_key,
-            'professional_id' => $this->professional_id,
+            'user_id' => $this->user_id,
             'enabled' => (bool) $this->enabled,
             'reason' => $this->reason,
             'expires_at' => $this->expires_at?->toIso8601String(),

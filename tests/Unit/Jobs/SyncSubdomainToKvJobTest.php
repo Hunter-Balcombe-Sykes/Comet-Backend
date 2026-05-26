@@ -18,7 +18,7 @@ it('has the correct retry policy and queue configuration', function () {
         ->and($job->queue)->toBe('default');
 });
 
-it('implements ShouldBeUnique with a 45s window keyed by professional_id (§28.6a)', function () {
+it('implements ShouldBeUnique with a 45s window keyed by user_id (§28.6a)', function () {
     $proId = (string) Str::uuid();
     $job = new SyncSubdomainToKvJob($proId);
 

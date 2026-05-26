@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\FeatureFlags\FeatureFlagService;
 
 if (! function_exists('feature')) {

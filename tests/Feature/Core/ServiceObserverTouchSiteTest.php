@@ -1,18 +1,18 @@
 <?php
 
-use App\Models\Core\Professional\Service;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Observers\Core\ServiceObserver;
-use App\Services\Cache\ProfessionalCacheService;
-use App\Services\Professional\SectionVisibilityService;
+use App\Services\Cache\UserCacheService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\mock;
 
 beforeEach(function () {
     // Stub heavyweight collaborators so the unit test runs without Redis.
-    mock(ProfessionalCacheService::class)->shouldIgnoreMissing();
+    mock(UserCacheService::class)->shouldIgnoreMissing();
     mock(SectionVisibilityService::class)->shouldIgnoreMissing();
 });
 
@@ -32,7 +32,7 @@ it('touchParentSite calls touch() on the professional\'s site', function () {
     $pro->setRelation('site', $site);
 
     $service = new Service;
-    $service->setRawAttributes(['id' => (string) Str::uuid(), 'professional_id' => $pro->id]);
+    $service->setRawAttributes(['id' => (string) Str::uuid(), 'user_id' => $pro->id]);
 
     invokeTouchParentSite(app(ServiceObserver::class), $service, $pro);
 });
@@ -43,7 +43,7 @@ it('touchParentSite no-ops when the professional has no site', function () {
     $pro->setRelation('site', null);
 
     $service = new Service;
-    $service->setRawAttributes(['id' => (string) Str::uuid(), 'professional_id' => $pro->id]);
+    $service->setRawAttributes(['id' => (string) Str::uuid(), 'user_id' => $pro->id]);
 
     // Should complete without throwing — `?->touch()` short-circuits.
     invokeTouchParentSite(app(ServiceObserver::class), $service, $pro);
@@ -53,7 +53,7 @@ it('touchParentSite no-ops when the professional has no site', function () {
 
 it('touchParentSite no-ops when the professional itself is null', function () {
     $service = new Service;
-    $service->setRawAttributes(['id' => (string) Str::uuid(), 'professional_id' => (string) Str::uuid()]);
+    $service->setRawAttributes(['id' => (string) Str::uuid(), 'user_id' => (string) Str::uuid()]);
 
     invokeTouchParentSite(app(ServiceObserver::class), $service, null);
 
@@ -69,7 +69,7 @@ it('touchParentSite swallows touch() exceptions and logs a warning', function ()
     $pro->setRelation('site', $site);
 
     $service = new Service;
-    $service->setRawAttributes(['id' => (string) Str::uuid(), 'professional_id' => $pro->id]);
+    $service->setRawAttributes(['id' => (string) Str::uuid(), 'user_id' => $pro->id]);
 
     // Should NOT propagate the exception — a transient touch() failure on cache
     // bookkeeping must never break the main service save flow.

@@ -35,7 +35,7 @@ const POLICY_EXEMPT = [
     \App\Models\Core\HandleChangeLog::class,
 
     // Handle alias table — read/write access flows through the parent Professional's policy.
-    \App\Models\Core\Site\ProfessionalHandleAlias::class,
+    \App\Models\Core\Site\UserHandleAlias::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional

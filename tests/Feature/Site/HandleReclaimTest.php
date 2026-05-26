@@ -33,7 +33,7 @@ function makeReclaimPro(string $handle = 'current'): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id'                   => $siteId,
-        'professional_id'      => $proId,
+        'user_id'      => $proId,
         'subdomain'            => $handle,
         'subdomain_changed_at' => now()->subDays(3)->toDateTimeString(),
         'is_published'         => 0,
@@ -48,9 +48,9 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
     ['proId' => $proId, 'siteId' => $siteId] = makeReclaimPro('current');
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle'          => 'old',
         'reclaim_until'   => now()->addDays(11)->toDateTimeString(),
         'expires_at'      => now()->addDays(87)->toDateTimeString(),
@@ -66,7 +66,7 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
         'created_at'    => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\User::find($proId);
+    $pro = \App\Models\Core\User\User::find($proId);
     app(ReclaimHandleAction::class)->execute($pro, 'old');
 
     // Alias should be gone (collapsed by UpdateSiteAction)
@@ -74,16 +74,16 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
         ->where('subdomain', 'old')->where('site_id', $siteId)->exists())->toBeFalse();
 
     // Reason should be reclaim in log
-    $log = \App\Models\Core\HandleChangeLog::where('professional_id', $proId)->latest('changed_at')->first();
+    $log = \App\Models\Core\HandleChangeLog::where('user_id', $proId)->latest('changed_at')->first();
     expect($log?->reason)->toBe(HandleChangeLog::REASON_RECLAIM);
 });
 
 it('refuses to reclaim once the reclaim window has passed', function () {
     ['proId' => $proId] = makeReclaimPro('current2');
 
-    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle'          => 'oldexpired',
         'reclaim_until'   => now()->subDay()->toDateTimeString(),
         'expires_at'      => now()->addDays(60)->toDateTimeString(),
@@ -91,7 +91,7 @@ it('refuses to reclaim once the reclaim window has passed', function () {
         'updated_at'      => now()->subDays(15)->toDateTimeString(),
     ]);
 
-    $pro = \App\Models\Core\Professional\User::find($proId);
+    $pro = \App\Models\Core\User\User::find($proId);
 
     expect(fn () => app(ReclaimHandleAction::class)->execute($pro, 'oldexpired'))
         ->toThrow(ValidationException::class);
@@ -101,9 +101,9 @@ it('throws 404 for a handle alias that belongs to a different professional', fun
     ['proId' => $proIdSelf] = makeReclaimPro('self1');
     ['proId' => $proIdOther] = makeReclaimPro('other1');
 
-    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
-        'professional_id' => $proIdOther,
+        'user_id' => $proIdOther,
         'handle'          => 'wantedhandle',
         'reclaim_until'   => now()->addDays(5)->toDateTimeString(),
         'expires_at'      => now()->addDays(60)->toDateTimeString(),
@@ -111,7 +111,7 @@ it('throws 404 for a handle alias that belongs to a different professional', fun
         'updated_at'      => now()->toDateTimeString(),
     ]);
 
-    $self = \App\Models\Core\Professional\User::find($proIdSelf);
+    $self = \App\Models\Core\User\User::find($proIdSelf);
 
     expect(fn () => app(ReclaimHandleAction::class)->execute($self, 'wantedhandle'))
         ->toThrow(NotFoundHttpException::class);

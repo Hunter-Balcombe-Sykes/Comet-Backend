@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\Service;
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
 use App\Policies\ServicePolicy;
 
 beforeEach(function () {
@@ -13,14 +13,14 @@ beforeEach(function () {
 
 it('allows view when the actor owns the service', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-1']);
+    $service = new Service(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $service))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the service', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-2']);
+    $service = new Service(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $service);
 
@@ -32,14 +32,14 @@ it('denies view with 404 when the actor does not own the service', function () {
 
 it('allows view when the actor owns the service category', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $category = new ServiceCategory(['professional_id' => 'pro-1']);
+    $category = new ServiceCategory(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $category))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the service category', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $category = new ServiceCategory(['professional_id' => 'pro-2']);
+    $category = new ServiceCategory(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $category);
 
@@ -51,21 +51,21 @@ it('denies view with 404 when the actor does not own the service category', func
 
 it('allows create when the actor owns the skeleton and is active', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $skeleton = new Service(['professional_id' => 'pro-1']);
+    $skeleton = new Service(['user_id' => 'pro-1']);
 
     expect($this->policy->create($actor, $skeleton))->toBeTrue();
 });
 
 it('denies create as false (not 404) when the skeleton targets another professional', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $skeleton = new Service(['professional_id' => 'pro-other']);
+    $skeleton = new Service(['user_id' => 'pro-other']);
 
     expect($this->policy->create($actor, $skeleton))->toBeFalse();
 });
 
 it('denies create with 423 when the actor is pending deletion', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $skeleton = new Service(['professional_id' => 'pro-1']);
+    $skeleton = new Service(['user_id' => 'pro-1']);
 
     $result = $this->policy->create($actor, $skeleton);
 
@@ -76,7 +76,7 @@ it('denies create with 423 when the actor is pending deletion', function () {
 
 it('denies category create with 423 when the actor is pending deletion', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $skeleton = new ServiceCategory(['professional_id' => 'pro-1']);
+    $skeleton = new ServiceCategory(['user_id' => 'pro-1']);
 
     $result = $this->policy->create($actor, $skeleton);
 
@@ -88,14 +88,14 @@ it('denies category create with 423 when the actor is pending deletion', functio
 
 it('allows update when the actor owns the service and is active', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-1']);
+    $service = new Service(['user_id' => 'pro-1']);
 
     expect($this->policy->update($actor, $service))->toBeTrue();
 });
 
 it('denies update with 404 when the actor does not own the service', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-2']);
+    $service = new Service(['user_id' => 'pro-2']);
 
     $result = $this->policy->update($actor, $service);
 
@@ -105,7 +105,7 @@ it('denies update with 404 when the actor does not own the service', function ()
 
 it('denies update with 423 when the actor is pending deletion', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $service = new Service(['professional_id' => 'pro-1']);
+    $service = new Service(['user_id' => 'pro-1']);
 
     $result = $this->policy->update($actor, $service);
 
@@ -116,14 +116,14 @@ it('denies update with 423 when the actor is pending deletion', function () {
 
 it('allows update when the actor owns the category and is active', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $category = new ServiceCategory(['professional_id' => 'pro-1']);
+    $category = new ServiceCategory(['user_id' => 'pro-1']);
 
     expect($this->policy->update($actor, $category))->toBeTrue();
 });
 
 it('denies update with 404 when the actor does not own the category', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $category = new ServiceCategory(['professional_id' => 'pro-2']);
+    $category = new ServiceCategory(['user_id' => 'pro-2']);
 
     $result = $this->policy->update($actor, $category);
 
@@ -135,14 +135,14 @@ it('denies update with 404 when the actor does not own the category', function (
 
 it('allows delete when the actor owns the service', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-1']);
+    $service = new Service(['user_id' => 'pro-1']);
 
     expect($this->policy->delete($actor, $service))->toBeTrue();
 });
 
 it('denies delete with 404 when the actor does not own the service', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $service = new Service(['professional_id' => 'pro-2']);
+    $service = new Service(['user_id' => 'pro-2']);
 
     $result = $this->policy->delete($actor, $service);
 
@@ -152,7 +152,7 @@ it('denies delete with 404 when the actor does not own the service', function ()
 
 it('denies delete with 423 when the actor is pending deletion', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'pending_deletion']);
-    $service = new Service(['professional_id' => 'pro-1']);
+    $service = new Service(['user_id' => 'pro-1']);
 
     $result = $this->policy->delete($actor, $service);
 

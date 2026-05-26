@@ -3,12 +3,12 @@
 uses(Tests\TestCase::class)->in(__FILE__);
 
 use App\Http\Resources\ServiceCategoryResource;
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\ServiceCategory;
 use Illuminate\Support\Carbon;
 
 it('ships only the allowlisted fields and drops extras', function () {
     $category = new ServiceCategory([
-        'professional_id' => '11111111-1111-1111-1111-111111111111',
+        'user_id' => '11111111-1111-1111-1111-111111111111',
         'title' => 'Haircuts',
         'sort_order' => 0,
     ]);
@@ -22,7 +22,7 @@ it('ships only the allowlisted fields and drops extras', function () {
     $array = (new ServiceCategoryResource($category))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'professional_id', 'title', 'sort_order',
+        'id', 'user_id', 'title', 'sort_order',
         'created_at', 'updated_at', 'deleted_at',
     ]);
     expect($array)->not->toHaveKey('admin_notes');

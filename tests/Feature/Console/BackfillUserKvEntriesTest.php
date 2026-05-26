@@ -29,7 +29,7 @@ it('dispatches SyncSubdomainToKvJob for each individual professional', function 
         ->expectsOutputToContain('Target cohort: 1')
         ->assertSuccessful();
 
-    Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($job) => $job->professionalId === $individualId);
+    Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($job) => $job->userId === $individualId);
     Bus::assertDispatchedTimes(SyncSubdomainToKvJob::class, 1);
 });
 

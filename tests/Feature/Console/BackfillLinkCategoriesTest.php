@@ -19,31 +19,31 @@ beforeEach(function () {
 
 function createBackfillFixtureIds(): array
 {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
 
     // Minimal Professional row — all columns nullable in the SQLite test schema.
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $professionalId,
+        'id' => $userId,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $professionalId,
+        'user_id' => $userId,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
-    return [$professionalId, $siteId];
+    return [$userId, $siteId];
 }
 
 it('backfills settings.category=social for pre-existing instagram links', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
     $block = Block::create([
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_type' => 'link',
         'block_group' => 'links',
@@ -66,7 +66,7 @@ it('backfills settings.category=other for custom (icon_key=link) blocks', functi
     [$proId, $siteId] = createBackfillFixtureIds();
 
     $block = Block::create([
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_type' => 'link',
         'block_group' => 'links',
@@ -88,7 +88,7 @@ it('is idempotent — existing category is preserved on re-run', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
     $block = Block::create([
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_type' => 'link',
         'block_group' => 'links',

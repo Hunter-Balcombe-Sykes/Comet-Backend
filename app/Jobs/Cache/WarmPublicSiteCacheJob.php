@@ -2,7 +2,7 @@
 
 namespace App\Jobs\Cache;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
@@ -58,7 +58,7 @@ class WarmPublicSiteCacheJob implements ShouldQueue
                 return;
             }
 
-            $site = Site::query()->where('professional_id', $pro->id)->first();
+            $site = Site::query()->where('user_id', $pro->id)->first();
             $cacheLock->rememberLocked(
                 $builder->cacheKey($subdomain, $site, $pro),
                 $builder->cacheTtl(),

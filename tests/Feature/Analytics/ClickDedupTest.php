@@ -56,7 +56,7 @@ it('allows a second click after the 3-second dedup window has expired', function
     // Seed a "stale" click older than the dedup window.
     DB::connection('pgsql')->table('analytics.link_clicks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $tenant->id,
+        'user_id' => $tenant->id,
         'site_id' => $tenant->site->id,
         'link_block_id' => $block->id,
         'visitor_id' => $visitorId,

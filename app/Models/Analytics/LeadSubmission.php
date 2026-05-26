@@ -23,7 +23,7 @@ class LeadSubmission extends BaseModel
         'occurred_at',
         'subdomain',
         'site_id',
-        'professional_id',
+        'user_id',
         'customer_id',
         'ip_hash',
         'user_agent',

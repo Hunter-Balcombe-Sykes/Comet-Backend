@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffGoogleBusinessProfileController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -26,7 +26,7 @@ function makeStaffGbpProfessional(?array $gbp = null): User
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $id,
+        'user_id' => $id,
         'subdomain' => 'gbp-'.substr($id, 0, 8),
         'settings' => json_encode($settings),
         'is_published' => 0,

@@ -4,16 +4,16 @@ namespace App\Services\Cache;
 
 // V2: Central cache key naming convention. All cache keys across the application flow through this class.
 //
-// ONE-SITE-PER-PROFESSIONAL ASSUMPTION: Many keys below are namespaced by professionalId rather than siteId.
+// ONE-SITE-PER-PROFESSIONAL ASSUMPTION: Many keys below are namespaced by userId rather than siteId.
 // This is intentional and correct for the current data model (each professional has exactly one site).
-// If multi-site support is introduced, any key that caches site-scoped data under professionalId will need
+// If multi-site support is introduced, any key that caches site-scoped data under userId will need
 // a siteId segment added — otherwise two sites owned by the same professional would share a cache entry.
 // Methods carrying this assumption are annotated with "@multi-site: needs site_id".
 //
 // MULTI-SITE MIGRATION TASK (GS-4): Before launching multi-site, add a siteId segment to every method
 // annotated "@multi-site: needs site_id" (siteImagesViewVariants, and any non-site-scoped professional
 // lookup that aggregates across sites). Coordinate with a one-time global cache flush at deploy so old
-// professionalId-only keys orphan and TTL out naturally.
+// userId-only keys orphan and TTL out naturally.
 class CacheKeyGenerator
 {
     public static function publicSite(string $subdomain): string
@@ -55,9 +55,9 @@ class CacheKeyGenerator
         return "site:{$siteId}:blocks:{$group}";
     }
 
-    public static function professionalServices(string $professionalId): string
+    public static function professionalServices(string $userId): string
     {
-        return "pro:{$professionalId}:services:active";
+        return "pro:{$userId}:services:active";
     }
 
     /**
@@ -67,9 +67,9 @@ class CacheKeyGenerator
      * view that filters is_active=true. Same invalidation triggers as the
      * active-only key — both die on any service write through ServiceObserver.
      */
-    public static function professionalDashboardServices(string $professionalId): string
+    public static function professionalDashboardServices(string $userId): string
     {
-        return "pro:{$professionalId}:services:dashboard";
+        return "pro:{$userId}:services:dashboard";
     }
 
     public static function siteImages(string $siteId): string
@@ -107,7 +107,7 @@ class CacheKeyGenerator
     /**
      * Pool/media_type tuples enumerated by invalidateSite to bust every
      * filtered-view variant. Keep this aligned with the filter-input space
-     * accepted in ProfessionalUploadController::index.
+     * accepted in UserUploadController::index.
      *
      * @return array<int, array{0: ?string, 1: string}>
      */
@@ -123,9 +123,9 @@ class CacheKeyGenerator
         return $variants;
     }
 
-    public static function customerCount(string $professionalId): string
+    public static function customerCount(string $userId): string
     {
-        return "pro:{$professionalId}:customers:count";
+        return "pro:{$userId}:customers:count";
     }
 
     public static function professionalPayloadById(string $id): string
@@ -143,12 +143,12 @@ class CacheKeyGenerator
         return "pro:payload:auth:{$authUserId}";
     }
 
-    public static function professionalIdByHandle(string $handleLc): string
+    public static function userIdByHandle(string $handleLc): string
     {
         return 'pro:map:handle:'.strtolower($handleLc);
     }
 
-    public static function professionalIdByAuthId(string $authUserId): string
+    public static function userIdByAuthId(string $authUserId): string
     {
         return "pro:map:auth:{$authUserId}";
     }
@@ -166,9 +166,9 @@ class CacheKeyGenerator
     }
 
     // @multi-site: needs site_id — summary aggregates site traffic, scoped to one site under current model
-    public static function analyticsSummary(string $professionalId, string $startDate, string $endDate): string
+    public static function analyticsSummary(string $userId, string $startDate, string $endDate): string
     {
-        return "analytics:summary:q3:{$professionalId}:{$startDate}:{$endDate}";
+        return "analytics:summary:q3:{$userId}:{$startDate}:{$endDate}";
     }
 
     /**
@@ -176,16 +176,16 @@ class CacheKeyGenerator
      *
      * @multi-site: needs site_id — if multi-site, version tokens must be per-site
      */
-    public static function analyticsSummaryVersion(string $professionalId): string
+    public static function analyticsSummaryVersion(string $userId): string
     {
-        return "analytics:summary:ver:{$professionalId}";
+        return "analytics:summary:ver:{$userId}";
     }
 
     /**
      * Staff-facing analytics summary, keyed by professional + date range.
      */
-    public static function staffAnalyticsSummary(string $professionalId, string $from, string $to): string
+    public static function staffAnalyticsSummary(string $userId, string $from, string $to): string
     {
-        return "staff:analytics:summary:{$professionalId}:{$from}:{$to}";
+        return "staff:analytics:summary:{$userId}:{$from}:{$to}";
     }
 }

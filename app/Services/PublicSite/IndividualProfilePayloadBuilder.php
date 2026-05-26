@@ -3,7 +3,7 @@
 namespace App\Services\PublicSite;
 
 use App\Http\Resources\PublicSite\IndividualProfileResource;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 
 /**

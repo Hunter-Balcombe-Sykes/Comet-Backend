@@ -1,29 +1,29 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Account\MfaController;
-use App\Http\Controllers\Api\Professional\Account\ProfessionalAccountDeletionController;
-use App\Http\Controllers\Api\Professional\Account\ProfessionalController;
-use App\Http\Controllers\Api\Professional\Account\ProfessionalDataExportController;
-use App\Http\Controllers\Api\Professional\Account\ProfessionalDocumentController;
-use App\Http\Controllers\Api\Professional\Account\SessionController;
-use App\Http\Controllers\Api\Professional\Analytics\ProfessionalAnalyticsController;
-use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
-use App\Http\Controllers\Api\Professional\Customers\ProfessionalEnquiryController;
-use App\Http\Controllers\Api\Professional\Feedback\FeedbackController;
-use App\Http\Controllers\Api\Professional\Notifications\ConfirmationPreferenceController;
-use App\Http\Controllers\Api\Professional\Notifications\NotificationController;
-use App\Http\Controllers\Api\Professional\Notifications\NotificationEmailPreferenceController;
-use App\Http\Controllers\Api\Professional\Notifications\ProfessionalEmailSubscriptionController;
-use App\Http\Controllers\Api\Professional\Site\HandleReclaimController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGalleryController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGoogleBusinessProfileController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalSectionBlockController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalServiceCategoryController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalServiceController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalSiteController;
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalThemeController;
-use App\Http\Controllers\Api\Professional\Uploads\ProfessionalUploadController;
+use App\Http\Controllers\Api\User\Account\MfaController;
+use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
+use App\Http\Controllers\Api\User\Account\UserSelfController;
+use App\Http\Controllers\Api\User\Account\UserDataExportController;
+use App\Http\Controllers\Api\User\Account\UserDocumentController;
+use App\Http\Controllers\Api\User\Account\SessionController;
+use App\Http\Controllers\Api\User\Analytics\UserAnalyticsController;
+use App\Http\Controllers\Api\User\Customers\UserCustomerController;
+use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
+use App\Http\Controllers\Api\User\Feedback\FeedbackController;
+use App\Http\Controllers\Api\User\Notifications\ConfirmationPreferenceController;
+use App\Http\Controllers\Api\User\Notifications\NotificationController;
+use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
+use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
+use App\Http\Controllers\Api\User\Site\HandleReclaimController;
+use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
+use App\Http\Controllers\Api\User\SiteManagement\UserGoogleBusinessProfileController;
+use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
+use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
+use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
+use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
+use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
+use App\Http\Controllers\Api\User\SiteManagement\UserThemeController;
+use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
@@ -35,8 +35,8 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
     ->group(function () {
 
         // Show & Edit Details
-        Route::get('/me', [ProfessionalController::class, 'show']);
-        Route::patch('/me', [ProfessionalController::class, 'update']);
+        Route::get('/me', [UserSelfController::class, 'show']);
+        Route::patch('/me', [UserSelfController::class, 'update']);
 
         // Account Deletion — self-service lifecycle.
         // `idempotent` middleware closes the concurrent-double-submit race that
@@ -44,17 +44,17 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         // duplicate audit rows and queue duplicate confirmation mails (#P2-43).
         // Frontend must send a per-action `Idempotency-Key: <uuid-v4>` header.
         Route::prefix('me/deletion')->middleware('idempotent')->group(function () {
-            Route::post('/request', [ProfessionalAccountDeletionController::class, 'request'])
+            Route::post('/request', [UserAccountDeletionController::class, 'request'])
                 ->middleware('throttle:3,60');
-            Route::post('/confirm', [ProfessionalAccountDeletionController::class, 'confirm']);
-            Route::post('/cancel', [ProfessionalAccountDeletionController::class, 'cancel'])
+            Route::post('/confirm', [UserAccountDeletionController::class, 'confirm']);
+            Route::post('/cancel', [UserAccountDeletionController::class, 'cancel'])
                 ->withoutMiddleware([EnforcePendingDeletionReadOnly::class]);
         });
 
         // Data export — exempt from EnforcePendingDeletionReadOnly so a
         // professional in their grace period can still pull their data
         // (the whole point of GDPR portability). Rate-limited 1/24h.
-        Route::post('/me/data-export', [ProfessionalDataExportController::class, 'store'])
+        Route::post('/me/data-export', [UserDataExportController::class, 'store'])
             ->withoutMiddleware([EnforcePendingDeletionReadOnly::class])
             ->middleware('throttle:1,1440');
         // MFA self-service — fresh AAL2 enforced inside the controller (tighter
@@ -80,88 +80,88 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         });
 
         // View Site Details
-        Route::get('/site', [ProfessionalSiteController::class, 'show']);
-        Route::get('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'show']);
+        Route::get('/site', [UserSiteController::class, 'show']);
+        Route::get('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'show']);
 
         // Update Site Details
-        Route::patch('/site', [ProfessionalSiteController::class, 'update']);
+        Route::patch('/site', [UserSiteController::class, 'update']);
         Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
             ->name('professional.site.reclaim-handle');
-        Route::put('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'upsert']);
-        Route::delete('/site/google-business-profile', [ProfessionalGoogleBusinessProfileController::class, 'destroy']);
+        Route::put('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'upsert']);
+        Route::delete('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'destroy']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
 
         // Booking settings (manual mode — plain external-URL link)
-        Route::patch('/booking/settings', [ProfessionalSiteController::class, 'updateBookingSettings']);
+        Route::patch('/booking/settings', [UserSiteController::class, 'updateBookingSettings']);
 
         // Service Details and Edit
-        Route::get('/services', [ProfessionalServiceController::class, 'index']);
-        Route::post('/services', [ProfessionalServiceController::class, 'store']);
-        Route::get('/services/{service}', [ProfessionalServiceController::class, 'show'])
+        Route::get('/services', [UserServiceController::class, 'index']);
+        Route::post('/services', [UserServiceController::class, 'store']);
+        Route::get('/services/{service}', [UserServiceController::class, 'show'])
             ->whereUuid('service');
-        Route::patch('/services/{service}', [ProfessionalServiceController::class, 'update'])
+        Route::patch('/services/{service}', [UserServiceController::class, 'update'])
             ->whereUuid('service');
-        Route::delete('/services/{service}', [ProfessionalServiceController::class, 'destroy'])
+        Route::delete('/services/{service}', [UserServiceController::class, 'destroy'])
             ->whereUuid('service');
-        Route::post('/services/reorder', [ProfessionalServiceController::class, 'reorder']);
-        Route::post('/services/{service}/restore', [ProfessionalServiceController::class, 'restore'])
+        Route::post('/services/reorder', [UserServiceController::class, 'reorder']);
+        Route::post('/services/{service}/restore', [UserServiceController::class, 'restore'])
             ->whereUuid('service')
             ->withTrashed();
 
         // Service Categories (CRUD + reorder)
-        Route::get('/service-categories', [ProfessionalServiceCategoryController::class, 'index']);
-        Route::post('/service-categories', [ProfessionalServiceCategoryController::class, 'store']);
-        Route::get('/service-categories/{category}', [ProfessionalServiceCategoryController::class, 'show'])
+        Route::get('/service-categories', [UserServiceCategoryController::class, 'index']);
+        Route::post('/service-categories', [UserServiceCategoryController::class, 'store']);
+        Route::get('/service-categories/{category}', [UserServiceCategoryController::class, 'show'])
             ->whereUuid('category')
             ->withTrashed();
-        Route::patch('/service-categories/{category}', [ProfessionalServiceCategoryController::class, 'update'])
+        Route::patch('/service-categories/{category}', [UserServiceCategoryController::class, 'update'])
             ->whereUuid('category');
-        Route::delete('/service-categories/{category}', [ProfessionalServiceCategoryController::class, 'destroy'])
+        Route::delete('/service-categories/{category}', [UserServiceCategoryController::class, 'destroy'])
             ->whereUuid('category');
-        Route::post('/service-categories/reorder', [ProfessionalServiceCategoryController::class, 'reorder']);
-        Route::post('/service-categories/{category}/restore', [ProfessionalServiceCategoryController::class, 'restore'])
+        Route::post('/service-categories/reorder', [UserServiceCategoryController::class, 'reorder']);
+        Route::post('/service-categories/{category}/restore', [UserServiceCategoryController::class, 'restore'])
             ->whereUuid('category')
             ->withTrashed();
-        Route::post('/services/reorder-layout', [ProfessionalServiceController::class, 'reorderLayout']);
+        Route::post('/services/reorder-layout', [UserServiceController::class, 'reorderLayout']);
 
         // View Analytics
-        Route::get('/analytics', [ProfessionalAnalyticsController::class, 'summary']);
+        Route::get('/analytics', [UserAnalyticsController::class, 'summary']);
 
         // Links
-        Route::get('/links', [ProfessionalLinkBlockController::class, 'index']);
-        Route::post('/links', [ProfessionalLinkBlockController::class, 'store']);
-        Route::patch('/links/{linkBlock}', [ProfessionalLinkBlockController::class, 'update'])
+        Route::get('/links', [UserLinkBlockController::class, 'index']);
+        Route::post('/links', [UserLinkBlockController::class, 'store']);
+        Route::patch('/links/{linkBlock}', [UserLinkBlockController::class, 'update'])
             ->whereUuid('linkBlock');
-        Route::delete('/links/{linkBlock}', [ProfessionalLinkBlockController::class, 'destroy'])
+        Route::delete('/links/{linkBlock}', [UserLinkBlockController::class, 'destroy'])
             ->whereUuid('linkBlock');
-        Route::post('/links/reorder', [ProfessionalLinkBlockController::class, 'reorder']);
+        Route::post('/links/reorder', [UserLinkBlockController::class, 'reorder']);
 
         // Sections
-        Route::get('/sections', [ProfessionalSectionBlockController::class, 'index']);
-        Route::post('/sections/reorder', [ProfessionalSectionBlockController::class, 'reorder']);
-        Route::put('/sections/{blockType}', [ProfessionalSectionBlockController::class, 'upsert'])
+        Route::get('/sections', [UserSectionBlockController::class, 'index']);
+        Route::post('/sections/reorder', [UserSectionBlockController::class, 'reorder']);
+        Route::put('/sections/{blockType}', [UserSectionBlockController::class, 'upsert'])
             ->where('blockType', '[a-z0-9_-]+');
-        Route::delete('/sections/{blockType}', [ProfessionalSectionBlockController::class, 'remove'])
+        Route::delete('/sections/{blockType}', [UserSectionBlockController::class, 'remove'])
             ->where('blockType', '[a-z0-9_-]+');
 
         // Customer View, Add, Edit
-        Route::get('/customers', [ProfessionalCustomerController::class, 'index']);
-        Route::get('/customers/{customer}', [ProfessionalCustomerController::class, 'show'])
+        Route::get('/customers', [UserCustomerController::class, 'index']);
+        Route::get('/customers/{customer}', [UserCustomerController::class, 'show'])
             ->whereUuid('customer');
-        Route::post('/customers', [ProfessionalCustomerController::class, 'store']);
-        Route::patch('/customers/{customer}', [ProfessionalCustomerController::class, 'update'])
+        Route::post('/customers', [UserCustomerController::class, 'store']);
+        Route::patch('/customers/{customer}', [UserCustomerController::class, 'update'])
             ->whereUuid('customer');
-        Route::delete('/customers/{customer}', [ProfessionalCustomerController::class, 'destroy'])
+        Route::delete('/customers/{customer}', [UserCustomerController::class, 'destroy'])
             ->whereUuid('customer');
-        Route::post('/customers/{customer}/restore', [ProfessionalCustomerController::class, 'restore'])
+        Route::post('/customers/{customer}/restore', [UserCustomerController::class, 'restore'])
             ->whereUuid('customer')
             ->withTrashed();
 
         // Contact section enquiry inbox
-        Route::get('/enquiries', [ProfessionalEnquiryController::class, 'index']);
-        Route::patch('/enquiries/{id}', [ProfessionalEnquiryController::class, 'update'])
+        Route::get('/enquiries', [UserEnquiryController::class, 'index']);
+        Route::patch('/enquiries/{id}', [UserEnquiryController::class, 'update'])
             ->whereUuid('id');
-        Route::delete('/enquiries/{id}', [ProfessionalEnquiryController::class, 'destroy'])
+        Route::delete('/enquiries/{id}', [UserEnquiryController::class, 'destroy'])
             ->whereUuid('id');
 
         // UI Confirmation Preferences ("don't ask again" toggles)
@@ -169,36 +169,36 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         Route::patch('/confirmation-preferences', [ConfirmationPreferenceController::class, 'update']);
 
         // Theme Selection
-        Route::get('/themes', [ProfessionalThemeController::class, 'index']);
-        Route::post('/themes/{theme}/select', [ProfessionalThemeController::class, 'select'])
+        Route::get('/themes', [UserThemeController::class, 'index']);
+        Route::post('/themes/{theme}/select', [UserThemeController::class, 'select'])
             ->whereUuid('theme');
 
         // Image Upload (server-side processing → WebP variants via queue)
-        Route::post('/uploads', [ProfessionalUploadController::class, 'upload']);
+        Route::post('/uploads', [UserUploadController::class, 'upload']);
 
         // Image Management (pool-based: gallery / content)
-        Route::get('/images', [ProfessionalUploadController::class, 'index']);
-        Route::post('/images/reorder', [ProfessionalUploadController::class, 'reorder']);
-        Route::delete('/images/{image}', [ProfessionalUploadController::class, 'destroy'])
+        Route::get('/images', [UserUploadController::class, 'index']);
+        Route::post('/images/reorder', [UserUploadController::class, 'reorder']);
+        Route::delete('/images/{image}', [UserUploadController::class, 'destroy'])
             ->whereUuid('image');
 
         // Image Gallery (gallery-pool ordering & legacy routes)
-        Route::get('/gallery', [ProfessionalGalleryController::class, 'index']);
-        Route::patch('/gallery/{image}', [ProfessionalGalleryController::class, 'update'])
+        Route::get('/gallery', [UserGalleryController::class, 'index']);
+        Route::patch('/gallery/{image}', [UserGalleryController::class, 'update'])
             ->whereUuid('image')
             ->middleware('throttle:30,1');
-        Route::delete('/gallery/{image}', [ProfessionalGalleryController::class, 'destroy'])
+        Route::delete('/gallery/{image}', [UserGalleryController::class, 'destroy'])
             ->whereUuid('image');
-        Route::post('/gallery/reorder', [ProfessionalGalleryController::class, 'reorder']);
+        Route::post('/gallery/reorder', [UserGalleryController::class, 'reorder']);
 
         // Documents (one file per site — PDF/JPG/PNG, 10 MB max)
-        Route::get('/documents', [ProfessionalDocumentController::class, 'index']);
-        Route::post('/documents', [ProfessionalDocumentController::class, 'store'])
+        Route::get('/documents', [UserDocumentController::class, 'index']);
+        Route::post('/documents', [UserDocumentController::class, 'store'])
             ->middleware('throttle:10,1');
-        Route::patch('/documents/{document}', [ProfessionalDocumentController::class, 'update'])
+        Route::patch('/documents/{document}', [UserDocumentController::class, 'update'])
             ->whereUuid('document')
             ->middleware('throttle:30,1');
-        Route::delete('/documents/{document}', [ProfessionalDocumentController::class, 'destroy'])
+        Route::delete('/documents/{document}', [UserDocumentController::class, 'destroy'])
             ->whereUuid('document')
             ->middleware('throttle:30,1');
 
@@ -214,8 +214,8 @@ Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 't
         Route::patch('/me/notification-email-preferences', [NotificationEmailPreferenceController::class, 'update']);
 
         // Email subscribers (marketing list)
-        Route::get('/email-subscribers', [ProfessionalEmailSubscriptionController::class, 'index']);
-        Route::get('/email-subscribers/export', [ProfessionalEmailSubscriptionController::class, 'export']);
+        Route::get('/email-subscribers', [UserEmailSubscriptionController::class, 'index']);
+        Route::get('/email-subscribers/export', [UserEmailSubscriptionController::class, 'export']);
 
         // In-app feedback. POST is exempt from EnforcePendingDeletionReadOnly so
         // accounts in their grace period can still submit (they may be giving

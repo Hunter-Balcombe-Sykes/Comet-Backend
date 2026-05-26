@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Console\Command;
 
 // One-off backfill for individual (user) KV entries in the Cloudflare routing table.

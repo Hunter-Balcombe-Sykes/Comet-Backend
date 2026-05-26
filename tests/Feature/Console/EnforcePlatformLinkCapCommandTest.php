@@ -30,7 +30,7 @@ beforeEach(function () {
  *
  * @return list<string>
  */
-function seedCapBlocks(string $professionalId, string $siteId, int $count, string $category = 'social'): array
+function seedCapBlocks(string $userId, string $siteId, int $count, string $category = 'social'): array
 {
     $ids = [];
     for ($i = 0; $i < $count; $i++) {
@@ -38,7 +38,7 @@ function seedCapBlocks(string $professionalId, string $siteId, int $count, strin
         $ids[] = $id;
         DB::connection('pgsql')->table('site.blocks')->insert([
             'id' => $id,
-            'professional_id' => $professionalId,
+            'user_id' => $userId,
             'site_id' => $siteId,
             'block_group' => 'links',
             'block_type' => 'link',
@@ -60,7 +60,7 @@ it('does not touch blocks when the professional is at the cap', function () {
 
     Artisan::call('partna:enforce-platform-link-cap');
 
-    $surviving = Block::query()->where('professional_id', $proId)->whereNull('deleted_at')->count();
+    $surviving = Block::query()->where('user_id', $proId)->whereNull('deleted_at')->count();
     expect($surviving)->toBe(7);
 });
 
@@ -71,7 +71,7 @@ it('soft-deletes the newest excess blocks keeping the oldest cap worth', functio
     Artisan::call('partna:enforce-platform-link-cap');
 
     $surviving = Block::query()
-        ->where('professional_id', $proId)
+        ->where('user_id', $proId)
         ->whereNull('deleted_at')
         ->pluck('id')
         ->sort()
@@ -86,7 +86,7 @@ it('soft-deletes the newest excess blocks keeping the oldest cap worth', functio
 
     // The 2 newest are soft-deleted
     $deleted = Block::withTrashed()
-        ->where('professional_id', $proId)
+        ->where('user_id', $proId)
         ->whereNotNull('deleted_at')
         ->pluck('id');
     expect($deleted)->toHaveCount(2);
@@ -100,7 +100,7 @@ it('does not write in dry-run mode', function () {
 
     Artisan::call('partna:enforce-platform-link-cap', ['--dry-run' => true]);
 
-    $surviving = Block::query()->where('professional_id', $proId)->whereNull('deleted_at')->count();
+    $surviving = Block::query()->where('user_id', $proId)->whereNull('deleted_at')->count();
     expect($surviving)->toBe(9); // nothing touched
 });
 
@@ -112,7 +112,7 @@ it('ignores blocks in non-capped categories', function () {
 
     Artisan::call('partna:enforce-platform-link-cap');
 
-    $surviving = Block::query()->where('professional_id', $proId)->whereNull('deleted_at')->count();
+    $surviving = Block::query()->where('user_id', $proId)->whereNull('deleted_at')->count();
     expect($surviving)->toBe(9); // all 9 survive; social count (3) is under cap
 });
 
@@ -123,9 +123,9 @@ it('is idempotent when run twice', function () {
     Artisan::call('partna:enforce-platform-link-cap');
     Artisan::call('partna:enforce-platform-link-cap'); // second run
 
-    $surviving = Block::query()->where('professional_id', $proId)->whereNull('deleted_at')->count();
+    $surviving = Block::query()->where('user_id', $proId)->whereNull('deleted_at')->count();
     expect($surviving)->toBe(7);
-    $deleted = Block::withTrashed()->where('professional_id', $proId)->whereNotNull('deleted_at')->count();
+    $deleted = Block::withTrashed()->where('user_id', $proId)->whereNotNull('deleted_at')->count();
     expect($deleted)->toBe(2);
 });
 
@@ -138,6 +138,6 @@ it('scopes remediation per professional — does not bleed across accounts', fun
 
     Artisan::call('partna:enforce-platform-link-cap');
 
-    expect(Block::query()->where('professional_id', $proIdA)->whereNull('deleted_at')->count())->toBe(7);
-    expect(Block::query()->where('professional_id', $proIdB)->whereNull('deleted_at')->count())->toBe(5);
+    expect(Block::query()->where('user_id', $proIdA)->whereNull('deleted_at')->count())->toBe(7);
+    expect(Block::query()->where('user_id', $proIdB)->whereNull('deleted_at')->count())->toBe(5);
 });

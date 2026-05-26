@@ -18,7 +18,7 @@ class NotificationListingResource extends ApiResource
     {
         return [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id !== null ? (string) $this->professional_id : null,
+            'user_id' => $this->user_id !== null ? (string) $this->user_id : null,
             'type' => $this->type,
             'title' => $this->title,
             'body' => $this->body,

@@ -19,7 +19,7 @@ it('refuses to download a document when its site does not match the request subd
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
         'site_id' => $victim->site->id,
-        'professional_id' => $victim->id,
+        'user_id' => $victim->id,
         'pool' => SiteMedia::POOL_DOCUMENTS,
         'path' => 'docs/secret.pdf',
         'original_filename' => 'secret.pdf',
@@ -44,7 +44,7 @@ it('allows download when subdomain matches the document site', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
         'site_id' => $owner->site->id,
-        'professional_id' => $owner->id,
+        'user_id' => $owner->id,
         'pool' => SiteMedia::POOL_DOCUMENTS,
         'path' => 'docs/mine.pdf',
         'original_filename' => 'mine.pdf',

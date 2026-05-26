@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 
 // V2: Base for all auth Policies. Provides the shared pending_deletion read-only

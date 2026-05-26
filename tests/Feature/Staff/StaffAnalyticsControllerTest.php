@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -14,11 +14,11 @@ beforeEach(function () {
     setupProfessionalsTable();
     setupSitesTable();
 
-    $this->professionalId = (string) Str::uuid();
+    $this->userId = (string) Str::uuid();
     $this->siteId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $this->professionalId,
+        'id' => $this->userId,
         'display_name' => 'Analytics Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -26,14 +26,14 @@ beforeEach(function () {
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $this->siteId,
-        'professional_id' => $this->professionalId,
+        'user_id' => $this->userId,
         'subdomain' => 'analytics-test',
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $this->professional = User::find($this->professionalId);
+    $this->professional = User::find($this->userId);
 });
 
 afterEach(function () {
@@ -84,7 +84,7 @@ it('summary() returns correct shape and zero-data totals', function () {
     expect($data)->toHaveKeys(['range', 'professional', 'site', 'totals', 'charts', 'top_links'])
         ->and($data['totals']['visits'])->toBe(3)
         ->and($data['totals']['clicks'])->toBe(1)
-        ->and($data['professional']['id'])->toBe($this->professionalId)
+        ->and($data['professional']['id'])->toBe($this->userId)
         ->and($data['site']['subdomain'])->toBe('analytics-test');
 });
 
@@ -100,7 +100,7 @@ it('summary() wraps all DB queries in CacheLockService::rememberLocked with a 60
             })
             ->andReturn([
                 'range' => ['from' => '2026-04-17', 'to' => '2026-05-17'],
-                'professional' => ['id' => $this->professionalId, 'handle' => null, 'display_name' => 'Analytics Test Pro', 'professional_type' => null],
+                'professional' => ['id' => $this->userId, 'handle' => null, 'display_name' => 'Analytics Test Pro', 'professional_type' => null],
                 'site' => ['id' => $this->siteId, 'subdomain' => 'analytics-test', 'published' => true],
                 'totals' => ['visits' => 0, 'unique_visitors' => 0, 'clicks' => 0, 'unique_clickers' => 0, 'ctr_percent' => 0.0, 'last_visit_at' => null, 'last_click_at' => null],
                 'charts' => ['visits_by_day' => [], 'clicks_by_day' => []],
@@ -118,15 +118,15 @@ it('summary() wraps all DB queries in CacheLockService::rememberLocked with a 60
 });
 
 it('summary() returns 404 when professional has no site', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $professionalId,
+        'id' => $userId,
         'display_name' => 'No Site Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = User::find($professionalId);
+    $professional = User::find($userId);
     $controller = new StaffAnalyticsController(new CacheLockService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET'),

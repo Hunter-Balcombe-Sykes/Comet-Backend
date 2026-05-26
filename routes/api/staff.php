@@ -1,13 +1,13 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffCustomerManagementController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffDataExportController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffLinkBlockManagementController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffProfessionalController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffSectionManagementController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffServiceCategoryManagementController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffServiceManagementController;
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffSiteManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffCustomerManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffLinkBlockManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSectionManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceCategoryManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSiteManagementController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagOverrideController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
@@ -42,14 +42,14 @@ Route::prefix('staff')
             ->where('subdomain', '[A-Za-z0-9-]+');
 
         // Search professionals
-        Route::get('/professionals', [StaffProfessionalController::class, 'index']);
+        Route::get('/professionals', [StaffUserController::class, 'index']);
 
         // View one professional
-        Route::get('/professionals/{professional}', [StaffProfessionalController::class, 'show']);
+        Route::get('/professionals/{professional}', [StaffUserController::class, 'show']);
         // Soft delete (regular staff)
-        Route::delete('/professionals/{professional}', [StaffProfessionalController::class, 'destroy']);
+        Route::delete('/professionals/{professional}', [StaffUserController::class, 'destroy']);
         // Restore
-        Route::post('/professionals/{professional}/restore', [StaffProfessionalController::class, 'restore'])
+        Route::post('/professionals/{professional}/restore', [StaffUserController::class, 'restore'])
             ->withTrashed();
 
         // View Customers
@@ -119,14 +119,14 @@ Route::prefix('staff')
     ->group(function () {
 
         // Suspend / unsuspend professional
-        Route::patch('/professionals/{professional}/status', [StaffProfessionalController::class, 'updateStatus']);
-        Route::patch('/professionals/{professional}', [StaffProfessionalController::class, 'update']);
+        Route::patch('/professionals/{professional}/status', [StaffUserController::class, 'updateStatus']);
+        Route::patch('/professionals/{professional}', [StaffUserController::class, 'update']);
         // Hard delete (admin only)
-        Route::delete('/professionals/{professional}/force', [StaffProfessionalController::class, 'forceDestroy']);
+        Route::delete('/professionals/{professional}/force', [StaffUserController::class, 'forceDestroy']);
 
         // Bulk suspend/reactivate a wave of professionals (compliance sweep, admin only).
         Route::middleware('throttle:5,1')
-            ->post('/professionals/bulk-status', [StaffProfessionalController::class, 'bulkUpdateStatus']);
+            ->post('/professionals/bulk-status', [StaffUserController::class, 'bulkUpdateStatus']);
 
         // Admin edit/delete customers for a professional
         Route::patch('/professionals/{professional}/customers/{customer}', [StaffCustomerManagementController::class, 'update'])

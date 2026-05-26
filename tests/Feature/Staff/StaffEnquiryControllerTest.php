@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -9,11 +9,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupProfessionalsTable();
     attachTestSchemas();
-    // site.enquiries is created in ProfessionalEnquiryControllerTest's setupContactInboxSchema().
+    // site.enquiries is created in UserEnquiryControllerTest's setupContactInboxSchema().
     // Inline here so this test doesn't depend on the Pest discovery order.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         site_id TEXT NOT NULL,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -48,7 +48,7 @@ function seedStaffEnquiry(string $proId, array $overrides = []): void
 {
     DB::connection('pgsql')->table('site.enquiries')->insert(array_merge([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => (string) Str::uuid(),
         'name' => 'Visitor',
         'email' => 'v@example.com',

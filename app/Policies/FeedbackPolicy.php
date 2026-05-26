@@ -3,7 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\Feedback;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Auth\Access\Response;
 

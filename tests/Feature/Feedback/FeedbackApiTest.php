@@ -2,7 +2,7 @@
 
 use App\Jobs\Notifications\SendFeedbackEmailJob;
 use App\Models\Core\Feedback;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;

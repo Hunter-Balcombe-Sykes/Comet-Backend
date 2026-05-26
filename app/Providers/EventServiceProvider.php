@@ -2,10 +2,10 @@
 
 namespace App\Providers;
 
-use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\Service;
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\User;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -15,7 +15,7 @@ use App\Observers\Core\ServiceCategoryObserver;
 use App\Observers\Core\ServiceObserver;
 use App\Observers\Core\SiteMediaObserver;
 use App\Observers\Core\SiteObserver;
-use App\Observers\Professional\ProfessionalObserver;
+use App\Observers\User\UserObserver;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 
 // Registers Eloquent model observers for users, sites, blocks, services, customers, and media.
@@ -27,7 +27,7 @@ class EventServiceProvider extends ServiceProvider
     {
         parent::boot();
 
-        User::observe(ProfessionalObserver::class);
+        User::observe(UserObserver::class);
         Site::observe(SiteObserver::class);
         Block::observe(BlockObserver::class);
         Service::observe(ServiceObserver::class);

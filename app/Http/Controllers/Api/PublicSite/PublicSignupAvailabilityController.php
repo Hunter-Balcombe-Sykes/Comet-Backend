@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

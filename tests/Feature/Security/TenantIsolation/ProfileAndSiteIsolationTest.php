@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalSiteController;
+use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\DB;
 
@@ -22,7 +22,7 @@ it('site show returns only the authenticated professionals own site', function (
     );
 
     $req = tenantRequestAs($b);
-    $response = app(ProfessionalSiteController::class)->show($req);
+    $response = app(UserSiteController::class)->show($req);
     $payload = $response->getData(true);
 
     // success() calls response()->json(['site' => ...]) — no wrapping 'data' key.
@@ -31,7 +31,7 @@ it('site show returns only the authenticated professionals own site', function (
     expect($site['id'] ?? null)->not->toBe($a->site->id);
 });
 
-it('site data is scoped by professional_id at the database level preventing cross-tenant reads', function () {
+it('site data is scoped by user_id at the database level preventing cross-tenant reads', function () {
     [$a, $b] = createTwoTenants('brand');
 
     DB::table('site.sites')->where('id', $a->site->id)->update([
@@ -41,9 +41,9 @@ it('site data is scoped by professional_id at the database level preventing cros
         'subdomain' => 'brand-b',
     ]);
 
-    // Verify DB-level WHERE professional_id scoping works correctly.
-    $aSite = DB::table('site.sites')->where('professional_id', $a->id)->first();
-    $bSite = DB::table('site.sites')->where('professional_id', $b->id)->first();
+    // Verify DB-level WHERE user_id scoping works correctly.
+    $aSite = DB::table('site.sites')->where('user_id', $a->id)->first();
+    $bSite = DB::table('site.sites')->where('user_id', $b->id)->first();
 
     expect($aSite->subdomain)->toBe('brand-a');
     expect($bSite->subdomain)->toBe('brand-b');
