@@ -85,6 +85,28 @@ class ProfessionalGoogleBusinessProfileController extends ApiController
         ]);
     }
 
+    public function destroy(Request $request): JsonResponse
+    {
+        $professional = $this->currentProfessional($request);
+        $site = $this->currentSite($professional);
+
+        $settings = is_array($site->settings) ? $site->settings : [];
+        unset($settings[self::SETTINGS_KEY]);
+        $site->settings = $settings;
+        $site->save();
+
+        // The 'workplace' section block now has no data — re-eval flips
+        // is_enabled back to false so the dashboard's Live toggle locks
+        // and the public render path stops emitting the (gone) section.
+        $this->visibilityService->reevaluateEnabled(
+            (string) $professional->id,
+            (string) $site->id,
+            'workplace',
+        );
+
+        return $this->success(['google_business_profile' => null]);
+    }
+
     private function trimOrNull(mixed $value): ?string
     {
         if (! is_string($value)) {
