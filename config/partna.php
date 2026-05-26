@@ -1005,9 +1005,6 @@ return [
         'smart_booking' => (bool) env('PARTNA_SMART_BOOKING_ENABLED', env('SIDEST_SMART_BOOKING_ENABLED', false)),
         'square_sync' => (bool) env('PARTNA_SQUARE_SYNC_ENABLED', env('SIDEST_SQUARE_SYNC_ENABLED', false)),
         'fresha_sync' => (bool) env('PARTNA_FRESHA_SYNC_ENABLED', env('SIDEST_FRESHA_SYNC_ENABLED', false)),
-        // Gates Turnstile CAPTCHA on public lead-capture endpoints. Enable only after
-        // the frontend has integrated the Turnstile widget and sends cf_turnstile_response.
-        'captcha' => (bool) env('PARTNA_CAPTCHA_ENABLED', env('SIDEST_CAPTCHA_ENABLED', false)),
     ],
 
     /*
@@ -1108,6 +1105,51 @@ return [
             'professional_model' => (int) env('PARTNA_CACHE_TTL_PROFESSIONAL_MODEL', env('CACHE_TTL_PROFESSIONAL_MODEL', 60)),                     // 60s
             'professional_handle_lookup' => (int) env('PARTNA_CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', env('CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', 3600)), // 60m
             'webhook_idempotency' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_IDEMPOTENCY', env('CACHE_TTL_WEBHOOK_IDEMPOTENCY', 86400)),               // 24h
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bot Protection
+    |--------------------------------------------------------------------------
+    | Provider-agnostic CAPTCHA verification for public mutation endpoints.
+    | See docs/superpowers/specs/2026-05-26-bot-protection-foundation-design.md
+    */
+
+    'bot_protection' => [
+        'driver' => env('BOT_PROTECTION_DRIVER', 'null'),       // null | turnstile | hcaptcha | fake
+        'mode' => env('BOT_PROTECTION_MODE', 'off'),          // off | shadow | enforce
+        'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', true),
+
+        'enforce_timeout_ms' => 3000,
+        'shadow_timeout_ms' => 500,
+
+        'circuit_breaker' => [
+            'failure_threshold' => 5,
+            'window_seconds' => 60,
+            'cooldown_seconds' => 300,
+        ],
+
+        'drivers' => [
+            'turnstile' => [
+                'site_key' => env('TURNSTILE_SITE_KEY'),
+                'secret' => env('TURNSTILE_SECRET'),
+                'verify_url' => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            ],
+            'hcaptcha' => [
+                'site_key' => env('HCAPTCHA_SITE_KEY'),
+                'secret' => env('HCAPTCHA_SECRET'),
+                'verify_url' => 'https://api.hcaptcha.com/siteverify',
+            ],
+            'null' => [],
+            'fake' => [],
+        ],
+
+        // Cloudflare-published test keys — refused by boot guard in production.
+        'known_test_site_keys' => [
+            '1x00000000000000000000AA',
+            '2x00000000000000000000AB',
+            '3x00000000000000000000FF',
         ],
     ],
 ];

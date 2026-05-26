@@ -15,7 +15,6 @@ use App\Http\Middleware\IdempotencyKey;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
 use App\Http\Middleware\SecureHeaders;
-use App\Http\Middleware\VerifyTurnstileCaptcha;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -86,7 +85,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'lead.log' => LogLeadRateLimits::class,
             'supabase.email-hook' => VerifySupabaseEmailHookSignature::class,
             'feature' => FeatureGate::class,
-            'captcha' => VerifyTurnstileCaptcha::class,
+            'bot.token' => \App\Http\Middleware\VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
             'idempotent' => IdempotencyKey::class,
         ]);

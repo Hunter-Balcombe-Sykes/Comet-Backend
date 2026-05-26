@@ -1338,3 +1338,34 @@ function setupHandleChangeLogTable(): void
         changed_at TEXT NULL
     )');
 }
+
+/*
+|--------------------------------------------------------------------------
+| Bot Protection Test Helpers
+|--------------------------------------------------------------------------
+| has_auth_middleware: used by BotProtectionCoverageTest to skip auth-
+|   protected routes when sweeping for missing bot.token middleware.
+|
+| The FakeProvider beforeEach hook binds a fresh instance per test so
+| scripted results don't bleed between tests.
+*/
+
+function has_auth_middleware($route): bool
+{
+    return collect($route->gatherMiddleware())->some(fn ($m) =>
+        $m === 'supabase.jwt'
+        || $m === 'professional.api'
+        || str_starts_with((string) $m, 'professional.api')
+        || $m === 'staff'
+        || $m === 'staff.admin'
+        || str_starts_with((string) $m, 'auth:')
+    );
+}
+
+uses()->beforeEach(function () {
+    config(['partna.bot_protection.driver' => 'fake']);
+    app()->instance(
+        \App\Services\BotProtection\Providers\FakeProvider::class,
+        new \App\Services\BotProtection\Providers\FakeProvider(),
+    );
+})->in('Feature/Http/Middleware', 'Feature/PublicSite', 'Feature/Security');

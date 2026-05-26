@@ -28,14 +28,14 @@ Route::group([
 
     // Customer Leads
     Route::post('/customers', [PublicCustomerLeadController::class, 'store'])
-        ->middleware(['lead.log', 'throttle:leads']);
+        ->middleware(['lead.log', 'throttle:leads', 'bot.token:lead']);
 
     // Contact Section Enquiries
     Route::post('/enquiry', [PublicEnquiryController::class, 'submit'])
-        ->middleware(['lead.log', 'throttle:leads']);
+        ->middleware(['lead.log', 'throttle:leads', 'bot.token:enquiry']);
 
     Route::post('/subscribe', [PublicEmailSubscriptionController::class, 'subscribe'])
-        ->middleware('throttle:public-site');
+        ->middleware(['throttle:public-subscribe', 'bot.token:subscribe']);
 
     // Marketing Preferences
     Route::get('/marketing-preference', [PublicMarketingPreferenceController::class, 'show'])
