@@ -23,7 +23,7 @@ function indexCoverageSuiteIsPostgres(): bool
  *
  * @param  string  $schema  e.g. 'site'
  * @param  string  $table   e.g. 'sites'
- * @param  string  $index   e.g. 'idx_sites_theme_id'
+ * @param  string  $index   e.g. 'idx_aps_brand_user_id'
  */
 function assertIndexExists(string $schema, string $table, string $index): void
 {
@@ -44,15 +44,6 @@ function assertIndexExists(string $schema, string $table, string $index): void
         "Index [{$index}] exists but is INVALID — drop the stub and re-run the migration."
     );
 }
-
-// ─── site.sites.theme_id ────────────────────────────────────────────────────
-
-it('sites table has a supporting index on theme_id', function () {
-    if (! indexCoverageSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
-    }
-    assertIndexExists('site', 'sites', 'idx_sites_theme_id');
-});
 
 // ─── commerce.affiliate_product_selections.brand_user_id ────────────
 

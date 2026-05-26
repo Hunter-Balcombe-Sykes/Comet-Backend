@@ -6,14 +6,13 @@ use App\Http\Resources\SiteResource;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Carbon;
 
-it('ships only the allowlisted columns and passes settings through', function () {
+it('ships only the allowlisted columns and passes non-design settings through', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'theme_id' => '22222222-2222-2222-2222-222222222222',
+        'skeleton_id' => 'skeleton-2',
         'is_published' => true,
         'unpublished_at' => null,
         'settings' => [
-            'design' => ['accent_color' => '#ff0000'],
             'booking_mode' => 'manual',
         ],
     ]);
@@ -27,23 +26,23 @@ it('ships only the allowlisted columns and passes settings through', function ()
     $array = (new SiteResource($site))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'user_id', 'subdomain', 'theme_id', 'is_published',
+        'id', 'user_id', 'subdomain', 'skeleton_id', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings',
         'created_at', 'updated_at',
     ]);
     expect($array)->not->toHaveKey('internal_flag');
+    expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
+    expect($array['skeleton_id'])->toBe('skeleton-2');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
-    // Pass-through: design tokens stay accessible to the dashboard editor.
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.
-    expect($array['settings']->design['accent_color'])->toBe('#ff0000');
     expect($array['settings']->booking_mode)->toBe('manual');
 });
 
 it('handles empty settings as {} not []', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'theme_id' => null,
+        'skeleton_id' => 'skeleton-1',
         'is_published' => false,
         'settings' => [],
     ]);

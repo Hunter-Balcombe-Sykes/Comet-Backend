@@ -5,15 +5,23 @@ namespace App\Services\PublicSite;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Pure projection helper — assembles the §28.8 public profile payload from a
- * Professional + Site without owning the cache. The controller and the warm
+ * User + Site without owning the cache. The controller and the warm
  * job both consume this so the two paths can't drift on field shape.
  *
  * Cache wrapper (CacheLockService::rememberLocked) is the caller's concern;
  * this class exposes the canonical cache key + TTL so both call sites stay
  * aligned on key shape.
+ *
+ * Payload shape (post-skeleton-cleanup):
+ *   {
+ *     profile: { handle, display_name, site_id, ...sections },
+ *     designKit: { ...partial design vars from site.design_kits },
+ *     skeletonId: 'skeleton-1' | ... | 'skeleton-4',
+ *   }
  *
  * @see \App\Http\Controllers\Api\PublicSite\IndividualProfileController
  * @see \App\Jobs\Cache\WarmPublicSiteCacheJob
@@ -25,25 +33,22 @@ class IndividualProfilePayloadBuilder
     ) {}
 
     /**
-     * Build the §28.8 resolved payload. Filters site.settings.design through
-     * IndividualProfileResource::DESIGN_KEYS (audit PROF-2), then routes the
-     * section envelopes through the shared resolver so the shape mirrors
-     * HydrogenAffiliateController.
+     * Build the §28.8 resolved payload. Reads:
+     *   - the user's content sections via SitepageDataResolverService
+     *   - the per-user design_kit row (partial — only stored non-null cols)
+     *   - the site's skeleton_id (TEXT enum)
      *
      * @return array<string, mixed>
      */
     public function build(User $pro, ?Site $site): array
     {
-        $rawDesign = (array) ($site?->settings['design'] ?? []);
-        $design = array_intersect_key($rawDesign, array_flip(IndividualProfileResource::DESIGN_KEYS));
-
         $sections = $this->resolver->loadSections($site);
         $booking = $this->resolver->getBooking($site, $sections);
 
-        // Keys mirror the Resource output shape 1-to-1 (#P3-01).
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
-            'design' => $design,
+            'design_kit' => $this->loadDesignKit($site),
+            'skeleton_id' => $site?->skeleton_id ?? 'skeleton-1',
             'content_images' => $this->resolver->getContentImages($site),
             'gallery' => $this->resolver->getGallery($site, $sections),
             'links' => $this->resolver->getLinks($site, $booking),
@@ -53,6 +58,41 @@ class IndividualProfilePayloadBuilder
             'services' => $this->resolver->getServices($site, $pro->id, $sections),
             'booking' => $booking,
         ]))->resolve();
+    }
+
+    /**
+     * Read the user's design_kit row as an associative array. All columns
+     * except `site_id` are returned (var columns are added incrementally per
+     * layer-sweep step 4). NULL values are stripped — partna-pages fills the
+     * gaps from its code-side DESIGN_KIT_DEFAULTS.
+     *
+     * Returns an empty array if the site is missing or the kit row doesn't
+     * exist (the trigger guarantees one per site, but the safety belt is
+     * cheap).
+     *
+     * @return array<string, mixed>
+     */
+    private function loadDesignKit(?Site $site): array
+    {
+        if (! $site) {
+            return [];
+        }
+
+        $row = DB::connection('pgsql')
+            ->table('site.design_kits')
+            ->where('site_id', $site->id)
+            ->first();
+
+        if (! $row) {
+            return [];
+        }
+
+        // Convert stdClass → array, drop the FK column + any null values
+        // (partna-pages fills nulls from code-side defaults).
+        $cols = (array) $row;
+        unset($cols['site_id']);
+
+        return array_filter($cols, fn ($v) => $v !== null);
     }
 
     /**

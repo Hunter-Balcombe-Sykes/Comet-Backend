@@ -81,7 +81,7 @@ See what the server is actually saying. THEN form a hypothesis. The user reads t
 - **Never create Laravel migration files.** A composer guard (`guard:no-laravel-migrations`) will reject them.
 - All schema changes go in `supabase/migrations/` as raw SQL files.
 - The database uses a single consolidated baseline migration: `supabase/migrations/20260526000000_baseline_standalone_user.sql`. The 147 historical migrations are archived in `supabase/migrations-archive/`.
-- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, themes, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas.
+- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas. `site.themes` table is being removed via the skeleton-system cleanup (see "Skeleton system" below).
 
 ### Code Organization
 ```
@@ -276,7 +276,7 @@ Account capabilities (backend: `App\Services\Accounts\AccountCapabilities`)
 are the source of truth for what features are available. Every notification
 dispatcher, route guard, and API response checks capabilities before acting.
 
-Per-user styling uses the per-Site `settings.design` JSONB.
+Per-user styling is being migrated from `site.sites.settings.design` JSONB → `site.design_kits` table (one row per site, column-per-var). The `settings.design.*` JSONB path is being removed via the cleanup deploy. See "Skeleton system" below + spec doc at `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`.
 
 Worker responses are NOT auto-cached from `Cache-Control` alone. The router
 Worker MUST call `caches.default.put(request, response.clone())` to populate
@@ -290,6 +290,30 @@ the edge cache. The cache-purge job invalidates by URL.
 - `SyncSubdomainToKvJob` is the ONLY writer to `SUBDOMAIN_KV`. All routing
   changes go through it.
 
+## Skeleton system (current architectural shift)
+
+🚧 **In progress.** Full spec: `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`. The V3+V4 theme model is being replaced with a skeleton + design-kit system.
+
+**Backend changes at cleanup (spec §8):**
+
+- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'skeleton-1'..'skeleton-4'`). Default `'skeleton-1'`.
+- `site.themes` table → DROPPED entirely. Skeletons are code constants in `partna-pages/src/skeletons/`, not DB records.
+- `set_default_theme_for_site()` Postgres function → DROPPED with CASCADE (kills the trigger too).
+- `site.sites.settings.design.*` JSONB path → STRIPPED via `UPDATE site.sites SET settings = settings - 'design'`.
+- NEW `site.design_kits` table → 1:1 with `site.sites` (PK = site_id, FK with ON DELETE CASCADE). All columns NULLABLE. Per-user design vars stored column-per-var. Trigger `trg_create_empty_design_kit` auto-inserts an empty row on site creation.
+- NEW migration trigger per layer-sweep step 4: every new design kit var introduces a new column on `site.design_kits` (NULLABLE, no DB-level default — code-side defaults in the `@partnaau/design-system/design-kit` package fill nulls at read time).
+
+**API changes:**
+
+- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `skeleton-1..4`). `partna-pages` does the read-time merge with defaults before passing to the skeleton.
+- `PATCH /api/professional/site` mutation: writes `skeleton_id` and individual `design_kits` columns. No longer accepts `settings.design.*`.
+
+**Hard rules:**
+
+- Adding a new design kit var = new SQL migration in `supabase/migrations/` adding a NULLABLE column to `site.design_kits`. Never with a DB-level DEFAULT — defaults live in the package.
+- `site.sites.skeleton_id` values are constrained by the CHECK. Adding a new skeleton means: (1) update the CHECK constraint via migration, (2) add `partna-pages/src/skeletons/skeleton-N/`, (3) wire the dispatcher in `partna-pages/src/pages/index.astro`. No new DB tables.
+- Don't reintroduce `site.themes`, `settings.design.*`, or any "theme" terminology after the cleanup lands.
+
 ## Do NOT
 
 - Create Laravel migration files (use `supabase/migrations/` with raw SQL)
@@ -297,4 +321,5 @@ the edge cache. The cache-purge job invalidates by URL.
 - Return raw Eloquent models from API endpoints (use Resource classes)
 - Over-engineer simple fixes — three similar lines > a premature abstraction
 - Drown files in comments — see "Commenting" above for the bar
+- Reintroduce `site.themes` table or `settings.design.*` after the skeleton-system cleanup (see "Skeleton system" above)
 

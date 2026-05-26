@@ -17,12 +17,24 @@ beforeEach(function () {
     setupMediaTables();
     setupServiceCategoriesTable();
     setupServicesTable();
+
+    // Skeleton-system cleanup column shim — production has skeleton_id with
+    // CHECK enum default 'skeleton-1', and the SitepageDataResolverService
+    // reads it via $site->skeleton_id. Plus a stub design_kits table so the
+    // PayloadBuilder's loadDesignKit() lookup returns empty cleanly.
+    try {
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'skeleton-1'");
+    } catch (Throwable $e) {
+        // Column already exists from a prior test in the same process.
+    }
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (site_id TEXT PRIMARY KEY)');
+
     Cache::flush();
     // Disable throttling so the test isn't tied to RateLimiter internals.
     Config::set('partna.throttle.enabled', false);
 });
 
-function seedIndividualProfile(string $handle, array $design = []): User
+function seedIndividualProfile(string $handle, ?string $skeletonId = null): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -42,21 +54,25 @@ function seedIndividualProfile(string $handle, array $design = []): User
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    DB::connection('pgsql')->table('site.sites')->insert([
+    $siteRow = [
         'id' => $siteId,
         'user_id' => $proId,
         'subdomain' => strtolower($handle),
-        'settings' => json_encode(['design' => $design]),
+        'settings' => json_encode([]),
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
-    ]);
+    ];
+    if ($skeletonId !== null) {
+        $siteRow['skeleton_id'] = $skeletonId;
+    }
+    DB::connection('pgsql')->table('site.sites')->insert($siteRow);
 
     return User::query()->findOrFail($proId);
 }
 
-it('returns 200 with the full envelope shape for an individual', function () {
-    $pro = seedIndividualProfile('solo1', ['theme' => 'midnight']);
+it('returns 200 with the skeleton-system envelope shape for an individual', function () {
+    $pro = seedIndividualProfile('solo1');
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
@@ -77,45 +93,51 @@ it('returns 200 with the full envelope shape for an individual', function () {
     $res = $this->getJson('/api/public/profiles/solo1')->assertOk();
     $data = $res->json('data');
 
-    expect($data)->toHaveKeys([
-        'handle', 'display_name', 'design',
+    // Top-level keys are now { profile, designKit, skeletonId } — no more
+    // legacy themeMode/accent/fontFamily/design.
+    expect($data)->toHaveKeys(['profile', 'designKit', 'skeletonId']);
+    expect($data)->not->toHaveKey('design');
+    expect($data)->not->toHaveKey('themeMode');
+
+    expect($data['skeletonId'])->toBe('skeleton-1');
+    expect($data['designKit'])->toEqual([]); // partial — empty at this phase.
+
+    $profile = $data['profile'];
+    expect($profile)->toHaveKeys([
+        'handle', 'display_name',
         'content_images', 'gallery', 'links', 'bio',
-        'document', 'newsletter', 'services', 'booking', 'shop',
+        'document', 'newsletter', 'services', 'booking',
     ]);
-    expect($data)->not->toHaveKey('location');
+    expect($profile['handle'])->toBe('solo1');
+    expect($profile['display_name'])->toBe('Solo Pro');
 
-    expect($data['handle'])->toBe('solo1');
-    expect($data['display_name'])->toBe('Solo Pro');
-    expect($data['design'])->toEqual(['theme' => 'midnight']);
-
-    // Link block surfaces as a structured row in the `links` array — not as a
-    // raw `blocks[]` JSONB blob (the old shape).
-    expect($data['links'])->toHaveCount(1);
-    expect($data['links'][0])->toMatchArray([
+    // Link block surfaces as a structured row in the `links` array — not as
+    // a raw `blocks[]` JSONB blob (the old shape).
+    expect($profile['links'])->toHaveCount(1);
+    expect($profile['links'][0])->toMatchArray([
         'title' => 'Example',
         'url' => 'https://example.test',
         'category' => 'custom',
         'platform' => null,
     ]);
-
-    // Shop is structurally always-draft for individuals.
-    expect($data['shop'])->toMatchArray(['state' => 'draft', 'data' => null]);
 });
 
-it('excludes brand-only and commerce fields (audit TEST-4)', function () {
+it('returns the user-selected skeleton_id', function () {
+    seedIndividualProfile('solo-sk2', 'skeleton-2');
+    $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
+    expect($data['skeletonId'])->toBe('skeleton-2');
+});
+
+it('excludes brand-only and commerce fields', function () {
     seedIndividualProfile('solo2');
     $data = $this->getJson('/api/public/profiles/solo2')->assertOk()->json('data');
 
-    foreach (['placeholders', 'fallback_gallery', 'brand_logo', 'brand_slogan', 'products', 'cart', 'commission', 'orders'] as $forbidden) {
+    foreach (['placeholders', 'fallback_gallery', 'brand_logo', 'brand_slogan', 'products', 'cart', 'commission', 'orders', 'shop'] as $forbidden) {
         expect($data)->not->toHaveKey($forbidden);
+        expect($data['profile'])->not->toHaveKey($forbidden);
     }
 });
 
-// The link projection only emits a fixed shape (id/title/url/category/platform)
-// — any extra JSONB on the block settings is structurally inaccessible at
-// the wire layer. This replaces the old PROF-1 "per-block-type settings
-// allow-list" coverage: PROF-1 paranoia (random JSONB leaking) is now
-// prevented by typed projection rather than a string allow-list.
 it('link projection emits only the structured shape (no extra JSONB leaks)', function () {
     $pro = seedIndividualProfile('solo3');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
@@ -143,7 +165,7 @@ it('link projection emits only the structured shape (no extra JSONB leaks)', fun
     ]);
 
     $data = $this->getJson('/api/public/profiles/solo3')->assertOk()->json('data');
-    $link = $data['links'][0];
+    $link = $data['profile']['links'][0];
 
     // Only the projected keys exist — no admin_token / internal_note ever
     // surfaces because they're not part of the typed projection.
@@ -174,55 +196,32 @@ it('unknown block_type does not appear in the structured response', function () 
     ]);
 
     $data = $this->getJson('/api/public/profiles/solo4')->assertOk()->json('data');
+    $profile = $data['profile'];
 
     // Unknown block_type maps to no envelope — gallery/bio/document/etc all
     // stay draft, and there's no `blocks[]` array to leak the raw row into.
-    expect($data['gallery'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($data['bio'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($data['document'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($data['newsletter'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($data['services'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($data['booking'])->toMatchArray(['state' => 'draft', 'data' => null]);
-});
-
-// PROF-2: design key allow-list. Keys not in IndividualProfileResource::DESIGN_KEYS
-// drop out — even if they end up adjacent to design keys in site.settings.design.
-it('PROF-2: filters design through DESIGN_KEYS allow-list', function () {
-    seedIndividualProfile('solo5', [
-        'theme' => 'midnight',
-        'accent_color' => '#FF00AA',
-        // Not in DESIGN_KEYS — must NOT leak.
-        'internal_flag' => 'experimental',
-        'admin_token' => 'shouldnt_be_here',
-    ]);
-
-    $data = $this->getJson('/api/public/profiles/solo5')->assertOk()->json('data');
-
-    expect($data['design'])
-        ->toHaveKey('theme', 'midnight')
-        ->and($data['design'])->toHaveKey('accent_color', '#FF00AA')
-        ->and($data['design'])->not->toHaveKey('internal_flag')
-        ->and($data['design'])->not->toHaveKey('admin_token');
+    expect($profile['gallery'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    expect($profile['bio'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    expect($profile['document'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    expect($profile['newsletter'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    expect($profile['services'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    expect($profile['booking'])->toMatchArray(['state' => 'draft', 'data' => null]);
 });
 
 it('returns 404 when the handle does not exist', function () {
     $this->getJson('/api/public/profiles/missing')->assertNotFound();
 });
 
-// Brand and partner account types no longer exist — removed in the standalone strip.
-// The 404 guard for non-individual accounts is now exercised by the missing-handle case.
-
 it('is case-insensitive on the handle path param', function () {
     seedIndividualProfile('mixedcase');
     $this->getJson('/api/public/profiles/MIXEDCASE')->assertOk();
 });
 
-// ── New feature: site_media-backed fields ────────────────────────────────
+// ── site_media-backed fields ─────────────────────────────────────────────
 // Content-pool images, gallery items, and the document slot all read off
-// site.site_media rows now. The Hydrogen affiliate endpoint already does
-// this; the public §28.8 endpoint matches the same projection.
+// site.site_media rows. Same projection as the Hydrogen affiliate endpoint.
 
-it('surfaces content-pool site_media as content_images[]', function () {
+it('surfaces content-pool site_media as profile.content_images[]', function () {
     $pro = seedIndividualProfile('content1');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -246,7 +245,7 @@ it('surfaces content-pool site_media as content_images[]', function () {
     // The exact URL depends on media-variant lookup which the test env stubs
     // with empty variants — but the array structure (one row, alt text
     // preserved) is what the contract guarantees.
-    expect($data['content_images'])->toBeArray();
+    expect($data['profile']['content_images'])->toBeArray();
 });
 
 it('omits soft-deleted content_images', function () {
@@ -269,7 +268,7 @@ it('omits soft-deleted content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content2')->assertOk()->json('data');
-    expect($data['content_images'])->toBeEmpty();
+    expect($data['profile']['content_images'])->toBeEmpty();
 });
 
 it('omits processing-state != ready content_images', function () {
@@ -291,5 +290,5 @@ it('omits processing-state != ready content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
-    expect($data['content_images'])->toBeEmpty();
+    expect($data['profile']['content_images'])->toBeEmpty();
 });

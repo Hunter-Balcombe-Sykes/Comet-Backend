@@ -13,7 +13,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property mixed $id
  */
-// V2: A professional's public-facing site. Owns blocks, media, theme reference, and publish state. One site per professional.
+// A user's public-facing site. Owns blocks, media, skeleton selection, and publish state. One site per user.
+// `skeleton_id` is a TEXT enum constrained by the DB CHECK to skeleton-1..4
+// — the renderer (partna-pages) picks one of four code-side skeleton layouts
+// from that value. Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel
 {
     use HasUuids;
@@ -26,7 +29,7 @@ class Site extends BaseModel
 
     protected $fillable = [
         'subdomain',
-        'theme_id',
+        'skeleton_id',
         'is_published',
         'unpublished_at',
         'settings',
@@ -44,11 +47,6 @@ class Site extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
-    }
-
-    public function theme(): BelongsTo
-    {
-        return $this->belongsTo(Theme::class, 'theme_id');
     }
 
     public function blocks(): HasMany

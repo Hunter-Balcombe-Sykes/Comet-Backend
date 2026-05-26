@@ -10,11 +10,15 @@ use App\Http\Resources\SiteResource;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
-// V2: Site settings management (subdomain, theme, settings JSON, publish status). Powers the mini-site builder.
+// Site settings management (subdomain, skeleton, settings JSON, publish
+// status). Powers the dashboard's site editor. Per-user design vars are
+// split off into the design_kit field and written to site.design_kits
+// (separate table) — the rest goes through UpdateSiteAction.
 class UserSiteController extends ApiController
 {
     use ResolveCurrentUser;
@@ -33,9 +37,57 @@ class UserSiteController extends ApiController
     {
         $professional = $this->currentUser($request);
         $data = $request->validated();
+
+        // design_kit writes to site.design_kits, not site.sites. Pull it out
+        // before handing off to UpdateSiteAction (which only knows about the
+        // sites row). At this phase no var columns exist on design_kits so
+        // any keys are silently dropped — the row stays empty until layer-
+        // sweep migrations add column-validated keys.
+        $designKit = $data['design_kit'] ?? null;
+        unset($data['design_kit']);
+
         $site = $action->execute($professional, $data);
 
+        if (is_array($designKit)) {
+            $this->writeDesignKit($site->id, $designKit);
+        }
+
         return $this->success(['site' => new SiteResource($site)]);
+    }
+
+    /**
+     * Persist a partial design kit. Filters incoming keys to the columns
+     * that actually exist on site.design_kits — keys with no matching column
+     * are silently ignored (FormRequest already validated the shape).
+     *
+     * At cleanup-deploy time the table has zero var columns, so this is a
+     * no-op. As layer-sweep steps add columns, this method automatically
+     * picks them up via the information_schema query.
+     */
+    private function writeDesignKit(string $siteId, array $designKit): void
+    {
+        if ($designKit === []) {
+            return;
+        }
+
+        $columns = DB::connection('pgsql')
+            ->table('information_schema.columns')
+            ->where('table_schema', 'site')
+            ->where('table_name', 'design_kits')
+            ->pluck('column_name')
+            ->all();
+
+        $valid = array_intersect_key($designKit, array_flip($columns));
+        unset($valid['site_id']); // never let a caller rewrite the FK
+
+        if ($valid === []) {
+            return;
+        }
+
+        DB::connection('pgsql')
+            ->table('site.design_kits')
+            ->where('site_id', $siteId)
+            ->update($valid);
     }
 
     /**
@@ -77,6 +129,9 @@ class UserSiteController extends ApiController
     {
         $professional = $this->currentUser($request);
         $data = $request->validated();
+        // visibility() shares the request shape with update() — strip the
+        // design_kit key so it doesn't leak into the sites row update.
+        unset($data['design_kit']);
         $site = $action->execute($professional, $data);
 
         return $this->success(['site' => new SiteResource($site)]);

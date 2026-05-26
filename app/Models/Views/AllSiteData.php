@@ -5,7 +5,10 @@ namespace App\Models\Views;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
-// V2: Read-only database view that denormalizes a site with its theme, blocks, and settings into a single row for efficient dashboard queries.
+// Read-only database view that denormalizes a site with its blocks and
+// settings into a single row for efficient dashboard queries. After the
+// skeleton-system cleanup the view exposes `skeleton_id` (TEXT enum) instead
+// of the old theme join columns.
 class AllSiteData extends BaseModel
 {
     use HasFactory;
@@ -25,7 +28,6 @@ class AllSiteData extends BaseModel
 
     protected $casts = [
         'site_settings' => 'array',
-        'theme_config' => 'array',
         'blocks' => 'array',
         'is_published' => 'boolean',
         'site_created_at' => 'datetime',
