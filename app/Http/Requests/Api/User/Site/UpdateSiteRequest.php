@@ -186,6 +186,10 @@ class UpdateSiteRequest extends BaseFormRequest
             // Sizing — UI control intrinsic dimensions
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.sizing_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Motion — animation durations consumed by skeleton interactions
+            'design_kit.motion_expand_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.motion_fade_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Buttons — all derived-default colors (null = follow the linked
             // colors.* var via vars.css; non-null = explicit override).
             'design_kit.button_primary_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
