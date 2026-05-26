@@ -48,7 +48,7 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
     ['proId' => $proId, 'siteId' => $siteId] = makeReclaimPro('current');
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proId,
         'handle'          => 'old',
@@ -81,7 +81,7 @@ it('lets the original owner reclaim within the grace window, bypassing the 30-da
 it('refuses to reclaim once the reclaim window has passed', function () {
     ['proId' => $proId] = makeReclaimPro('current2');
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proId,
         'handle'          => 'oldexpired',
@@ -101,7 +101,7 @@ it('throws 404 for a handle alias that belongs to a different professional', fun
     ['proId' => $proIdSelf] = makeReclaimPro('self1');
     ['proId' => $proIdOther] = makeReclaimPro('other1');
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proIdOther,
         'handle'          => 'wantedhandle',

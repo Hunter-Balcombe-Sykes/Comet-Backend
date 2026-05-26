@@ -4,8 +4,8 @@ use App\Models\Core\Staff\StaffAuditEntry;
 
 uses(Tests\TestCase::class);
 
-it('uses the core.staff_audit_log table', function () {
-    expect((new StaffAuditEntry)->getTable())->toBe('core.staff_audit_log');
+it('uses the audit.staff_audit_log table', function () {
+    expect((new StaffAuditEntry)->getTable())->toBe('audit.staff_audit_log');
 });
 
 it('has uuid primary key with non-incrementing string type', function () {

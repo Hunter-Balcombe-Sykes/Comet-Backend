@@ -16,8 +16,12 @@ beforeEach(function () {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
     } catch (\Throwable) {
     }
+    try {
+        $conn->statement("ATTACH DATABASE ':memory:' AS audit");
+    } catch (\Throwable) {
+    }
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.staff_audit_log (
+    $conn->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
         id TEXT PRIMARY KEY,
         staff_id TEXT,
         staff_email_snapshot TEXT,
@@ -90,7 +94,7 @@ it('swallows insert failures and returns null while logging a warning', function
     Log::spy();
 
     // Drop the table to force the insert to throw.
-    DB::connection('pgsql')->statement('DROP TABLE core.staff_audit_log');
+    DB::connection('pgsql')->statement('DROP TABLE audit.staff_audit_log');
 
     $entry = (new StaffAuditService())->record(
         staff: null,
@@ -115,7 +119,7 @@ it('swallows insert failures and returns null while logging a warning', function
 it('B3/P2-12: write-failure warning includes the X-Request-Id header for correlation', function () {
     Log::spy();
 
-    DB::connection('pgsql')->statement('DROP TABLE core.staff_audit_log');
+    DB::connection('pgsql')->statement('DROP TABLE audit.staff_audit_log');
 
     // The X-Request-Id header is set by Cloudflare/NGINX on inbound requests.
     request()->headers->set('X-Request-Id', 'req-abc-123');

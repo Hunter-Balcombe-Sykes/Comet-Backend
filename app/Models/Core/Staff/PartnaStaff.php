@@ -61,7 +61,7 @@ class PartnaStaff extends BaseModel
      *
      * This is the sole sanctioned path for setting role = admin. Callers must
      * authorize the actor via PartnaStaffPolicy::update before invoking, and
-     * must record the transition in core.staff_audit_log.
+     * must record the transition in audit.staff_audit_log.
      */
     public function promoteToAdmin(): void
     {

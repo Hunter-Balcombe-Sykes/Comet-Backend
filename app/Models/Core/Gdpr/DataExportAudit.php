@@ -30,7 +30,7 @@ class DataExportAudit extends BaseModel
 
     public const STATUS_FAILED = 'failed';
 
-    protected $table = 'core.data_export_audit';
+    protected $table = 'audit.data_export_audit';
 
     public $incrementing = false;
 

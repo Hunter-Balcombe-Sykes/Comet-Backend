@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     tenantHelpersEnsureTables();
 
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.customers (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
         professional_id TEXT,
         email TEXT,
@@ -40,7 +40,7 @@ it('customer index never includes customers from another professional', function
     [$a, $b] = createTwoTenants('affiliate');
     $now = now()->toDateTimeString();
 
-    DB::table('core.customers')->insert([
+    DB::table('site.customers')->insert([
         ['id' => (string) Str::uuid(), 'professional_id' => $a->id, 'email' => 'a@x.com', 'full_name' => 'A Customer', 'created_at' => $now, 'updated_at' => $now],
         ['id' => (string) Str::uuid(), 'professional_id' => $b->id, 'email' => 'b@x.com', 'full_name' => 'B Customer', 'created_at' => $now, 'updated_at' => $now],
     ]);
@@ -60,7 +60,7 @@ it('customer show refuses a customer belonging to another professional', functio
     $now = now()->toDateTimeString();
 
     $customerId = (string) Str::uuid();
-    DB::table('core.customers')->insert([
+    DB::table('site.customers')->insert([
         'id' => $customerId,
         'professional_id' => $a->id,
         'email' => 'secret@a.com',

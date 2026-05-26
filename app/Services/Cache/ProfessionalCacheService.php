@@ -244,7 +244,7 @@ class ProfessionalCacheService
         return $this->cacheLock->rememberLocked(
             CacheKeyGenerator::customerCount($professionalId),
             (int) config('partna.cache.ttls.public_payload'),
-            fn () => DB::table('core.customers')
+            fn () => DB::table('site.customers')
                 ->where('professional_id', $professionalId)
                 ->whereNull('deleted_at')
                 ->count()

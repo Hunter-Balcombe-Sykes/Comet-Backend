@@ -29,7 +29,7 @@ it('sends a T-3 email exactly once per alias and stamps notified_t3_at', functio
     ]);
 
     $aliasId = (string) Str::uuid();
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'               => $aliasId,
         'professional_id'  => $proId,
         'handle'           => 'oldnotify',
@@ -48,7 +48,7 @@ it('sends a T-3 email exactly once per alias and stamps notified_t3_at', functio
     $this->artisan(NotifyHandleAliasExpiry::class)->assertSuccessful();
     Mail::assertQueued(HandleAliasExpiringMail::class, 1);
 
-    $updated = DB::connection('pgsql')->table('site.professional_handle_aliases')
+    $updated = DB::connection('pgsql')->table('core.professional_handle_aliases')
         ->where('id', $aliasId)->first();
     expect($updated->notified_t3_at)->not->toBeNull();
 });

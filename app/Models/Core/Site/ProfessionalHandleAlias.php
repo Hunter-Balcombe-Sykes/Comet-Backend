@@ -13,7 +13,7 @@ class ProfessionalHandleAlias extends BaseModel
 {
     use HasUuids;
 
-    protected $table = 'site.professional_handle_aliases';
+    protected $table = 'core.professional_handle_aliases';
 
     public $incrementing = false;
 

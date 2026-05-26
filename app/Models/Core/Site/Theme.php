@@ -12,7 +12,7 @@ class Theme extends BaseModel
 {
     use HasFactory, HasUuids;
 
-    protected $table = 'site.themes';
+    protected $table = 'core.themes';
 
     public $incrementing = false;
 

@@ -78,7 +78,7 @@ it('writes cancelled audit event', function () {
     $service = new AccountDeletionService;
     $service->cancel($pro, Request::create('/', 'POST'));
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'cancelled')
         ->first();

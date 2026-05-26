@@ -72,7 +72,7 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
      */
     private function writeAliasEntries(CloudflareKvService $kv, string $proId, string $current): void
     {
-        $aliases = DB::table('site.professional_handle_aliases')
+        $aliases = DB::table('core.professional_handle_aliases')
             ->where('professional_id', $proId)
             ->where(function ($q) {
                 $q->whereNull('expires_at')->orWhere('expires_at', '>', now());

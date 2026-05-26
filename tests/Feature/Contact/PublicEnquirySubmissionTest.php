@@ -41,7 +41,7 @@ function setupContactSubmissionSchema(): void
         updated_at TEXT NOT NULL
     )');
 
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.customers (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
         professional_id TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -147,7 +147,7 @@ it('upserts submitter as a Customer with source=enquiry', function () {
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    $customer = DB::connection('pgsql')->table('core.customers')->first();
+    $customer = DB::connection('pgsql')->table('site.customers')->first();
     expect($customer)->not->toBeNull();
     expect($customer->email)->toBe('sarah@example.com');
     expect($customer->source)->toBe('enquiry');

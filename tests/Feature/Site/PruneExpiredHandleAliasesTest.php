@@ -47,7 +47,7 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Expired handle alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proId,
         'handle'          => 'gone-handle',
@@ -58,7 +58,7 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Active handle alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proId,
         'handle'          => 'alive-handle',
@@ -69,7 +69,7 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     ]);
 
     // Legacy NULL-expires_at alias
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id'              => (string) Str::uuid(),
         'professional_id' => $proId,
         'handle'          => 'legacy-handle',
@@ -91,13 +91,13 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
 
     $this->artisan(PruneExpiredHandleAliases::class)->assertSuccessful();
 
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.professional_handle_aliases')
         ->where('handle', 'gone-handle')->exists())->toBeFalse();
     expect(DB::connection('pgsql')->table('site.site_subdomain_aliases')
         ->where('subdomain', 'gone-sub')->exists())->toBeFalse();
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.professional_handle_aliases')
         ->where('handle', 'alive-handle')->exists())->toBeTrue();
-    expect(DB::connection('pgsql')->table('site.professional_handle_aliases')
+    expect(DB::connection('pgsql')->table('core.professional_handle_aliases')
         ->where('handle', 'legacy-handle')->exists())->toBeTrue();
 
     Bus::assertDispatched(SyncSubdomainToKvJob::class, fn ($j) => $j->professionalId === $proId);

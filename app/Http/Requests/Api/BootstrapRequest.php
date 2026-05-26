@@ -65,7 +65,7 @@ class BootstrapRequest extends BaseFormRequest
                         // connection is redirected to a separate SQLite handle without schema
                         // attachments, so the dot-prefixed table name only resolves on pgsql.
                         $query = DB::connection('pgsql')
-                            ->table('site.professional_handle_aliases')
+                            ->table('core.professional_handle_aliases')
                             ->whereRaw('LOWER(handle) = ?', [strtolower($value)]);
 
                         // Exclude the current professional's own aliases (re-bootstrap scenario)

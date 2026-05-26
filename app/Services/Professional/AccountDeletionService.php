@@ -234,7 +234,7 @@ class AccountDeletionService
      *
      * The 30-day grace period only needs handle, display_name, and auth_user_id to
      * keep the "undo deletion" recovery path working; the original email is preserved
-     * in core.professional_deletion_audit.professional_email_snapshot so support can
+     * in audit.professional_deletion_audit.professional_email_snapshot so support can
      * re-identify the user if they email to cancel.
      */
     protected function pseudonymiseAccountPii(User $professional): void
@@ -660,7 +660,7 @@ class AccountDeletionService
     private function restoreEmailFromAuditSnapshot(User $professional): void
     {
         $snapshotEmail = DB::connection('pgsql')
-            ->table('core.professional_deletion_audit')
+            ->table('audit.professional_deletion_audit')
             ->where('professional_id', $professional->id)
             ->where('event', ProfessionalDeletionAuditEntry::EVENT_CONFIRMED)
             ->orderByDesc('created_at')

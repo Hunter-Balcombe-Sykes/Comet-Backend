@@ -16,7 +16,7 @@ class StaffAuditEntry extends BaseModel
 {
     use HasFactory, HasUuids;
 
-    protected $table = 'core.staff_audit_log';
+    protected $table = 'audit.staff_audit_log';
 
     public $incrementing = false;
 

@@ -179,7 +179,7 @@ class UpdateSiteRequest extends BaseFormRequest
 
                     try {
                         $existsInProfessionalAliases = DB::connection('pgsql')
-                            ->table('site.professional_handle_aliases')
+                            ->table('core.professional_handle_aliases')
                             ->whereRaw('LOWER(handle) = LOWER(?)', [$value])
                             ->where('professional_id', '!=', $currentProfessionalId)
                             ->exists();

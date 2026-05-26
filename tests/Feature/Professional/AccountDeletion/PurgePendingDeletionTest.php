@@ -86,7 +86,7 @@ it('skips hard delete and logs purge_failed when Supabase returns 500', function
         ->where('id', $pro->id)->exists();
     expect($stillExists)->toBeTrue();
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('event', 'purge_failed')
         ->where('professional_id', $pro->id)
         ->first();
@@ -103,7 +103,7 @@ it('writes purged audit row with handle + email snapshots', function () {
     $service = new AccountDeletionService;
     $service->purge($pro);
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('event', 'purged')
         ->first();
 
