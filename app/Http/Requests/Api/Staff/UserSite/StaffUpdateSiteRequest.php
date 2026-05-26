@@ -38,14 +38,47 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // unknown keys are silently dropped, but we allowlist the known
             // shapes here for clear 422s on typos.
             'design_kit' => ['sometimes', 'array'],
-            // Colors group (spec §5.1)
-            'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Colors group
             'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_text' => ['sometimes', 'nullable', 'string', 'max:32'],
-            // Typography group — font slugs that resolve to
-            // @partnaau/design-system/design-assets/fonts/<slug>/.
+            'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Typography group — body + title font + size + weight; fontFamily
+            // is a slug resolved by @partnaau/design-system/design-assets.
+            'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'design_kit.typography_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.typography_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_title_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Orphan typography slots from the earlier wiped vars — left in
+            // the allowlist so the request doesn't 422 on legacy clients,
+            // but the columns store NULL and nothing reads them.
             'design_kit.typography_font_heading' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_font_body' => ['sometimes', 'nullable', 'string', 'max:64'],
+            // Borders
+            'design_kit.border_thickness' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.border_radius' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Spacing
+            'design_kit.spacing_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.spacing_small' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.spacing_general' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.spacing_large' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Padding
+            'design_kit.padding_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.padding_small' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.padding_general' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.padding_large' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Icons
+            'design_kit.icon_size' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Effects
+            'design_kit.effect_overlay_blur' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.effect_overlay_opacity' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Sizing — UI control intrinsic dimensions
+            'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
 
             'settings' => ['sometimes', 'array'],
             // settings.design.* is dead — reject any incoming key under it.
