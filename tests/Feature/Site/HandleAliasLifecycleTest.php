@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 it('does not resolve sites via expired subdomain aliases', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
 
@@ -95,7 +95,7 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
 })->todo(note: 'handle-redirect lifecycle not yet implemented — alias hits do not yet 301 to the canonical subdomain. See docs/superpowers/plans/2026-05-19-handle-redirect-lifecycle.md');
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupHandleAliasesTable();
 
@@ -142,7 +142,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
 });
 
 it('walks a subdomain alias through grace → redirect → released states', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();

@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 
     // Register a test route that requires the full user.api group and returns
     // the resolved professional's ID so we can confirm all three middleware ran.
@@ -21,7 +21,7 @@ it('rejects unauthenticated requests with 401', function () {
 it('resolves the professional when a valid JWT is supplied', function () {
     $pro = createAffiliateTenant('auth-api-group-user');
 
-    actingAsProfessional($pro)
+    actingAsUser($pro)
         ->getJson('/__test/auth-api-group')
         ->assertOk()
         ->assertJsonFragment(['user_id' => $pro->id]);
@@ -32,7 +32,7 @@ it('rejects a valid JWT when email is not verified', function () {
 
     // Pass email_verified=false in claims — RequireEmailVerified reads this
     // from the supabase_claims request attribute set by the JWT stub.
-    actingAsProfessional($pro, ['email_verified' => false])
+    actingAsUser($pro, ['email_verified' => false])
         ->getJson('/__test/auth-api-group')
         ->assertStatus(403)
         ->assertJsonFragment(['error' => 'email_verification_required']);

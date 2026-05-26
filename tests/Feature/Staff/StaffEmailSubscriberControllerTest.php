@@ -7,11 +7,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupEmailSubscriptionsTable();
 });
 
-function makeStaffSubscriberProfessional(): User
+function makeStaffSubscriberUser(): User
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -44,8 +44,8 @@ function seedSubscription(string $proId, array $overrides = []): void
 }
 
 it('lists subscribers for the route-bound professional only', function () {
-    $pro = makeStaffSubscriberProfessional();
-    $otherPro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
+    $otherPro = makeStaffSubscriberUser();
 
     seedSubscription($pro->id, ['email' => 'mine@example.com', 'email_lc' => 'mine@example.com']);
     seedSubscription($otherPro->id, ['email' => 'theirs@example.com', 'email_lc' => 'theirs@example.com']);
@@ -61,7 +61,7 @@ it('lists subscribers for the route-bound professional only', function () {
 });
 
 it('filters by status when ?status=unsubscribed is provided', function () {
-    $pro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
 
     seedSubscription($pro->id, ['email' => 'in@example.com', 'email_lc' => 'in@example.com', 'status' => 'subscribed']);
     seedSubscription($pro->id, ['email' => 'out@example.com', 'email_lc' => 'out@example.com', 'status' => 'unsubscribed', 'unsubscribed_at' => now()->toDateTimeString()]);
@@ -75,7 +75,7 @@ it('filters by status when ?status=unsubscribed is provided', function () {
 });
 
 it('streams a CSV export with the canonical header row', function () {
-    $pro = makeStaffSubscriberProfessional();
+    $pro = makeStaffSubscriberUser();
     seedSubscription($pro->id, ['email' => 'csv@example.com', 'email_lc' => 'csv@example.com', 'full_name' => 'CSV Person']);
 
     $controller = new StaffEmailSubscriberController;

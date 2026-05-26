@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     attachTestSchemas();
     // site.enquiries is created in UserEnquiryControllerTest's setupContactInboxSchema().
     // Inline here so this test doesn't depend on the Pest discovery order.
@@ -29,7 +29,7 @@ beforeEach(function () {
     )');
 });
 
-function makeStaffEnquiryProfessional(): User
+function makeStaffEnquiryUser(): User
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -60,8 +60,8 @@ function seedStaffEnquiry(string $proId, array $overrides = []): void
 }
 
 it('returns newest-first enquiries scoped to the route-bound professional', function () {
-    $pro = makeStaffEnquiryProfessional();
-    $otherPro = makeStaffEnquiryProfessional();
+    $pro = makeStaffEnquiryUser();
+    $otherPro = makeStaffEnquiryUser();
 
     seedStaffEnquiry($pro->id, ['name' => 'Older', 'created_at' => now()->subDay()->toDateTimeString()]);
     seedStaffEnquiry($pro->id, ['name' => 'Newer']);
@@ -79,7 +79,7 @@ it('returns newest-first enquiries scoped to the route-bound professional', func
 });
 
 it('respects per_page when provided', function () {
-    $pro = makeStaffEnquiryProfessional();
+    $pro = makeStaffEnquiryUser();
 
     for ($i = 0; $i < 5; $i++) {
         seedStaffEnquiry($pro->id, ['name' => "Visitor {$i}"]);

@@ -107,7 +107,7 @@ it('skips email sync when email_verified is false', function () {
 });
 
 it('syncs primary_email when claim differs and is verified', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 
     $uid = '550e8400-e29b-41d4-a716-446655440000';
     $proId = '00000000-0000-0000-0000-0000000000aa';

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
     setupUserDeletionAuditTable();

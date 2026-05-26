@@ -17,7 +17,7 @@ beforeEach(function () {
     ]);
     Cache::flush();
 
-    setupProfessionalsTable();
+    setupUsersTable();
     setupFeedbackTable();
 });
 
@@ -52,7 +52,7 @@ it('persists a valid submission and dispatches the notification job', function (
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    $response = actingAsProfessional($pro)->postJson('/api/me/feedback', [
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'bug',
         'severity' => 'medium',
         'message' => 'The save button does not respond on first click.',
@@ -79,7 +79,7 @@ it('persists a valid submission and dispatches the notification job', function (
 it('returns 422 when kind=bug but severity missing', function () {
     $pro = seedFeedbackPro();
 
-    $response = actingAsProfessional($pro)->postJson('/api/me/feedback', [
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'bug',
         'message' => 'broken',
     ]);
@@ -91,7 +91,7 @@ it('returns 422 when kind=bug but severity missing', function () {
 it('returns 422 when message is too long', function () {
     $pro = seedFeedbackPro();
 
-    $response = actingAsProfessional($pro)->postJson('/api/me/feedback', [
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'idea',
         'message' => str_repeat('a', 5001),
     ]);
@@ -103,7 +103,7 @@ it('returns 422 when message is too long', function () {
 it('returns 422 for invalid kind', function () {
     $pro = seedFeedbackPro();
 
-    $response = actingAsProfessional($pro)->postJson('/api/me/feedback', [
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'rant',
         'message' => 'hi',
     ]);
@@ -117,8 +117,8 @@ it('returns 429 when an identical message is resubmitted inside the duplicate wi
     $pro = seedFeedbackPro();
 
     $payload = ['kind' => 'idea', 'message' => 'same thing twice'];
-    actingAsProfessional($pro)->postJson('/api/me/feedback', $payload)->assertStatus(201);
-    actingAsProfessional($pro)->postJson('/api/me/feedback', $payload)->assertStatus(429);
+    actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(201);
+    actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(429);
 
     expect(Feedback::query()->where('user_id', $pro->id)->count())->toBe(1);
 });
@@ -127,7 +127,7 @@ it('omits internal triage fields from the API response', function () {
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    $response = actingAsProfessional($pro)->postJson('/api/me/feedback', [
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'praise',
         'message' => 'love it',
         'reply_email' => 'somewhere-else@example.test',
@@ -150,7 +150,7 @@ it('lists only the actor own feedback', function () {
         ['id' => (string) Str::uuid(), 'user_id' => $bob->id, 'kind' => 'idea', 'message' => 'bob-1', 'status' => 'new', 'internal_notes' => '[]', 'tags' => '[]', 'source' => 'dashboard', 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
     ]);
 
-    $response = actingAsProfessional($alice)->getJson('/api/me/feedback');
+    $response = actingAsUser($alice)->getJson('/api/me/feedback');
 
     $response->assertStatus(200);
     $items = $response->json('feedback');
@@ -176,7 +176,7 @@ it('returns 404 when viewing another user feedback (no existence leak)', functio
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $response = actingAsProfessional($alice)->getJson("/api/me/feedback/{$bobId}");
+    $response = actingAsUser($alice)->getJson("/api/me/feedback/{$bobId}");
     $response->assertStatus(404);
 });
 
@@ -184,7 +184,7 @@ it('hashes the IP rather than storing it raw', function () {
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    actingAsProfessional($pro)
+    actingAsUser($pro)
         ->withServerVariables(['REMOTE_ADDR' => '203.0.113.42'])
         ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ip test'])
         ->assertStatus(201);
@@ -198,7 +198,7 @@ it('falls back user_agent to the request header when not in the body', function 
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    actingAsProfessional($pro)
+    actingAsUser($pro)
         ->withHeaders(['User-Agent' => 'TestAgent/9.9'])
         ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ua fallback'])
         ->assertStatus(201);

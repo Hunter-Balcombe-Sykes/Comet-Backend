@@ -59,7 +59,7 @@ function something()
 |   supabase.jwt  → verifies Bearer token, sets supabase_uid attribute
 |   current.pro  → loads Professional by supabase_uid, sets professional attribute
 |
-| For HTTP-layer tests (using $this->getJson / postJson), actingAsProfessional()
+| For HTTP-layer tests (using $this->getJson / postJson), actingAsUser()
 | bypasses both middleware by injecting the professional directly via a fake
 | middleware stub. This mirrors how tenantRequestAs() works for direct-controller
 | tests, but at the HTTP layer.
@@ -74,9 +74,9 @@ function something()
  * request attributes before the controller sees the request — exactly
  * what the two middleware would have done in production.
  *
- * Usage: actingAsProfessional($pro)->getJson('/api/stripe/payouts')
+ * Usage: actingAsUser($pro)->getJson('/api/stripe/payouts')
  */
-function actingAsProfessional(
+function actingAsUser(
     \App\Models\Core\User\User $professional,
     array $claims = [],
 ): \Pest\Support\HigherOrderTapProxy {
@@ -202,7 +202,7 @@ function attachTestSchemas(): void
  * Permissive core.users table — every column nullable. Just enough
  * structure for tests that read/write professionals via the model or raw queries.
  */
-function setupProfessionalsTable(): void
+function setupUsersTable(): void
 {
     attachTestSchemas();
     \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
@@ -468,7 +468,7 @@ use App\Models\Core\Site\Site;
 function tenantHelpersEnsureTables(): void
 {
     attachTestSchemas();
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
 }
 
@@ -596,7 +596,7 @@ function setupUserDeletionAuditTable(): void
  * Includes shopify_shop_domain (production has it; the older WebhookCrossTenantTest
  * schema omits it). All columns nullable.
  */
-function setupProfessionalIntegrationsTable(): void
+function setupUserIntegrationsTable(): void
 {
     attachTestSchemas();
     \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (

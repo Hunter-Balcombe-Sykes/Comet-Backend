@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupMediaTables();
 
@@ -67,7 +67,7 @@ function callReorderController(User $professional, array $body): \Illuminate\Htt
     return $controller->reorder($formRequest);
 }
 
-function seedProfessionalAndSite(): array
+function seedUserAndSite(): array
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -96,7 +96,7 @@ function seedProfessionalAndSite(): array
 }
 
 it('reorders a mixed image+video gallery when media_type is omitted', function () {
-    [$professional, $site] = seedProfessionalAndSite();
+    [$professional, $site] = seedUserAndSite();
 
     // Seed: [image A (0), video B (1), image C (2), video D (3)].
     $a = seedGalleryMediaRow($site->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
@@ -122,7 +122,7 @@ it('reorders a mixed image+video gallery when media_type is omitted', function (
 });
 
 it('still scopes the reorder when media_type is explicitly provided', function () {
-    [$professional, $site] = seedProfessionalAndSite();
+    [$professional, $site] = seedUserAndSite();
 
     // Seed: image A (0), image B (1), video C (2), video D (3).
     $a = seedGalleryMediaRow($site->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
@@ -150,8 +150,8 @@ it('still scopes the reorder when media_type is explicitly provided', function (
 });
 
 it('rejects a mixed reorder that includes an id from another site', function () {
-    [$professionalA, $siteA] = seedProfessionalAndSite();
-    [, $siteB] = seedProfessionalAndSite();
+    [$professionalA, $siteA] = seedUserAndSite();
+    [, $siteB] = seedUserAndSite();
 
     $ownImage = seedGalleryMediaRow($siteA->id, SiteMedia::MEDIA_TYPE_IMAGE, 0);
     $foreignVideo = seedGalleryMediaRow($siteB->id, SiteMedia::MEDIA_TYPE_VIDEO, 0);

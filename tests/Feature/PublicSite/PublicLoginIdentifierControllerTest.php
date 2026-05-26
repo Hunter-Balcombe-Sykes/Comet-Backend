@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 });
 
 it('echoes a valid email back lowercased', function () {

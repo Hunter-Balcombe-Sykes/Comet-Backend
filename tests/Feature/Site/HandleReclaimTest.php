@@ -8,7 +8,7 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
     setupHandleChangeLogTable();

@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 // scope's transaction wrapping.
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
     setupMediaTables();

@@ -11,7 +11,7 @@ beforeEach(function () {
     AccountDeletionTestCase::boot();
 });
 
-function seedPurgeableProfessional(array $overrides = []): User
+function seedPurgeableUser(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $authId = (string) Str::uuid();
@@ -32,7 +32,7 @@ function seedPurgeableProfessional(array $overrides = []): User
 }
 
 it('calls Supabase Admin API and hard-deletes professional on success', function () {
-    $pro = seedPurgeableProfessional();
+    $pro = seedPurgeableUser();
 
     Http::fake([
         'test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200),
@@ -54,7 +54,7 @@ it('calls Supabase Admin API and hard-deletes professional on success', function
 });
 
 it('treats Supabase 404 as success and still hard-deletes professional', function () {
-    $pro = seedPurgeableProfessional();
+    $pro = seedPurgeableUser();
 
     Http::fake([
         'test.supabase.co/auth/v1/admin/users/*' => Http::response(['message' => 'User not found'], 404),
@@ -71,7 +71,7 @@ it('treats Supabase 404 as success and still hard-deletes professional', functio
 });
 
 it('skips hard delete and logs purge_failed when Supabase returns 500', function () {
-    $pro = seedPurgeableProfessional();
+    $pro = seedPurgeableUser();
 
     Http::fake([
         'test.supabase.co/auth/v1/admin/users/*' => Http::response(['message' => 'server error'], 500),
@@ -94,7 +94,7 @@ it('skips hard delete and logs purge_failed when Supabase returns 500', function
 });
 
 it('writes purged audit row with handle + email snapshots', function () {
-    $pro = seedPurgeableProfessional(['handle' => 'snapshot-me', 'primary_email' => 'snapshot@example.com']);
+    $pro = seedPurgeableUser(['handle' => 'snapshot-me', 'primary_email' => 'snapshot@example.com']);
 
     Http::fake([
         'test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200),
@@ -121,12 +121,12 @@ it('command purges professionals past 30 days but skips within grace', function 
     ]);
 
     // Past grace — should be purged
-    $purgeable = seedPurgeableProfessional([
+    $purgeable = seedPurgeableUser([
         'deletion_confirmed_at' => now()->subDays(31)->toIso8601String(),
     ]);
 
     // Within grace — should be skipped
-    $withinGrace = seedPurgeableProfessional([
+    $withinGrace = seedPurgeableUser([
         'deletion_confirmed_at' => now()->subDays(5)->toIso8601String(),
     ]);
 

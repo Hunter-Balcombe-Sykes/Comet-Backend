@@ -5,10 +5,10 @@ use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 });
 
-function makeAboutProfessional(array $attrs = []): User
+function makeAboutUser(array $attrs = []): User
 {
     $id = (string) Str::uuid();
     $handle = 'about-'.substr($id, 0, 8);
@@ -27,7 +27,7 @@ function makeAboutProfessional(array $attrs = []): User
 }
 
 it('persists a full about payload and reads it back as an array', function () {
-    $pro = makeAboutProfessional();
+    $pro = makeAboutUser();
 
     $pro->about = [
         'credentials' => [
@@ -49,7 +49,7 @@ it('persists a full about payload and reads it back as an array', function () {
 });
 
 it('exposes about through UserResource', function () {
-    $pro = makeAboutProfessional([
+    $pro = makeAboutUser([
         'about' => [
             'credentials' => [['title' => 'Cert', 'issuer' => 'Academy', 'year' => 2020]],
             'experience' => [],
@@ -64,7 +64,7 @@ it('exposes about through UserResource', function () {
 });
 
 it('returns an object that JSON-encodes as {} when about has never been set', function () {
-    $pro = makeAboutProfessional();
+    $pro = makeAboutUser();
 
     $array = (new UserResource($pro->fresh()))->toArray(request());
 
@@ -75,7 +75,7 @@ it('returns an object that JSON-encodes as {} when about has never been set', fu
 
 it('fill() accepts about from validated Request payload', function () {
     // Simulates what the controller does: $professional->fill($request->validated())
-    $pro = makeAboutProfessional();
+    $pro = makeAboutUser();
 
     $pro->fill([
         'display_name' => 'Renamed',

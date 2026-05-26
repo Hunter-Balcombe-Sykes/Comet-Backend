@@ -5,7 +5,7 @@ use App\Http\Requests\Api\BootstrapRequest;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupWaitlistTable();
 })->group('bootstrap-divert-and-disabled');
 

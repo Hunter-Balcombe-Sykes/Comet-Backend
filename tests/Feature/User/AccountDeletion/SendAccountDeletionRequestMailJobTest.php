@@ -13,7 +13,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedProfessionalWithToken(string $rawToken): User
+function seedUserWithToken(string $rawToken): User
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -36,7 +36,7 @@ it('handle() sends AccountDeletionRequestedMail to the professional with a confi
     config(['app.frontend_url' => 'https://app.example.test']);
 
     $rawToken = 'token-'.Str::random(58);
-    $pro = seedProfessionalWithToken($rawToken);
+    $pro = seedUserWithToken($rawToken);
 
     $job = new SendAccountDeletionRequestMailJob($pro->id, $rawToken);
     $job->handle();
@@ -59,7 +59,7 @@ it('handle() is a no-op when the professional row no longer exists', function ()
 
 it('failed() clears the deletion token when the row still holds this jobs token hash', function () {
     $rawToken = 'token-'.Str::random(58);
-    $pro = seedProfessionalWithToken($rawToken);
+    $pro = seedUserWithToken($rawToken);
 
     $job = new SendAccountDeletionRequestMailJob($pro->id, $rawToken);
     $job->failed(new \RuntimeException('SMTP permanently down'));
@@ -74,7 +74,7 @@ it('failed() leaves the row alone when the token has been rotated by a fresh req
     $newRawToken = 'new-token-'.Str::random(54);
 
     // Row currently holds the NEW token (user re-requested after the old job failed)
-    $pro = seedProfessionalWithToken($newRawToken);
+    $pro = seedUserWithToken($newRawToken);
 
     // The OLD job's failed() fires later — must not trample the new token.
     $job = new SendAccountDeletionRequestMailJob($pro->id, $oldRawToken);

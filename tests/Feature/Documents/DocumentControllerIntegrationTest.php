@@ -34,7 +34,7 @@ beforeEach(function () {
     app()->instance(SiteCacheService::class, $stub);
 });
 
-function seedProfessional(string $type = 'professional'): User
+function seedUser(string $type = 'professional'): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -79,7 +79,7 @@ function uploadRequestFor(User $pro, UploadedFile $file, string $title, ?string 
 }
 
 it('POST /api/documents creates a SiteMedia row and stores the file on R2', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
     $file = UploadedFile::fake()->create('schedule.pdf', 200, 'application/pdf');
 
     // Put actual PDF bytes into the fake upload so finfo returns application/pdf.
@@ -106,7 +106,7 @@ it('POST /api/documents creates a SiteMedia row and stores the file on R2', func
 });
 
 it('POST /api/documents strips CRLF and path-traversal from original_filename', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
     // Filename combines path traversal (../../etc/) and CRLF injection (\r\n) —
     // both should be neutralised before storage.
     $file = UploadedFile::fake()->create("../../etc/\r\npasswd.pdf", 50, 'application/pdf');
@@ -125,7 +125,7 @@ it('POST /api/documents strips CRLF and path-traversal from original_filename', 
 });
 
 it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes removed, new active', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
 
     // First upload
     $file1 = UploadedFile::fake()->create('v1.pdf', 100, 'application/pdf');
@@ -162,7 +162,7 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
 
 
 it('POST /api/documents returns 415 when finfo detects MIME mismatch', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
     // Create a file with .pdf extension but PNG-ish bytes → mimes rule passes
     // (trusts ClientOriginalName), finfo rejects.
     $file = UploadedFile::fake()->create('fake.pdf', 10, 'application/pdf');
@@ -175,8 +175,8 @@ it('POST /api/documents returns 415 when finfo detects MIME mismatch', function 
 });
 
 it('PATCH /api/documents/{id} returns 404 for a document belonging to another site', function () {
-    $proA = seedProfessional();
-    $proB = seedProfessional();
+    $proA = seedUser();
+    $proB = seedUser();
 
     // Seed a document for pro A directly.
     $docId = (string) Str::uuid();
@@ -216,7 +216,7 @@ it('PATCH /api/documents/{id} returns 404 for a document belonging to another si
 });
 
 it('PATCH /api/documents/{id} allows editing an inactive (is_active=false) document', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
     $docId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
@@ -246,7 +246,7 @@ it('PATCH /api/documents/{id} allows editing an inactive (is_active=false) docum
 });
 
 it('DELETE /api/documents/{id} allows deleting an inactive document', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
     $docId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
@@ -272,7 +272,7 @@ it('DELETE /api/documents/{id} allows deleting an inactive document', function (
 });
 
 it('PATCH /api/documents/{id} skips cache invalidation when no field actually changed', function () {
-    $pro = seedProfessional();
+    $pro = seedUser();
 
     // Upload an initial document so there's a row to PATCH.
     $file = UploadedFile::fake()->create('s.pdf', 50, 'application/pdf');

@@ -36,7 +36,7 @@ function makeAdminStaff(array $overrides = []): PartnaStaff
     return PartnaStaff::query()->where('id', $id)->first();
 }
 
-function makeActiveProfessional(array $overrides = []): User
+function makeActiveUser(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -67,7 +67,7 @@ function makeAdminRequest(PartnaStaff $staff, array $body = []): Request
 
 it('admin can initiate erasure for a clean account', function () {
     $staff = makeAdminStaff();
-    $pro = makeActiveProfessional();
+    $pro = makeActiveUser();
 
     $service = new AccountDeletionService;
     $result = $service->adminInitiate(
@@ -102,7 +102,7 @@ it('admin can initiate erasure for a clean account', function () {
 
 it('admin cannot initiate while another deletion is already in flight', function () {
     $staff = makeAdminStaff();
-    $pro = makeActiveProfessional(['status' => 'pending_deletion']);
+    $pro = makeActiveUser(['status' => 'pending_deletion']);
 
     $service = new AccountDeletionService;
     $result = $service->adminInitiate(
@@ -141,7 +141,7 @@ it('reason is required and validated at the form request level', function () {
 
 it('admin can cancel a pending deletion during grace period', function () {
     $staff = makeAdminStaff();
-    $pro = makeActiveProfessional([
+    $pro = makeActiveUser([
         'status' => 'pending_deletion',
         'deletion_previous_status' => 'active',
         'deletion_confirmed_at' => now()->toIso8601String(),
@@ -173,7 +173,7 @@ it('admin can cancel a pending deletion during grace period', function () {
 
 it('admin cancel fails with 409 if no pending deletion exists', function () {
     $staff = makeAdminStaff();
-    $pro = makeActiveProfessional(); // status = 'active', not pending_deletion
+    $pro = makeActiveUser(); // status = 'active', not pending_deletion
 
     $service = new AccountDeletionService;
     $result = $service->adminCancel(
@@ -214,7 +214,7 @@ it('non-admin staff get 403 from EnsurePartnaAdmin middleware', function () {
 
 it('GET show returns deletion state and non-PII audit entries', function () {
     $staff = makeAdminStaff();
-    $pro = makeActiveProfessional([
+    $pro = makeActiveUser([
         'status' => 'pending_deletion',
         'deletion_confirmed_at' => now()->toIso8601String(),
         'deletion_previous_status' => 'active',

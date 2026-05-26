@@ -309,7 +309,7 @@ it('fails open when the cache lookup throws (Redis outage)', function () {
 });
 
 it('integrates via the "idempotent" alias and replays through the HTTP stack', function () {
-    setupProfessionalsTable();
+    setupUsersTable();
 
     // Stub route guarded by both supabase.jwt (so supabase_uid is set) and
     // the idempotent alias under test. Each call returns a fresh random
@@ -322,8 +322,8 @@ it('integrates via the "idempotent" alias and replays through the HTTP stack', f
     $key = '11111111-2222-4333-8444-555555555555';
     $headers = ['Idempotency-Key' => $key];
 
-    $r1 = actingAsProfessional($pro)->postJson('/__test/idempotent-route', [], $headers);
-    $r2 = actingAsProfessional($pro)->postJson('/__test/idempotent-route', [], $headers);
+    $r1 = actingAsUser($pro)->postJson('/__test/idempotent-route', [], $headers);
+    $r2 = actingAsUser($pro)->postJson('/__test/idempotent-route', [], $headers);
 
     $r1->assertOk();
     $r2->assertOk();
@@ -338,7 +338,7 @@ it('replays a 409 from POST /api/me/deletion/cancel on a duplicate key (covers #
     // the middleware, two concurrent cancels would each run the controller
     // (and each write an audit row in the request() / confirm() flows).
     // With the middleware, the second call must replay the first 409.
-    setupProfessionalsTable();
+    setupUsersTable();
     $pro = createTenant('cancel-replay-pro');
     // status defaults to 'active' — so the controller returns 409 with
     // 'No pending deletion to cancel.' on both calls without the middleware.
@@ -346,8 +346,8 @@ it('replays a 409 from POST /api/me/deletion/cancel on a duplicate key (covers #
     $key = '11111111-2222-4333-8444-555555555555';
     $headers = ['Idempotency-Key' => $key];
 
-    $r1 = actingAsProfessional($pro)->postJson('/api/me/deletion/cancel', [], $headers);
-    $r2 = actingAsProfessional($pro)->postJson('/api/me/deletion/cancel', [], $headers);
+    $r1 = actingAsUser($pro)->postJson('/api/me/deletion/cancel', [], $headers);
+    $r2 = actingAsUser($pro)->postJson('/api/me/deletion/cancel', [], $headers);
 
     $r1->assertStatus(409);
     $r2->assertStatus(409);
@@ -363,7 +363,7 @@ it('caches 4xx rendered from a thrown ValidationException (production path uses 
     // renders it via the global exception handler — the rendered Response is then
     // the return value of $next($request), so the middleware DOES see and cache it.
     // This test pins that contract so a future Pipeline change can't silently regress.
-    setupProfessionalsTable();
+    setupUsersTable();
 
     Route::middleware(['supabase.jwt', 'idempotent'])
         ->post('/__test/validation-throw', function (Request $request) {
@@ -376,8 +376,8 @@ it('caches 4xx rendered from a thrown ValidationException (production path uses 
     $key = '11111111-2222-4333-8444-555555555555';
     $headers = ['Idempotency-Key' => $key];
 
-    $r1 = actingAsProfessional($pro)->postJson('/__test/validation-throw', [], $headers);
-    $r2 = actingAsProfessional($pro)->postJson('/__test/validation-throw', [], $headers);
+    $r1 = actingAsUser($pro)->postJson('/__test/validation-throw', [], $headers);
+    $r2 = actingAsUser($pro)->postJson('/__test/validation-throw', [], $headers);
 
     $r1->assertStatus(422);
     $r2->assertStatus(422);

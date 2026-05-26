@@ -11,7 +11,7 @@ use Mockery\MockInterface;
 
 beforeEach(function () {
     Cache::flush();
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
 
     $this->userId = (string) Str::uuid();

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupHandleAliasesTable();
 });
 

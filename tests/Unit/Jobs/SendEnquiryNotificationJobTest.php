@@ -11,7 +11,7 @@ use Tests\TestCase;
 uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
     setupEnquiriesTable();

@@ -15,7 +15,7 @@ beforeEach(function () {
     Mail::fake();
 });
 
-function seedPendingDeletionProfessional(array $overrides = []): User
+function seedPendingDeletionUser(array $overrides = []): User
 {
     $id = (string) Str::uuid();
     $data = array_merge([
@@ -36,7 +36,7 @@ function seedPendingDeletionProfessional(array $overrides = []): User
 }
 
 it('restores previous status on cancel', function () {
-    $pro = seedPendingDeletionProfessional(['deletion_previous_status' => 'active']);
+    $pro = seedPendingDeletionUser(['deletion_previous_status' => 'active']);
 
     $service = new AccountDeletionService;
     $result = $service->cancel($pro, Request::create('/', 'POST'));
@@ -52,7 +52,7 @@ it('restores previous status on cancel', function () {
 });
 
 it('falls back to active when previous_status is null', function () {
-    $pro = seedPendingDeletionProfessional(['deletion_previous_status' => null]);
+    $pro = seedPendingDeletionUser(['deletion_previous_status' => null]);
 
     $service = new AccountDeletionService;
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -62,7 +62,7 @@ it('falls back to active when previous_status is null', function () {
 });
 
 it('sends cancellation mail', function () {
-    $pro = seedPendingDeletionProfessional();
+    $pro = seedPendingDeletionUser();
 
     $service = new AccountDeletionService;
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -73,7 +73,7 @@ it('sends cancellation mail', function () {
 });
 
 it('writes cancelled audit event', function () {
-    $pro = seedPendingDeletionProfessional();
+    $pro = seedPendingDeletionUser();
 
     $service = new AccountDeletionService;
     $service->cancel($pro, Request::create('/', 'POST'));
@@ -88,7 +88,7 @@ it('writes cancelled audit event', function () {
 });
 
 it('re-publishes the site when cancelling a deletion that had programmatically unpublished it', function () {
-    $pro = seedPendingDeletionProfessional();
+    $pro = seedPendingDeletionUser();
 
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([
@@ -112,7 +112,7 @@ it('re-publishes the site when cancelling a deletion that had programmatically u
 });
 
 it('does not re-publish a site that was manually unpublished before deletion was cancelled', function () {
-    $pro = seedPendingDeletionProfessional();
+    $pro = seedPendingDeletionUser();
 
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([

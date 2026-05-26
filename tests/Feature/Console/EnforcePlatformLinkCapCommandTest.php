@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
  * no factory dependency, just enough rows to satisfy the command's queries.
  */
 beforeEach(function () {
-    setupProfessionalsTable();
+    setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
 
