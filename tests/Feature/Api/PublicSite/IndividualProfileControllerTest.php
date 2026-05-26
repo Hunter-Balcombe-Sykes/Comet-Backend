@@ -121,13 +121,25 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($data['publicConfig'])->toHaveKey('analyticsEndpoint');
 
     $profile = $data['profile'];
+    // Phase 8 engine fields — booking is now a link category, not a separate
+    // field. Each engine emits its stable empty state when nothing is live.
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
-        'content_images', 'gallery', 'links', 'bio',
-        'document', 'newsletter', 'services', 'booking',
+        'bio', 'gallery', 'links', 'services', 'document', 'newsletter',
+        'content_images',
     ]);
+    expect($profile)->not->toHaveKey('booking');
     expect($profile['handle'])->toBe('solo1');
     expect($profile['displayName'])->toBe('Solo Pro');
+
+    // Empty-state defaults per spec §3.4 + phase 8:
+    //   - object engines (bio, document, newsletter) → null
+    //   - list engines (gallery, services) → []
+    expect($profile['bio'])->toBeNull();
+    expect($profile['gallery'])->toBe([]);
+    expect($profile['services'])->toBe([]);
+    expect($profile['document'])->toBeNull();
+    expect($profile['newsletter'])->toBeNull();
 
     // Wire-level check: empty designKit / publicConfig must serialise as `{}`
     // (object), never `[]` (array). PHP defaults to `[]` for empty assoc
@@ -247,14 +259,18 @@ it('unknown block_type does not appear in the structured response', function () 
     $data = $this->getJson('/api/public/profiles/solo4')->assertOk()->json('data');
     $profile = $data['profile'];
 
-    // Unknown block_type maps to no envelope — gallery/bio/document/etc all
-    // stay draft, and there's no `blocks[]` array to leak the raw row into.
-    expect($profile['gallery'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($profile['bio'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($profile['document'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($profile['newsletter'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($profile['services'])->toMatchArray(['state' => 'draft', 'data' => null]);
-    expect($profile['booking'])->toMatchArray(['state' => 'draft', 'data' => null]);
+    // Unknown block_type contributes nothing to the engine payload — each
+    // engine falls back to its stable empty state (null or []) and there's
+    // no `blocks[]` array to leak the raw row into.
+    expect($profile['gallery'])->toBe([]);
+    expect($profile['bio'])->toBeNull();
+    expect($profile['document'])->toBeNull();
+    expect($profile['newsletter'])->toBeNull();
+    expect($profile['services'])->toBe([]);
+    // Booking is a link category now — links is empty because no link rows
+    // were seeded for this test, not because there's a separate booking field.
+    expect($profile['links'])->toBe([]);
+    expect($profile)->not->toHaveKey('booking');
 });
 
 it('returns 404 when the handle does not exist', function () {
@@ -340,4 +356,300 @@ it('omits processing-state != ready content_images', function () {
 
     $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
     expect($data['profile']['content_images'])->toBeEmpty();
+});
+
+// ── Phase 8 engines: bio / gallery / links / services / document / newsletter
+// Each test seeds the minimum storage rows and confirms the projection lands
+// in the right engine field with the right shape (null/[]/object) and key casing.
+
+it('bio engine returns BioData when the bio section is live', function () {
+    $pro = seedIndividualProfile('bio-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // Live bio block + non-empty bio + about jsonb on the user.
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'bio' => 'Solo Pro story',
+        'about' => json_encode([
+            'credentials' => [
+                ['title' => 'BA', 'issuer' => 'Sydney Uni', 'year' => '2018'],
+            ],
+            'experience' => [
+                ['role' => 'Stylist', 'place' => 'Salon A', 'start' => '2020', 'end' => null],
+            ],
+        ]),
+    ]);
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'bio',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $bio = $this->getJson('/api/public/profiles/bio-live')->assertOk()->json('data.profile.bio');
+
+    expect($bio)->toHaveKeys(['text', 'credentials', 'experience']);
+    expect($bio['text'])->toBe('Solo Pro story');
+    expect($bio['credentials'])->toHaveCount(1);
+    expect($bio['credentials'][0])->toMatchArray([
+        'title' => 'BA', 'issuer' => 'Sydney Uni', 'year' => '2018',
+    ]);
+    expect($bio['experience'])->toHaveCount(1);
+    expect($bio['experience'][0])->toMatchArray([
+        'title' => 'Stylist', 'organisation' => 'Salon A', 'period' => '2020 – Current',
+    ]);
+});
+
+it('gallery engine returns camelCase GalleryImage[] when items are ready', function () {
+    $pro = seedIndividualProfile('gallery-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // Need a live gallery section block too — the resolver gates on it.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'gallery',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'user_id' => $pro->id,
+        'pool' => 'gallery',
+        'path' => 'images/gallery/a.jpg',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => 1,
+        'alt_text' => 'Detail shot',
+        'caption' => 'Caption A',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $gallery = $this->getJson('/api/public/profiles/gallery-live')->assertOk()->json('data.profile.gallery');
+
+    // Shape contract: GalleryImage uses camelCase keys (alt, durationMs).
+    expect($gallery)->toBeArray();
+    if (count($gallery) > 0) {
+        expect(array_keys($gallery[0]))->toEqual([
+            'url', 'alt', 'caption', 'kind', 'poster', 'durationMs',
+        ]);
+        expect($gallery[0]['alt'])->toBe('Detail shot');
+        expect($gallery[0]['caption'])->toBe('Caption A');
+        expect($gallery[0]['kind'])->toBe('image');
+        expect($gallery[0]['durationMs'])->toBeNull();
+    }
+});
+
+it('links engine emits a flat list with id/title/url/category/platform', function () {
+    $pro = seedIndividualProfile('links-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'link',
+        'block_group' => 'links',
+        'title' => 'My IG',
+        'url' => 'https://instagram.com/me',
+        'sort_order' => 1,
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'settings' => json_encode(['category' => 'social', 'platform' => 'instagram']),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $links = $this->getJson('/api/public/profiles/links-live')->assertOk()->json('data.profile.links');
+
+    expect($links)->toHaveCount(1);
+    expect(array_keys($links[0]))->toEqual(['id', 'title', 'url', 'category', 'platform']);
+    expect($links[0])->toMatchArray([
+        'title' => 'My IG',
+        'url' => 'https://instagram.com/me',
+        'category' => 'social',
+        'platform' => 'instagram',
+    ]);
+    expect($links[0]['id'])->toBeString(); // real block id, not null
+});
+
+it('booking link is synthesised into the links list when the booking section is live', function () {
+    $pro = seedIndividualProfile('book-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'booking',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([
+            'booking_url' => 'https://calendly.com/me',
+            'platform' => 'calendly',
+            'title' => 'Book a session',
+        ]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $profile = $this->getJson('/api/public/profiles/book-live')->assertOk()->json('data.profile');
+
+    expect($profile)->not->toHaveKey('booking');
+    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
+    expect($bookingLinks)->toHaveCount(1);
+    expect($bookingLinks[0])->toMatchArray([
+        'title' => 'Book a session',
+        'url' => 'https://calendly.com/me',
+        'category' => 'booking',
+        'platform' => 'calendly',
+    ]);
+    // Synthesised rows have a null id (no block-row primary key).
+    expect($bookingLinks[0]['id'])->toBeNull();
+});
+
+it('services engine returns a flat ProfileService[] with camelCase keys', function () {
+    $pro = seedIndividualProfile('svc-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'services',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.services')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'title' => 'Haircut',
+        'description' => 'A nice haircut',
+        'price_cents' => 5500,
+        'currency_code' => 'AUD',
+        'duration_minutes' => 45,
+        'is_active' => 1,
+        'sort_order' => 0,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $services = $this->getJson('/api/public/profiles/svc-live')->assertOk()->json('data.profile.services');
+
+    // Flat array — NO bookingMode/manualBookingUrl wrapper (user-direction
+    // override on spec §3.4).
+    expect($services)->toBeArray();
+    expect($services)->toHaveCount(1);
+    expect(array_keys($services[0]))->toEqual([
+        'id', 'title', 'description', 'priceCents', 'currencyCode', 'durationMinutes', 'category',
+    ]);
+    expect($services[0])->toMatchArray([
+        'title' => 'Haircut',
+        'description' => 'A nice haircut',
+        'priceCents' => 5500,
+        'currencyCode' => 'AUD',
+        'durationMinutes' => 45,
+        'category' => 'Services',
+    ]);
+});
+
+it('document engine returns DocumentData when a ready document exists', function () {
+    $pro = seedIndividualProfile('doc-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'user_id' => $pro->id,
+        'pool' => 'documents',
+        'path' => 'docs/rate-card.pdf',
+        'media_type' => 'document',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => 1,
+        'alt_text' => 'Rate card',
+        'caption' => '2026 prices',
+        'original_mime' => 'application/pdf',
+        'original_size_bytes' => 102400,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $doc = $this->getJson('/api/public/profiles/doc-live')->assertOk()->json('data.profile.document');
+
+    expect($doc)->toHaveKeys(['id', 'title', 'caption', 'downloadUrl', 'mime', 'sizeBytes']);
+    expect($doc)->toMatchArray([
+        'title' => 'Rate card',
+        'caption' => '2026 prices',
+        'mime' => 'application/pdf',
+        'sizeBytes' => 102400,
+    ]);
+    expect($doc['downloadUrl'])->toContain('/api/public/documents/');
+});
+
+it('newsletter engine returns NewsletterData with the authored inputPlaceholder', function () {
+    $pro = seedIndividualProfile('nl-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'newsletter',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode(['input_placeholder' => 'Your email']),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $newsletter = $this->getJson('/api/public/profiles/nl-live')->assertOk()->json('data.profile.newsletter');
+
+    expect($newsletter)->toEqual(['inputPlaceholder' => 'Your email']);
+});
+
+it('newsletter engine returns null when input_placeholder is empty', function () {
+    $pro = seedIndividualProfile('nl-empty');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'newsletter',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    expect($this->getJson('/api/public/profiles/nl-empty')->assertOk()->json('data.profile.newsletter'))
+        ->toBeNull();
 });
