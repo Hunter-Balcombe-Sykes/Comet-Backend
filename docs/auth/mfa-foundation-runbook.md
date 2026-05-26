@@ -77,9 +77,9 @@ Change via env var (e.g. `SIDEST_MFA_VERIFY_MAX_FAILURES=3`) — no redeploy req
 
 ```php
 // In a policy:
-public function changePayoutBank(Professional $pro, ProfessionalIntegration $i): Response
+public function update(User $user, Site $site): Response
 {
-    if ($pro->id !== $i->professional_id) return Response::denyWithStatus(404, 'Not found');
+    if ($user->id !== $site->user_id) return Response::denyWithStatus(404, 'Not found');
     return $this->requiresFreshAal2(); // uses config default (300s)
 }
 ```

@@ -94,7 +94,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Named group for the standard authenticated user route stack.
         // Applies JWT verification, email verification, and professional resolution
         // in one alias so route files stay readable and can't accidentally omit one.
-        $middleware->appendToGroup('professional.api', [
+        $middleware->appendToGroup('user.api', [
             'supabase.jwt',
             'require.email_verified',
             'current.pro',

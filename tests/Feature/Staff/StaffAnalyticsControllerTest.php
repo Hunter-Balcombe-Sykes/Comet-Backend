@@ -33,7 +33,7 @@ beforeEach(function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $this->professional = User::find($this->userId);
+    $this->user = User::find($this->userId);
 });
 
 afterEach(function () {
@@ -75,7 +75,7 @@ it('summary() returns correct shape and zero-data totals', function () {
     $controller = new StaffAnalyticsController(new CacheLockService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
-        $this->professional
+        $this->user
     );
 
     expect($response->getStatusCode())->toBe(200);
@@ -110,7 +110,7 @@ it('summary() wraps all DB queries in CacheLockService::rememberLocked with a 60
 
     $response = app(StaffAnalyticsController::class)->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 30]),
-        $this->professional
+        $this->user
     );
 
     expect($response->getStatusCode())->toBe(200);
@@ -141,7 +141,7 @@ it('summary() returns 422 for an invalid date format', function () {
     $controller = new StaffAnalyticsController(new CacheLockService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['from' => 'not-a-date']),
-        $this->professional
+        $this->user
     );
 
     expect($response->getStatusCode())->toBe(422);
@@ -154,7 +154,7 @@ it('summary() returns 422 when from is after to', function () {
             'from' => '2026-05-17',
             'to' => '2026-04-01',
         ]),
-        $this->professional
+        $this->user
     );
 
     expect($response->getStatusCode())->toBe(422);

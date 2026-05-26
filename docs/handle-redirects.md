@@ -86,7 +86,7 @@ If the backend is deployed before the worker, alias entries are written but the 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
-| `professional_id` | UUID | FK to core.professionals |
+| `user_id`         | UUID | FK to core.users         |
 | `old_handle` | VARCHAR | Handle before the rename |
 | `new_handle` | VARCHAR | Handle after the rename |
 | `changed_at` | TIMESTAMPTZ | When the rename occurred |

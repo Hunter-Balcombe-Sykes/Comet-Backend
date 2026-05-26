@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
 /**
  * User-facing endpoints for submitting and reviewing own feedback.
  *
- * Routes use the `professional.api` middleware group (JWT + current.pro
+ * Routes use the `user.api` middleware group (JWT + current.pro
  * loader) for consistency with every other authenticated dashboard endpoint.
  * The POST is exempt from EnforcePendingDeletionReadOnly at the route level
  * so accounts in their grace period can still submit feedback (they may be

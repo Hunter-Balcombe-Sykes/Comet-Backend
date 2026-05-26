@@ -7,8 +7,6 @@ use App\Models\Core\User\User;
 /**
  * Runtime capability registry — answers "can this Professional access feature X right now?"
  * Standalone user-only: all accounts are individual; capabilities are constant.
- *
- * @see docs/PARTNA-STANDALONE-PAGES-NEW-DIRECTION-2.md §9, §28.3
  */
 final class AccountCapabilities
 {

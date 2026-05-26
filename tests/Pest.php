@@ -571,7 +571,7 @@ function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'
 /**
  * audit.user_deletion_audit — all columns nullable, minimal for purge tests.
  */
-function setupProfessionalDeletionAuditTable(): void
+function setupUserDeletionAuditTable(): void
 {
     attachTestSchemas();
     \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.user_deletion_audit (

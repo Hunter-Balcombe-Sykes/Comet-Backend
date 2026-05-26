@@ -14,7 +14,7 @@ beforeEach(function () {
     setupProfessionalsTable();
     setupSitesTable();
     setupMediaTables();
-    setupProfessionalDeletionAuditTable();
+    setupUserDeletionAuditTable();
 
     config([
         'partna.media_disk' => 'media',

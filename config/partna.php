@@ -923,12 +923,6 @@ return [
         ],
     ],
 
-    'professional_only_section_types' => [
-        'barbershop_info',
-        'sitepage_analytics',
-        'booking',
-    ],
-
     'form_timing' => [
         'min_ms' => (int) env('PARTNA_FORM_TIMING_MIN_MS', env('FORM_TIMING_MIN_MS', 2500)),      // 2.5s minimum fill time
         'max_ms' => (int) env('PARTNA_FORM_TIMING_MAX_MS', env('FORM_TIMING_MAX_MS', 43200000)),  // 12h max (stale form)

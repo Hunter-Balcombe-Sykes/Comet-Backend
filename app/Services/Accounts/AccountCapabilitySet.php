@@ -11,8 +11,6 @@ namespace App\Services\Accounts;
  * Standalone-pages model: all accounts are individual. Only `can_edit_design` is true.
  * Capabilities for commerce/payout/brand features were removed in the 2026-05-22 strip
  * and will be re-added as named params here when reintegrated.
- *
- * @see docs/PARTNA-STANDALONE-PAGES-NEW-DIRECTION-2.md §9
  */
 final readonly class AccountCapabilitySet
 {

@@ -104,10 +104,8 @@ Do NOT create this file before Phase 1 starts — it's a working artifact, not a
 
 ## 6. Read order before starting Track A
 
-1. `~/Developer/PARTNA-STANDALONE-PAGES-NEW-DIRECTION.md` — the full plan (Part 15 / 16 resolution logs show what's been decided across three review passes)
-2. `~/Developer/PARTNA-STANDALONE-PAGES-AUDIT-CONSOLIDATED.md` — your own audit; cross-reference Part 16 to see how each finding was resolved
-3. `~/Developer/Comet-Backend/CLAUDE.md` — updated architectural ground truth section is now there
-4. `~/Developer/CLAUDE.md` — cross-repo conventions; updated with pointer to the plan
+1. `~/Developer/Comet-Backend/CLAUDE.md` — architectural ground truth
+2. `~/Developer/CLAUDE.md` — cross-repo conventions
 
 If your Claude session asks you to make a non-trivial decision not covered by the plan, follow the `[STOP — PLAN DECISION NEEDED]` protocol documented in plan §48. Don't burn turns silently working around plan ambiguities — ping the user.
 

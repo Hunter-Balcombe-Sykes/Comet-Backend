@@ -155,7 +155,7 @@ This codebase reads `aal` and `amr` from Supabase JWTs and exposes them as reque
 
 ### Handle / subdomain lifecycle
 
-Renames write the old subdomain to `site.site_subdomain_aliases` and the old handle to `site.professional_handle_aliases` with two timestamps:
+Renames write the old subdomain to `site.site_subdomain_aliases` and the old handle to `core.user_handle_aliases` with two timestamps:
 
 - `reclaim_until` (default +14d) — only the original owner can rename back for free.
 - `expires_at`    (default +90d) — after this the row is hard-deleted by `handles:prune-expired-aliases` and the handle returns to the pool.
