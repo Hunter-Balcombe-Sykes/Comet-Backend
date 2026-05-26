@@ -346,6 +346,26 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // public-subscribe: newsletter signups. Tightened from the previous
+        // throttle:public-site (60/min IP) to 5/min IP + 12/h per email,
+        // matching the waitlist limiter's per-email cap.
+        RateLimiter::for('public-subscribe', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $email = strtolower((string) $request->input('email', ''));
+
+            return [
+                Limit::perMinute(5)->by($request->ip())->response(function () {
+                    return response()->json(['message' => 'Too many subscription attempts. Please wait before trying again.'], 429);
+                }),
+                Limit::perHour(12)->by($email !== '' ? "email:{$email}" : 'no-email')->response(function () {
+                    return response()->json(['message' => 'Too many subscription attempts for this email. Please try later.'], 429);
+                }),
+            ];
+        });
+
         // Authenticated professional routes
         RateLimiter::for('authenticated', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
