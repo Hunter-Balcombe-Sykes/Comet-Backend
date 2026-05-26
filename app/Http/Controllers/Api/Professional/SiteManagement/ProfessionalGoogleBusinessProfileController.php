@@ -48,6 +48,15 @@ class ProfessionalGoogleBusinessProfileController extends ApiController
             'place_id' => $placeId,
             'name' => (string) $data['name'],
             'address' => $this->trimOrNull($data['address'] ?? null),
+            // Structured address components stored alongside the formatted
+            // string so manual edits to a single component (e.g. fixing a
+            // postcode) survive the save round-trip without rebuilding the
+            // formatted form.
+            'address_line1' => $this->trimOrNull($data['address_line1'] ?? null),
+            'city' => $this->trimOrNull($data['city'] ?? null),
+            'state' => $this->trimOrNull($data['state'] ?? null),
+            'postcode' => $this->trimOrNull($data['postcode'] ?? null),
+            'country' => $this->trimOrNull($data['country'] ?? null),
             'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
             'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
             'phone' => $this->trimOrNull($data['phone'] ?? null),
@@ -113,6 +122,11 @@ class ProfessionalGoogleBusinessProfileController extends ApiController
             'place_id' => $placeId,
             'name' => $name,
             'address' => $this->trimOrNull($raw['address'] ?? null),
+            'address_line1' => $this->trimOrNull($raw['address_line1'] ?? null),
+            'city' => $this->trimOrNull($raw['city'] ?? null),
+            'state' => $this->trimOrNull($raw['state'] ?? null),
+            'postcode' => $this->trimOrNull($raw['postcode'] ?? null),
+            'country' => $this->trimOrNull($raw['country'] ?? null),
             'latitude' => is_numeric($raw['latitude'] ?? null) ? (float) $raw['latitude'] : null,
             'longitude' => is_numeric($raw['longitude'] ?? null) ? (float) $raw['longitude'] : null,
             'phone' => $this->trimOrNull($raw['phone'] ?? null),
