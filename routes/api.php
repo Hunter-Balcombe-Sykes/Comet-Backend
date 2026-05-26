@@ -94,7 +94,7 @@ Route::post('/public/analytics/section-seen', [AnalyticsController::class, 'sect
     ->middleware('throttle:analytics');
 
 Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'subscribe'])
-    ->middleware('throttle:public-site');
+    ->middleware(['throttle:public-subscribe', 'bot.token:subscribe']);
 
 Route::post('/public/signup/availability', [PublicSignupAvailabilityController::class, 'check'])
     ->middleware('throttle:public-site');
