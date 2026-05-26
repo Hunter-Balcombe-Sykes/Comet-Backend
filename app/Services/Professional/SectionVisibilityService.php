@@ -5,6 +5,7 @@ namespace App\Services\Professional;
 use App\Models\Core\Professional\User;
 use App\Models\Core\Professional\Service;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,8 @@ class SectionVisibilityService
             'documents' => $this->checkDocumentsRequirements($siteId),
             'countdown' => $this->checkCountdownRequirements($professionalId, $siteId, $pendingSettings),
             'contact' => $this->checkContactRequirements($professionalId, $siteId, $pendingSettings),
+            'public_contact' => $this->checkPublicContactRequirements($professionalId),
+            'workplace' => $this->checkWorkplaceRequirements($siteId),
             'credentials' => $this->checkCredentialsRequirements($professionalId),
             'experience' => $this->checkExperienceRequirements($professionalId),
             default => [true, null],
@@ -105,6 +108,8 @@ class SectionVisibilityService
             'has_booking_link_block' => null,
             'has_credential' => null,
             'has_experience' => null,
+            'has_public_contact' => null,
+            'has_workplace' => null,
         ];
 
         $needsGallery = in_array('gallery', $presentTypes, true);
@@ -113,6 +118,8 @@ class SectionVisibilityService
         $needsBooking = in_array('booking', $presentTypes, true);
         $needsCredentials = in_array('credentials', $presentTypes, true);
         $needsExperience = in_array('experience', $presentTypes, true);
+        $needsPublicContact = in_array('public_contact', $presentTypes, true);
+        $needsWorkplace = in_array('workplace', $presentTypes, true);
         $subqueries = [];
 
         if ($needsGallery) {
@@ -200,6 +207,34 @@ class SectionVisibilityService
                 ->getQuery();
         }
 
+        // Public contact: at least one of the opt-in fields is non-empty. Direct
+        // text columns so this works on any driver — no JSON arrow needed.
+        if ($needsPublicContact) {
+            $subqueries['has_public_contact'] = User::query()
+                ->select(DB::raw('1'))
+                ->where('id', $professionalId)
+                ->whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->whereRaw("COALESCE(public_contact_number, '') <> ''")
+                        ->orWhereRaw("COALESCE(public_contact_email, '') <> ''");
+                })
+                ->getQuery();
+        }
+
+        // Workplace: at least a name or address on the google_business_profile
+        // JSONB. pgsql-specific JSON arrow — same dialect contract as
+        // has_credential / has_experience above.
+        if ($needsWorkplace) {
+            $subqueries['has_workplace'] = Site::query()
+                ->select(DB::raw('1'))
+                ->where('id', $siteId)
+                ->where(function ($q) {
+                    $q->whereRaw("COALESCE(settings->'google_business_profile'->>'name', '') <> ''")
+                        ->orWhereRaw("COALESCE(settings->'google_business_profile'->>'address', '') <> ''");
+                })
+                ->getQuery();
+        }
+
         if (empty($subqueries)) {
             // Booking section present + smart-booking dropped → integration is always false.
             if ($needsBooking) {
@@ -270,6 +305,14 @@ class SectionVisibilityService
             'experience' => $context['has_experience']
                 ? [true, null]
                 : [false, 'Experience section requires at least 1 entry with a role.'],
+
+            'public_contact' => $context['has_public_contact']
+                ? [true, null]
+                : [false, 'Public contact info requires a phone number or email before it can go live.'],
+
+            'workplace' => $context['has_workplace']
+                ? [true, null]
+                : [false, 'Workplace section requires a name or address before it can go live.'],
 
             // Countdown + contact requirements live entirely in the block's own
             // settings — no DB lookup needed when the block is already loaded.
@@ -598,6 +641,56 @@ class SectionVisibilityService
 
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             return [false, 'Contact section requires a notification email before it can go live.'];
+        }
+
+        return [true, null];
+    }
+
+    /**
+     * Public contact info goes live as soon as the professional has set at
+     * least one of the two opt-in fields (public_contact_number /
+     * public_contact_email). Empty / null on both → draft.
+     */
+    private function checkPublicContactRequirements(string $professionalId): array
+    {
+        $pro = User::query()
+            ->select('public_contact_number', 'public_contact_email')
+            ->where('id', $professionalId)
+            ->whereNull('deleted_at')
+            ->first();
+
+        $hasNumber = $pro && is_string($pro->public_contact_number) && trim($pro->public_contact_number) !== '';
+        $hasEmail = $pro && is_string($pro->public_contact_email) && trim($pro->public_contact_email) !== '';
+
+        if (! $hasNumber && ! $hasEmail) {
+            return [false, 'Public contact info requires a phone number or email before it can go live.'];
+        }
+
+        return [true, null];
+    }
+
+    /**
+     * Workplace section goes live once the professional has at least a name
+     * OR an address on the google_business_profile JSONB. Either field is
+     * enough — name without address is a generic-business listing; address
+     * without name is a manual-only entry. Both empty → draft.
+     */
+    private function checkWorkplaceRequirements(string $siteId): array
+    {
+        $site = Site::query()
+            ->select('settings')
+            ->where('id', $siteId)
+            ->first();
+
+        $profile = $site && is_array($site->settings)
+            ? data_get($site->settings, 'google_business_profile')
+            : null;
+
+        $hasName = is_array($profile) && is_string($profile['name'] ?? null) && trim($profile['name']) !== '';
+        $hasAddress = is_array($profile) && is_string($profile['address'] ?? null) && trim($profile['address']) !== '';
+
+        if (! $hasName && ! $hasAddress) {
+            return [false, 'Workplace section requires a name or address before it can go live.'];
         }
 
         return [true, null];

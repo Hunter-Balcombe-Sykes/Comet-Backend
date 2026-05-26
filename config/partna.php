@@ -708,7 +708,12 @@ return [
         ],
     ],
 
-    'section_block_types' => ['gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+    // `contact` = visitor-submitted contact form (notification_email lives here).
+    // `public_contact` = the professional's own opt-in contact details surfaced
+    //                    publicly on the sitepage — distinct domain, distinct toggle.
+    // `workplace`      = the professional's business / workplace card backed by
+    //                    `sites.settings.google_business_profile` (Google Places-fed).
+    'section_block_types' => ['gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'public_contact', 'workplace', 'credentials', 'experience', 'bio'],
 
     // Platform-default subject dropdown options for the contact section block.
     // Merged with the affiliate's settings.subject_options at render and
