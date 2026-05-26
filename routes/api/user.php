@@ -22,7 +22,6 @@ use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
-use App\Http\Controllers\Api\User\SiteManagement\UserThemeController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
@@ -167,11 +166,6 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // UI Confirmation Preferences ("don't ask again" toggles)
         Route::get('/confirmation-preferences', [ConfirmationPreferenceController::class, 'show']);
         Route::patch('/confirmation-preferences', [ConfirmationPreferenceController::class, 'update']);
-
-        // Theme Selection
-        Route::get('/themes', [UserThemeController::class, 'index']);
-        Route::post('/themes/{theme}/select', [UserThemeController::class, 'select'])
-            ->whereUuid('theme');
 
         // Image Upload (server-side processing → WebP variants via queue)
         Route::post('/uploads', [UserUploadController::class, 'upload']);

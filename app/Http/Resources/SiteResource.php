@@ -4,11 +4,10 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 
-// V2: API resource for site.sites rows (dashboard + staff side).
-// `settings` is passed through unchanged — the dashboard editor reads the full
-// settings blob to render design tokens, booking config, GBP profile, etc.
-// Tightening to a key-level allowlist on settings.* is a follow-up audit task;
-// the public-internet path already does this via IndividualProfileResource::DESIGN_KEYS.
+// API resource for site.sites rows (dashboard + staff side).
+// `settings` is passed through unchanged — the dashboard reads non-design
+// settings (booking, GBP, etc). Per-user design vars live in site.design_kits
+// (separate table), exposed via the skeleton-system payload.
 class SiteResource extends ApiResource
 {
     /**
@@ -20,7 +19,7 @@ class SiteResource extends ApiResource
             'id' => (string) $this->id,
             'user_id' => $this->user_id,
             'subdomain' => $this->subdomain,
-            'theme_id' => $this->theme_id,
+            'skeleton_id' => $this->skeleton_id,
             'is_published' => $this->is_published,
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),

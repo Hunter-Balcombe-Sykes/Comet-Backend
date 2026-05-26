@@ -84,9 +84,11 @@ class SiteProvisioningService
     private function tryCreateSite(string $userId, string $candidate): ?Site
     {
         try {
+            // skeleton_id defaults to 'skeleton-1' at the DB level (TEXT CHECK
+            // enum DEFAULT 'skeleton-1'). New sites pick up the default
+            // automatically; no need to set it explicitly.
             $site = new Site([
                 'subdomain' => $candidate,
-                'theme_id' => null,
                 'is_published' => true,
                 'settings' => [],
             ]);

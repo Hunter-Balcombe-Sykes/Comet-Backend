@@ -7,15 +7,15 @@ use App\Models\Core\User\User;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Models\Core\Site\Theme;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-// V2: Site update with business logic — subdomain cooldown (30-day), theme defaults, PATCH-style settings merge, publish validation.
+// Site update with business logic — subdomain cooldown (30-day), PATCH-style
+// settings merge, publish validation, skeleton selection. Per-user design
+// vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
     // Days between allowed subdomain changes. Mirrored in UserSelfController::show
@@ -171,36 +171,24 @@ class UpdateSiteAction
                 }
             }
 
-            // Allow sending theme_id=null to reset to default (same behavior as current pro-controller)
-            if (array_key_exists('theme_id', $data) && $data['theme_id'] === null) {
-                $defaultId = Theme::query()
-                    ->where('is_default', true)
-                    ->value('id');
-
-                if (! $defaultId) {
-                    throw ValidationException::withMessages([
-                        'theme_id' => ['No default theme configured.'],
-                    ]);
-                }
-
-                $data['theme_id'] = $defaultId;
-            }
-
-            // Merge settings for PATCH semantics (don’t overwrite the whole JSON)
+            // Merge settings for PATCH semantics (don't overwrite the whole JSON).
+            // settings.design.* is no longer accepted — the FormRequest rejects
+            // those keys at validation, but strip them here too as a belt-and-
+            // braces defence against any service-layer caller bypassing the
+            // FormRequest (job replays, internal tools, etc.).
             if (array_key_exists('settings', $data)) {
                 $existing = is_array($site->settings) ? $site->settings : [];
                 $incoming = is_array($data['settings']) ? $data['settings'] : [];
                 // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
                 unset($incoming['selected_products']);
-                Arr::forget($incoming, 'design.typography.font_file_name');
-                Arr::forget($incoming, 'design.typography.font_file_path');
-                Arr::forget($incoming, 'design.typography.font_file_url');
+                // Skeleton-system cleanup: settings.design.* is dead. Any
+                // incoming `design` sub-key gets dropped on the floor.
+                unset($incoming['design']);
                 $merged = array_replace_recursive($existing, $incoming);
-
-                // Indexed list special-casing was historically needed for
-                // settings.design.media.placeholder_sitepage_images, which has
-                // since moved to site.site_media. No remaining indexed lists live
-                // under settings, so the recursive merge is sufficient.
+                // Same guard on the merged result — old design data on disk
+                // was already stripped by the cleanup migration, but if any
+                // straggler resurfaced via a write race it dies here.
+                unset($merged['design']);
 
                 $data['settings'] = $merged;
             }

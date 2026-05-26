@@ -20,10 +20,6 @@ const POLICY_EXEMPT = [
     \App\Models\Core\MediaVariant::class,           // owned via parent SiteMedia
     \App\Models\Core\Waitlist\WaitlistSignup::class, // public submission, no actor
 
-    // Shared catalog — one Theme can be applied to many sites; read by public
-    // site renderer, mutations are admin-only.
-    \App\Models\Core\Site\Theme::class,
-
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
     // API, gated by the parent Site policy.

@@ -16,11 +16,11 @@ beforeEach(function () {
     setupCustomersTable();
     setupEmailSubscriptionsTable();
 
-    // Shared setupSitesTable() omits theme_id (the standalone strip kept it
-    // nullable but the helper hasn't caught up). Site::$fillable includes it,
-    // so Eloquent inserts the column — patch the SQLite schema to match.
+    // Shared setupSitesTable() doesn't include skeleton_id. Site::$fillable
+    // includes it post-cleanup, so Eloquent inserts the column — patch the
+    // SQLite shadow schema to match.
     try {
-        DB::connection('pgsql')->statement('ALTER TABLE site.sites ADD COLUMN theme_id TEXT NULL');
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'skeleton-1'");
     } catch (Throwable $e) {
         // Column already exists from a prior test run in the same process.
     }
