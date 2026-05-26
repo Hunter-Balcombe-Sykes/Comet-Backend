@@ -10,14 +10,21 @@ use stdClass;
  * Public-safe shape for an individual professional's profile page (§28.8).
  *
  * Consumed by the Astro Worker subrequest path (partna-pages). The payload
- * mirrors the skeleton-system contract (spec §3.4):
- *   - `profile` — content (incrementally added by engines)
+ * mirrors the skeleton-system contract (spec §3.4 + phase-8 engines):
+ *   - `profile` — content (engine fields + base profile + content_images)
  *   - `designKit` — per-user design vars (nested camelCase), partial
  *   - `skeletonId` — picks which code-side skeleton renders
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
  * partna-pages does the read-time merge of the partial `designKit` with
  * code-side defaults before passing to the skeleton.
+ *
+ * Each engine field falls back to a stable empty state:
+ *   - object engines (bio, document, newsletter) → null when nothing authored
+ *   - list engines (gallery, links, services) → empty array
+ *
+ * Booking is a link-engine category, not a separate field — `bucketLinks`
+ * in @partnaau/design-system splits the list at render time.
  *
  * INTENTIONAL EXCLUSIONS:
  *   - Legacy themeMode / accent / fontFamily / settings.design.* — removed in
@@ -38,13 +45,12 @@ class IndividualProfileResource extends ApiResource
      *     skeleton_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     content_images?: list<array<string, mixed>>,
-     *     gallery?: array<string, mixed>,
+     *     bio?: array<string, mixed>|null,
+     *     gallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
-     *     bio?: array<string, mixed>,
-     *     document?: array<string, mixed>,
-     *     newsletter?: array<string, mixed>,
-     *     services?: array<string, mixed>,
-     *     booking?: array<string, mixed>,
+     *     services?: list<array<string, mixed>>,
+     *     document?: array<string, mixed>|null,
+     *     newsletter?: array<string, mixed>|null,
      * }  $sections
      */
     public function __construct(
@@ -68,25 +74,29 @@ class IndividualProfileResource extends ApiResource
         $publicConfig = $this->sections['public_config'] ?? [];
         $publicConfigOut = $publicConfig === [] ? new stdClass : $publicConfig;
 
+        // Engine fields preserve null-vs-array distinction precisely:
+        //   - bio/document/newsletter: null when no data is authored.
+        //   - gallery/links/services: always emitted as an array.
         return [
-            // Content data — the profile itself + sections (links, gallery, etc).
-            // camelCase keys per spec §5 wire convention. The first content
-            // field exposed to skeletons is displayName (sourced from
-            // core.users.display_name). Future engines extend `profile`.
+            // Content data — the profile itself + engine outputs. camelCase
+            // keys for engine fields per spec §5 wire convention.
             'profile' => [
                 'handle' => $this->handle,
                 'displayName' => $this->display_name,
                 'site_id' => $this->sections['site_id'] ?? null,
 
-                // Section envelopes + arrays.
-                'content_images' => $this->sections['content_images'] ?? [],
+                // Engine outputs (phase 8).
+                'bio' => $this->sections['bio'] ?? null,
                 'gallery' => $this->sections['gallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
-                'bio' => $this->sections['bio'] ?? [],
-                'document' => $this->sections['document'] ?? [],
-                'newsletter' => $this->sections['newsletter'] ?? [],
                 'services' => $this->sections['services'] ?? [],
-                'booking' => $this->sections['booking'] ?? [],
+                'document' => $this->sections['document'] ?? null,
+                'newsletter' => $this->sections['newsletter'] ?? null,
+
+                // Retained for compat — content-pool images aren't a phase-8
+                // engine but skeletons read them as the "section background"
+                // slot. May graduate to its own engine later.
+                'content_images' => $this->sections['content_images'] ?? [],
             ],
 
             // Per-user design kit. Partial — only contains stored (non-null)

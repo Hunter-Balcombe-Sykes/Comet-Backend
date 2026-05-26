@@ -3,8 +3,10 @@
 namespace App\Services\PublicSite;
 
 use App\Http\Resources\PublicSite\IndividualProfileResource;
+use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -16,13 +18,31 @@ use Illuminate\Support\Facades\DB;
  * this class exposes the canonical cache key + TTL so both call sites stay
  * aligned on key shape.
  *
- * Payload shape (skeleton system, spec §3.4):
+ * Payload shape (skeleton system, spec §3.4 + phase-8 engines):
  *   {
- *     profile: { handle, displayName, site_id, ...sections },
- *     designKit: { colors: {...}, typography: {...}, ... },  // partial, nested
+ *     profile: {
+ *       handle, displayName, site_id,
+ *       bio: BioData | null,
+ *       gallery: GalleryImage[],
+ *       links: ProfileLink[],
+ *       services: ProfileService[],
+ *       document: DocumentData | null,
+ *       newsletter: NewsletterData | null,
+ *       content_images: [...]  // retained for compat
+ *     },
+ *     designKit: { colors: {...}, typography: {...}, ... },
  *     skeletonId: 'skeleton-1' | ... | 'skeleton-4',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
+ *
+ * Each engine field falls back to a stable empty state so skeletons never
+ * have to guard on `undefined`:
+ *   - object engines (bio, document, newsletter) → null when nothing authored
+ *   - list engines (gallery, links, services) → empty array
+ *
+ * Booking is a link-engine category (`ProfileLink.category === 'booking'`),
+ * not a separate engine field — `bucketLinks` in @partnaau/design-system
+ * splits the list at render time.
  *
  * @see \App\Http\Controllers\Api\PublicSite\IndividualProfileController
  * @see \App\Jobs\Cache\WarmPublicSiteCacheJob
@@ -53,14 +73,186 @@ class IndividualProfilePayloadBuilder
             'skeleton_id' => $site?->skeleton_id ?? 'skeleton-1',
             'public_config' => $this->buildPublicConfig(),
             'content_images' => $this->resolver->getContentImages($site),
-            'gallery' => $this->resolver->getGallery($site, $sections),
-            'links' => $this->resolver->getLinks($site, $booking),
-            'bio' => $this->resolver->getBio($pro, $sections),
-            'document' => $this->resolver->getDocument($site),
-            'newsletter' => $this->resolver->getNewsletter($sections),
-            'services' => $this->resolver->getServices($site, $pro->id, $sections),
-            'booking' => $booking,
+            // Engine outputs — flat, camelCase, no envelope wrapper.
+            'bio' => $this->buildBio($pro, $sections),
+            'gallery' => $this->buildGallery($site, $sections),
+            'links' => $this->buildLinks($site, $booking),
+            'services' => $this->buildServices($site, $pro->id, $sections),
+            'document' => $this->buildDocument($site),
+            'newsletter' => $this->buildNewsletter($sections),
         ]))->resolve();
+    }
+
+    /**
+     * Bio engine — BioData | null.
+     *
+     * Returns null when the bio section is not live (block missing, or
+     * is_active/is_enabled false) so skeletons can short-circuit cleanly.
+     * Internal shape uses camelCase keys per spec §5 wire convention.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{text: string, credentials: list<array{title: string, issuer: string, year: string|null}>, experience: list<array{title: string, organisation: string, period: string|null}>}|null
+     */
+    private function buildBio(User $pro, Collection $sections): ?array
+    {
+        $envelope = $this->resolver->getBio($pro, $sections);
+        $data = $envelope['data'] ?? null;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        // Resolver returns the same shape we want — no remapping required
+        // (text + credentials[] + experience[] with title/issuer/year and
+        // title/organisation/period). Cast values defensively in case the
+        // section is somehow empty-ish.
+        return [
+            'text' => (string) ($data['text'] ?? ''),
+            'credentials' => array_values($data['credentials'] ?? []),
+            'experience' => array_values($data['experience'] ?? []),
+        ];
+    }
+
+    /**
+     * Gallery engine — GalleryImage[] (empty array when nothing live).
+     *
+     * Remaps the resolver's snake_case keys (alt_text, duration_ms) to the
+     * camelCase wire shape (alt, durationMs).
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return list<array{url: string, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null}>
+     */
+    private function buildGallery(?Site $site, Collection $sections): array
+    {
+        $envelope = $this->resolver->getGallery($site, $sections);
+        $items = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
+
+        return array_values(array_map(static fn (array $item): array => [
+            'url' => (string) ($item['url'] ?? ''),
+            'alt' => $item['alt_text'] ?? null,
+            'caption' => $item['caption'] ?? null,
+            'kind' => (string) ($item['kind'] ?? 'image'),
+            'poster' => $item['poster'] ?? null,
+            'durationMs' => $item['duration_ms'] ?? null,
+        ], $items));
+    }
+
+    /**
+     * Links engine — ProfileLink[] (empty array when nothing live).
+     *
+     * The resolver already returns the right shape (id/title/url/category/
+     * platform) plus a synthesised booking row when the booking envelope is
+     * live. We just normalise `id` to `string|null` (resolver uses '' for
+     * synthesised rows) so the wire matches `ProfileLink.id: string | null`.
+     *
+     * @param  array{state: string, data: array|null}  $bookingEnvelope
+     * @return list<array{id: string|null, title: string, url: string, category: string, platform: string|null}>
+     */
+    private function buildLinks(?Site $site, array $bookingEnvelope): array
+    {
+        $links = $this->resolver->getLinks($site, $bookingEnvelope);
+
+        return array_values(array_map(static function (array $link): array {
+            $id = (string) ($link['id'] ?? '');
+
+            return [
+                'id' => $id !== '' ? $id : null,
+                'title' => (string) ($link['title'] ?? ''),
+                'url' => (string) ($link['url'] ?? ''),
+                'category' => (string) ($link['category'] ?? 'custom'),
+                'platform' => $link['platform'] ?? null,
+            ];
+        }, $links));
+    }
+
+    /**
+     * Services engine — ProfileService[] (empty array when nothing live).
+     *
+     * Per user direction, the wire shape drops bookingMode + manualBookingUrl
+     * (booking is now a link-engine category). Remaps snake_case keys
+     * (price_cents, currency_code, duration_minutes) to camelCase.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return list<array{id: string|int, title: string, description: string|null, priceCents: int|null, currencyCode: string|null, durationMinutes: int|null, category: string}>
+     */
+    private function buildServices(?Site $site, string $proId, Collection $sections): array
+    {
+        $envelope = $this->resolver->getServices($site, $proId, $sections);
+        $data = $envelope['data'] ?? null;
+        if (! is_array($data)) {
+            return [];
+        }
+
+        $services = is_array($data['services'] ?? null) ? $data['services'] : [];
+
+        return array_values(array_map(static fn (array $service): array => [
+            'id' => $service['id'],
+            'title' => (string) ($service['title'] ?? ''),
+            'description' => $service['description'] ?? null,
+            'priceCents' => $service['price_cents'] ?? null,
+            'currencyCode' => $service['currency_code'] ?? null,
+            'durationMinutes' => $service['duration_minutes'] ?? null,
+            'category' => (string) ($service['category'] ?? 'Services'),
+        ], $services));
+    }
+
+    /**
+     * Document engine — DocumentData | null.
+     *
+     * Returns null when no ready+active document media row exists. Remaps
+     * snake_case (download_url, size_bytes) to camelCase.
+     *
+     * @return array{id: string, title: string|null, caption: string|null, downloadUrl: string, mime: string|null, sizeBytes: int|null}|null
+     */
+    private function buildDocument(?Site $site): ?array
+    {
+        $envelope = $this->resolver->getDocument($site);
+        $data = $envelope['data'] ?? null;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        return [
+            'id' => (string) ($data['id'] ?? ''),
+            'title' => $data['title'] ?? null,
+            'caption' => $data['caption'] ?? null,
+            'downloadUrl' => (string) ($data['download_url'] ?? ''),
+            'mime' => $data['mime'] ?? null,
+            'sizeBytes' => $data['size_bytes'] ?? null,
+        ];
+    }
+
+    /**
+     * Newsletter engine — NewsletterData | null.
+     *
+     * Reads the newsletter section block directly so we surface the single
+     * `input_placeholder` field per spec §3.4. When the block is missing,
+     * not-live, or has no input_placeholder set, returns null so skeletons
+     * hide the signup form entirely.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{inputPlaceholder: string}|null
+     */
+    private function buildNewsletter(Collection $sections): ?array
+    {
+        $section = $sections->get('newsletter');
+        if (! $section instanceof Block) {
+            return null;
+        }
+        $isLive = (bool) $section->is_active && (bool) $section->is_enabled;
+        if (! $isLive) {
+            return null;
+        }
+
+        $settings = is_array($section->settings) ? $section->settings : [];
+        $placeholder = is_string($settings['input_placeholder'] ?? null)
+            ? trim((string) $settings['input_placeholder'])
+            : '';
+
+        if ($placeholder === '') {
+            return null;
+        }
+
+        return ['inputPlaceholder' => $placeholder];
     }
 
     /**
