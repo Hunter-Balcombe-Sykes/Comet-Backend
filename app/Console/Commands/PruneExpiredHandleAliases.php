@@ -20,7 +20,7 @@ class PruneExpiredHandleAliases extends Command
 
         // Snapshot expired IDs before deletion to avoid TOCTOU: a rename between
         // the count query and the delete would produce a wrong affected-pro list.
-        $expiredHandleIds = $pgsql->table('site.professional_handle_aliases')
+        $expiredHandleIds = $pgsql->table('core.professional_handle_aliases')
             ->whereNotNull('expires_at')
             ->where('expires_at', '<', now())
             ->pluck('id');
@@ -42,7 +42,7 @@ class PruneExpiredHandleAliases extends Command
 
         // Capture affected pro IDs before deletion for KV re-sync.
         $affectedProIds = $expiredHandleIds->isNotEmpty()
-            ? $pgsql->table('site.professional_handle_aliases')
+            ? $pgsql->table('core.professional_handle_aliases')
                 ->whereIn('id', $expiredHandleIds)
                 ->pluck('professional_id')
                 ->unique()
@@ -51,7 +51,7 @@ class PruneExpiredHandleAliases extends Command
 
         $pgsql->transaction(function () use ($pgsql, $expiredHandleIds, $expiredSubdomainIds) {
             if ($expiredHandleIds->isNotEmpty()) {
-                $pgsql->table('site.professional_handle_aliases')
+                $pgsql->table('core.professional_handle_aliases')
                     ->whereIn('id', $expiredHandleIds)
                     ->delete();
             }

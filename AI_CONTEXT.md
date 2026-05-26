@@ -112,7 +112,7 @@ Visitor analytics + lead capture → analytics.* tables
 | `Site` | `App\Models\Core\Site\Site` | `site.sites` | Mini-site config (subdomain, theme, settings, publish state) |
 | `Service` | `App\Models\Core\Site\Service` | `site.services` | Display-only service catalog |
 | `ServiceCategory` | `App\Models\Core\Site\ServiceCategory` | `site.service_categories` | Groups services for display |
-| `Customer` | `App\Models\Core\Professional\Customer` | `core.customers` | CRM contact records per user |
+| `Customer` | `App\Models\Core\Professional\Customer` | `site.customers` | CRM contact records per user |
 | `Block` | `App\Models\Core\Site\Block` | `site.blocks` | Site content blocks (links, sections) |
 | `SiteMedia` | `App\Models\Core\Site\SiteMedia` | `site.site_media` | Images/videos with processing states |
 | `MediaVariant` | `App\Models\Core\MediaVariant` | `site.media_variants` | Processed variants (WebP, MP4, HLS, poster) |
@@ -120,7 +120,7 @@ Visitor analytics + lead capture → analytics.* tables
 | `Notification` | — | `notifications.notifications` | In-app notification records |
 | `EmailSubscription` | — | `notifications.email_subscriptions` | Marketing email opt-in per user |
 | `SiteSubdomainAlias` | — | `site.site_subdomain_aliases` | Subdomain alias management |
-| `Theme` | — | `site.themes` | Site theme definitions |
+| `Theme` | — | `core.themes` | Site theme definitions (platform-wide catalog) |
 | `WaitlistSignup` | — | `core.waitlist_signups` | Pre-launch waitlist |
 | `SiteVisit` | — | `analytics.site_visits` | Page view events |
 | `LinkClick` | — | `analytics.link_clicks` | Link/section click events |

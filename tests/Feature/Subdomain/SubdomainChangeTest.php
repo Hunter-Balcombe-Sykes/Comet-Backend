@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 beforeEach(function () {
     setupCoreSchema();
 
-    DB::table('site.professional_handle_aliases')->delete();
+    DB::table('core.professional_handle_aliases')->delete();
     DB::table('site.site_subdomain_aliases')->delete();
     DB::table('site.public_site_payload')->delete();
     DB::table('site.sites')->delete();
@@ -111,7 +111,7 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
     expect($proRow->handle)->toBe('new');
     expect($proRow->handle_lc)->toBe('new');
 
-    $handleAlias = DB::table('site.professional_handle_aliases')
+    $handleAlias = DB::table('core.professional_handle_aliases')
         ->where('professional_id', $proId)
         ->first();
 
@@ -184,6 +184,12 @@ function setupCoreSchema(): void
             // Ignore if already attached.
         }
 
+        try {
+            $conn->statement("ATTACH DATABASE ':memory:' AS audit");
+        } catch (\Throwable $e) {
+            // Ignore if already attached.
+        }
+
         // Permissive professionals table — only the columns this test (and
         // soft-delete scopes added by Eloquent) need. Everything nullable
         // because we don't care about prod constraints in tests.
@@ -227,7 +233,7 @@ function setupCoreSchema(): void
         // professional's subdomain changes (the canonical handle changes too,
         // so the old handle becomes an alias for HydrogenAffiliateController
         // lookups to keep resolving).
-        $conn->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_handle_aliases (
             id TEXT PRIMARY KEY,
             professional_id TEXT NOT NULL,
             handle TEXT NOT NULL,
@@ -249,7 +255,7 @@ function setupCoreSchema(): void
 
         // Append-only audit log for handle/subdomain renames. Trigger-locked in
         // production; in SQLite we just create it so the action can INSERT rows.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
             id TEXT PRIMARY KEY,
             professional_id TEXT NULL,
             old_handle TEXT NULL,

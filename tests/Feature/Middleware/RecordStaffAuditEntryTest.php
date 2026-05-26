@@ -17,8 +17,12 @@ beforeEach(function () {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
     } catch (\Throwable) {
     }
+    try {
+        $conn->statement("ATTACH DATABASE ':memory:' AS audit");
+    } catch (\Throwable) {
+    }
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.staff_audit_log (
+    $conn->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
         id TEXT PRIMARY KEY,
         staff_id TEXT,
         staff_email_snapshot TEXT,

@@ -25,7 +25,7 @@ it('records a factor event with all fields', function () {
 
     expect($id)->toBeString();
 
-    $row = \DB::connection('pgsql')->table('core.auth_factor_events')->where('id', $id)->first();
+    $row = \DB::connection('pgsql')->table('audit.auth_factor_events')->where('id', $id)->first();
     expect($row->user_id)->toBe($userId);
     expect($row->event_type)->toBe('verify_success');
     expect($row->factor_type)->toBe('totp');
@@ -42,7 +42,7 @@ it('counts recent failures within the window', function () {
     }
 
     // Outside-window failure — simulate by direct DB insert with old timestamp
-    \DB::connection('pgsql')->table('core.auth_factor_events')->insert([
+    \DB::connection('pgsql')->table('audit.auth_factor_events')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $userId,
         'event_type' => 'verify_failed',

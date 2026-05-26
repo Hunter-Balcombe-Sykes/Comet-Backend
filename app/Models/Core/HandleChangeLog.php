@@ -19,7 +19,7 @@ class HandleChangeLog extends BaseModel
     public const REASON_STAFF_RENAME = 'staff_rename';
     public const REASON_SYSTEM       = 'system';
 
-    protected $table = 'core.handle_change_log';
+    protected $table = 'audit.handle_change_log';
 
     public $incrementing = false;
 

@@ -32,7 +32,7 @@ Dev (`glncumufgaqcmqhzwrxm`) — iterate freely. Prod (`edplucmvkcnokyygxqsb`) �
 | Layer | Technology |
 |-------|-----------|
 | Backend | PHP 8.2, Laravel 12 |
-| Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `notifications`, `analytics` |
+| Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit` |
 | Auth | Supabase Auth (JWT) — no backend login; frontend forwards token |
 | Cache/Queue | Redis (DB 0 = cache, DB 1 = sessions, DB 2 = queue) |
 | Jobs | Laravel Horizon (Redis-backed), separate `redis_video` connection for video processing |
@@ -81,7 +81,7 @@ See what the server is actually saying. THEN form a hypothesis. The user reads t
 - **Never create Laravel migration files.** A composer guard (`guard:no-laravel-migrations`) will reject them.
 - All schema changes go in `supabase/migrations/` as raw SQL files.
 - The database uses a single consolidated baseline migration: `supabase/migrations/20260526000000_baseline_standalone_user.sql`. The 147 historical migrations are archived in `supabase/migrations-archive/`.
-- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, sites, services, customers, blocks, media, themes, staff), `site` (site-level tables), `notifications`, `analytics`. No `brand`, `commerce`, or `billing` schemas.
+- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, themes, feature flags, handle aliases, platform config), `site` (sites, blocks, services, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas.
 
 ### Code Organization
 ```

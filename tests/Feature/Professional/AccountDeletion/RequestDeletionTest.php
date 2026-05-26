@@ -62,7 +62,7 @@ it('writes a requested audit entry on successful request', function () {
 
     $service->request($pro, $request);
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->first();
 

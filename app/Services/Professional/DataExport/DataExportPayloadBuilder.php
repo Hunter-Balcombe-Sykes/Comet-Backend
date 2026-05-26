@@ -50,14 +50,14 @@ class DataExportPayloadBuilder
      * 30-day grace period — or any staff-initiated export against a
      * soft-deleted user — must still surface the user's original waitlist row
      * and global subscriptions. We fall back to the email snapshot stored in
-     * core.professional_deletion_audit (written before pseudonymisation).
+     * audit.professional_deletion_audit (written before pseudonymisation).
      */
     private function resolveLookupEmail(User $professional): ?string
     {
         $email = $professional->primary_email;
         if ($email !== null && str_starts_with($email, 'deleted+')) {
             $snapshot = DB::connection('pgsql')
-                ->table('core.professional_deletion_audit')
+                ->table('audit.professional_deletion_audit')
                 ->where('professional_id', $professional->id)
                 ->whereIn('event', ['requested', 'admin_initiated'])
                 ->orderBy('created_at')
@@ -362,7 +362,7 @@ class DataExportPayloadBuilder
     {
         return $this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.customers')
+                ->table('site.customers')
                 ->where('professional_id', $professionalId)
         );
     }
@@ -520,7 +520,7 @@ class DataExportPayloadBuilder
     {
         return $this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.data_export_audit')
+                ->table('audit.data_export_audit')
                 ->where('professional_id', $professionalId)
         );
     }
@@ -537,7 +537,7 @@ class DataExportPayloadBuilder
     {
         foreach ($this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.handle_change_log')
+                ->table('audit.handle_change_log')
                 ->select(['id', 'professional_id', 'old_handle', 'new_handle', 'reason', 'actor_id', 'changed_at'])
                 ->where('professional_id', $professionalId)
         ) as $row) {
@@ -560,7 +560,7 @@ class DataExportPayloadBuilder
     {
         return $this->lazyRows(
             DB::connection('pgsql')
-                ->table('site.professional_handle_aliases')
+                ->table('core.professional_handle_aliases')
                 ->select(['id', 'handle', 'reclaim_until', 'expires_at', 'created_at', 'updated_at'])
                 ->where('professional_id', $professionalId)
         );
@@ -600,7 +600,7 @@ class DataExportPayloadBuilder
     {
         return $this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.professional_deletion_audit')
+                ->table('audit.professional_deletion_audit')
                 ->select([
                     'id', 'event', 'actor_type', 'reason',
                     'ip_address', 'user_agent', 'metadata',
@@ -676,7 +676,7 @@ class DataExportPayloadBuilder
 
         yield from $this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.auth_factor_events')
+                ->table('audit.auth_factor_events')
                 ->select([
                     'id', 'session_id', 'event_type', 'factor_id', 'factor_type',
                     'ip', 'user_agent', 'metadata', 'created_at',

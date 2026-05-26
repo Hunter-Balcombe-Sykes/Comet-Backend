@@ -35,7 +35,7 @@ it('writeStreaming produces a zip containing data.json with builder-defined sect
     $proId = (string) Str::uuid();
     seedProForWriter($proId);
 
-    DB::connection('pgsql')->table('core.customers')->insert([
+    DB::connection('pgsql')->table('site.customers')->insert([
         ['id' => (string) Str::uuid(), 'professional_id' => $proId, 'email' => 'a@b.com', 'full_name' => 'A B', 'source' => 'manual', 'created_at' => '2026-01-02T00:00:00Z'],
         ['id' => (string) Str::uuid(), 'professional_id' => $proId, 'email' => 'c@d.com', 'full_name' => 'C D', 'source' => 'manual', 'created_at' => '2026-01-03T00:00:00Z'],
     ]);

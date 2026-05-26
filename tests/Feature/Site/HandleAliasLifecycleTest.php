@@ -117,7 +117,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
         'updated_at' => $now,
     ]);
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
         'professional_id' => $proId,
         'handle' => 'oldh',

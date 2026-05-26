@@ -51,7 +51,7 @@ it('treats a fresh customer marketing_opt_in_cached as un-synced (null)', functi
     // Direct insert with no marketing_opt_in_cached column — mirrors what a
     // production INSERT will do once the column DEFAULT is dropped.
     $customerId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.customers')->insert([
+    DB::connection('pgsql')->table('site.customers')->insert([
         'id' => $customerId,
         'professional_id' => $proId,
         'email' => 'cust@example.test',

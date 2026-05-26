@@ -12,7 +12,7 @@ class ProfessionalDeletionAuditEntry extends BaseModel
 {
     use HasUuids;
 
-    protected $table = 'core.professional_deletion_audit';
+    protected $table = 'audit.professional_deletion_audit';
 
     public $incrementing = false;
 

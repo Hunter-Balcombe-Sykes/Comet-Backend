@@ -171,7 +171,7 @@ it('exports handle_change_log entries with actor_id redacted to coarse actor_kin
     $otherId = (string) Str::uuid();
     $staffId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.handle_change_log')->insert([
+    DB::connection('pgsql')->table('audit.handle_change_log')->insert([
         // Self-rename — actor is the user themselves.
         [
             'id' => (string) Str::uuid(),
@@ -281,7 +281,7 @@ it('redacts ip and user_agent fields from waitlist and handle_change_log rows', 
         'updated_at' => '2026-02-01T00:00:00Z',
     ]);
 
-    DB::connection('pgsql')->table('core.handle_change_log')->insert([
+    DB::connection('pgsql')->table('audit.handle_change_log')->insert([
         'id' => (string) Str::uuid(),
         'professional_id' => $pro->id,
         'old_handle' => 'jane-old',
@@ -310,12 +310,12 @@ it('falls back to deletion_audit email_snapshot when primary_email has been pseu
     // After AccountDeletionService::pseudonymiseAccountPii() rewrites
     // primary_email to "deleted+{id}@partna.au", a DSAR must still be able to
     // surface the user's pre-account waitlist + global subscriptions. We use
-    // the email snapshot in core.professional_deletion_audit (written BEFORE
+    // the email snapshot in audit.professional_deletion_audit (written BEFORE
     // pseudonymisation) as the fallback.
     $proId = (string) Str::uuid();
     $pro = seedProForPayload($proId, 'deleted+'.$proId.'@partna.au');
 
-    DB::connection('pgsql')->table('core.professional_deletion_audit')->insert([
+    DB::connection('pgsql')->table('audit.professional_deletion_audit')->insert([
         [
             'id' => (string) Str::uuid(),
             'professional_id' => $proId,
@@ -420,7 +420,7 @@ it('exports handle_aliases and subdomain_aliases for the user', function () {
         ['id' => $otherSiteId, 'professional_id' => (string) Str::uuid(), 'subdomain' => 'someone', 'created_at' => '2026-01-01T00:00:00Z'],
     ]);
 
-    DB::connection('pgsql')->table('site.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
         [
             'id' => (string) Str::uuid(),
             'professional_id' => $pro->id,
@@ -473,7 +473,7 @@ it('exports handle_aliases and subdomain_aliases for the user', function () {
 it('exports professional_deletion_audit rows for the user', function () {
     $pro = seedProForPayload((string) Str::uuid());
 
-    DB::connection('pgsql')->table('core.professional_deletion_audit')->insert([
+    DB::connection('pgsql')->table('audit.professional_deletion_audit')->insert([
         [
             'id' => (string) Str::uuid(),
             'professional_id' => $pro->id,
@@ -522,7 +522,7 @@ it('exports auth.factor_events joined by auth_user_id', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com', $authUserId);
     $otherAuthId = (string) Str::uuid();
 
-    DB::connection('pgsql')->table('core.auth_factor_events')->insert([
+    DB::connection('pgsql')->table('audit.auth_factor_events')->insert([
         [
             'id' => (string) Str::uuid(),
             'user_id' => $authUserId,

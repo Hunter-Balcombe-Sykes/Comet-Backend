@@ -105,7 +105,7 @@ CREATE OR REPLACE TRIGGER set_timestamp_feedback
 -- RLS. App access flows through the app_backend role (schema-wide grants
 -- already set in baseline). RLS exists as defence-in-depth: the
 -- authenticated policy lets a logged-in user touch only their own rows,
--- and staff bypass via the partna_staff check (mirrors core.customers).
+-- and staff bypass via the partna_staff check (mirrors site.customers).
 ALTER TABLE core.feedback ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY feedback_all_authenticated ON core.feedback TO authenticated

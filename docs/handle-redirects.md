@@ -81,7 +81,7 @@ If the backend is deployed before the worker, alias entries are written but the 
 
 ## Audit Log Schema
 
-`core.handle_change_log` records every rename event. Key columns:
+`audit.handle_change_log` records every rename event. Key columns:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -106,7 +106,7 @@ Retention: 7 years (configurable via `partna.handle.audit_retention_years`). Thi
 ## Runbook: Prune deleted an alias prematurely
 
 If the prune job deleted an alias that was still needed:
-1. Check `core.handle_change_log` for the rename event timestamp
+1. Check `audit.handle_change_log` for the rename event timestamp
 2. The alias cannot be restored — the prune is hard-delete
 3. If the handle is now taken by another professional, contact support
 4. If the handle is in the pool, the professional can claim it via a normal rename (30-day cooldown applies)

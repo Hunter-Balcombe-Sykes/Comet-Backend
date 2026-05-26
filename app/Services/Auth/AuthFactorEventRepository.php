@@ -6,16 +6,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Typed access to core.auth_factor_events.
+ * Typed access to audit.auth_factor_events.
  *
  * Single insertion point for factor audit events; single query for the
  * brute-force window check used by the MFA Verification Hook handler.
- * All callers go through this — never DB::table('core.auth_factor_events')
+ * All callers go through this — never DB::table('audit.auth_factor_events')
  * directly in controllers/services.
  */
 class AuthFactorEventRepository
 {
-    public const TABLE = 'core.auth_factor_events';
+    public const TABLE = 'audit.auth_factor_events';
 
     public const FAILURE_EVENT_TYPES = [
         'verify_failed',

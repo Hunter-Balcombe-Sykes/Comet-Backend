@@ -89,7 +89,7 @@ it('admin can initiate erasure for a clean account', function () {
 
     Mail::assertQueued(AccountDeletionScheduledMail::class);
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'admin_initiated')
         ->first();
@@ -162,7 +162,7 @@ it('admin can cancel a pending deletion during grace period', function () {
     $pro->refresh();
     expect($pro->status)->toBe('active');
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'admin_cancelled')
         ->first();
@@ -221,7 +221,7 @@ it('GET show returns deletion state and non-PII audit entries', function () {
     ]);
 
     // Seed an audit row with PII fields
-    DB::connection('pgsql')->table('core.professional_deletion_audit')->insert([
+    DB::connection('pgsql')->table('audit.professional_deletion_audit')->insert([
         'id' => (string) Str::uuid(),
         'professional_id' => $pro->id,
         'professional_handle_snapshot' => $pro->handle,

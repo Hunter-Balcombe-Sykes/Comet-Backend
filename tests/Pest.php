@@ -189,7 +189,7 @@ function attachTestSchemas(): void
         return;
     }
 
-    foreach (['core', 'site', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
+    foreach (['core', 'site', 'audit', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
         } catch (\Throwable $e) {
@@ -569,12 +569,12 @@ function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'
 }
 
 /**
- * core.professional_deletion_audit — all columns nullable, minimal for purge tests.
+ * audit.professional_deletion_audit — all columns nullable, minimal for purge tests.
  */
 function setupProfessionalDeletionAuditTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professional_deletion_audit (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.professional_deletion_audit (
         id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
         professional_id TEXT NULL,
         professional_handle_snapshot TEXT NULL,
@@ -706,12 +706,12 @@ function setupServicesTable(): void
 }
 
 /**
- * core.customers — all columns nullable, mirrors the production schema.
+ * site.customers — all columns nullable, mirrors the production schema.
  */
 function setupCustomersTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.customers (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
         professional_id TEXT NULL,
         email TEXT NULL,
@@ -750,7 +750,7 @@ function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\P
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.customers')->insert($row);
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.customers')->insert($row);
 
     return \App\Models\Core\Professional\Customer::query()->findOrFail($id);
 }
@@ -1282,13 +1282,13 @@ function setupNotificationEmailPreferencesTable(): void
 }
 
 /**
- * core.auth_factor_events — append-only MFA audit log.
+ * audit.auth_factor_events — append-only MFA audit log.
  * Mirrors the production schema closely enough for hook + brute-force tests.
  */
 function setupAuthFactorEventsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.auth_factor_events (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.auth_factor_events (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         session_id TEXT NULL,
@@ -1305,7 +1305,7 @@ function setupAuthFactorEventsTable(): void
 function setupHandleAliasesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professional_handle_aliases (
         id TEXT PRIMARY KEY,
         professional_id TEXT NULL,
         handle TEXT NULL,
@@ -1319,14 +1319,14 @@ function setupHandleAliasesTable(): void
 }
 
 /**
- * core.handle_change_log — append-only audit log for handle/subdomain renames.
+ * audit.handle_change_log — append-only audit log for handle/subdomain renames.
  * In production, UPDATE/DELETE are blocked by a DB trigger. In SQLite tests,
  * plain INSERT works fine — the trigger constraint is absent, which is correct.
  */
 function setupHandleChangeLogTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
         id TEXT PRIMARY KEY,
         professional_id TEXT NULL,
         old_handle TEXT NULL,

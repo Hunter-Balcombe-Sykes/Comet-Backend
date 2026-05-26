@@ -152,7 +152,7 @@ it('pseudonymises PII columns at confirm time so live row is unreadable during g
     expect((string) $pro->auth_user_id)->toBe($authUserId);
 
     // Audit row preserves the original email so support can re-identify the user.
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'confirmed')
         ->first();
@@ -176,7 +176,7 @@ it('cancel after confirm restores primary_email from audit snapshot for the canc
     expect($pro->primary_email)->toBe($originalEmail); // restored from audit snapshot
 
     // Cancel audit row carries the real email, not the placeholder.
-    $cancelAudit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $cancelAudit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'cancelled')
         ->first();
@@ -190,7 +190,7 @@ it('writes confirmed audit event', function () {
     $service = new AccountDeletionService;
     $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
 
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'confirmed')
         ->first();
@@ -286,7 +286,7 @@ it('rolls back the entire confirmation when pseudonymisation fails — status, a
     // No audit row persisted — logAuditEvent ran inside the transaction so it
     // rolls back with the rest. Without rollback, an EVENT_CONFIRMED audit
     // would exist for a user whose deletion never actually applied.
-    $audit = DB::connection('pgsql')->table('core.professional_deletion_audit')
+    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
         ->where('professional_id', $pro->id)
         ->where('event', 'confirmed')
         ->first();

@@ -83,7 +83,7 @@ it('CACHE-11: non-marketing list keys do not dispatch the sync job', function ()
 it('CACHE-11 job: updates Customer.marketing_opt_in_cached when the customer exists', function () {
     $proId = (string) Str::uuid();
     $sub = saveMarketingSubscription($proId, 'buyer@example.test', 'subscribed');
-    DB::connection('pgsql')->table('core.customers')->insert([
+    DB::connection('pgsql')->table('site.customers')->insert([
         'id' => (string) Str::uuid(),
         'professional_id' => $proId,
         'email' => 'buyer@example.test',
@@ -114,7 +114,7 @@ it('CACHE-11 job: is a no-op when no matching Customer exists', function () {
     // Should neither throw nor insert a Customer row.
     (new SyncCustomerMarketingOptInJob($proId, (string) $sub->id))->handle();
 
-    expect(DB::connection('pgsql')->table('core.customers')->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('site.customers')->count())->toBe(0);
 });
 
 // B3/P1-10: when the EmailSubscription row is gone at handle() time (GDPR erasure
@@ -127,7 +127,7 @@ it('B3/P1-10 job: is a no-op when the EmailSubscription row no longer exists', f
     // Should neither throw nor touch any Customer row.
     (new SyncCustomerMarketingOptInJob($proId, $missingSubscriptionId))->handle();
 
-    expect(DB::connection('pgsql')->table('core.customers')->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('site.customers')->count())->toBe(0);
 });
 
 // §28.17 JOB-3 — failed() must call report() so Nightwatch sees exhaustion.

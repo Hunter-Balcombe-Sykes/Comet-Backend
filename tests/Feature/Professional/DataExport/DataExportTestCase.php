@@ -26,7 +26,7 @@ class DataExportTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'commerce', 'notifications', 'billing', 'site', 'analytics', 'brand'] as $schema) {
+        foreach (['core', 'commerce', 'notifications', 'billing', 'site', 'analytics', 'brand', 'audit'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -59,7 +59,7 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.data_export_audit (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.data_export_audit (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             professional_handle_snapshot TEXT NOT NULL,
@@ -78,7 +78,7 @@ class DataExportTestCase
             completed_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.customers (
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.customers (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             email TEXT,
@@ -114,7 +114,7 @@ class DataExportTestCase
         )');
 
         // Rows persist post user-delete (ON DELETE SET NULL) — pre-deletion DSAR disclosure is important.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.handle_change_log (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             old_handle TEXT,
@@ -127,7 +127,7 @@ class DataExportTestCase
         )');
 
         // Survives the user (ON DELETE SET NULL) — DSAR must disclose IP/UA/reason snapshots while the user can still request them.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_deletion_audit (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.professional_deletion_audit (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             professional_handle_snapshot TEXT,
@@ -144,7 +144,7 @@ class DataExportTestCase
         )');
 
         // user_id references auth.users(id) — joined via core.users.auth_user_id.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.auth_factor_events (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.auth_factor_events (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             session_id TEXT,
@@ -230,7 +230,7 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS site.professional_handle_aliases (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_handle_aliases (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             handle TEXT,
@@ -392,7 +392,7 @@ class DataExportTestCase
             created_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_deletion_audit (
+        $conn->statement('CREATE TABLE IF NOT EXISTS audit.professional_deletion_audit (
             id TEXT PRIMARY KEY,
             professional_id TEXT,
             professional_handle_snapshot TEXT,

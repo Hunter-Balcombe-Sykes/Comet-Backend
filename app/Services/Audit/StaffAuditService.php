@@ -8,7 +8,7 @@ use App\Models\Core\Staff\StaffAuditEntry;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-// OPS-2: writes one row per staff write to core.staff_audit_log.
+// OPS-2: writes one row per staff write to audit.staff_audit_log.
 // Invoked by RecordStaffAuditEntry middleware after the response is sent.
 // May also be called directly from controllers that want to record extra
 // body-detail forensics (e.g., previous_media_id / new_media_id on uploads).
