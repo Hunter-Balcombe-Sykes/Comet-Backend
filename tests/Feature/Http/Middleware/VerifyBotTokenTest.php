@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaProviderException;
 use App\Services\BotProtection\Providers\FakeProvider;
 use App\Services\BotProtection\VerificationResult;
@@ -116,4 +117,60 @@ it('captures the action tag through to the provider', function () {
     $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
 
     expect(app(FakeProvider::class)->lastAction())->toBe('test-action');
+});
+
+it('enforce + fail_open=false rejects 503 captcha_unavailable on provider exception', function () {
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => false,
+    ]);
+    app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+});
+
+it('enforce + fail_open=false rejects 503 when circuit breaker is open', function () {
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => false,
+        'partna.bot_protection.circuit_breaker.failure_threshold' => 1,
+    ]);
+    // Trip the breaker via a single provider failure.
+    app(CircuitBreaker::class)->recordFailure('fake');
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+});
+
+it('enforce + fail_open=false rejects 503 when Redis breaker check throws', function () {
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => false,
+    ]);
+    // Force the breaker's Redis call to throw — simulates Redis-down.
+    // CircuitBreaker is final so we mock the facade, not the breaker class.
+    Redis::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
+    Redis::shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
+    Redis::shouldReceive('expire')->andReturn(true);
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+});
+
+it('shadow + fail_open=false still passes through on provider exception', function () {
+    Log::spy();
+    config([
+        'partna.bot_protection.mode' => 'shadow',
+        'partna.bot_protection.fail_open' => false,
+    ]);
+    app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    // Shadow mode must NEVER reject a real user, even with fail_open=false.
+    $response->assertOk();
 });

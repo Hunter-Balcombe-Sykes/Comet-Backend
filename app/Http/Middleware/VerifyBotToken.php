@@ -29,6 +29,7 @@ final class VerifyBotToken
         }
 
         $driver = (string) config('partna.bot_protection.driver', 'null');
+        $failOpen = (bool) config('partna.bot_protection.fail_open', true);
         $token = $this->extractToken($request);
 
         if ($token === null) {
@@ -42,17 +43,18 @@ final class VerifyBotToken
             return $this->reject('captcha_missing');
         }
 
-        // Breaker check — if Redis is down, treat as breaker-unavailable + fail-open.
+        // Breaker check — if Redis is down, treat as breaker-unavailable + fail-open
+        // (or 503 unavailable when fail_open=false).
         try {
             if ($this->breaker->isOpen($driver)) {
                 $this->logFailOpenOnce($driver, $action, $request, 'circuit_open');
 
-                return $next($request);
+                return $this->failOpenOrReject($failOpen, $mode, $next, $request);
             }
         } catch (Throwable $e) {
             $this->logBreakerUnavailable($driver, $action, $request);
 
-            return $next($request);
+            return $this->failOpenOrReject($failOpen, $mode, $next, $request);
         }
 
         $timeoutMs = $mode === 'shadow'
@@ -72,7 +74,7 @@ final class VerifyBotToken
                 'request_id' => $request->header('X-Request-Id'),
             ]);
 
-            return $next($request);
+            return $this->failOpenOrReject($failOpen, $mode, $next, $request);
         }
 
         $this->safelyRecord(fn () => $result->success ? $this->breaker->recordSuccess($driver) : null);
@@ -123,6 +125,34 @@ final class VerifyBotToken
         ], 422);
     }
 
+    // 503 path used when fail_open=false and the CAPTCHA backend is unreachable
+    // (provider exception, Redis-backed breaker unavailable, or breaker open).
+    // Distinct from 422 captcha_failed so the frontend can render a
+    // "try again shortly" UX rather than re-rendering the widget.
+    private function unavailable(): Response
+    {
+        return response()->json([
+            'message' => 'Verification temporarily unavailable.',
+            'error' => 'captcha_unavailable',
+            'captcha' => [
+                'should_retry' => true,
+                'should_rerender' => false,
+            ],
+        ], 503);
+    }
+
+    // Centralises the fail_open switch so every fail-open branch routes through
+    // the same decision. Shadow mode always passes through regardless of fail_open —
+    // shadow is observation-only and must never reject in production.
+    private function failOpenOrReject(bool $failOpen, string $mode, Closure $next, Request $request): Response
+    {
+        if ($failOpen || $mode === 'shadow') {
+            return $next($request);
+        }
+
+        return $this->unavailable();
+    }
+
     private function safelyRecord(Closure $op): void
     {
         try {
@@ -136,6 +166,8 @@ final class VerifyBotToken
     {
         // Dedup via Redis: log once per cooldown window per driver. If Redis is dead
         // we already passed-through in the caller; we just skip logging here.
+        // Note: reuses circuit_breaker.cooldown_seconds as the dedup TTL — tuning
+        // cooldown also shifts how often we re-log during an extended outage.
         try {
             $key = "bot_protection:fail_open_logged:{$driver}:{$reason}";
             $count = Redis::incr($key);
@@ -154,13 +186,23 @@ final class VerifyBotToken
 
     private function logBreakerUnavailable(string $driver, string $action, Request $request): void
     {
-        static $warned = false;
-        if ($warned) {
-            return;
+        // Dedup via Redis cooldown window (same pattern as logFailOpenOnce) rather
+        // than a process-static flag. The process-static version under-logs in
+        // long-lived workers (Octane, queue) when Redis flaps — only the first
+        // outage per process boot would log. If Redis is genuinely unavailable
+        // the INCR throws and we silently skip — that matches the "fail-open on
+        // observability failure" principle used everywhere else in this file.
+        try {
+            $key = "bot_protection:breaker_unavailable_logged:{$driver}";
+            $count = Redis::incr($key);
+            if ($count === 1) {
+                Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
+                Log::warning('bot_protection.breaker_unavailable', [
+                    'driver' => $driver, 'action' => $action, 'route' => $request->path(),
+                ]);
+            }
+        } catch (Throwable $e) {
+            // Silent — observability failure must not break the request.
         }
-        $warned = true;
-        Log::warning('bot_protection.breaker_unavailable', [
-            'driver' => $driver, 'action' => $action, 'route' => $request->path(),
-        ]);
     }
 }
