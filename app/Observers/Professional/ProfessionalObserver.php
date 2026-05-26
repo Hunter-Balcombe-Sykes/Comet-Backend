@@ -9,12 +9,35 @@ use App\Services\Cache\ProfessionalCacheService;
 use Illuminate\Support\Facades\Log;
 
 // V2: Invalidates professional cache on profile update/delete/restore.
-// Also syncs Cloudflare KV when handle changes (subdomain routing table).
+// Also syncs Cloudflare KV when handle changes (subdomain routing table)
+// and touches the parent site so public-payload edits propagate through
+// SiteObserver → CloudflareCachePurgeJob within the §28.8 cache window.
 class ProfessionalObserver
 {
     use LogsWithRequestContext;
 
     public bool $afterCommit = true;
+
+    /**
+     * User columns that feed the §28.8 public profile payload. A change to any
+     * of these advances `sites.updated_at` (via `touchParentSiteIfPublicFieldChanged`)
+     * so the Redis cache key rolls forward AND CloudflareCachePurgeJob fires.
+     *
+     * Sources: IndividualProfileResource (handle, display_name) +
+     * SitepageDataResolverService::getBio (bio, about). first_name + last_name
+     * are included because display_name accessors typically derive from them
+     * and editing one without the composite is a realistic flow.
+     *
+     * @var list<string>
+     */
+    private const PUBLIC_PROFILE_USER_FIELDS = [
+        'handle',
+        'display_name',
+        'first_name',
+        'last_name',
+        'bio',
+        'about',
+    ];
 
     public function __construct(
         private ProfessionalCacheService $professionalCache,
@@ -31,6 +54,8 @@ class ProfessionalObserver
             ]));
         }
 
+        $this->touchParentSiteIfPublicFieldChanged($professional);
+
         // Handle change → KV needs to re-sync. SyncSubdomainToKvJob now writes
         // entries for the current handle AND every alias (the old handle gets
         // added to professional_handle_aliases by UpdateSiteAction), so a
@@ -45,6 +70,29 @@ class ProfessionalObserver
                     'message' => $e->getMessage(),
                 ]));
             }
+        }
+    }
+
+    /**
+     * When a public-visible User field changes, bump the parent site's
+     * `updated_at`. SiteObserver::saved then handles Redis invalidation and
+     * dispatches CloudflareCachePurgeJob — without this, bio/display_name/etc.
+     * edits stay invisible at the edge until the §28.8 5-minute subrequest
+     * cache and the 60s Redis key expire.
+     */
+    private function touchParentSiteIfPublicFieldChanged(User $professional): void
+    {
+        if (! $professional->wasChanged(self::PUBLIC_PROFILE_USER_FIELDS)) {
+            return;
+        }
+
+        try {
+            $professional->site?->touch();
+        } catch (\Throwable $e) {
+            Log::warning('ProfessionalObserver: parent site touch() failed on public-field change', $this->logContext(__METHOD__, [
+                'professional_id' => $professional->id,
+                'message' => $e->getMessage(),
+            ]));
         }
     }
 
