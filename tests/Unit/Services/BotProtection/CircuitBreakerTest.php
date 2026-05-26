@@ -3,8 +3,9 @@
 use App\Services\BotProtection\CircuitBreaker;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     // Real Redis (fakeRedis() doesn't honour TTL but we use reset() to simulate expiry).
@@ -16,7 +17,7 @@ afterEach(function () {
 });
 
 it('starts closed', function () {
-    expect((new CircuitBreaker())->isOpen('turnstile'))->toBeFalse();
+    expect((new CircuitBreaker)->isOpen('turnstile'))->toBeFalse();
 });
 
 it('opens after threshold consecutive failures', function () {
@@ -40,7 +41,7 @@ it('logs once per state transition, not on re-trip', function () {
     $breaker->recordFailure('turnstile'); // re-trip while already open
 
     Log::shouldHaveReceived('warning')
-        ->with('bot_protection.circuit_open', \Mockery::any())
+        ->with('bot_protection.circuit_open', Mockery::any())
         ->once();
 });
 

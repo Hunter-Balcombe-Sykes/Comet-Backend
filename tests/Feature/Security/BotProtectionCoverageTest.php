@@ -34,8 +34,8 @@ const BOT_PROTECTION_METHODS = ['POST', 'PUT', 'PATCH'];
 function bot_protection_route_has_token_middleware($route): bool
 {
     $middleware = collect($route->gatherMiddleware());
-    return $middleware->contains(fn ($m) =>
-        $m === 'bot.token'
+
+    return $middleware->contains(fn ($m) => $m === 'bot.token'
         || str_starts_with((string) $m, 'bot.token:')
         || $m === VerifyBotToken::class
         || str_starts_with((string) $m, VerifyBotToken::class.':')
@@ -44,8 +44,7 @@ function bot_protection_route_has_token_middleware($route): bool
 
 it('every public mutation endpoint is either bot-protected or explicitly exempted', function () {
     $publicMutations = collect(Route::getRoutes())
-        ->filter(fn ($r) =>
-            ! empty(array_intersect(BOT_PROTECTION_METHODS, $r->methods()))
+        ->filter(fn ($r) => ! empty(array_intersect(BOT_PROTECTION_METHODS, $r->methods()))
             && collect(BOT_PROTECTION_URI_PREFIXES)->some(fn ($p) => str_starts_with($r->uri(), $p))
             && ! has_auth_middleware($r));
 
@@ -54,7 +53,7 @@ it('every public mutation endpoint is either bot-protected or explicitly exempte
 
     foreach ($publicMutations as $route) {
         $isProtected = bot_protection_route_has_token_middleware($route);
-        $isExempt    = in_array($route->uri(), BOT_PROTECTION_EXEMPT, true);
+        $isExempt = in_array($route->uri(), BOT_PROTECTION_EXEMPT, true);
 
         expect($isProtected || $isExempt)
             ->toBeTrue("Route {$route->uri()} is public mutation without bot.token middleware. Add bot.token:<action> or add to BOT_PROTECTION_EXEMPT with justification.");

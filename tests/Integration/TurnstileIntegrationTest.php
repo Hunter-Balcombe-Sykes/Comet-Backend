@@ -2,8 +2,9 @@
 
 use App\Services\BotProtection\Providers\TurnstileProvider;
 use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->group('integration')->in(__FILE__);
+uses(TestCase::class)->group('integration')->in(__FILE__);
 
 beforeEach(function () {
     if (! env('CI_RUN_INTEGRATION', false)) {
@@ -16,19 +17,19 @@ beforeEach(function () {
         if ($health->failed()) {
             $this->markTestSkipped('Cloudflare unreachable; skipping integration test');
         }
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         $this->markTestSkipped('Cloudflare unreachable: '.$e->getMessage());
     }
 
     config(['partna.bot_protection.drivers.turnstile' => [
-        'site_key'   => '1x00000000000000000000AA',
-        'secret'     => '1x0000000000000000000000000000000AA',
+        'site_key' => '1x00000000000000000000AA',
+        'secret' => '1x0000000000000000000000000000000AA',
         'verify_url' => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
     ]]);
 });
 
 it('hits real Cloudflare siteverify with the always-pass test key', function () {
-    $result = (new TurnstileProvider())->verify('XXXX.DUMMY.TOKEN.XXXX');
+    $result = (new TurnstileProvider)->verify('XXXX.DUMMY.TOKEN.XXXX');
 
     // Always-pass test key returns success regardless of token value.
     expect($result->success)->toBeTrue();

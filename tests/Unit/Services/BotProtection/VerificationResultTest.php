@@ -1,8 +1,9 @@
 <?php
 
 use App\Services\BotProtection\VerificationResult;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 it('constructs with required success flag and defaults', function () {
     $result = new VerificationResult(success: true);
@@ -38,5 +39,5 @@ it('exposes all fields when fully populated', function () {
 
 it('properties are readonly', function () {
     $result = new VerificationResult(success: true);
-    expect(fn () => $result->success = false)->toThrow(\Error::class);
+    expect(fn () => $result->success = false)->toThrow(Error::class);
 });
