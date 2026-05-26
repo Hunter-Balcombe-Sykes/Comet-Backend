@@ -3,7 +3,7 @@
 namespace App\Models\Core\Gdpr;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,7 +39,7 @@ class DataExportAudit extends BaseModel
     public $timestamps = false; // only created_at + completed_at; no updated_at
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'professional_handle_snapshot',
         'professional_email_snapshot',
         'triggered_by',
@@ -82,7 +82,7 @@ class DataExportAudit extends BaseModel
         });
     }
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

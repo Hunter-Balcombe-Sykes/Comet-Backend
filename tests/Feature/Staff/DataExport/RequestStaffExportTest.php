@@ -1,14 +1,14 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffDataExportController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
 use App\Http\Requests\Api\Staff\RequestStaffDataExportRequest;
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
-use Tests\Feature\Professional\DataExport\DataExportTestCase;
+use Tests\Feature\User\DataExport\DataExportTestCase;
 
 beforeEach(function () {
     DataExportTestCase::boot();
@@ -64,7 +64,7 @@ it('returns 202 with send_to=professional (default) for any staff role', functio
     expect($response->getStatusCode())->toBe(202);
     $data = json_decode($response->getContent(), true);
     expect($data['send_to'])->toBe('professional');
-    expect(DataExportAudit::where('professional_id', $pro->id)->first()->recipient_email)
+    expect(DataExportAudit::where('user_id', $pro->id)->first()->recipient_email)
         ->toBe('jane@example.com');
 });
 
@@ -78,7 +78,7 @@ it('returns 202 with send_to=staff when caller is admin', function () {
     expect($response->getStatusCode())->toBe(202);
     $data = json_decode($response->getContent(), true);
     expect($data['send_to'])->toBe('staff');
-    expect(DataExportAudit::where('professional_id', $pro->id)->first()->recipient_email)
+    expect(DataExportAudit::where('user_id', $pro->id)->first()->recipient_email)
         ->toBe('admin@sidest.io');
 });
 
@@ -98,7 +98,7 @@ it('returns 409 when an export is already in flight (dedup applies to staff too)
     $pro = seedProForStaff();
 
     DataExportAudit::create([
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'professional_handle_snapshot' => 'jane',
         'triggered_by' => 'self',
         'recipient_email' => 'jane@example.com',

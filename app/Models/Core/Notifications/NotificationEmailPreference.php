@@ -17,7 +17,7 @@ class NotificationEmailPreference extends BaseModel
     protected $keyType = 'string';
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'category_key',
         'enabled',
     ];

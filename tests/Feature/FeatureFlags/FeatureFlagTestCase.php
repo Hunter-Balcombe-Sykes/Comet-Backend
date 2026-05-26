@@ -40,7 +40,7 @@ class FeatureFlagTestCase
 
         $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
             id TEXT PRIMARY KEY,
-            professional_id TEXT,
+            user_id TEXT,
             brand_status TEXT DEFAULT "building",
             setup_complete INTEGER NULL,
             business_website TEXT NULL,
@@ -61,7 +61,7 @@ class FeatureFlagTestCase
         $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flag_overrides (
             id TEXT PRIMARY KEY,
             flag_key TEXT,
-            professional_id TEXT,
+            user_id TEXT,
             brand_id TEXT,
             enabled INTEGER DEFAULT 0,
             reason TEXT,

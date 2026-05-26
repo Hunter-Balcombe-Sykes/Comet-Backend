@@ -4,8 +4,8 @@ namespace App\Services\Site;
 
 use App\Services\Site\UpdateSiteAction;
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\User;
-use App\Models\Core\Site\ProfessionalHandleAlias;
+use App\Models\Core\User\User;
+use App\Models\Core\Site\UserHandleAlias;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -24,8 +24,8 @@ class ReclaimHandleAction
         $handle = strtolower($handle);
 
         DB::transaction(function () use ($professional, $handle, $context) {
-            $alias = ProfessionalHandleAlias::query()
-                ->where('professional_id', $professional->id)
+            $alias = UserHandleAlias::query()
+                ->where('user_id', $professional->id)
                 ->whereRaw('lower(handle) = ?', [$handle])
                 ->lockForUpdate()
                 ->first();

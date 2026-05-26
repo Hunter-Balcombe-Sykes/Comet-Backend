@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\Professional\SectionVisibilityService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Feature\FeatureFlags\SectionVisibilityTestCase;
@@ -29,7 +29,7 @@ function seedContactBlock(string $proId, string $siteId, array $settings = [], b
 {
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'sections',
         'block_type' => 'contact',

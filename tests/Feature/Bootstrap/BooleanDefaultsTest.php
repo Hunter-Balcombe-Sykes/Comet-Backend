@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Core\Professional\Customer;
-use App\Services\Professional\SiteProvisioningService;
+use App\Models\Core\User\Customer;
+use App\Services\User\SiteProvisioningService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -27,9 +27,9 @@ beforeEach(function () {
 })->group('boolean-defaults');
 
 it('provisions new sites with is_published=true', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $professionalId,
+        'id' => $userId,
         'handle' => 'newpro',
         'handle_lc' => 'newpro',
         'display_name' => 'New Pro',
@@ -39,7 +39,7 @@ it('provisions new sites with is_published=true', function () {
     ]);
 
     $site = app(SiteProvisioningService::class)
-        ->createSiteWithRetry($professionalId, 'newpro');
+        ->createSiteWithRetry($userId, 'newpro');
 
     expect($site->is_published)->toBeTrue()
         ->and($site->subdomain)->toBe('newpro');
@@ -53,7 +53,7 @@ it('treats a fresh customer marketing_opt_in_cached as un-synced (null)', functi
     $customerId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.customers')->insert([
         'id' => $customerId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'email' => 'cust@example.test',
         'full_name' => 'Cust',
         'source' => 'manual',
@@ -73,7 +73,7 @@ it('treats a fresh customer marketing_opt_in_cached as un-synced (null)', functi
     // populates the cache from.
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'list_key' => 'marketing',
         'email' => 'cust@example.test',
         'email_lc' => 'cust@example.test',

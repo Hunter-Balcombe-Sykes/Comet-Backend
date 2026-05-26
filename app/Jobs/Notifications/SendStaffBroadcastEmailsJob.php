@@ -13,7 +13,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
-// No capability gate: subscribers are not Professional-keyed (whereNull('professional_id')),
+// No capability gate: subscribers are not Professional-keyed (whereNull('user_id')),
 // so account_type gating does not apply — this is a marketing list, not a per-account feature.
 // Fans out staff broadcast emails to all marketing-list subscribers using Bus::batch()
 // so each sub-chunk of jobs shares one Redis pipeline write instead of one write per job —
@@ -75,7 +75,7 @@ class SendStaffBroadcastEmailsJob implements ShouldBeUnique, ShouldQueue
         }
 
         EmailSubscription::query()
-            ->whereNull('professional_id')
+            ->whereNull('user_id')
             ->where('list_key', $this->listKey)
             ->where('status', 'subscribed')
             ->orderBy('id')

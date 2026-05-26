@@ -39,7 +39,7 @@ class StaffFeatureFlagOverrideController extends ApiController
         $flag = FeatureFlag::findOrFail($key);
         $data = $request->validated();
 
-        $scope = OverrideScope::forProfessional($data['professional_id']);
+        $scope = OverrideScope::forUser($data['user_id']);
 
         $cacheInvalidated = $this->service->setOverride(
             $key,
@@ -52,7 +52,7 @@ class StaffFeatureFlagOverrideController extends ApiController
 
         // Fetch the upserted row to return in the response.
         $created = FeatureFlagOverride::where('flag_key', $key)
-            ->where('professional_id', $scope->professionalId)
+            ->where('user_id', $scope->userId)
             ->whereNull('brand_id')
             ->first();
 
@@ -78,7 +78,7 @@ class StaffFeatureFlagOverrideController extends ApiController
         $cacheInvalidated = true;
 
         try {
-            $this->service->forgetPro($override->professional_id);
+            $this->service->forgetPro($override->user_id);
         } catch (Throwable $e) {
             $cacheInvalidated = false;
         }

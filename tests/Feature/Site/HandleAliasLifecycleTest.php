@@ -26,7 +26,7 @@ it('does not resolve sites via expired subdomain aliases', function () {
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'newhandle',
         'is_published' => 1,
         'settings' => json_encode([]),
@@ -67,7 +67,7 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => null,
+        'user_id' => null,
         'subdomain' => 'newhandle',
         'is_published' => 1,
         'settings' => json_encode([]),
@@ -117,9 +117,9 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
         'updated_at' => $now,
     ]);
 
-    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'handle' => 'oldh',
         'reclaim_until' => now()->addDays(5)->toDateTimeString(),
         'expires_at' => $expiry,
@@ -165,7 +165,7 @@ it('walks a subdomain alias through grace → redirect → released states', fun
 
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'new-handle',
         'is_published' => 1,
         'created_at' => $start,

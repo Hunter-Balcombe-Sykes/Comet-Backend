@@ -52,9 +52,9 @@ beforeEach(function () {
     )');
 
     // Alias table — the new uniqueness check queries this.
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_handle_aliases (
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         handle TEXT NULL,
         handle_lc TEXT NULL,
         created_at TEXT NULL
@@ -124,10 +124,10 @@ it('rejects a handle_lc that already exists in the core.users table', function (
     expect($errors)->toHaveKey('handle_lc');
 });
 
-it('rejects a handle that exists in the core.professional_handle_aliases table', function () {
-    DB::connection('pgsql')->table('core.professional_handle_aliases')->insert([
+it('rejects a handle that exists in the core.user_handle_aliases table', function () {
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
         'id' => '00000000-0000-0000-0000-000000000002',
-        'professional_id' => '00000000-0000-0000-0000-000000000099',
+        'user_id' => '00000000-0000-0000-0000-000000000099',
         'handle' => 'aliashandle',
         'handle_lc' => 'aliashandle',
         'created_at' => now()->toDateTimeString(),

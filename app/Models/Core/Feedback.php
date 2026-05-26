@@ -3,7 +3,7 @@
 namespace App\Models\Core;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;

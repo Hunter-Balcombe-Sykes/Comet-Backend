@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Account\ProfessionalDocumentController;
-use App\Http\Requests\Api\Professional\Documents\UpdateDocumentRequest;
-use App\Http\Requests\Api\Professional\Documents\UploadDocumentRequest;
-use App\Models\Core\Professional\User;
+use App\Http\Controllers\Api\User\Account\UserDocumentController;
+use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
+use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 use Tests\Feature\Documents\DocumentTestCase;
 
 /**
- * Behavioural integration tests for ProfessionalDocumentController. These
+ * Behavioural integration tests for UserDocumentController. These
  * bypass HTTP auth middleware by invoking the controller directly and
  * injecting the authenticated pro via the `professional` request attribute
  * (the same pattern ReadOnlyEnforcementTest uses). Storage::fake('media')
@@ -51,7 +51,7 @@ function seedProfessional(string $type = 'professional'): User
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'p-'.substr($proId, 0, 8),
         'is_published' => 1,
     ]);
@@ -85,7 +85,7 @@ it('POST /api/documents creates a SiteMedia row and stores the file on R2', func
     // Put actual PDF bytes into the fake upload so finfo returns application/pdf.
     file_put_contents($file->getRealPath(), "%PDF-1.4\n%%EOF\n".str_repeat('x', 200 * 1024 - 12));
 
-    $controller = app(ProfessionalDocumentController::class);
+    $controller = app(UserDocumentController::class);
     $response = $controller->store(uploadRequestFor($pro, $file, 'Education Schedule'));
 
     expect($response->status())->toBe(201);
@@ -112,7 +112,7 @@ it('POST /api/documents strips CRLF and path-traversal from original_filename', 
     $file = UploadedFile::fake()->create("../../etc/\r\npasswd.pdf", 50, 'application/pdf');
     file_put_contents($file->getRealPath(), "%PDF-1.4\n%%EOF\n".str_repeat('x', 50 * 1024 - 12));
 
-    $response = app(ProfessionalDocumentController::class)
+    $response = app(UserDocumentController::class)
         ->store(uploadRequestFor($pro, $file, 'Test'));
 
     expect($response->status())->toBe(201);
@@ -130,7 +130,7 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
     // First upload
     $file1 = UploadedFile::fake()->create('v1.pdf', 100, 'application/pdf');
     file_put_contents($file1->getRealPath(), "%PDF-1.4\n%%EOF\n".str_repeat('a', 100 * 1024 - 12));
-    app(ProfessionalDocumentController::class)
+    app(UserDocumentController::class)
         ->store(uploadRequestFor($pro, $file1, 'Version 1'));
 
     $firstRow = SiteMedia::query()->where('site_id', $pro->site->id)->first();
@@ -140,7 +140,7 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
     // Second upload (replacement)
     $file2 = UploadedFile::fake()->create('v2.pdf', 150, 'application/pdf');
     file_put_contents($file2->getRealPath(), "%PDF-1.4\n%%EOF\n".str_repeat('b', 150 * 1024 - 12));
-    app(ProfessionalDocumentController::class)
+    app(UserDocumentController::class)
         ->store(uploadRequestFor($pro, $file2, 'Version 2'));
 
     // First row should be soft-deleted, first R2 bytes gone.
@@ -168,7 +168,7 @@ it('POST /api/documents returns 415 when finfo detects MIME mismatch', function 
     $file = UploadedFile::fake()->create('fake.pdf', 10, 'application/pdf');
     file_put_contents($file->getRealPath(), "\x89PNG\r\n\x1a\n".str_repeat("\x00", 1024));
 
-    $controller = app(ProfessionalDocumentController::class);
+    $controller = app(UserDocumentController::class);
     $response = $controller->store(uploadRequestFor($pro, $file, 'Trick me'));
 
     expect($response->status())->toBe(415);
@@ -203,7 +203,7 @@ it('PATCH /api/documents/{id} returns 404 for a document belonging to another si
     $req->validateResolved();
     $req->attributes->set('professional', $proB);
 
-    $controller = app(ProfessionalDocumentController::class);
+    $controller = app(UserDocumentController::class);
 
     // SitePolicy throws AuthorizationException(404) — not HttpException — since
     // ownership now resolves through denyAsNotFound() rather than abort_unless().
@@ -241,7 +241,7 @@ it('PATCH /api/documents/{id} allows editing an inactive (is_active=false) docum
 
     // Controller intentionally allows editing draft (is_active=false) docs so
     // the publish toggle can flip them back to live — ownership is the only gate.
-    $response = app(ProfessionalDocumentController::class)->update($req, $doc);
+    $response = app(UserDocumentController::class)->update($req, $doc);
     expect($response->status())->toBe(200);
 });
 
@@ -267,7 +267,7 @@ it('DELETE /api/documents/{id} allows deleting an inactive document', function (
 
     // Controller intentionally allows deleting draft (is_active=false) docs —
     // the comment says "allows deleting draft docs too". Ownership is the only gate.
-    $response = app(ProfessionalDocumentController::class)->destroy($base, $doc);
+    $response = app(UserDocumentController::class)->destroy($base, $doc);
     expect($response->status())->toBe(200);
 });
 
@@ -277,7 +277,7 @@ it('PATCH /api/documents/{id} skips cache invalidation when no field actually ch
     // Upload an initial document so there's a row to PATCH.
     $file = UploadedFile::fake()->create('s.pdf', 50, 'application/pdf');
     file_put_contents($file->getRealPath(), "%PDF-1.4\n%%EOF\n".str_repeat('a', 50 * 1024 - 12));
-    app(ProfessionalDocumentController::class)->store(uploadRequestFor($pro, $file, 'Initial title'));
+    app(UserDocumentController::class)->store(uploadRequestFor($pro, $file, 'Initial title'));
 
     $doc = SiteMedia::query()->where('site_id', $pro->site->id)->first();
 
@@ -294,7 +294,7 @@ it('PATCH /api/documents/{id} skips cache invalidation when no field actually ch
     $req->validateResolved();
     $req->attributes->set('professional', $pro);
 
-    $response = app(ProfessionalDocumentController::class)->update($req, $doc);
+    $response = app(UserDocumentController::class)->update($req, $doc);
 
     expect($response->status())->toBe(200);
     // Mockery verifies shouldNotReceive at teardown — if invalidateSite had

@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGalleryController;
-use App\Http\Requests\Api\Professional\ImageGallery\UpdateGalleryImageRequest;
+use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
+use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
@@ -21,7 +21,7 @@ it('gallery destroy refuses an image belonging to another professionals site', f
     DB::table('site.site_media')->insert([
         'id' => $imageId,
         'site_id' => $a->site->id,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'pool' => SiteMedia::POOL_GALLERY,
         'media_type' => 'image',
         'path' => "images/{$a->id}/{$imageId}/original.jpg",
@@ -37,7 +37,7 @@ it('gallery destroy refuses an image belonging to another professionals site', f
 
     // Policy denies with AuthorizationException (404) before any media service
     // or cache invalidation runs — no mocks required.
-    expect(fn () => app(ProfessionalGalleryController::class)->destroy($req, $image))
+    expect(fn () => app(UserGalleryController::class)->destroy($req, $image))
         ->toThrow(AuthorizationException::class);
 
     // Row must still exist (not soft-deleted).
@@ -54,7 +54,7 @@ it('gallery update refuses an image belonging to another professionals site', fu
     DB::table('site.site_media')->insert([
         'id' => $imageId,
         'site_id' => $a->site->id,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'pool' => SiteMedia::POOL_GALLERY,
         'media_type' => 'image',
         'path' => "images/{$a->id}/{$imageId}/original.jpg",
@@ -78,7 +78,7 @@ it('gallery update refuses an image belonging to another professionals site', fu
     $req->attributes->set('professional', $b);
 
     // Policy denies with AuthorizationException (404) before any write occurs.
-    expect(fn () => app(ProfessionalGalleryController::class)->update($req, $image))
+    expect(fn () => app(UserGalleryController::class)->update($req, $image))
         ->toThrow(AuthorizationException::class);
 
     // Alt text / caption must be unchanged.

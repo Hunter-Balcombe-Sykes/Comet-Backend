@@ -3,7 +3,7 @@
 namespace App\Models\Core\Notifications;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +28,7 @@ class EmailSubscription extends BaseModel
     ];
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'list_key',
         'email',
         'full_name',
@@ -87,7 +87,7 @@ class EmailSubscription extends BaseModel
     protected static function booted(): void
     {
         static::saved(function (self $subscription) {
-            if ($subscription->list_key === 'marketing' && $subscription->professional_id && $subscription->email) {
+            if ($subscription->list_key === 'marketing' && $subscription->user_id && $subscription->email) {
                 // afterCommit so the job never enqueues if the surrounding
                 // transaction rolls back — avoids a wasted queue slot and a
                 // confusing "customer not found" no-op log in Horizon (#JOB-5).
@@ -95,12 +95,12 @@ class EmailSubscription extends BaseModel
                 // B3/P1-10: only UUIDs cross the queue boundary. Email + status
                 // are looked up inside handle() from this row, so a GDPR-erased
                 // row produces a quiet no-op instead of a leaked email payload.
-                $professionalId = (string) $subscription->professional_id;
+                $userId = (string) $subscription->user_id;
                 $subscriptionId = (string) $subscription->id;
 
-                DB::afterCommit(function () use ($professionalId, $subscriptionId) {
+                DB::afterCommit(function () use ($userId, $subscriptionId) {
                     \App\Jobs\Notifications\SyncCustomerMarketingOptInJob::dispatch(
-                        $professionalId,
+                        $userId,
                         $subscriptionId,
                     );
                 });
@@ -108,8 +108,8 @@ class EmailSubscription extends BaseModel
         });
     }
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

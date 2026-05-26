@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\Audit\StaffAuditService;
@@ -27,7 +27,7 @@ beforeEach(function () {
         staff_email_snapshot TEXT,
         impersonator_staff_id TEXT,
         impersonator_email_snapshot TEXT,
-        professional_id TEXT,
+        user_id TEXT,
         professional_handle_snapshot TEXT,
         route TEXT NOT NULL,
         http_method TEXT NOT NULL,
@@ -64,7 +64,7 @@ it('inserts a row capturing the staff, target, route, and method', function () {
     expect($entry)->toBeInstanceOf(StaffAuditEntry::class)
         ->and($entry->staff_id)->toBe($staff->id)
         ->and($entry->staff_email_snapshot)->toBe('support@partna.au')
-        ->and($entry->professional_id)->toBe($professional->id)
+        ->and($entry->user_id)->toBe($professional->id)
         ->and($entry->professional_handle_snapshot)->toBe('acme-brand')
         ->and($entry->route)->toBe('staff.professionals.update')
         ->and($entry->http_method)->toBe('PATCH')
@@ -86,7 +86,7 @@ it('accepts a null professional and null staff', function () {
 
     expect($entry)->toBeInstanceOf(StaffAuditEntry::class)
         ->and($entry->staff_id)->toBeNull()
-        ->and($entry->professional_id)->toBeNull()
+        ->and($entry->user_id)->toBeNull()
         ->and($entry->payload_summary)->toBe([]);
 });
 

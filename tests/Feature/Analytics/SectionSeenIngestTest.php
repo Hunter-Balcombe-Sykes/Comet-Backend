@@ -30,7 +30,7 @@ it('records a section-seen event for a published site', function () {
 
     $row = DB::connection('pgsql')->table('analytics.section_views')->first();
     expect($row->section_key)->toBe('products');
-    expect($row->professional_id)->toBe($tenant->id);
+    expect($row->user_id)->toBe($tenant->id);
     expect($row->site_id)->toBe($tenant->site->id);
 });
 
@@ -56,7 +56,7 @@ it('allows a second view after the 5-minute dedup window expires', function () {
 
     DB::connection('pgsql')->table('analytics.section_views')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $tenant->id,
+        'user_id' => $tenant->id,
         'site_id' => $tenant->site->id,
         'section_key' => 'products',
         'session_id' => $sessionId,

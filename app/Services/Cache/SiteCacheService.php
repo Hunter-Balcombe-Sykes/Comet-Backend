@@ -72,7 +72,7 @@ class SiteCacheService
         if (is_array($site)) {
             $site = $this->safeHydrateSitePayload(
                 $site,
-                (string) ($row->professional_id ?? ''),
+                (string) ($row->user_id ?? ''),
                 (string) ($row->site_id ?? ''),
                 $subdomain
             );
@@ -146,10 +146,10 @@ class SiteCacheService
                 // Always resolve image variant paths to URLs (handles pre-URL-resolution cache entries)
                 $site = $cached['site'] ?? null;
                 if (is_array($site)) {
-                    $professionalId = (string) data_get($cached, 'professional.id', '');
+                    $userId = (string) data_get($cached, 'professional.id', '');
                     $cached['site'] = $this->safeHydrateSitePayload(
                         $site,
-                        $professionalId,
+                        $userId,
                         '',
                         $subdomain
                     );
@@ -212,8 +212,8 @@ class SiteCacheService
             }
             $staleSite = $stale['site'] ?? null;
             if (is_array($staleSite)) {
-                $professionalId = (string) data_get($stale, 'professional.id', '');
-                $stale['site'] = $this->safeHydrateSitePayload($staleSite, $professionalId, '', $subdomain);
+                $userId = (string) data_get($stale, 'professional.id', '');
+                $stale['site'] = $this->safeHydrateSitePayload($staleSite, $userId, '', $subdomain);
             }
 
             return $stale;
@@ -276,14 +276,14 @@ class SiteCacheService
      * @param  array<string, mixed>  $site
      * @return array<string, mixed>
      */
-    private function safeHydrateSitePayload(array $site, string $professionalId, string $siteId, string $subdomain): array
+    private function safeHydrateSitePayload(array $site, string $userId, string $siteId, string $subdomain): array
     {
         try {
             return $this->resolveImageVariantUrlsInSite($site, $siteId);
         } catch (\Throwable $e) {
             Log::warning('Public site payload hydration failed; returning base site payload.', [
                 'subdomain' => $subdomain,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'site_id' => $siteId,
                 'error' => $e->getMessage(),
             ]);
@@ -498,7 +498,7 @@ class SiteCacheService
      */
     public function invalidateSite(Site $site): void
     {
-        $professionalId = (string) ($site->professional_id ?? '');
+        $userId = (string) ($site->user_id ?? '');
 
         $keys = [
             // busts: site:payload:{subdomain} + :stale (CACHE-2 — SWR fast path
@@ -521,8 +521,8 @@ class SiteCacheService
         // The auth-path Professional model cache (AUTH-1) holds the site relation
         // preloaded — site writes must bust it or the next 60s of authenticated
         // requests would see a stale subdomain / settings on $pro->site.
-        if ($professionalId !== '') {
-            $modelKey = CacheKeyGenerator::professionalModel($professionalId);
+        if ($userId !== '') {
+            $modelKey = CacheKeyGenerator::professionalModel($userId);
             $keys[] = $modelKey;
             $keys[] = $modelKey.':stale';
         }

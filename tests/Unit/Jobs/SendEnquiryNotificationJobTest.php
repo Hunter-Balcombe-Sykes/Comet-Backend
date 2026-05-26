@@ -34,14 +34,14 @@ function seedEnquiryAndBlock(array $blockOverrides = []): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'testpro',
         'is_published' => 1,
     ]);
 
     $blockRow = array_merge([
         'id' => $blockId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'sections',
         'block_type' => 'contact',
@@ -56,7 +56,7 @@ function seedEnquiryAndBlock(array $blockOverrides = []): array
 
     DB::connection('pgsql')->table('site.enquiries')->insert([
         'id' => $enquiryId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'name' => 'Visitor',
         'email' => 'visitor@example.test',

@@ -11,7 +11,7 @@ use stdClass;
 /**
  * Read-side queries for the professional analytics summary dashboard.
  *
- * Every method is a pure DB read keyed by (professional_id, from, to).
+ * Every method is a pure DB read keyed by (user_id, from, to).
  * Queries that touch click-side tables (analytics.link_clicks) catch
  * QueryException and return an empty/default so the page-view analytics
  * still render if the click ingestion pipeline is broken or missing
@@ -64,10 +64,10 @@ class AnalyticsQueryService
         'Snapchat', 'Pinterest', 'Reddit', 'Direct Link', 'Other',
     ];
 
-    public function visitsAggregate(string $professionalId, Carbon $from, Carbon $to): stdClass
+    public function visitsAggregate(string $userId, Carbon $from, Carbon $to): stdClass
     {
         return DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw('COUNT(*) as total_visits')
             ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_visitors')
@@ -75,11 +75,11 @@ class AnalyticsQueryService
             ->first() ?? (object) ['total_visits' => 0, 'unique_visitors' => 0, 'last_visit_at' => null];
     }
 
-    public function clicksAggregate(string $professionalId, Carbon $from, Carbon $to): stdClass
+    public function clicksAggregate(string $userId, Carbon $from, Carbon $to): stdClass
     {
         try {
             return DB::table('analytics.link_clicks')
-                ->where('professional_id', $professionalId)
+                ->where('user_id', $userId)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw('COUNT(*) as total_clicks')
                 ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
@@ -90,12 +90,12 @@ class AnalyticsQueryService
         }
     }
 
-    public function visitsByBucket(string $professionalId, Carbon $from, Carbon $to, bool $hourly): Collection
+    public function visitsByBucket(string $userId, Carbon $from, Carbon $to, bool $hourly): Collection
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
         return DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw("{$bucketExpr} as day, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
             ->groupByRaw($bucketGroup)
@@ -103,13 +103,13 @@ class AnalyticsQueryService
             ->get();
     }
 
-    public function clicksByBucket(string $professionalId, Carbon $from, Carbon $to, bool $hourly): Collection
+    public function clicksByBucket(string $userId, Carbon $from, Carbon $to, bool $hourly): Collection
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
         try {
             return DB::table('analytics.link_clicks')
-                ->where('professional_id', $professionalId)
+                ->where('user_id', $userId)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw("{$bucketExpr} as day, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
                 ->groupByRaw($bucketGroup)
@@ -123,10 +123,10 @@ class AnalyticsQueryService
     /**
      * @return array{desktop:int, mobile:int, other:int}
      */
-    public function deviceTotals(string $professionalId, Carbon $from, Carbon $to): array
+    public function deviceTotals(string $userId, Carbon $from, Carbon $to): array
     {
         $raw = DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw(self::DEVICE_CASE.' as device, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors')
             ->groupByRaw(self::DEVICE_CASE)
@@ -140,12 +140,12 @@ class AnalyticsQueryService
         ];
     }
 
-    public function visitsByDayByDevice(string $professionalId, Carbon $from, Carbon $to): Collection
+    public function visitsByDayByDevice(string $userId, Carbon $from, Carbon $to): Collection
     {
         $case = self::DEVICE_CASE;
 
         return DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw("DATE(occurred_at) as day, {$case} as device, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
             ->groupByRaw("DATE(occurred_at), {$case}")
@@ -158,10 +158,10 @@ class AnalyticsQueryService
      *
      * @return array<int, array{country_code:string, visitors:int}>
      */
-    public function countries(string $professionalId, Carbon $from, Carbon $to): array
+    public function countries(string $userId, Carbon $from, Carbon $to): array
     {
         $raw = DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw("COALESCE(country_code, 'UN') as country_code, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors")
             ->groupByRaw("COALESCE(country_code, 'UN')")
@@ -186,10 +186,10 @@ class AnalyticsQueryService
      *
      * @return array<int, array{label:string, visitors:int}>
      */
-    public function referrers(string $professionalId, Carbon $from, Carbon $to): array
+    public function referrers(string $userId, Carbon $from, Carbon $to): array
     {
         $raw = DB::table('analytics.site_visits')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw(self::SOURCE_CASE.' as source, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors')
             ->groupByRaw(self::SOURCE_CASE)
@@ -203,14 +203,14 @@ class AnalyticsQueryService
         );
     }
 
-    public function topLinks(string $professionalId, Carbon $from, Carbon $to): Collection
+    public function topLinks(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
             // Pull `platform` from settings JSON so the dashboard can label rows
             // by platform name (instagram, fresha, etc.) without joining a column.
             return DB::table('analytics.link_clicks as lc')
                 ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')
-                ->where('lc.professional_id', $professionalId)
+                ->where('lc.user_id', $userId)
                 ->whereBetween('lc.occurred_at', [$from, $to])
                 ->whereNull('b.deleted_at')
                 ->whereRaw("LOWER(COALESCE(b.block_group, '')) = 'links'")
@@ -225,7 +225,7 @@ class AnalyticsQueryService
         }
     }
 
-    public function topSections(string $professionalId, Carbon $from, Carbon $to): Collection
+    public function topSections(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
             // block_type allowlist mirrors the ingest-side `partna.section_block_types`
@@ -241,7 +241,7 @@ class AnalyticsQueryService
 
             return DB::table('analytics.link_clicks as lc')
                 ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')
-                ->where('lc.professional_id', $professionalId)
+                ->where('lc.user_id', $userId)
                 ->whereBetween('lc.occurred_at', [$from, $to])
                 ->whereNull('b.deleted_at')
                 ->whereRaw("LOWER(COALESCE(b.block_group, '')) = 'sections'")

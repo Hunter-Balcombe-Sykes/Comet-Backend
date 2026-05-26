@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * Covers: Site, Block, SiteMedia, Enquiry, SiteSubdomainAlias, LeadSubmission.
  *
  * Ownership resolution:
- *   - Site, Block, Enquiry, LeadSubmission: carry professional_id directly
+ *   - Site, Block, Enquiry, LeadSubmission: carry user_id directly
  *   - SiteMedia, SiteSubdomainAlias: resolve via loaded site relation
  *     (caller must setRelation('site', $site) before authorizeForUser to avoid N+1)
  */
@@ -62,7 +62,7 @@ class SitePolicy extends BasePolicy
 
     private function resolveOwnerId(Model $resource): ?string
     {
-        // SiteMedia and SiteSubdomainAlias don't own professional_id — ownership
+        // SiteMedia and SiteSubdomainAlias don't own user_id — ownership
         // resolves through their site relation. Caller must setRelation('site', $site)
         // before authorizeForUser to prevent N+1 / lazy-loading violations.
         //
@@ -81,16 +81,16 @@ class SitePolicy extends BasePolicy
                 return null;
             }
 
-            return (string) $site->professional_id;
+            return (string) $site->user_id;
         }
 
-        // Direct: Site itself plus denormalized professional_id on Block/Enquiry/LeadSubmission.
+        // Direct: Site itself plus denormalized user_id on Block/Enquiry/LeadSubmission.
         // getAttributes() reads the raw attribute array without triggering Eloquent __get
         // magic. array_key_exists is intentional — isset() would return false for null.
         $rawAttrs = $resource->getAttributes();
 
-        return array_key_exists('professional_id', $rawAttrs) && $rawAttrs['professional_id'] !== null
-            ? (string) $rawAttrs['professional_id']
+        return array_key_exists('user_id', $rawAttrs) && $rawAttrs['user_id'] !== null
+            ? (string) $rawAttrs['user_id']
             : null;
     }
 }

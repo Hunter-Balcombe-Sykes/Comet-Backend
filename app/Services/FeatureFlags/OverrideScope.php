@@ -7,15 +7,15 @@ use InvalidArgumentException;
 final class OverrideScope
 {
     private function __construct(
-        public readonly string $professionalId,
+        public readonly string $userId,
     ) {
-        if ($professionalId === '') {
-            throw new InvalidArgumentException('OverrideScope professionalId must not be empty string');
+        if ($userId === '') {
+            throw new InvalidArgumentException('OverrideScope userId must not be empty string');
         }
     }
 
-    public static function forProfessional(string $professionalId): self
+    public static function forUser(string $userId): self
     {
-        return new self(professionalId: $professionalId);
+        return new self(userId: $userId);
     }
 }

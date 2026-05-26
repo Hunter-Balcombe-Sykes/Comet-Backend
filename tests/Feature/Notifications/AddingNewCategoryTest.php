@@ -43,17 +43,17 @@ beforeEach(function () {
     }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
-        id TEXT PRIMARY KEY, professional_id TEXT NULL, type TEXT, category TEXT, title TEXT, body TEXT,
+        id TEXT PRIMARY KEY, user_id TEXT NULL, type TEXT, category TEXT, title TEXT, body TEXT,
         cta_url TEXT, primary_action_label TEXT, secondary_action_label TEXT, secondary_action_url TEXT,
         severity TEXT, starts_at TEXT, ends_at TEXT, dedupe_key TEXT, email_sent_at TEXT,
         created_at TEXT, updated_at TEXT
     )');
     // SQLite requires schema prefix on the index name, not the table in ON clause.
     $conn->statement('CREATE UNIQUE INDEX IF NOT EXISTS notifications.notifications_dedupe_key_per_pro_uq
-        ON notifications (professional_id, dedupe_key) WHERE dedupe_key IS NOT NULL');
+        ON notifications (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL');
     $conn->statement('CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, status TEXT NOT NULL DEFAULT \'active\', deleted_at TEXT NULL)');
-    $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, professional_id TEXT, category_key TEXT, mode TEXT)');
-    $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, professional_id TEXT, category_key TEXT, enabled INTEGER)');
+    $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, user_id TEXT, category_key TEXT, mode TEXT)');
+    $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, user_id TEXT, category_key TEXT, enabled INTEGER)');
 
     DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
 
@@ -72,7 +72,7 @@ it('accepts a new category as a single config-map edit — no publisher/job chan
     // EDIT #2 (simulated): emit site calls $publisher->publish(category: 'brand_new_thing', ...).
     $publisher = new NotificationPublisher;
     $publisher->publish(
-        professionalId: 'pro-1',
+        userId: 'pro-1',
         frontendType: 'Info',
         category: 'brand_new_thing',
         title: 'Hello',

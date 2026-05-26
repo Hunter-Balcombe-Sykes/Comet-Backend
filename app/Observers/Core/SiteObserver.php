@@ -29,7 +29,7 @@ class SiteObserver
         } catch (\Throwable $e) {
             Log::warning('Site cache invalidation failed on save', $this->logContext(__METHOD__, [
                 'site_id' => $site->id,
-                'professional_id' => $site->professional_id,
+                'user_id' => $site->user_id,
                 'subdomain' => $site->subdomain,
                 'message' => $e->getMessage(),
             ]));
@@ -43,7 +43,7 @@ class SiteObserver
             } catch (\Throwable $e) {
                 Log::warning('CloudflareCachePurgeJob dispatch failed on site save', $this->logContext(__METHOD__, [
                     'site_id' => $site->id,
-                    'professional_id' => $site->professional_id,
+                    'user_id' => $site->user_id,
                     'subdomain' => $handle,
                     'message' => $e->getMessage(),
                 ]));
@@ -57,7 +57,7 @@ class SiteObserver
             } catch (\Throwable $e) {
                 Log::warning('WarmPublicSiteCacheJob dispatch failed', $this->logContext(__METHOD__, [
                     'site_id' => $site->id,
-                    'professional_id' => $site->professional_id,
+                    'user_id' => $site->user_id,
                     'subdomain' => $site->subdomain,
                     'message' => $e->getMessage(),
                 ]));
@@ -66,14 +66,14 @@ class SiteObserver
 
         // Sync KV when site is first created or subdomain changes.
         if ($site->wasRecentlyCreated || $site->wasChanged('subdomain')) {
-            $professionalId = (string) ($site->professional_id ?? '');
+            $userId = (string) ($site->user_id ?? '');
 
             try {
-                SyncSubdomainToKvJob::dispatch($professionalId);
+                SyncSubdomainToKvJob::dispatch($userId);
             } catch (\Throwable $e) {
                 Log::warning('SiteObserver: KV sync dispatch failed on subdomain change', $this->logContext(__METHOD__, [
                     'site_id' => $site->id,
-                    'professional_id' => $professionalId,
+                    'user_id' => $userId,
                     'message' => $e->getMessage(),
                 ]));
             }
@@ -87,7 +87,7 @@ class SiteObserver
         } catch (\Throwable $e) {
             Log::warning('Site cache invalidation failed on delete', $this->logContext(__METHOD__, [
                 'site_id' => $site->id,
-                'professional_id' => $site->professional_id,
+                'user_id' => $site->user_id,
                 'subdomain' => $site->subdomain,
                 'message' => $e->getMessage(),
             ]));

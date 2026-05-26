@@ -44,14 +44,14 @@ it('stamps reclaim_until and expires_at on a new subdomain alias', function () {
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'oldhandle',
         'settings' => json_encode([]),
         'created_at' => $now,
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\User::query()->findOrFail($proId);
+    $pro = \App\Models\Core\User\User::query()->findOrFail($proId);
 
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'newhandle']);
 
@@ -81,14 +81,14 @@ it('deletes the matching subdomain alias when a user renames back to a subdomain
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'a',
         'settings' => json_encode([]),
         'created_at' => $now,
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\Professional\User::query()->findOrFail($proId);
+    $pro = \App\Models\Core\User\User::query()->findOrFail($proId);
 
     // a → b (creates alias for 'a')
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'b']);

@@ -24,10 +24,10 @@ it('SectionVisibilityService rejects documents section when no document is uploa
         'primary_email' => 'p@example.com', 'status' => 'active',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
     ]);
 
-    [$canBeVisible, $reason] = app(\App\Services\Professional\SectionVisibilityService::class)
+    [$canBeVisible, $reason] = app(\App\Services\User\SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'documents');
 
     expect($canBeVisible)->toBeFalse();
@@ -45,7 +45,7 @@ it('SectionVisibilityService allows documents section when a document exists', f
         'primary_email' => 'p@example.com', 'status' => 'active',
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p', 'is_published' => 0,
     ]);
     \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
@@ -59,7 +59,7 @@ it('SectionVisibilityService allows documents section when a document exists', f
         'is_active' => 1,
     ]);
 
-    [$canBeVisible] = app(\App\Services\Professional\SectionVisibilityService::class)
+    [$canBeVisible] = app(\App\Services\User\SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'documents');
 
     expect($canBeVisible)->toBeTrue();

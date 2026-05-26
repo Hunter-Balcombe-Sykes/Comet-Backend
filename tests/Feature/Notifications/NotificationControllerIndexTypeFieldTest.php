@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Notifications\NotificationController;
+use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,7 +13,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NULL,
         category TEXT NULL,
         title TEXT NULL,
@@ -32,12 +32,12 @@ beforeEach(function () {
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_receipts (
         id TEXT PRIMARY KEY,
         notification_id TEXT NULL,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         read_at TEXT NULL,
         dismissed_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
-        UNIQUE (notification_id, professional_id)
+        UNIQUE (notification_id, user_id)
     )');
 });
 
@@ -46,7 +46,7 @@ it('GET /me/notifications exposes the type field on each notification item', fun
 
     DB::table('notifications.notifications')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'type' => 'Warning',
         'title' => 'Payout action required',
         'body' => 'Your payout needs attention.',
@@ -75,7 +75,7 @@ it('GET /me/notifications normalizes missing type to Info', function () {
 
     DB::table('notifications.notifications')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'type' => null,
         'title' => 'General notice',
         'body' => 'No explicit type set.',

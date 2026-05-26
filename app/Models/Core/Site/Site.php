@@ -5,7 +5,7 @@ namespace App\Models\Core\Site;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SiteVisit;
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -41,9 +41,9 @@ class Site extends BaseModel
         'updated_at' => 'datetime',
     ];
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function theme(): BelongsTo

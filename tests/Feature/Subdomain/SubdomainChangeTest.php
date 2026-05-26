@@ -2,7 +2,7 @@
 
 /** @phpstan-ignore-all */
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Carbon;
@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 beforeEach(function () {
     setupCoreSchema();
 
-    DB::table('core.professional_handle_aliases')->delete();
+    DB::table('core.user_handle_aliases')->delete();
     DB::table('site.site_subdomain_aliases')->delete();
     DB::table('site.public_site_payload')->delete();
     DB::table('site.sites')->delete();
@@ -33,7 +33,7 @@ it('prevents professionals from changing subdomain within 30 days', function () 
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(10)->toDateTimeString(),
     ]);
@@ -59,7 +59,7 @@ it('stores old subdomain as alias after a valid change', function () {
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
@@ -96,7 +96,7 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'old',
         'subdomain_changed_at' => Carbon::now()->subDays(31)->toDateTimeString(),
     ]);
@@ -111,8 +111,8 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
     expect($proRow->handle)->toBe('new');
     expect($proRow->handle_lc)->toBe('new');
 
-    $handleAlias = DB::table('core.professional_handle_aliases')
-        ->where('professional_id', $proId)
+    $handleAlias = DB::table('core.user_handle_aliases')
+        ->where('user_id', $proId)
         ->first();
 
     expect($handleAlias)->not->toBeNull();
@@ -135,7 +135,7 @@ it('redirects old subdomain to new site host', function () {
 
     DB::table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => 'new',
         'is_published' => 1,
     ]);
@@ -209,7 +209,7 @@ function setupCoreSchema(): void
         // Add deleted_at for soft-delete scope compatibility.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NULL,
+            user_id TEXT NULL,
             subdomain TEXT NULL,
             subdomain_changed_at TEXT NULL,
             is_published INTEGER NULL,
@@ -229,13 +229,13 @@ function setupCoreSchema(): void
             created_at TEXT NOT NULL
         )');
 
-        // professional_handle_aliases — historical handle row written when a
+        // user_handle_aliases — historical handle row written when a
         // professional's subdomain changes (the canonical handle changes too,
         // so the old handle becomes an alias for HydrogenAffiliateController
         // lookups to keep resolving).
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_handle_aliases (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
             handle TEXT NOT NULL,
             reclaim_until TEXT NULL,
             expires_at TEXT NULL,
@@ -257,7 +257,7 @@ function setupCoreSchema(): void
         // production; in SQLite we just create it so the action can INSERT rows.
         $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
             id TEXT PRIMARY KEY,
-            professional_id TEXT NULL,
+            user_id TEXT NULL,
             old_handle TEXT NULL,
             new_handle TEXT NULL,
             reason TEXT NULL,
@@ -279,7 +279,7 @@ function setupCoreSchema(): void
 
     DB::statement('CREATE TABLE IF NOT EXISTS core.sites (
         id uuid PRIMARY KEY,
-        professional_id uuid NULL,
+        user_id uuid NULL,
         subdomain varchar(63) NULL,
         subdomain_changed_at timestamptz NULL,
         is_published boolean NULL,

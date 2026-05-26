@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalGalleryController;
+use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -40,7 +40,7 @@ it('allows the owner to delete their gallery image', function () {
 
     $req = tenantRequestAs($owner, [], 'DELETE');
 
-    $response = app(ProfessionalGalleryController::class)->destroy($req, $image);
+    $response = app(UserGalleryController::class)->destroy($req, $image);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -68,7 +68,7 @@ it('blocks a non-owner from deleting a gallery image with 404', function () {
     $req = tenantRequestAs($intruder, [], 'DELETE');
 
     try {
-        app(ProfessionalGalleryController::class)->destroy($req, $image);
+        app(UserGalleryController::class)->destroy($req, $image);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
@@ -105,8 +105,8 @@ it('blocks a pending-deletion owner from updating a gallery image with 423', fun
     $req = tenantRequestAs($owner, ['alt_text' => 'Hacked'], 'PATCH');
 
     try {
-        app(ProfessionalGalleryController::class)->update(
-            \App\Http\Requests\Api\Professional\ImageGallery\UpdateGalleryImageRequest::createFrom($req),
+        app(UserGalleryController::class)->update(
+            \App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest::createFrom($req),
             $image
         );
         expect(false)->toBeTrue('Expected AuthorizationException');

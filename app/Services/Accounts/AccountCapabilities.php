@@ -2,7 +2,7 @@
 
 namespace App\Services\Accounts;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 
 /**
  * Runtime capability registry — answers "can this Professional access feature X right now?"

@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\Audit\StaffAuditService;
@@ -28,7 +28,7 @@ beforeEach(function () {
         staff_email_snapshot TEXT,
         impersonator_staff_id TEXT,
         impersonator_email_snapshot TEXT,
-        professional_id TEXT,
+        user_id TEXT,
         professional_handle_snapshot TEXT,
         route TEXT NOT NULL,
         http_method TEXT NOT NULL,
@@ -74,7 +74,7 @@ it('records a row for POST/PATCH/PUT/DELETE writes', function (string $method) {
     $row = StaffAuditEntry::query()->first();
     expect($row->http_method)->toBe($method)
         ->and($row->staff_id)->toBe($staff->id)
-        ->and($row->professional_id)->toBe($professional->id)
+        ->and($row->user_id)->toBe($professional->id)
         ->and($row->professional_handle_snapshot)->toBe('acme')
         ->and($row->status_code)->toBe(200)
         ->and($row->payload_summary)->toBe(['professional' => $professional->id]);
@@ -121,9 +121,9 @@ it('accepts a string professional binding when route-model binding is not in eff
     $staff = new PartnaStaff();
     $staff->id = (string) Str::uuid();
 
-    $professionalId = (string) Str::uuid();
-    $request = makeAuditRequest('PATCH', '/staff/professionals/'.$professionalId, [
-        'professional' => $professionalId,
+    $userId = (string) Str::uuid();
+    $request = makeAuditRequest('PATCH', '/staff/professionals/'.$userId, [
+        'professional' => $userId,
     ]);
     $request->attributes->set('partna_staff', $staff);
 
@@ -131,7 +131,7 @@ it('accepts a string professional binding when route-model binding is not in eff
     $middleware->terminate($request, new Response('', 200));
 
     $row = StaffAuditEntry::query()->first();
-    expect($row->professional_id)->toBe($professionalId)
+    expect($row->user_id)->toBe($userId)
         ->and($row->professional_handle_snapshot)->toBeNull();
 });
 

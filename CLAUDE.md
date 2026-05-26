@@ -119,7 +119,7 @@ All resource-level authorization goes through Laravel Policies in `app/Policies/
 
 **Never do this in a controller:**
 ```php
-abort_unless($user->id === $resource->professional_id, 403);
+abort_unless($user->id === $resource->user_id, 403);
 ```
 
 **Always do this:**
@@ -132,7 +132,7 @@ $this->authorizeForUser($user, 'manage', $resource);
 **Skeleton pattern for pre-create checks** (no DB row yet):
 ```php
 $skeleton = new SiteMedia([
-    'professional_id' => $user->id,
+    'user_id' => $user->id,
     'pool' => 'gallery',
 ]);
 $this->authorizeForUser($user, 'create', $skeleton);
@@ -256,8 +256,8 @@ Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.
 
 ## Individual sitepages — architectural ground truth
 
-Partna is an individual-user-only platform. The model is `App\Models\Core\Professional\User`
-(DB table `core.users`; FK columns on other tables remain named `professional_id`).
+Partna is an individual-user-only platform. The model is `App\Models\Core\User\User`
+(DB table `core.users`; FK columns on other tables use `user_id`).
 `account_type` is always `'individual'`; the `AccountType` enum has only an `Individual` case.
 
 All `<handle>.partna.au` requests route through one Cloudflare Worker

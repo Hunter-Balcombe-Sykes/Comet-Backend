@@ -42,7 +42,7 @@ function seedPublishedSite(bool $isPublished = true): string
         'primary_email' => 'p@example.com', 'status' => 'active',
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId, 'professional_id' => $proId, 'subdomain' => 'p',
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p',
         'is_published' => $isPublished ? 1 : 0,
     ]);
 

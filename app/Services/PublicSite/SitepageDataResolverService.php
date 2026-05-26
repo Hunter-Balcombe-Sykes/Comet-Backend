@@ -2,8 +2,8 @@
 
 namespace App\Services\PublicSite;
 
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\Service;
+use App\Models\Core\User\User;
+use App\Models\Core\User\Service;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -445,7 +445,7 @@ class SitepageDataResolverService
 
         $services = Service::query()
             ->with('category:id,title')
-            ->where('professional_id', $proId)
+            ->where('user_id', $proId)
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderBy('sort_order')

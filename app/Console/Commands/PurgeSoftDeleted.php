@@ -4,14 +4,14 @@ namespace App\Console\Commands;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\Feedback;
-use App\Models\Core\Professional\Customer;
-use App\Models\Core\Professional\Service;
-use App\Models\Core\Professional\ServiceCategory;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Professional\AccountDeletionService;
+use App\Services\User\AccountDeletionService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 

@@ -1,10 +1,10 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalLinkBlockController;
-use App\Http\Requests\Api\Professional\Site\DestroyLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\ReorderBlocksRequest;
-use App\Http\Requests\Api\Professional\Site\StoreLinkBlockRequest;
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
+use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +29,7 @@ it('allows the owner to update their own link block', function () {
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(ProfessionalLinkBlockController::class)->update($formReq, $block);
+    $response = app(UserLinkBlockController::class)->update($formReq, $block);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -41,7 +41,7 @@ it('blocks a non-owner from updating a link block with 404', function () {
     $req = tenantRequestAs($intruder, ['title' => 'Hacked'], 'PATCH');
 
     try {
-        app(ProfessionalLinkBlockController::class)->update(
+        app(UserLinkBlockController::class)->update(
             UpdateLinkBlockRequest::createFrom($req),
             $block
         );
@@ -62,7 +62,7 @@ it('blocks a pending-deletion owner from updating a link block with 423', functi
     $req = tenantRequestAs($owner, ['title' => 'Updated'], 'PATCH');
 
     try {
-        app(ProfessionalLinkBlockController::class)->update(
+        app(UserLinkBlockController::class)->update(
             UpdateLinkBlockRequest::createFrom($req),
             $block
         );
@@ -86,7 +86,7 @@ it('allows the owner to delete their own link block', function () {
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(ProfessionalLinkBlockController::class)->destroy($formReq, $block);
+    $response = app(UserLinkBlockController::class)->destroy($formReq, $block);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -108,7 +108,7 @@ it('blocks a non-owner from deleting a link block with 404', function () {
     $formReq->validateResolved();
 
     try {
-        app(ProfessionalLinkBlockController::class)->destroy($formReq, $block);
+        app(UserLinkBlockController::class)->destroy($formReq, $block);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
@@ -130,7 +130,7 @@ it('blocks pending-deletion professional from creating a link block (423)', func
     ], 'POST');
 
     try {
-        app(ProfessionalLinkBlockController::class)
+        app(UserLinkBlockController::class)
             ->store(StoreLinkBlockRequest::createFrom($req));
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
@@ -158,7 +158,7 @@ it('allows active professional to create a link block (no 423 thrown)', function
     // to confirm auth succeeded without testing the full DB flow here.
     $authBlocked = false;
     try {
-        app(ProfessionalLinkBlockController::class)
+        app(UserLinkBlockController::class)
             ->store($formReq);
     } catch (AuthorizationException $e) {
         $authBlocked = true;
@@ -183,7 +183,7 @@ it('blocks pending-deletion professional from reordering link blocks (423)', fun
     $req = tenantRequestAs($pro, ['ids' => [$block->id]], 'POST');
 
     try {
-        app(ProfessionalLinkBlockController::class)
+        app(UserLinkBlockController::class)
             ->reorder(ReorderBlocksRequest::createFrom($req));
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
@@ -207,7 +207,7 @@ it('allows active professional to reorder their link blocks (no 423 thrown)', fu
     // Postgres-only) to confirm auth succeeded without testing the full DB flow.
     $authBlocked = false;
     try {
-        app(ProfessionalLinkBlockController::class)
+        app(UserLinkBlockController::class)
             ->reorder($formReq);
     } catch (AuthorizationException $e) {
         $authBlocked = true;

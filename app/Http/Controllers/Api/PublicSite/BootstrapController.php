@@ -4,21 +4,21 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\BootstrapRequest;
-use App\Http\Resources\ProfessionalDashboardResource;
-use App\Models\Core\Professional\User;
+use App\Http\Resources\UserDashboardResource;
+use App\Models\Core\User\User;
 use App\Models\Core\Waitlist\WaitlistSignup;
-use App\Services\Professional\ProfessionalBootstrapService;
+use App\Services\User\UserBootstrapService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 // V2: Account signup/update. Keeps waitlist gating + individual-waitlist
 // divert + HTTP shaping in the controller; delegates the create-or-update
-// transaction to ProfessionalBootstrapService.
+// transaction to UserBootstrapService.
 class BootstrapController extends ApiController
 {
     public function __construct(
-        private readonly ProfessionalBootstrapService $bootstrapService,
+        private readonly UserBootstrapService $bootstrapService,
     ) {}
 
     public function bootstrap(BootstrapRequest $request): JsonResponse
@@ -84,7 +84,7 @@ class BootstrapController extends ApiController
         }
 
         return $this->success([
-            'professional' => new ProfessionalDashboardResource($result['professional']),
+            'professional' => new UserDashboardResource($result['professional']),
             'site' => $result['site'],
         ]);
     }

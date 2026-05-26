@@ -10,7 +10,7 @@ use InvalidArgumentException;
  * applies platform-specific rules to user input.
  *
  * Used by:
- *   - ProfessionalLinkBlockController on link create/update (write path)
+ *   - UserLinkBlockController on link create/update (write path)
  *   - PublicConfigController for the GET /public/config/social-platforms endpoint
  *   - BackfillSocialLinksCommand for the one-shot tagging migration
  *

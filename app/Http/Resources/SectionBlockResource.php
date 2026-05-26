@@ -30,7 +30,7 @@ class SectionBlockResource extends ApiResource
 
         $payload = [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id,
+            'user_id' => $this->user_id,
             'site_id' => $this->site_id,
             'block_type' => $this->block_type,
             'block_group' => $this->block_group,

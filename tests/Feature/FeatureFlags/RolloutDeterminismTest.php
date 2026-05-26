@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\FeatureFlag;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;

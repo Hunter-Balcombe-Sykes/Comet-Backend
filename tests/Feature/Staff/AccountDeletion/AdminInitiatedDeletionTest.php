@@ -3,15 +3,15 @@
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
+use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
-use App\Services\Professional\AccountDeletionService;
+use App\Services\User\AccountDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Tests\Feature\Professional\AccountDeletion\AccountDeletionTestCase;
+use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
 beforeEach(function () {
     AccountDeletionTestCase::boot();
@@ -89,13 +89,13 @@ it('admin can initiate erasure for a clean account', function () {
 
     Mail::assertQueued(AccountDeletionScheduledMail::class);
 
-    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
-        ->where('professional_id', $pro->id)
+    $audit = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
         ->where('event', 'admin_initiated')
         ->first();
 
     expect($audit)->not->toBeNull()
-        ->and($audit->actor_type)->toBe(ProfessionalDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN)
+        ->and($audit->actor_type)->toBe(UserDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN)
         ->and($audit->actor_id)->toBe($staff->id)
         ->and($audit->reason)->toBe('GDPR Article 17 request — support ticket #1234');
 });
@@ -162,13 +162,13 @@ it('admin can cancel a pending deletion during grace period', function () {
     $pro->refresh();
     expect($pro->status)->toBe('active');
 
-    $audit = DB::connection('pgsql')->table('audit.professional_deletion_audit')
-        ->where('professional_id', $pro->id)
+    $audit = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
         ->where('event', 'admin_cancelled')
         ->first();
 
     expect($audit)->not->toBeNull()
-        ->and($audit->actor_type)->toBe(ProfessionalDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN);
+        ->and($audit->actor_type)->toBe(UserDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN);
 });
 
 it('admin cancel fails with 409 if no pending deletion exists', function () {
@@ -221,9 +221,9 @@ it('GET show returns deletion state and non-PII audit entries', function () {
     ]);
 
     // Seed an audit row with PII fields
-    DB::connection('pgsql')->table('audit.professional_deletion_audit')->insert([
+    DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $pro->id,
+        'user_id' => $pro->id,
         'professional_handle_snapshot' => $pro->handle,
         'professional_email_snapshot' => $pro->primary_email,
         'event' => 'admin_initiated',

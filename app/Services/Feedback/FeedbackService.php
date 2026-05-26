@@ -4,7 +4,7 @@ namespace App\Services\Feedback;
 
 use App\Jobs\Notifications\SendFeedbackEmailJob;
 use App\Models\Core\Feedback;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Feedback\Exceptions\DuplicateFeedbackException;
 use App\Services\Feedback\Exceptions\FeedbackNotAllowedException;

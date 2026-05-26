@@ -14,7 +14,7 @@ class ServiceCategoryResource extends ApiResource
     {
         return [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id,
+            'user_id' => $this->user_id,
             'title' => $this->title,
             'sort_order' => $this->sort_order,
             'created_at' => $this->created_at?->toIso8601String(),

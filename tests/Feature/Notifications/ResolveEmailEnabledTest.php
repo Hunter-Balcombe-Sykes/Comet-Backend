@@ -35,7 +35,7 @@ beforeEach(function () {
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         category_key TEXT NOT NULL,
         mode TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -44,7 +44,7 @@ beforeEach(function () {
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         category_key TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -70,7 +70,7 @@ function insertPolicy(?string $proId, string $category, string $mode): void
 {
     DB::table('notifications.notification_email_policies')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'category_key' => $category,
         'mode' => $mode,
         'created_at' => now(),
@@ -82,7 +82,7 @@ function insertPreference(string $proId, string $category, bool $enabled): void
 {
     DB::table('notifications.notification_email_preferences')->insert([
         'id' => (string) \Illuminate\Support\Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'category_key' => $category,
         'enabled' => $enabled ? 1 : 0,
         'created_at' => now(),
@@ -154,7 +154,7 @@ it('caches the resolved map after the first lookup', function () {
 
     // Mutate the underlying row directly — the cached map should mask it.
     DB::table('notifications.notification_email_preferences')
-        ->where('professional_id', 'pro-1')
+        ->where('user_id', 'pro-1')
         ->update(['enabled' => 1]);
 
     expect(NotificationPublisher::resolveEmailEnabled('pro-1', 'invites'))->toBeFalse();
@@ -165,7 +165,7 @@ it('forget() drops the per-pro cache so the next read recomputes', function () {
     NotificationPublisher::resolveEmailEnabled('pro-1', 'invites'); // prime cache
 
     DB::table('notifications.notification_email_preferences')
-        ->where('professional_id', 'pro-1')
+        ->where('user_id', 'pro-1')
         ->update(['enabled' => 1]);
 
     NotificationPublisher::forget('pro-1');

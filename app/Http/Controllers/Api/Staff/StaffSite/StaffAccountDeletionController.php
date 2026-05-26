@@ -4,15 +4,15 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\ProfessionalDeletionAuditEntry;
+use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
-use App\Services\Professional\AccountDeletionService;
+use App\Services\User\AccountDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
-// V2: Admin-side counterpart to ProfessionalAccountDeletionController.
+// V2: Admin-side counterpart to UserAccountDeletionController.
 // Admin is already authenticated via Supabase JWT and gated by staff.admin
 // middleware, so we skip the email-token roundtrip.
 class StaffAccountDeletionController extends ApiController
@@ -96,8 +96,8 @@ class StaffAccountDeletionController extends ApiController
 
         // Select non-PII columns only — support staff don't need staff identity;
         // admin investigations can hit the DB directly.
-        $auditEntries = ProfessionalDeletionAuditEntry::query()
-            ->where('professional_id', $professional->id)
+        $auditEntries = UserDeletionAuditEntry::query()
+            ->where('user_id', $professional->id)
             ->orderByDesc('created_at')
             ->limit(50)
             ->get(['id', 'event', 'actor_type', 'reason', 'metadata', 'created_at']);

@@ -9,7 +9,7 @@ use App\Http\Middleware\Auth\RequireAal2;
 use App\Http\Middleware\Auth\RequireEmailVerified;
 use App\Http\Middleware\Auth\VerifySupabaseEmailHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
-use App\Http\Middleware\Context\LoadCurrentProfessional;
+use App\Http\Middleware\Context\LoadCurrentUser;
 use App\Http\Middleware\FeatureGate;
 use App\Http\Middleware\IdempotencyKey;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
@@ -79,7 +79,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'supabase.jwt' => VerifySupabaseJwt::class,
             'require.email_verified' => RequireEmailVerified::class,
-            'current.pro' => LoadCurrentProfessional::class,
+            'current.pro' => LoadCurrentUser::class,
             'staff' => EnsurePartnaStaff::class,
             'staff.admin' => EnsurePartnaAdmin::class,
             'staff.audit' => RecordStaffAuditEntry::class,

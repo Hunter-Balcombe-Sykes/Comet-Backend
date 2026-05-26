@@ -3,7 +3,7 @@
 namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -20,7 +20,7 @@ class Enquiry extends BaseModel
     protected $keyType = 'string';
 
     protected $fillable = [
-        'professional_id',
+        'user_id',
         'site_id',
         'name',
         'email',
@@ -34,7 +34,7 @@ class Enquiry extends BaseModel
     ];
 
     // Submitter PII + request telemetry hidden from default model serialization.
-    // ProfessionalEnquiryController surfaces these via EnquiryResource (direct attribute
+    // UserEnquiryController surfaces these via EnquiryResource (direct attribute
     // access, unaffected by $hidden); naked toArray() in jobs/logs/broadcasts is now safe.
     protected $hidden = [
         'name',
@@ -53,9 +53,9 @@ class Enquiry extends BaseModel
         'email_sent_at' => 'datetime',
     ];
 
-    public function professional(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'professional_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function site(): BelongsTo

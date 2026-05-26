@@ -3,9 +3,9 @@
 // Plan §28.3 / §9 capability matrix tests — individual-only after standalone strip.
 
 use App\Enums\AccountType;
-use App\Http\Resources\ProfessionalDashboardResource;
-use App\Http\Resources\ProfessionalResource;
-use App\Models\Core\Professional\User;
+use App\Http\Resources\UserDashboardResource;
+use App\Http\Resources\UserResource;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
 use Illuminate\Http\Request;
@@ -75,25 +75,25 @@ describe('AccountCapabilities — per-instance memoization', function () {
     });
 });
 
-describe('ProfessionalDashboardResource — stripe_connect_status absent for individuals', function () {
+describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
         $pro = new User([
             'account_type' => 'individual',
         ]);
 
-        $payload = (new ProfessionalDashboardResource($pro))->resolve(Request::create('/'));
+        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
 
         expect($payload)->not->toHaveKey('stripe_connect_status');
     });
 });
 
-describe('ProfessionalResource — stripe_connect_status absent for individuals', function () {
+describe('UserResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status for individuals', function () {
         $pro = new User([
             'account_type' => 'individual',
         ]);
 
-        $payload = (new ProfessionalResource($pro))->resolve(Request::create('/'));
+        $payload = (new UserResource($pro))->resolve(Request::create('/'));
 
         expect($payload)->not->toHaveKey('stripe_connect_status');
     });

@@ -18,28 +18,28 @@ beforeEach(function () {
 });
 
 it('per-affiliate rollup query uses an index scan and not a sequential scan', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $from = now()->subDays(30)->toDateString();
     $to = now()->toDateString();
     $currencyCode = 'AUD';
 
     $sql = <<<'SQL'
         SELECT
-            affiliate_professional_id,
+            affiliate_user_id,
             SUM(orders_count) AS orders_count,
             SUM(gross_cents) AS gross_cents,
             SUM(gross_cents - refund_cents) AS net_cents,
             SUM(commission_cents - reversed_commission_cents) AS commission_net_cents
         FROM commerce.brand_affiliate_rollup
-        WHERE brand_professional_id = ?
+        WHERE brand_user_id = ?
           AND day BETWEEN ? AND ?
           AND currency_code = ?
-        GROUP BY affiliate_professional_id
+        GROUP BY affiliate_user_id
         ORDER BY SUM(commission_cents - reversed_commission_cents) DESC
         LIMIT 100
     SQL;
 
-    $rows = DB::select('EXPLAIN '.$sql, [$professionalId, $from, $to, $currencyCode]);
+    $rows = DB::select('EXPLAIN '.$sql, [$userId, $from, $to, $currencyCode]);
     $plan = implode("\n", array_map(fn ($r) => $r->{'QUERY PLAN'}, $rows));
 
     expect($plan)->toContain('Index Scan');
@@ -47,7 +47,7 @@ it('per-affiliate rollup query uses an index scan and not a sequential scan', fu
 });
 
 it('brand totals query on commerce.orders uses an index', function () {
-    $professionalId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
     $from = now()->subDays(30)->format('Y-m-d').' 00:00:00';
     $to = now()->endOfDay()->format('Y-m-d H:i:s');
     $excluded = "('stub','cancelled','voided','refunded')";
@@ -59,13 +59,13 @@ it('brand totals query on commerce.orders uses an index', function () {
             COALESCE(SUM(refund_cents), 0) AS refunded_cents,
             COALESCE(SUM(net_cents), 0) AS net_cents
         FROM commerce.orders
-        WHERE brand_professional_id = ?
+        WHERE brand_user_id = ?
           AND status NOT IN {$excluded}
           AND occurred_at >= ?
           AND occurred_at <= ?
     SQL;
 
-    $rows = DB::select('EXPLAIN '.$sql, [$professionalId, $from, $to]);
+    $rows = DB::select('EXPLAIN '.$sql, [$userId, $from, $to]);
     $plan = implode("\n", array_map(fn ($r) => $r->{'QUERY PLAN'}, $rows));
 
     // Expect the planner to pick up the idx_orders_brand_status_occurred composite index

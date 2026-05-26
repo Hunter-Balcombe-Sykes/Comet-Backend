@@ -18,7 +18,7 @@ it('ships only the allowlisted columns and passes settings through', function ()
         ],
     ]);
     $site->id = '11111111-1111-1111-1111-111111111111';
-    $site->setAttribute('professional_id', '99999999-9999-9999-9999-999999999999');
+    $site->setAttribute('user_id', '99999999-9999-9999-9999-999999999999');
     $site->created_at = Carbon::parse('2026-01-01T00:00:00Z');
     $site->updated_at = Carbon::parse('2026-01-02T00:00:00Z');
     $site->subdomain_changed_at = null;
@@ -27,7 +27,7 @@ it('ships only the allowlisted columns and passes settings through', function ()
     $array = (new SiteResource($site))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'professional_id', 'subdomain', 'theme_id', 'is_published',
+        'id', 'user_id', 'subdomain', 'theme_id', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings',
         'created_at', 'updated_at',
     ]);

@@ -12,7 +12,7 @@ beforeEach(function () {
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         session_id TEXT NULL,
         visitor_id TEXT NULL,
         occurred_at TEXT NULL,

@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
@@ -18,18 +18,18 @@ beforeEach(function () {
 // ---------------------------------------------------------------------------
 
 describe('Site', function () {
-    // Site.professional_id is not in $fillable — use forceFill in tests
+    // Site.user_id is not in $fillable — use forceFill in tests
     // so the attribute lands in the raw attributes array.
     it('allows view when the actor owns the site', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $site))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the site', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['professional_id' => 'pro-other']);
+        $site = (new Site)->forceFill(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $site);
 
@@ -39,14 +39,14 @@ describe('Site', function () {
 
     it('allows update when the actor owns the site and is active', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['user_id' => 'pro-actor']);
 
         expect($this->policy->update($actor, $site))->toBeTrue();
     });
 
     it('denies update with 404 when the actor does not own the site', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['professional_id' => 'pro-other']);
+        $site = (new Site)->forceFill(['user_id' => 'pro-other']);
 
         $result = $this->policy->update($actor, $site);
 
@@ -56,7 +56,7 @@ describe('Site', function () {
 
     it('denies update with 423 when the actor is pending deletion', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'pending_deletion']);
-        $site = (new Site)->forceFill(['professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['user_id' => 'pro-actor']);
 
         $result = $this->policy->update($actor, $site);
 
@@ -67,7 +67,7 @@ describe('Site', function () {
 
     it('denies create with 423 when the actor is pending deletion', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'pending_deletion']);
-        $skeleton = (new Site)->forceFill(['professional_id' => 'pro-actor']);
+        $skeleton = (new Site)->forceFill(['user_id' => 'pro-actor']);
 
         $result = $this->policy->create($actor, $skeleton);
 
@@ -82,12 +82,12 @@ describe('Site', function () {
 // ---------------------------------------------------------------------------
 
 describe('SiteMedia', function () {
-    // Site.professional_id not in $fillable — must forceFill so it lands in getAttributes().
+    // Site.user_id not in $fillable — must forceFill so it lands in getAttributes().
     // The policy verifies that $media->site_id matches the preloaded site's id, so both
     // must be set consistently.
     it('allows view when the site relation is owned by the actor', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['id' => 'site-1', 'professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
         $media = new SiteMedia(['site_id' => 'site-1']);
         $media->setRelation('site', $site);
 
@@ -96,7 +96,7 @@ describe('SiteMedia', function () {
 
     it('denies view with 404 when the site relation belongs to a different owner', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['id' => 'site-2', 'professional_id' => 'pro-other']);
+        $site = (new Site)->forceFill(['id' => 'site-2', 'user_id' => 'pro-other']);
         $media = new SiteMedia(['site_id' => 'site-2']);
         $media->setRelation('site', $site);
 
@@ -108,7 +108,7 @@ describe('SiteMedia', function () {
 
     it('allows delete when the actor owns the site relation', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['id' => 'site-1', 'professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
         $media = new SiteMedia(['site_id' => 'site-1']);
         $media->setRelation('site', $site);
 
@@ -117,7 +117,7 @@ describe('SiteMedia', function () {
 
     it('denies delete with 423 when actor is pending deletion', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'pending_deletion']);
-        $site = (new Site)->forceFill(['id' => 'site-1', 'professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
         $media = new SiteMedia(['site_id' => 'site-1']);
         $media->setRelation('site', $site);
 
@@ -129,20 +129,20 @@ describe('SiteMedia', function () {
 });
 
 // ---------------------------------------------------------------------------
-// Block — denormalized professional_id
+// Block — denormalized user_id
 // ---------------------------------------------------------------------------
 
 describe('Block', function () {
     it('allows view when the actor owns the block', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $block = new Block(['professional_id' => 'pro-actor']);
+        $block = new Block(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $block))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the block', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $block = new Block(['professional_id' => 'pro-other']);
+        $block = new Block(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $block);
 
@@ -158,7 +158,7 @@ describe('Block', function () {
 describe('SiteSubdomainAlias', function () {
     it('allows view when the site relation is owned by the actor', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['id' => 'site-1', 'professional_id' => 'pro-actor']);
+        $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
         $alias = new SiteSubdomainAlias(['site_id' => 'site-1']);
         $alias->setRelation('site', $site);
 
@@ -167,7 +167,7 @@ describe('SiteSubdomainAlias', function () {
 
     it('denies view with 404 when the site relation belongs to a different owner', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $site = (new Site)->forceFill(['id' => 'site-2', 'professional_id' => 'pro-other']);
+        $site = (new Site)->forceFill(['id' => 'site-2', 'user_id' => 'pro-other']);
         $alias = new SiteSubdomainAlias(['site_id' => 'site-2']);
         $alias->setRelation('site', $site);
 
@@ -179,20 +179,20 @@ describe('SiteSubdomainAlias', function () {
 });
 
 // ---------------------------------------------------------------------------
-// Enquiry — denormalized professional_id (same pathway as Block)
+// Enquiry — denormalized user_id (same pathway as Block)
 // ---------------------------------------------------------------------------
 
 describe('Enquiry', function () {
     it('allows view when the actor owns the enquiry', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $enquiry = new Enquiry(['professional_id' => 'pro-actor']);
+        $enquiry = new Enquiry(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $enquiry))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the enquiry', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $enquiry = new Enquiry(['professional_id' => 'pro-other']);
+        $enquiry = new Enquiry(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $enquiry);
 
@@ -202,20 +202,20 @@ describe('Enquiry', function () {
 });
 
 // ---------------------------------------------------------------------------
-// LeadSubmission — denormalized professional_id (same pathway as Block)
+// LeadSubmission — denormalized user_id (same pathway as Block)
 // ---------------------------------------------------------------------------
 
 describe('LeadSubmission', function () {
     it('allows view when the actor owns the lead submission', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $lead = new LeadSubmission(['professional_id' => 'pro-actor']);
+        $lead = new LeadSubmission(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $lead))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the lead submission', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $lead = new LeadSubmission(['professional_id' => 'pro-other']);
+        $lead = new LeadSubmission(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $lead);
 
@@ -234,7 +234,7 @@ describe('spoofing defense', function () {
     // on a resource they don't own, the site_id mismatch fires and denies access.
     it('denies view when injected site relation id does not match resource site_id', function () {
         $actor = (new User)->forceFill(['id' => 'pro-attacker', 'status' => 'active']);
-        $attackerSite = (new Site)->forceFill(['id' => 'site-attacker', 'professional_id' => 'pro-attacker']);
+        $attackerSite = (new Site)->forceFill(['id' => 'site-attacker', 'user_id' => 'pro-attacker']);
         // Resource belongs to a different site, but attacker injects their own site relation
         $media = new SiteMedia(['site_id' => 'site-real']);
         $media->setRelation('site', $attackerSite);

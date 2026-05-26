@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Concerns;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 
@@ -58,7 +58,7 @@ trait ResolvesSiteFromRequest
             // but the client only knows the handle. Resolve via user handle.
             $user = User::query()->where('handle_lc', $subdomain)->first();
             if ($user) {
-                return Site::query()->where('professional_id', $user->id)->first();
+                return Site::query()->where('user_id', $user->id)->first();
             }
         }
 

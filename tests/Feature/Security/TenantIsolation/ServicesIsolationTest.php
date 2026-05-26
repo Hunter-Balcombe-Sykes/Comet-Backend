@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\SiteManagement\ProfessionalServiceController;
-use App\Models\Core\Professional\Service;
+use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
+use App\Models\Core\User\Service;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,7 +13,7 @@ beforeEach(function () {
     // when the 'square' query param is absent. title matches the production column name on the model.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
         id TEXT PRIMARY KEY,
-        professional_id TEXT,
+        user_id TEXT,
         title TEXT,
         square_variation_id TEXT,
         duration_minutes INTEGER,
@@ -33,7 +33,7 @@ it('service destroy refuses a service belonging to another professional', functi
     $serviceId = (string) Str::uuid();
     DB::table('site.services')->insert([
         'id' => $serviceId,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'title' => 'Secret Cut',
         'price_cents' => 50_00,
         'created_at' => $now,
@@ -44,7 +44,7 @@ it('service destroy refuses a service belonging to another professional', functi
     $service = Service::query()->findOrFail($serviceId);
 
     // Policy denies access with AuthorizationException (404 status via denyAsNotFound).
-    expect(fn () => app(ProfessionalServiceController::class)->destroy($req, $service))
+    expect(fn () => app(UserServiceController::class)->destroy($req, $service))
         ->toThrow(AuthorizationException::class);
 
     // Service must still exist.
@@ -56,14 +56,14 @@ it('service index only returns services belonging to the authenticated professio
     $now = now()->toDateTimeString();
 
     DB::table('site.services')->insert([
-        ['id' => (string) Str::uuid(), 'professional_id' => $a->id, 'title' => 'A Service', 'price_cents' => 100_00, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'professional_id' => $b->id, 'title' => 'B Service', 'price_cents' => 200_00, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => $a->id, 'title' => 'A Service', 'price_cents' => 100_00, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => $b->id, 'title' => 'B Service', 'price_cents' => 200_00, 'created_at' => $now, 'updated_at' => $now],
     ]);
 
     // flat=1 returns {services:[...]} and skips the ServiceCategory grouping query.
     $req = tenantRequestAs($b);
     $req->query->set('flat', '1');
-    $response = app(ProfessionalServiceController::class)->index($req);
+    $response = app(UserServiceController::class)->index($req);
     $payload = $response->getData(true);
 
     $titles = collect($payload['services'] ?? [])->pluck('title')->all();

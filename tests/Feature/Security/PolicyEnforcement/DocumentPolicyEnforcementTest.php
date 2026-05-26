@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Account\ProfessionalDocumentController;
-use App\Http\Requests\Api\Professional\Documents\UpdateDocumentRequest;
+use App\Http\Controllers\Api\User\Account\UserDocumentController;
+use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -25,7 +25,7 @@ it('allows the owner to update their own document', function () {
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(ProfessionalDocumentController::class)->update($formReq, $document);
+    $response = app(UserDocumentController::class)->update($formReq, $document);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -37,7 +37,7 @@ it('blocks a non-owner from updating a document with 404', function () {
     $req = tenantRequestAs($intruder, ['title' => 'Hacked'], 'PATCH');
 
     try {
-        app(ProfessionalDocumentController::class)->update(
+        app(UserDocumentController::class)->update(
             UpdateDocumentRequest::createFrom($req),
             $document
         );
@@ -58,7 +58,7 @@ it('blocks a pending-deletion owner from updating a document with 423', function
     $req = tenantRequestAs($owner, ['title' => 'New Title'], 'PATCH');
 
     try {
-        app(ProfessionalDocumentController::class)->update(
+        app(UserDocumentController::class)->update(
             UpdateDocumentRequest::createFrom($req),
             $document
         );
@@ -75,7 +75,7 @@ it('allows the owner to delete their own document', function () {
     $document = createDocumentFor($owner);
     $req = tenantRequestAs($owner, [], 'DELETE');
 
-    $response = app(ProfessionalDocumentController::class)->destroy($req, $document);
+    $response = app(UserDocumentController::class)->destroy($req, $document);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -87,7 +87,7 @@ it('blocks a non-owner from deleting a document with 404', function () {
     $req = tenantRequestAs($intruder, [], 'DELETE');
 
     try {
-        app(ProfessionalDocumentController::class)->destroy($req, $document);
+        app(UserDocumentController::class)->destroy($req, $document);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);

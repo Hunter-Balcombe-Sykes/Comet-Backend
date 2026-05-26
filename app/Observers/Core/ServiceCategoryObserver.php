@@ -2,8 +2,8 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\Professional\User;
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 // §28.17 CACHE-1 — ServiceCategory mutations bust the dashboard services
 // cache. Prior to this observer, category renames/deletes/reorders left
-// `ProfessionalCacheService::getDashboardServices` stale for up to the
+// `UserCacheService::getDashboardServices` stale for up to the
 // full 30-minute TTL because no observer was registered for the model.
 //
 // Mirrors ServiceObserver's pattern: $afterCommit so a transactional
@@ -42,25 +42,25 @@ class ServiceCategoryObserver
 
     private function bust(ServiceCategory $category): void
     {
-        $professionalId = trim((string) ($category->professional_id ?? ''));
-        if ($professionalId === '') {
+        $userId = trim((string) ($category->user_id ?? ''));
+        if ($userId === '') {
             return;
         }
 
         // Only the services keys are stale after a category rename/reorder/delete.
-        // Calling invalidateProfessional() would nuke 13+ keys (hydrated model,
+        // Calling invalidateUser() would nuke 13+ keys (hydrated model,
         // payloads, ID maps, customer count) causing unnecessary Postgres round-trips.
         try {
             Cache::deleteMultiple([
-                CacheKeyGenerator::professionalDashboardServices($professionalId),
-                CacheKeyGenerator::professionalDashboardServices($professionalId).':stale',
-                CacheKeyGenerator::professionalServices($professionalId),
-                CacheKeyGenerator::professionalServices($professionalId).':stale',
+                CacheKeyGenerator::professionalDashboardServices($userId),
+                CacheKeyGenerator::professionalDashboardServices($userId).':stale',
+                CacheKeyGenerator::professionalServices($userId),
+                CacheKeyGenerator::professionalServices($userId).':stale',
             ]);
         } catch (\Throwable $e) {
             Log::warning('Services cache bust failed on ServiceCategory change', [
                 'category_id' => $category->id,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'message' => $e->getMessage(),
             ]);
         }
@@ -69,14 +69,14 @@ class ServiceCategoryObserver
         // (SitepageDataResolverService::buildServicesData line ~461), so a rename
         // also stales the cached public page. Load the site relation only for this.
         try {
-            $pro = User::query()->with('site')->find($professionalId);
+            $pro = User::query()->with('site')->find($userId);
             if ($pro?->site) {
                 $this->siteCache->invalidateSite($pro->site);
             }
         } catch (\Throwable $e) {
             Log::warning('Site cache bust failed on ServiceCategory change', [
                 'category_id' => $category->id,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'message' => $e->getMessage(),
             ]);
         }

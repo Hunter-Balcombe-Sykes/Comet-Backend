@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\ProfessionalSiteManagement\StaffProfessionalController;
-use App\Models\Core\Professional\User;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -49,7 +49,7 @@ function seedProfessionals(int $n, string $status = 'active'): array
 it('bulk-suspends a wave of professionals', function () {
     $ids = seedProfessionals(5);
 
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => $ids,
         'status' => 'suspended',
@@ -74,7 +74,7 @@ it('bulk-suspends a wave of professionals', function () {
 it('accepts exactly 100 IDs', function () {
     $ids = seedProfessionals(100);
 
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => $ids,
         'status' => 'suspended',
@@ -90,7 +90,7 @@ it('accepts exactly 100 IDs', function () {
 it('rejects 101 IDs with validation error', function () {
     $ids = array_map(fn () => (string) Str::uuid(), range(1, 101));
 
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => $ids,
         'status' => 'suspended',
@@ -101,7 +101,7 @@ it('rejects 101 IDs with validation error', function () {
 });
 
 it('rejects unknown status values', function () {
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => [(string) Str::uuid()],
         'status' => 'banned',
@@ -112,7 +112,7 @@ it('rejects unknown status values', function () {
 });
 
 it('rejects non-UUID IDs', function () {
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => ['not-a-uuid'],
         'status' => 'suspended',
@@ -126,7 +126,7 @@ it('returns missing_ids for unknown UUIDs without rolling back valid ones', func
     $valid = seedProfessionals(2);
     $missing = [(string) Str::uuid(), (string) Str::uuid()];
 
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => array_merge($valid, $missing),
         'status' => 'suspended',
@@ -141,7 +141,7 @@ it('returns missing_ids for unknown UUIDs without rolling back valid ones', func
 });
 
 it('rejects empty ids array', function () {
-    $controller = new StaffProfessionalController;
+    $controller = new StaffUserController;
     $request = Request::create('/', 'POST', [
         'ids' => [],
         'status' => 'suspended',

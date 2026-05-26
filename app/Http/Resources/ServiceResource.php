@@ -15,7 +15,7 @@ class ServiceResource extends ApiResource
     {
         return [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id,
+            'user_id' => $this->user_id,
             'category_id' => $this->category_id,
             'title' => $this->title,
             'description' => $this->description,

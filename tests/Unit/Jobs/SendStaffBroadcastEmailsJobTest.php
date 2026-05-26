@@ -16,14 +16,14 @@ beforeEach(function () {
 });
 
 /**
- * Insert a matching email subscription (professional_id=null, list_key='sidest_updates', status='subscribed').
+ * Insert a matching email subscription (user_id=null, list_key='sidest_updates', status='subscribed').
  */
 function insertBroadcastSubscriber(string $email): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         'id' => $id,
-        'professional_id' => null,
+        'user_id' => null,
         'list_key' => 'sidest_updates',
         'email' => $email,
         'email_lc' => strtolower($email),
@@ -86,7 +86,7 @@ it('dispatches one batch when subscriber count is under chunk size', function ()
     });
 });
 
-it('only batches subscribed marketing-list rows (filters by status, list_key, professional_id)', function () {
+it('only batches subscribed marketing-list rows (filters by status, list_key, user_id)', function () {
     Bus::fake();
 
     $notificationId = insertNotification();
@@ -97,7 +97,7 @@ it('only batches subscribed marketing-list rows (filters by status, list_key, pr
     // Should be excluded: unsubscribed
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => null,
+        'user_id' => null,
         'list_key' => 'sidest_updates',
         'email' => 'unsub@example.test',
         'email_lc' => 'unsub@example.test',
@@ -107,10 +107,10 @@ it('only batches subscribed marketing-list rows (filters by status, list_key, pr
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    // Should be excluded: professional_id is not null
+    // Should be excluded: user_id is not null
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'list_key' => 'sidest_updates',
         'email' => 'pro@example.test',
         'email_lc' => 'pro@example.test',
@@ -123,7 +123,7 @@ it('only batches subscribed marketing-list rows (filters by status, list_key, pr
     // Should be excluded: different list_key
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => null,
+        'user_id' => null,
         'list_key' => 'other',
         'email' => 'other-list@example.test',
         'email_lc' => 'other-list@example.test',
@@ -151,7 +151,7 @@ it('splits subscribers into batches of at most 200', function () {
     for ($i = 0; $i < 350; $i++) {
         $rows[] = [
             'id' => (string) Str::uuid(),
-            'professional_id' => null,
+            'user_id' => null,
             'list_key' => 'sidest_updates',
             'email' => "chunk-subscriber-{$i}@example.test",
             'email_lc' => "chunk-subscriber-{$i}@example.test",

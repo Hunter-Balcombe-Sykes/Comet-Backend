@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Professional\ServiceCategory;
+use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Support\Facades\Artisan;

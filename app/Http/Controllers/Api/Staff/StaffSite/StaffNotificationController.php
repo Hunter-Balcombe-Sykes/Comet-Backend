@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +22,7 @@ class StaffNotificationController extends ApiController
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'professional_id' => ['nullable', 'uuid'],
+            'user_id' => ['nullable', 'uuid'],
             'type' => ['required', 'string', 'max:50'],
             'title' => ['required', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:5000'],
@@ -65,14 +65,14 @@ class StaffNotificationController extends ApiController
         $emailListKey = $data['email_list_key'] ?? 'sidest_updates';
 
         if ($sendEmail) {
-            if ($notification->professional_id !== null && $notification->category !== null) {
+            if ($notification->user_id !== null && $notification->category !== null) {
                 // Targeted, categorised: unified pipeline — respects user notification_email_preferences.
                 SendTransactionalNotificationEmailJob::dispatch(
                     $notification->id,
                     $notification->category,
-                    $notification->professional_id,
+                    $notification->user_id,
                 );
-            } elseif ($notification->professional_id === null) {
+            } elseif ($notification->user_id === null) {
                 // Global: newsletter-style mass email to email_list_key subscribers.
                 // Bypasses per-category prefs by design — globals are announcement-class
                 // (incidents, policy updates) that should reach the audience regardless.

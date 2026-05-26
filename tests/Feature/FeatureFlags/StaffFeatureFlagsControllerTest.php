@@ -218,7 +218,7 @@ it('override index returns 401 when staff not on request', function () {
 
 it('override store returns 401 when staff not on request', function () {
     $request = CreateOverrideRequest::create('/', 'POST', [
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'enabled' => true,
     ]);
 
@@ -239,7 +239,7 @@ it('store override creates a professional override', function () {
     ]);
 
     $formRequest = mockFormRequest(CreateOverrideRequest::class, [
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'enabled' => true,
         'reason' => 'Testing override creation',
     ], $this->staff);
@@ -248,7 +248,7 @@ it('store override creates a professional override', function () {
     $payload = json_decode($response->getContent(), true);
 
     expect($response->status())->toBe(201);
-    expect($payload['data']['professional_id'])->toBe($proId);
+    expect($payload['data']['user_id'])->toBe($proId);
     expect($payload['data']['enabled'])->toBeTrue();
 });
 
@@ -278,7 +278,7 @@ it('destroy override removes the override', function () {
     DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
         'id' => $overrideId,
         'flag_key' => 'destroy_ov_flag',
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'brand_id' => null,
         'enabled' => 1,
         'reason' => 'to be deleted',

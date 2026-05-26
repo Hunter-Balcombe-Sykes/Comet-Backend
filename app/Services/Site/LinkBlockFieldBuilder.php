@@ -8,7 +8,7 @@ use InvalidArgumentException;
  * Translates a validated link-block request payload into Block fillable columns.
  *
  * Centralises the social/custom mode split so store() and update() on
- * ProfessionalLinkBlockController share one source of truth.
+ * UserLinkBlockController share one source of truth.
  *
  * Social mode produces:
  *   - url       = canonical https URL from the normalizer

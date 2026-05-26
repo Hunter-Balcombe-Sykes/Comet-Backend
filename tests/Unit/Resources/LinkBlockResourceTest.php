@@ -8,7 +8,7 @@ use Illuminate\Support\Carbon;
 
 it('ships only the allowlisted fields and drops extras', function () {
     $block = new Block([
-        'professional_id' => '11111111-1111-1111-1111-111111111111',
+        'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'link',
         'block_group' => 'links',
@@ -29,7 +29,7 @@ it('ships only the allowlisted fields and drops extras', function () {
     $array = (new LinkBlockResource($block))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'professional_id', 'site_id', 'block_type', 'block_group',
+        'id', 'user_id', 'site_id', 'block_type', 'block_group',
         'title', 'url', 'icon_key', 'sort_order', 'is_active', 'is_enabled',
         'settings', 'created_at', 'updated_at',
     ]);
@@ -40,7 +40,7 @@ it('ships only the allowlisted fields and drops extras', function () {
 
 it('emits settings as an object so {} round-trips correctly', function () {
     $block = new Block([
-        'professional_id' => '11111111-1111-1111-1111-111111111111',
+        'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'link',
         'block_group' => 'links',

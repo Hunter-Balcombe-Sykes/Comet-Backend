@@ -26,7 +26,7 @@ function setupContactSubmissionSchema(): void
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         site_id TEXT NOT NULL,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -43,7 +43,7 @@ function setupContactSubmissionSchema(): void
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
         email TEXT NOT NULL,
         phone TEXT NULL,
         full_name TEXT NULL,
@@ -61,7 +61,7 @@ function setupContactSubmissionSchema(): void
         occurred_at TEXT NULL,
         subdomain TEXT NULL,
         site_id TEXT NULL,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         customer_id TEXT NULL,
         ip_hash TEXT NULL,
         user_agent TEXT NULL,
@@ -87,14 +87,14 @@ function seedPublishedContactSite(string $subdomain = 'testpro'): array
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain' => $subdomain,
         'is_published' => 1,
     ]);
 
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'sections',
         'block_type' => 'contact',
@@ -135,7 +135,7 @@ it('accepts a valid submission and saves a site.enquiries row', function () {
     expect($row->name)->toBe('Sarah Jones');
     expect($row->email)->toBe('sarah@example.com');
     expect($row->subject)->toBe('Wholesale');
-    expect($row->professional_id)->toBe($proId);
+    expect($row->user_id)->toBe($proId);
     expect($row->site_id)->toBe($siteId);
 });
 
@@ -151,7 +151,7 @@ it('upserts submitter as a Customer with source=enquiry', function () {
     expect($customer)->not->toBeNull();
     expect($customer->email)->toBe('sarah@example.com');
     expect($customer->source)->toBe('enquiry');
-    expect($customer->professional_id)->toBe($proId);
+    expect($customer->user_id)->toBe($proId);
 });
 
 it('dispatches SendEnquiryNotificationJob carrying the contact block id (not the email)', function () {

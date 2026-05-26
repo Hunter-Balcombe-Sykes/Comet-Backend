@@ -2,7 +2,7 @@
 
 namespace App\Services\Audit;
 
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use Illuminate\Support\Facades\Log;
@@ -34,7 +34,7 @@ class StaffAuditService
                 'staff_email_snapshot' => $staff?->primary_email,
                 'impersonator_staff_id' => $impersonator?->id,
                 'impersonator_email_snapshot' => $impersonator?->primary_email,
-                'professional_id' => $professional?->id,
+                'user_id' => $professional?->id,
                 'professional_handle_snapshot' => $professional?->handle,
                 'route' => $route,
                 'http_method' => $httpMethod,

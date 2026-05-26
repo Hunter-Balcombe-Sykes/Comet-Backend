@@ -2,7 +2,7 @@
 
 /** @phpstan-ignore-all */
 
-use App\Http\Requests\Api\Professional\Site\UpdateLinkBlockRequest;
+use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use Illuminate\Support\Facades\Validator;
 
 it('accepts live_check_enabled=true in settings for a streaming platform context', function () {

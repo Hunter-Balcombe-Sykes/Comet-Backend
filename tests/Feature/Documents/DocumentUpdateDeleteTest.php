@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Documents\UpdateDocumentRequest;
+use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -54,7 +54,7 @@ it('route PATCH api/documents/{document} maps to update', function () {
         ->first(fn ($r) => in_array('PATCH', $r->methods()) && $r->uri() === 'api/documents/{document}');
 
     expect($route)->not->toBeNull();
-    expect($route->getActionName())->toContain('ProfessionalDocumentController@update');
+    expect($route->getActionName())->toContain('UserDocumentController@update');
 });
 
 it('route PATCH api/documents/{document} has throttle:30,1', function () {
@@ -70,7 +70,7 @@ it('route DELETE api/documents/{document} maps to destroy', function () {
         ->first(fn ($r) => in_array('DELETE', $r->methods()) && $r->uri() === 'api/documents/{document}');
 
     expect($route)->not->toBeNull();
-    expect($route->getActionName())->toContain('ProfessionalDocumentController@destroy');
+    expect($route->getActionName())->toContain('UserDocumentController@destroy');
 });
 
 it('route DELETE api/documents/{document} has throttle:30,1', function () {

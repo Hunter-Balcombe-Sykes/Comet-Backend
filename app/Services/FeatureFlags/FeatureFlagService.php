@@ -4,7 +4,7 @@ namespace App\Services\FeatureFlags;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -54,7 +54,7 @@ class FeatureFlagService
             Log::warning('feature_flags.cache_unavailable', [
                 'error' => $e->getMessage(),
                 'flag_key' => $key,
-                'professional_id' => $pro?->id,
+                'user_id' => $pro?->id,
                 'request_id' => request()?->header('X-Request-Id'),
             ]);
 
@@ -75,7 +75,7 @@ class FeatureFlagService
             Log::warning('feature_flags.cache_unavailable', [
                 'error' => $e->getMessage(),
                 'method' => 'allFor',
-                'professional_id' => $pro?->id,
+                'user_id' => $pro?->id,
                 'request_id' => request()?->header('X-Request-Id'),
             ]);
 
@@ -113,8 +113,8 @@ class FeatureFlagService
         ];
 
         FeatureFlagOverride::updateOrCreate(
-            ['flag_key' => $key, 'professional_id' => $scope->professionalId],
-            $attrs + ['professional_id' => $scope->professionalId],
+            ['flag_key' => $key, 'user_id' => $scope->userId],
+            $attrs + ['user_id' => $scope->userId],
         );
 
         // Bust request-level memoization so any subsequent enabled() calls in
@@ -122,14 +122,14 @@ class FeatureFlagService
         $this->requestCache = [];
 
         try {
-            $this->forgetPro($scope->professionalId);
+            $this->forgetPro($scope->userId);
 
             return true;
         } catch (Throwable $e) {
             Log::warning('feature_flags.invalidation_failed', [
                 'error' => $e->getMessage(),
                 'flag_key' => $key,
-                'scope_professional_id' => $scope->professionalId,
+                'scope_user_id' => $scope->userId,
             ]);
 
             return false;
@@ -145,20 +145,20 @@ class FeatureFlagService
     public function clearOverride(string $key, OverrideScope $scope): bool
     {
         FeatureFlagOverride::where('flag_key', $key)
-            ->where('professional_id', $scope->professionalId)
+            ->where('user_id', $scope->userId)
             ->delete();
 
         $this->requestCache = [];
 
         try {
-            $this->forgetPro($scope->professionalId);
+            $this->forgetPro($scope->userId);
 
             return true;
         } catch (Throwable $e) {
             Log::warning('feature_flags.invalidation_failed', [
                 'error' => $e->getMessage(),
                 'flag_key' => $key,
-                'scope_professional_id' => $scope->professionalId,
+                'scope_user_id' => $scope->userId,
             ]);
 
             return false;
@@ -315,7 +315,7 @@ class FeatureFlagService
         // Determine nearest expiry before entering the lock so the TTL can be
         // capped — prevents overrides from being served past their expires_at.
         $nearestExpiry = FeatureFlagOverride::query()
-            ->where('professional_id', $proId)
+            ->where('user_id', $proId)
             ->whereNotNull('expires_at')
             ->where('expires_at', '>', now())
             ->min('expires_at');
@@ -327,7 +327,7 @@ class FeatureFlagService
             $this->jitteredTtl($nearestExpiry),
             function () use ($proId): array {
                 $query = FeatureFlagOverride::query()
-                    ->where('professional_id', $proId)
+                    ->where('user_id', $proId)
                     ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
 
                 // Only apply the cross-schema soft-delete joins on PostgreSQL — SQLite
@@ -335,7 +335,7 @@ class FeatureFlagService
                 if (DB::getDriverName() === 'pgsql') {
                     $query->whereExists(fn ($q) => $q->select(DB::raw(1))
                         ->from('core.users')
-                        ->whereColumn('core.users.id', 'core.feature_flag_overrides.professional_id')
+                        ->whereColumn('core.users.id', 'core.feature_flag_overrides.user_id')
                         ->whereNull('core.users.deleted_at'));
 
                     // Exclude overrides whose flag has been soft-deleted.
@@ -371,13 +371,13 @@ class FeatureFlagService
         $proOverrides = [];
         if ($pro !== null) {
             $query = FeatureFlagOverride::query()
-                ->where('professional_id', $pro->id)
+                ->where('user_id', $pro->id)
                 ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
 
             if (DB::getDriverName() === 'pgsql') {
                 $query->whereExists(fn ($q) => $q->select(DB::raw(1))
                     ->from('core.users')
-                    ->whereColumn('core.users.id', 'core.feature_flag_overrides.professional_id')
+                    ->whereColumn('core.users.id', 'core.feature_flag_overrides.user_id')
                     ->whereNull('core.users.deleted_at'));
 
                 $query->whereExists(fn ($q) => $q->select(DB::raw(1))

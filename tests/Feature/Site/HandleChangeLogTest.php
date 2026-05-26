@@ -2,7 +2,7 @@
 
 use App\Services\Site\UpdateSiteAction;
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -39,7 +39,7 @@ function createProWithSite(string $subdomain): User
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id'             => $siteId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'subdomain'      => $subdomain,
         'is_published'   => 1,
         'settings'       => json_encode([]),
@@ -59,7 +59,7 @@ it('writes a handle_change_log row on subdomain rename with rename reason and ac
         ['ip' => '203.0.113.4', 'user_agent' => 'pest/test']
     );
 
-    $log = HandleChangeLog::where('professional_id', $pro->id)->latest('changed_at')->firstOrFail();
+    $log = HandleChangeLog::where('user_id', $pro->id)->latest('changed_at')->firstOrFail();
     expect($log->old_handle)->toBe('old');
     expect($log->new_handle)->toBe('new');
     expect($log->reason)->toBe(HandleChangeLog::REASON_RENAME);
@@ -77,5 +77,5 @@ it('does not write a handle_change_log row when subdomain is unchanged', functio
         ['ip' => '203.0.113.4', 'user_agent' => 'pest/test']
     );
 
-    expect(HandleChangeLog::where('professional_id', $pro->id)->count())->toBe(0);
+    expect(HandleChangeLog::where('user_id', $pro->id)->count())->toBe(0);
 });

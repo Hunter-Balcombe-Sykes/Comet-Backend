@@ -9,7 +9,7 @@ use Illuminate\Support\Carbon;
 function makeSectionBlock(array $overrides = []): Block
 {
     $block = new Block([
-        'professional_id' => '11111111-1111-1111-1111-111111111111',
+        'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'gallery',
         'block_group' => 'sections',
@@ -37,7 +37,7 @@ it('ships the section base shape + computed publication_state/is_live', function
     $array = (new SectionBlockResource(makeSectionBlock()))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'professional_id', 'site_id', 'block_type', 'block_group',
+        'id', 'user_id', 'site_id', 'block_type', 'block_group',
         'title', 'url', 'icon_key', 'sort_order', 'is_active', 'is_enabled',
         'settings', 'created_at', 'updated_at', 'publication_state', 'is_live',
     ]);

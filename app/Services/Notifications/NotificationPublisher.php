@@ -4,7 +4,7 @@ namespace App\Services\Notifications;
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Professional\User;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -30,7 +30,7 @@ class NotificationPublisher
     }
 
     public function publish(
-        string $professionalId,
+        string $userId,
         string $frontendType,
         string $category,
         string $title,
@@ -42,9 +42,9 @@ class NotificationPublisher
         ?string $secondaryActionUrl = null,
         ?string $retentionConfigKey = null,
     ): void {
-        $professionalId = trim($professionalId);
-        if ($professionalId === '') {
-            Log::warning('NotificationPublisher: dropped notification — empty professional_id', [
+        $userId = trim($userId);
+        if ($userId === '') {
+            Log::warning('NotificationPublisher: dropped notification — empty user_id', [
                 'category' => $category,
                 'frontend_type' => $frontendType,
             ]);
@@ -57,7 +57,7 @@ class NotificationPublisher
         if ($title === '' || $body === '') {
             Log::warning('NotificationPublisher: dropped notification — empty title/body', [
                 'category' => $category,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'empty_field' => $title === '' ? 'title' : 'body',
             ]);
 
@@ -70,7 +70,7 @@ class NotificationPublisher
             report(new \UnexpectedValueException('NotificationPublisher: empty dedupeKey'));
             Log::warning('NotificationPublisher: dropped notification — empty dedupe_key', [
                 'category' => $category,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
             ]);
 
             return;
@@ -81,9 +81,9 @@ class NotificationPublisher
         // in-app bell row from being inserted for incapable recipients. Any
         // caller that publishes directly (observers, services) automatically
         // inherits this gate without needing its own AccountCapabilities call.
-        if (! self::passesCapabilityGate($category, $professionalId)) {
+        if (! self::passesCapabilityGate($category, $userId)) {
             Log::info('NotificationPublisher: dropped — capability gate', [
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'category' => $category,
             ]);
 
@@ -98,12 +98,12 @@ class NotificationPublisher
 
         $notificationId = (string) Str::uuid();
 
-        // Atomic upsert: ON CONFLICT on (professional_id, dedupe_key) DO NOTHING.
+        // Atomic upsert: ON CONFLICT on (user_id, dedupe_key) DO NOTHING.
         // If a notification with this dedupe_key already exists for this pro,
         // this is a no-op — no duplicate row, no race window.
         $inserted = DB::table('notifications.notifications')->insertOrIgnore([
             'id' => $notificationId,
-            'professional_id' => $professionalId,
+            'user_id' => $userId,
             'type' => $type,
             'category' => $category,
             'title' => $title,
@@ -126,7 +126,7 @@ class NotificationPublisher
             SendTransactionalNotificationEmailJob::dispatch(
                 $notificationId,
                 $category,
-                $professionalId,
+                $userId,
             )->onQueue('mail');
         }
     }
@@ -137,11 +137,11 @@ class NotificationPublisher
      * Use for fan-out — single-shot callers should keep using publish().
      *
      * Each item must supply the same keys as publish()'s named args (minus the
-     * email-dispatch trigger). Items with empty professional_id, title, body,
+     * email-dispatch trigger). Items with empty user_id, title, body,
      * or dedupe_key are silently skipped.
      *
      * @param  array<int, array{
-     *     professionalId: string,
+     *     userId: string,
      *     frontendType: string,
      *     category: string,
      *     title: string,
@@ -166,16 +166,16 @@ class NotificationPublisher
 
         $skipped = 0;
         foreach ($items as $index => $item) {
-            $professionalId = trim((string) ($item['professionalId'] ?? ''));
+            $userId = trim((string) ($item['userId'] ?? ''));
             $title = trim((string) ($item['title'] ?? ''));
             $body = trim((string) ($item['body'] ?? ''));
             $dedupeKey = trim((string) ($item['dedupeKey'] ?? ''));
-            if ($professionalId === '' || $title === '' || $body === '' || $dedupeKey === '') {
+            if ($userId === '' || $title === '' || $body === '' || $dedupeKey === '') {
                 Log::warning('NotificationPublisher::publishMany — skipped invalid item', [
                     'index' => $index,
                     'category' => (string) ($item['category'] ?? ''),
                     'missing' => array_keys(array_filter([
-                        'professionalId' => $professionalId === '',
+                        'userId' => $userId === '',
                         'title' => $title === '',
                         'body' => $body === '',
                         'dedupeKey' => $dedupeKey === '',
@@ -189,11 +189,11 @@ class NotificationPublisher
             $category = (string) ($item['category'] ?? '');
 
             // Defence-in-depth capability gate (audit #6) — see publish().
-            if (! self::passesCapabilityGate($category, $professionalId)) {
+            if (! self::passesCapabilityGate($category, $userId)) {
                 Log::info('NotificationPublisher::publishMany — dropped item, capability gate', [
                     'index' => $index,
                     'category' => $category,
-                    'professional_id' => $professionalId,
+                    'user_id' => $userId,
                 ]);
                 $skipped++;
 
@@ -208,7 +208,7 @@ class NotificationPublisher
 
             $rows[] = [
                 'id' => $notificationId,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'type' => $type,
                 'category' => $category,
                 'title' => $title,
@@ -225,7 +225,7 @@ class NotificationPublisher
                 'updated_at' => $now,
             ];
 
-            $idToCategoryAndPro[$notificationId] = [$category, $professionalId];
+            $idToCategoryAndPro[$notificationId] = [$category, $userId];
         }
 
         if ($rows === []) {
@@ -244,7 +244,7 @@ class NotificationPublisher
         }
 
         // Select back the IDs that actually landed. Conflicting rows (same
-        // professional_id + dedupe_key already present) were ignored, so their
+        // user_id + dedupe_key already present) were ignored, so their
         // UUIDs won't be in the table.
         $insertedIds = DB::table('notifications.notifications')
             ->whereIn('id', array_keys($idToCategoryAndPro))
@@ -252,8 +252,8 @@ class NotificationPublisher
             ->all();
 
         foreach ($insertedIds as $id) {
-            [$category, $professionalId] = $idToCategoryAndPro[$id];
-            SendTransactionalNotificationEmailJob::dispatch($id, $category, $professionalId)
+            [$category, $userId] = $idToCategoryAndPro[$id];
+            SendTransactionalNotificationEmailJob::dispatch($id, $category, $userId)
                 ->onQueue('mail');
         }
     }
@@ -270,7 +270,7 @@ class NotificationPublisher
      * test scaffold or a deleted account with no auth context — dropping the
      * in-app notification silently would mask the underlying issue.
      */
-    private static function passesCapabilityGate(string $category, string $professionalId): bool
+    private static function passesCapabilityGate(string $category, string $userId): bool
     {
         $capabilityProperty = SendTransactionalNotificationEmailJob::capabilityGateMap()[$category] ?? null;
         if ($capabilityProperty === null) {
@@ -278,12 +278,12 @@ class NotificationPublisher
         }
 
         try {
-            $pro = User::find($professionalId);
+            $pro = User::find($userId);
         } catch (\Throwable $e) {
             // DB outage / test scaffold without core.professionals attached.
             // Fall open — email job will fail-close downstream if it matters.
             Log::warning('NotificationPublisher: capability gate Professional lookup failed', [
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'category' => $category,
                 'message' => $e->getMessage(),
             ]);
@@ -293,7 +293,7 @@ class NotificationPublisher
 
         if (! $pro) {
             Log::warning('NotificationPublisher: capability gate could not load Professional', [
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'category' => $category,
             ]);
 
@@ -330,21 +330,21 @@ class NotificationPublisher
 
     private const GLOBAL_VERSION_KEY = 'notif_pref:global_v';
 
-    public static function resolveEmailEnabled(string $professionalId, string $category): bool
+    public static function resolveEmailEnabled(string $userId, string $category): bool
     {
         // Mandatory check stays at the top — config-driven, no DB or cache hit.
         if (self::isMandatory($category)) {
             return true;
         }
 
-        $map = self::loadResolvedMap($professionalId);
+        $map = self::loadResolvedMap($userId);
 
         // Categories registered after the cache was warmed will be missing
         // from the map. Refresh-and-retry rather than blindly returning the
         // default so a new category lights up immediately.
         if (! array_key_exists($category, $map)) {
-            self::forget($professionalId);
-            $map = self::loadResolvedMap($professionalId);
+            self::forget($userId);
+            $map = self::loadResolvedMap($userId);
         }
 
         return $map[$category] ?? true;
@@ -358,9 +358,9 @@ class NotificationPublisher
      *
      * @return array<string, bool>
      */
-    public static function loadResolvedMap(string $professionalId): array
+    public static function loadResolvedMap(string $userId): array
     {
-        $key = self::cacheKey($professionalId);
+        $key = self::cacheKey($userId);
 
         try {
             // Single-flight via CacheLockService — under fan-out (50+ workers
@@ -370,18 +370,18 @@ class NotificationPublisher
             $value = app(CacheLockService::class)->rememberLocked(
                 $key,
                 self::CACHE_TTL_SECONDS,
-                fn () => self::computeResolvedMap($professionalId),
+                fn () => self::computeResolvedMap($userId),
             );
 
-            return is_array($value) ? $value : self::computeResolvedMap($professionalId);
+            return is_array($value) ? $value : self::computeResolvedMap($userId);
         } catch (\Throwable $e) {
             // Cache outage must never break sends — fall back to uncached path.
             Log::warning('Notification preference cache write failed', [
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'message' => $e->getMessage(),
             ]);
 
-            return self::computeResolvedMap($professionalId);
+            return self::computeResolvedMap($userId);
         }
     }
 
@@ -389,11 +389,11 @@ class NotificationPublisher
      * Invalidate a single professional's preference cache. Called by both the
      * user PATCH endpoint and the staff per-professional policy writer.
      */
-    public static function forget(string $professionalId): void
+    public static function forget(string $userId): void
     {
         // Pinned to redis — falling through to a file/array driver would make
         // invalidation worker-local and silently leave other workers stale.
-        $key = self::cacheKey($professionalId);
+        $key = self::cacheKey($userId);
         self::store()->forget($key);
         self::store()->forget($key.':stale');
     }
@@ -417,11 +417,11 @@ class NotificationPublisher
         }
     }
 
-    private static function cacheKey(string $professionalId): string
+    private static function cacheKey(string $userId): string
     {
         $version = (int) (self::store()->get(self::GLOBAL_VERSION_KEY) ?? 1);
 
-        return "notif_pref:p:{$professionalId}:v{$version}";
+        return "notif_pref:p:{$userId}:v{$version}";
     }
 
     /**
@@ -448,23 +448,23 @@ class NotificationPublisher
      *
      * @return array<string, bool>
      */
-    private static function computeResolvedMap(string $professionalId): array
+    private static function computeResolvedMap(string $userId): array
     {
         $categories = self::categories();
         $mandatory = self::mandatoryCategories();
 
         $perProPolicies = DB::table('notifications.notification_email_policies')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->pluck('mode', 'category_key')
             ->all();
 
         $globalPolicies = DB::table('notifications.notification_email_policies')
-            ->whereNull('professional_id')
+            ->whereNull('user_id')
             ->pluck('mode', 'category_key')
             ->all();
 
         $prefs = DB::table('notifications.notification_email_preferences')
-            ->where('professional_id', $professionalId)
+            ->where('user_id', $userId)
             ->pluck('enabled', 'category_key')
             ->all();
 

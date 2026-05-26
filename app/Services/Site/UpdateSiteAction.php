@@ -3,8 +3,8 @@
 namespace App\Services\Site;
 
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\Professional\User;
-use App\Models\Core\Site\ProfessionalHandleAlias;
+use App\Models\Core\User\User;
+use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\Site\Theme;
@@ -18,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 // V2: Site update with business logic — subdomain cooldown (30-day), theme defaults, PATCH-style settings merge, publish validation.
 class UpdateSiteAction
 {
-    // Days between allowed subdomain changes. Mirrored in ProfessionalController::show
+    // Days between allowed subdomain changes. Mirrored in UserSelfController::show
     // when computing subdomain_change_available_at for the /me payload.
     public const SUBDOMAIN_COOLDOWN_DAYS = 30;
 
@@ -120,13 +120,13 @@ class UpdateSiteAction
                     // HydrogenAffiliateController + public site resolver both look up by handle_lc,
                     // so a desync means the affiliate URL breaks immediately after a rename.
                     // The DB trigger (trg_professional_handle_change) records the old handle into
-                    // professional_handle_aliases automatically on this save. We also write it
+                    // user_handle_aliases automatically on this save. We also write it
                     // from PHP (belt-and-suspenders) so tests without the trigger stay green.
                     $oldHandle = $professional->handle;
                     if (! empty($oldHandle) && strtolower($oldHandle) !== $incoming) {
                         try {
-                            ProfessionalHandleAlias::query()->create([
-                                'professional_id' => $professional->id,
+                            UserHandleAlias::query()->create([
+                                'user_id' => $professional->id,
                                 'handle'          => $oldHandle,
                                 'reclaim_until'   => now()->addDays($reclaimDays),
                                 'expires_at'      => now()->addDays($redirectDays),
@@ -156,7 +156,7 @@ class UpdateSiteAction
                     // the old subdomain; $incoming is the new one. actor_id falls back to
                     // the professional themselves (self-serve rename).
                     HandleChangeLog::create([
-                        'professional_id' => (string) $professional->id,
+                        'user_id' => (string) $professional->id,
                         'old_handle'      => $current,
                         'new_handle'      => $incoming,
                         'reason'          => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),

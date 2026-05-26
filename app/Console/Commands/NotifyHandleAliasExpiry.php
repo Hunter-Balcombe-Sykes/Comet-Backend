@@ -28,7 +28,7 @@ class NotifyHandleAliasExpiry extends Command
     private function dispatchBucket(string $stampColumn, \DateTimeInterface $window, string $bucket): void
     {
         DB::connection('pgsql')
-            ->table('core.professional_handle_aliases')
+            ->table('core.user_handle_aliases')
             ->whereNull($stampColumn)
             ->where('expires_at', '>', now())
             ->where('expires_at', '<=', $window)
@@ -36,7 +36,7 @@ class NotifyHandleAliasExpiry extends Command
                 foreach ($aliases as $alias) {
                     $email = DB::connection('pgsql')
                         ->table('core.users')
-                        ->where('id', $alias->professional_id)
+                        ->where('id', $alias->user_id)
                         ->value('primary_email');
 
                     if ($email) {
@@ -44,7 +44,7 @@ class NotifyHandleAliasExpiry extends Command
                     }
 
                     DB::connection('pgsql')
-                        ->table('core.professional_handle_aliases')
+                        ->table('core.user_handle_aliases')
                         ->where('id', $alias->id)
                         ->update([$stampColumn => now()->toDateTimeString()]);
                 }

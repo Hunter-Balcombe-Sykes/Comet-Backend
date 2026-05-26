@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Block;
-use App\Services\Professional\SectionVisibilityService;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -25,7 +25,7 @@ it('batchCheck issues exactly one SQL query regardless of section count', functi
     foreach ($types as $i => $type) {
         $blocks->push(new Block([
             'id' => (string) Str::uuid(),
-            'professional_id' => $pro->id,
+            'user_id' => $pro->id,
             'site_id' => $pro->site->id,
             'block_group' => 'sections',
             'block_type' => $type,

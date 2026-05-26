@@ -6,8 +6,8 @@
 // were folded into the consolidated baseline.
 
 use App\Enums\AccountType;
-use App\Http\Resources\ProfessionalDashboardResource;
-use App\Models\Core\Professional\User;
+use App\Http\Resources\UserDashboardResource;
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 
 describe('AccountType enum', function () {
@@ -34,11 +34,11 @@ describe('Professional model cast', function () {
     });
 });
 
-describe('ProfessionalDashboardResource — Track B §28.8a unblock', function () {
+describe('UserDashboardResource — Track B §28.8a unblock', function () {
     it('includes account_type as a string value', function () {
         $pro = new User(['account_type' => 'individual']);
 
-        $payload = (new ProfessionalDashboardResource($pro))->toArray(Request::create('/'));
+        $payload = (new UserDashboardResource($pro))->toArray(Request::create('/'));
 
         expect($payload)->toHaveKey('account_type');
         expect($payload['account_type'])->toBe('individual');
@@ -47,7 +47,7 @@ describe('ProfessionalDashboardResource — Track B §28.8a unblock', function (
     it('emits null for account_type when the column is unset (pre-backfill rows)', function () {
         $pro = new User(['account_type' => null]);
 
-        $payload = (new ProfessionalDashboardResource($pro))->toArray(Request::create('/'));
+        $payload = (new UserDashboardResource($pro))->toArray(Request::create('/'));
 
         expect($payload)->toHaveKey('account_type');
         expect($payload['account_type'])->toBeNull();

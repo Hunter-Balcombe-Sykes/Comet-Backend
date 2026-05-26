@@ -11,7 +11,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         type TEXT NULL,
         category TEXT NULL,
         title TEXT NULL,
@@ -29,7 +29,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         category_key TEXT NULL,
         mode TEXT NULL,
         created_at TEXT NULL,
@@ -38,7 +38,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         category_key TEXT NULL,
         enabled INTEGER NULL,
         created_at TEXT NULL,
@@ -47,7 +47,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         site_id TEXT NULL,
         visitor_id TEXT NULL,
         ip_hash TEXT NULL,
@@ -56,7 +56,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.link_clicks (
         id TEXT PRIMARY KEY,
-        professional_id TEXT NULL,
+        user_id TEXT NULL,
         site_id TEXT NULL,
         visitor_id TEXT NULL,
         ip_hash TEXT NULL,
@@ -85,7 +85,7 @@ it('email job exits without sending when professional is soft-deleted', function
 
     DB::connection('pgsql')->table('notifications.notifications')->insert([
         'id' => $notifId,
-        'professional_id' => $proId,
+        'user_id' => $proId,
         'type' => 'Info',
         'category' => 'invites',
         'title' => 'Test notification',

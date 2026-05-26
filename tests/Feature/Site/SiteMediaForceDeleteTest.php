@@ -25,7 +25,7 @@ it('deletes all variant storage files when a SiteMedia row is force-deleted', fu
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'test-site',
         'is_published' => 1,
         'created_at' => $now,
@@ -87,7 +87,7 @@ it('removes the SiteMedia DB row itself after force-delete', function () {
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'test-site-2',
         'is_published' => 1,
         'created_at' => $now,
@@ -118,7 +118,7 @@ it('deletes the original upload file when a SiteMedia row is force-deleted', fun
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'test-site-original',
         'is_published' => 1,
         'created_at' => $now,
@@ -154,7 +154,7 @@ it('does not throw when a variant file is already missing from storage', functio
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'professional_id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'test-site-3',
         'is_published' => 1,
         'created_at' => $now,

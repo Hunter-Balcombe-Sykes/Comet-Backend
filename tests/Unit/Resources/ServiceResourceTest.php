@@ -6,13 +6,13 @@
 uses(Tests\TestCase::class)->in(__FILE__);
 
 use App\Http\Resources\ServiceResource;
-use App\Models\Core\Professional\Service;
+use App\Models\Core\User\Service;
 use Illuminate\Support\Carbon;
 
 function makeService(array $overrides = []): Service
 {
     $service = new Service([
-        'professional_id' => '11111111-1111-1111-1111-111111111111',
+        'user_id' => '11111111-1111-1111-1111-111111111111',
         'category_id' => '22222222-2222-2222-2222-222222222222',
         'title' => 'Mens cut',
         'description' => 'Quick haircut',
@@ -38,7 +38,7 @@ it('ships only the allowlisted fields', function () {
     $array = (new ServiceResource(makeService()))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'professional_id', 'category_id', 'title', 'description',
+        'id', 'user_id', 'category_id', 'title', 'description',
         'price_cents', 'currency_code', 'duration_minutes', 'is_active',
         'sort_order', 'created_at', 'updated_at', 'deleted_at',
     ]);

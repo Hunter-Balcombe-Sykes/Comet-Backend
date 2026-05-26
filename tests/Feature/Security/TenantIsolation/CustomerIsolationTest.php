@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Controllers\Api\Professional\Customers\ProfessionalCustomerController;
-use App\Http\Controllers\Api\Professional\Customers\ProfessionalEnquiryController;
-use App\Models\Core\Professional\Customer;
+use App\Http\Controllers\Api\User\Customers\UserCustomerController;
+use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
+use App\Models\Core\User\Customer;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -12,7 +12,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
-        professional_id TEXT,
+        user_id TEXT,
         email TEXT,
         phone TEXT,
         full_name TEXT,
@@ -25,7 +25,7 @@ beforeEach(function () {
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
         id TEXT PRIMARY KEY,
-        professional_id TEXT,
+        user_id TEXT,
         email TEXT,
         name TEXT,
         message TEXT,
@@ -41,12 +41,12 @@ it('customer index never includes customers from another professional', function
     $now = now()->toDateTimeString();
 
     DB::table('site.customers')->insert([
-        ['id' => (string) Str::uuid(), 'professional_id' => $a->id, 'email' => 'a@x.com', 'full_name' => 'A Customer', 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'professional_id' => $b->id, 'email' => 'b@x.com', 'full_name' => 'B Customer', 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => $a->id, 'email' => 'a@x.com', 'full_name' => 'A Customer', 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => $b->id, 'email' => 'b@x.com', 'full_name' => 'B Customer', 'created_at' => $now, 'updated_at' => $now],
     ]);
 
     $req = tenantRequestAs($b);
-    $response = app(ProfessionalCustomerController::class)->index($req);
+    $response = app(UserCustomerController::class)->index($req);
     $payload = $response->getData(true);
 
     // success() wraps via response()->json($payload) — no additional 'data' envelope.
@@ -62,7 +62,7 @@ it('customer show refuses a customer belonging to another professional', functio
     $customerId = (string) Str::uuid();
     DB::table('site.customers')->insert([
         'id' => $customerId,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'email' => 'secret@a.com',
         'full_name' => 'Secret A',
         'created_at' => $now,
@@ -74,7 +74,7 @@ it('customer show refuses a customer belonging to another professional', functio
 
     // Policy now throws AuthorizationException (404) instead of abort_unless HttpException.
     try {
-        app(ProfessionalCustomerController::class)->show($req, $customer);
+        app(UserCustomerController::class)->show($req, $customer);
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
@@ -88,7 +88,7 @@ it('enquiry update refuses an enquiry belonging to another professional', functi
     $enqId = (string) Str::uuid();
     DB::table('site.enquiries')->insert([
         'id' => $enqId,
-        'professional_id' => $a->id,
+        'user_id' => $a->id,
         'email' => 'e@a.com',
         'message' => 'Hello',
         'created_at' => $now,
@@ -96,9 +96,9 @@ it('enquiry update refuses an enquiry belonging to another professional', functi
     ]);
 
     $req = tenantRequestAs($b, ['read' => true], 'PATCH');
-    $response = app(ProfessionalEnquiryController::class)->update($req, $enqId);
+    $response = app(UserEnquiryController::class)->update($req, $enqId);
 
-    // Controller scopes by professional_id — Brand B's query returns null → 404.
+    // Controller scopes by user_id — Brand B's query returns null → 404.
     expect($response->getStatusCode())->toBe(404);
 
     // Original enquiry must be untouched.

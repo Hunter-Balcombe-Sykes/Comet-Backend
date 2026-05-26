@@ -24,35 +24,35 @@ class NotificationListingService
      *
      * @return array{unread_count: int, has_more: bool, notifications: array<int, mixed>}
      */
-    public function index(string $professionalId, int $limit, bool $includeDismissed): array
+    public function index(string $userId, int $limit, bool $includeDismissed): array
     {
         // 15s default TTL: short enough that a server-side notification publish
         // surfaces within one poll cycle of the dashboard bell. markRead and
         // dismiss bust this key explicitly. Tunable via
         // config('partna.notifications.listing_cache_ttl_seconds') (#CFG-4).
         return $this->cache->rememberLocked(
-            $this->cacheKey($professionalId, $limit, $includeDismissed),
+            $this->cacheKey($userId, $limit, $includeDismissed),
             (int) config('partna.notifications.listing_cache_ttl_seconds', 15),
-            fn () => $this->buildIndexPayload($professionalId, $limit, $includeDismissed),
+            fn () => $this->buildIndexPayload($userId, $limit, $includeDismissed),
         );
     }
 
     /**
      * Mark a notification as read for a professional. Bumps the index cache.
      */
-    public function markRead(Notification $notification, string $professionalId): void
+    public function markRead(Notification $notification, string $userId): void
     {
-        $this->upsertReceipt($notification->id, $professionalId, ['read_at' => now()]);
-        $this->bustIndexCache($professionalId);
+        $this->upsertReceipt($notification->id, $userId, ['read_at' => now()]);
+        $this->bustIndexCache($userId);
     }
 
     /**
      * Mark a notification as dismissed for a professional. Bumps the index cache.
      */
-    public function dismiss(Notification $notification, string $professionalId): void
+    public function dismiss(Notification $notification, string $userId): void
     {
-        $this->upsertReceipt($notification->id, $professionalId, ['dismissed_at' => now()]);
-        $this->bustIndexCache($professionalId);
+        $this->upsertReceipt($notification->id, $userId, ['dismissed_at' => now()]);
+        $this->bustIndexCache($userId);
     }
 
     /**
@@ -71,26 +71,26 @@ class NotificationListingService
     }
 
     /**
-     * True if the notification is either global (professional_id null) or
+     * True if the notification is either global (user_id null) or
      * targeted to this professional. Used by staff endpoints, which can't
      * lean on NotificationPolicy because the actor is staff, not the pro.
      */
-    public function visibleTo(Notification $notification, string $professionalId): bool
+    public function visibleTo(Notification $notification, string $userId): bool
     {
-        if ($notification->professional_id === null) {
+        if ($notification->user_id === null) {
             return true;
         }
 
-        return (string) $notification->professional_id === $professionalId;
+        return (string) $notification->user_id === $userId;
     }
 
     /**
      * @return array{unread_count: int, has_more: bool, notifications: array<int, mixed>}
      */
-    private function buildIndexPayload(string $professionalId, int $limit, bool $includeDismissed): array
+    private function buildIndexPayload(string $userId, int $limit, bool $includeDismissed): array
     {
         $now = now();
-        $base = $this->baseQuery($professionalId, $now);
+        $base = $this->baseQuery($userId, $now);
 
         $listQuery = clone $base;
         if (! $includeDismissed) {
@@ -102,7 +102,7 @@ class NotificationListingService
             ->limit($limit + 1)
             ->get([
                 'n.id',
-                'n.professional_id',
+                'n.user_id',
                 'n.type',
                 'n.title',
                 'n.body',
@@ -149,16 +149,16 @@ class NotificationListingService
         ];
     }
 
-    private function baseQuery(string $professionalId, $now)
+    private function baseQuery(string $userId, $now)
     {
         return DB::table('notifications.notifications as n')
-            ->leftJoin('notifications.notification_receipts as r', function ($join) use ($professionalId) {
+            ->leftJoin('notifications.notification_receipts as r', function ($join) use ($userId) {
                 $join->on('r.notification_id', '=', 'n.id')
-                    ->where('r.professional_id', '=', $professionalId);
+                    ->where('r.user_id', '=', $userId);
             })
-            ->where(function ($q) use ($professionalId) {
-                $q->whereNull('n.professional_id')
-                    ->orWhere('n.professional_id', '=', $professionalId);
+            ->where(function ($q) use ($userId) {
+                $q->whereNull('n.user_id')
+                    ->orWhere('n.user_id', '=', $userId);
             })
             ->where(function ($q) use ($now) {
                 $q->whereNull('n.starts_at')->orWhere('n.starts_at', '<=', $now);
@@ -168,9 +168,9 @@ class NotificationListingService
             });
     }
 
-    private function cacheKey(string $professionalId, int $limit, bool $includeDismissed): string
+    private function cacheKey(string $userId, int $limit, bool $includeDismissed): string
     {
-        return "pro:{$professionalId}:notifications:".$limit.':'.($includeDismissed ? 'dismissed' : 'live');
+        return "pro:{$userId}:notifications:".$limit.':'.($includeDismissed ? 'dismissed' : 'live');
     }
 
     /**
@@ -178,7 +178,7 @@ class NotificationListingService
      * Iterates the small known set of (limit, include_dismissed) keys the
      * frontend uses — narrower than a tagged flush and cheap on Redis.
      */
-    private function bustIndexCache(string $professionalId): void
+    private function bustIndexCache(string $userId): void
     {
         // Pinned to redis in non-test envs — a file/array driver fallback in
         // prod would only clear the local worker's copy, leaving other workers
@@ -186,14 +186,14 @@ class NotificationListingService
         $store = app()->environment('testing') ? Cache::store() : Cache::store('redis');
         foreach ([50, 100, 200] as $limit) {
             foreach ([false, true] as $includeDismissed) {
-                $key = $this->cacheKey($professionalId, $limit, $includeDismissed);
+                $key = $this->cacheKey($userId, $limit, $includeDismissed);
                 $store->forget($key);
                 $store->forget($key.':stale');
             }
         }
     }
 
-    private function upsertReceipt(string $notificationId, string $professionalId, array $set): void
+    private function upsertReceipt(string $notificationId, string $userId, array $set): void
     {
         // Whitelist — only read_at / dismissed_at can be set, no other columns.
         $set = array_intersect_key($set, array_flip(self::RECEIPT_COLUMNS));
@@ -202,11 +202,11 @@ class NotificationListingService
             [array_merge([
                 'id' => (string) Str::uuid(),
                 'notification_id' => $notificationId,
-                'professional_id' => $professionalId,
+                'user_id' => $userId,
                 'created_at' => now(),
                 'updated_at' => now(),
             ], $set)],
-            ['notification_id', 'professional_id'],  // unique-by columns
+            ['notification_id', 'user_id'],  // unique-by columns
             [...array_keys($set), 'updated_at'],     // columns to overwrite on conflict
         );
     }

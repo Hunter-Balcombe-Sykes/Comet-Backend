@@ -18,7 +18,7 @@ class SiteResource extends ApiResource
     {
         return [
             'id' => (string) $this->id,
-            'professional_id' => $this->professional_id,
+            'user_id' => $this->user_id,
             'subdomain' => $this->subdomain,
             'theme_id' => $this->theme_id,
             'is_published' => $this->is_published,

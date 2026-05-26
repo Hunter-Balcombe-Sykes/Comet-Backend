@@ -9,7 +9,7 @@ abstract class BaseFormRequest extends FormRequest
 {
     /**
      * Authorization is enforced entirely by route middleware (VerifySupabaseJwt,
-     * LoadCurrentProfessional, staff guards) and resource Policies invoked from
+     * LoadCurrentUser, staff guards) and resource Policies invoked from
      * controllers via `authorizeForUser($pro, ...)`. This method is intentionally
      * `final` — Supabase JWT means `Auth::user()` is always null, so any logic
      * here would gate against a null user and create a second, inconsistent
@@ -107,7 +107,7 @@ abstract class BaseFormRequest extends FormRequest
      * Value-level twin of `cleanText`. Strips HTML tags, ASCII control chars,
      * and surrounding whitespace from a single string; returns null for empty
      * results AND for non-string input. Lifted out of cleanText so traits
-     * (ValidatesProfessionalAbout) and nested-array loops (settings.*) can
+     * (ValidatesUserAbout) and nested-array loops (settings.*) can
      * share the exact same transform without re-implementing it.
      */
     protected static function cleanString(?string $value): ?string

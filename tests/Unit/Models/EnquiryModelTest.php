@@ -26,7 +26,7 @@ it('uses UUID keys and soft deletes', function () {
 it('hides submitter PII and request telemetry from default serialisation', function () {
     $model = (new Enquiry)->forceFill([
         'id' => 'enq-uuid',
-        'professional_id' => 'pro-uuid',
+        'user_id' => 'pro-uuid',
         'site_id' => 'site-uuid',
         'name' => 'Jane Visitor',
         'email' => 'jane@example.com',
@@ -45,7 +45,7 @@ it('hides submitter PII and request telemetry from default serialisation', funct
 
     // Routing-level fields the owning professional already knows must remain visible
     // so enquiry rows can still be tagged/filtered by foreign key without a Resource.
-    expect($array)->toHaveKey('professional_id');
+    expect($array)->toHaveKey('user_id');
     expect($array)->toHaveKey('site_id');
     expect($array)->toHaveKey('subject');
 });

@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\Professional\Documents\UploadDocumentRequest;
+use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Route;
@@ -97,12 +97,12 @@ it('UploadDocumentRequest accepts optional caption within limit', function () {
     expect($result['errors'] ?? [])->not->toHaveKey('caption');
 });
 
-it('route POST api/documents is registered and maps to ProfessionalDocumentController@store', function () {
+it('route POST api/documents is registered and maps to UserDocumentController@store', function () {
     $route = collect(Route::getRoutes()->getRoutes())
         ->first(fn ($r) => in_array('POST', $r->methods()) && $r->uri() === 'api/documents');
 
     expect($route)->not->toBeNull();
-    expect($route->getActionName())->toContain('ProfessionalDocumentController@store');
+    expect($route->getActionName())->toContain('UserDocumentController@store');
 });
 
 it('route POST api/documents has per-route throttle:10,1 middleware', function () {
@@ -113,10 +113,10 @@ it('route POST api/documents has per-route throttle:10,1 middleware', function (
     expect($route->gatherMiddleware())->toContain('throttle:10,1');
 });
 
-it('route GET api/documents is registered and maps to ProfessionalDocumentController@index', function () {
+it('route GET api/documents is registered and maps to UserDocumentController@index', function () {
     $route = collect(Route::getRoutes()->getRoutes())
         ->first(fn ($r) => in_array('GET', $r->methods()) && $r->uri() === 'api/documents');
 
     expect($route)->not->toBeNull();
-    expect($route->getActionName())->toContain('ProfessionalDocumentController@index');
+    expect($route->getActionName())->toContain('UserDocumentController@index');
 });
