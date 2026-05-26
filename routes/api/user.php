@@ -30,8 +30,8 @@ use Illuminate\Support\Facades\Route;
 
 // TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
 
-// Authorised Professional Logged In
-Route::middleware(['professional.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
+// Authorised user logged in
+Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
     ->group(function () {
 
         // Show & Edit Details

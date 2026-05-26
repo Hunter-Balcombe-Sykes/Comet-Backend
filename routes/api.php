@@ -45,7 +45,7 @@ Route::middleware('throttle:webhooks')->group(function () {
 Route::middleware(['supabase.jwt', 'throttle:bootstrap'])->post('/bootstrap', [BootstrapController::class, 'bootstrap']);
 
 // Split route files (keeps api.php tidy)
-require __DIR__.'/api/professional.php';
+require __DIR__.'/api/user.php';
 require __DIR__.'/api/staff.php';
 require __DIR__.'/api/publicSite.php';
 
