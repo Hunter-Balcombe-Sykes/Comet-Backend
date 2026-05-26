@@ -148,9 +148,13 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_text' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Typography group — font slugs that resolve to
-            // @partnaau/design-system/design-assets/fonts/<slug>/.
+            // @partnaau/design-system/design-assets/fonts/<slug>/, plus the
+            // body-text size/weight.
             'design_kit.typography_font_heading' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_font_body' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'design_kit.typography_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
 
             // Publish
             'is_published' => ['sometimes', 'boolean'],
