@@ -48,6 +48,10 @@ const POLICY_EXEMPT = [
     // access is via staff tooling and SQL. Policy will be added when a
     // staff moderation UI endpoint is built.
     \App\Models\Moderation\ModerationCase::class,
+    \App\Models\Moderation\Evidence::class,
+    \App\Models\Moderation\Decision::class,
+    \App\Models\Moderation\ActionLogEntry::class,
+    \App\Models\Moderation\AuditEvent::class,
 
 ];
 
