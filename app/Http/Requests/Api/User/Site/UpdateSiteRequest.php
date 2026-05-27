@@ -187,7 +187,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Responsive companion groups — per-breakpoint partial overrides
             // (tablet = @media min-width 640px, desktop = min-width 1024px).
             // Empty values cascade from the next-smaller breakpoint.
@@ -210,11 +209,9 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.sizing_tablet_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_tablet_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_tablet_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_desktop_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_tablet_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_tablet_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
