@@ -16,9 +16,24 @@ use App\Models\Moderation\AuditEvent;
  */
 class ModerationAuditService
 {
+    /**
+     * Canonical lowercase PII key denylist. Includes common synonyms and
+     * alternate casings so callers can't accidentally leak PII via non-standard
+     * key names. scrubPii() normalises all keys to lowercase before comparison,
+     * and recurses into nested arrays — there is no safe depth limit.
+     */
     private const FORBIDDEN_PAYLOAD_KEYS = [
-        'email', 'reporter_email', 'raw_ip', 'ip', 'reporter_ip',
-        'phone', 'password', 'token',
+        // Email addresses
+        'email', 'reporter_email', 'email_address', 'user_email',
+        'contact_email', 'from_email', 'to_email',
+        // IP addresses
+        'ip', 'raw_ip', 'reporter_ip', 'ip_address', 'client_ip',
+        'remote_ip', 'source_ip', 'x_forwarded_for',
+        // Phone numbers
+        'phone', 'phone_number', 'mobile', 'mobile_number',
+        // Credentials
+        'password', 'token', 'secret', 'api_key', 'access_token',
+        'refresh_token', 'auth_token', 'session_token',
     ];
 
     public function recordStaffAction(
@@ -56,8 +71,20 @@ class ModerationAuditService
         ]);
     }
 
+    /**
+     * Recursively strip forbidden PII keys from a payload array.
+     * Keys are normalised to lowercase before comparison so callers can't
+     * bypass the filter with `Email`, `EMAIL`, or other mixed-case variants.
+     */
     private function scrubPii(array $payload): array
     {
-        return array_diff_key($payload, array_flip(self::FORBIDDEN_PAYLOAD_KEYS));
+        $result = [];
+        foreach ($payload as $key => $value) {
+            if (in_array(strtolower((string) $key), self::FORBIDDEN_PAYLOAD_KEYS, strict: true)) {
+                continue; // drop the key entirely
+            }
+            $result[$key] = is_array($value) ? $this->scrubPii($value) : $value;
+        }
+        return $result;
     }
 }

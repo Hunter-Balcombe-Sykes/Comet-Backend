@@ -48,3 +48,60 @@ it('redacts PII keys from payload when configured', function () {
     expect($row->payload)->not->toHaveKey('email');
     expect($row->payload)->not->toHaveKey('raw_ip');
 });
+
+it('scrubs PII keys regardless of case (Email, EMAIL, reporter_IP)', function () {
+    $staff = PartnaStaff::factory()->create();
+    app(ModerationAuditService::class)
+        ->recordStaffAction($staff, 'case.viewed', null, null, [
+            'safe'        => 'keep',
+            'Email'       => 'mixed@case.com',
+            'EMAIL'       => 'upper@case.com',
+            'reporter_IP' => '10.0.0.1',
+        ]);
+
+    $row = AuditEvent::query()->latest('created_at')->first();
+    expect($row->payload)->toHaveKey('safe');
+    expect($row->payload)->not->toHaveKey('Email');
+    expect($row->payload)->not->toHaveKey('EMAIL');
+    expect($row->payload)->not->toHaveKey('reporter_IP');
+});
+
+it('scrubs PII keys in nested arrays (recursive)', function () {
+    $staff = PartnaStaff::factory()->create();
+    app(ModerationAuditService::class)
+        ->recordStaffAction($staff, 'case.viewed', null, null, [
+            'safe'    => 'keep',
+            'context' => [
+                'safe_nested' => 'also keep',
+                'email'       => 'nested-leak@example.com',
+                'deep'        => [
+                    'raw_ip' => '192.168.0.1',
+                    'note'   => 'keep this',
+                ],
+            ],
+        ]);
+
+    $row = AuditEvent::query()->latest('created_at')->first();
+    expect($row->payload['safe'])->toBe('keep');
+    expect($row->payload['context'])->toHaveKey('safe_nested');
+    expect($row->payload['context'])->not->toHaveKey('email');
+    expect($row->payload['context']['deep'])->not->toHaveKey('raw_ip');
+    expect($row->payload['context']['deep']['note'])->toBe('keep this');
+});
+
+it('scrubs expanded synonym keys (email_address, ip_address, access_token)', function () {
+    $staff = PartnaStaff::factory()->create();
+    app(ModerationAuditService::class)
+        ->recordStaffAction($staff, 'case.viewed', null, null, [
+            'safe'          => 'keep',
+            'email_address' => 'test@example.com',
+            'ip_address'    => '203.0.113.5',
+            'access_token'  => 'tok_123abc',
+        ]);
+
+    $row = AuditEvent::query()->latest('created_at')->first();
+    expect($row->payload)->toHaveKey('safe');
+    expect($row->payload)->not->toHaveKey('email_address');
+    expect($row->payload)->not->toHaveKey('ip_address');
+    expect($row->payload)->not->toHaveKey('access_token');
+});
