@@ -316,9 +316,23 @@ class IndividualProfilePayloadBuilder
      */
     private function groupKitColumns(array $cols): array
     {
-        // Map of DB column-prefix → wire group key. Pluralisation isn't
+        // Responsive companion groups use a two-token prefix (e.g.
+        // `padding_tablet_general` → paddingTablet.general). Match these
+        // BEFORE the single-token prefixes so the longer match wins.
+        $twoTokenPrefixes = [
+            'padding_tablet' => 'paddingTablet',
+            'padding_desktop' => 'paddingDesktop',
+            'spacing_tablet' => 'spacingTablet',
+            'spacing_desktop' => 'spacingDesktop',
+            'sizing_tablet' => 'sizingTablet',
+            'sizing_desktop' => 'sizingDesktop',
+            'typography_tablet' => 'typographyTablet',
+            'typography_desktop' => 'typographyDesktop',
+        ];
+
+        // Single-token prefix → wire group key. Pluralisation isn't
         // mechanical (typography stays singular), so the map is explicit.
-        $groupMap = [
+        $singleTokenPrefixes = [
             'color' => 'colors',
             'typography' => 'typography',
             'border' => 'borders',
@@ -333,16 +347,30 @@ class IndividualProfilePayloadBuilder
 
         $out = [];
         foreach ($cols as $column => $value) {
-            $underscorePos = strpos($column, '_');
-            if ($underscorePos === false) {
-                // No prefix → no group. Skip; spec §5 groups every var.
-                continue;
+            $group = null;
+            $rest = null;
+
+            // Try two-token prefix first.
+            foreach ($twoTokenPrefixes as $prefix => $candidateGroup) {
+                if (str_starts_with($column, $prefix.'_')) {
+                    $group = $candidateGroup;
+                    $rest = substr($column, strlen($prefix) + 1);
+                    break;
+                }
             }
 
-            $prefix = substr($column, 0, $underscorePos);
-            $rest = substr($column, $underscorePos + 1);
-            $group = $groupMap[$prefix] ?? null;
+            // Fall back to single-token prefix.
             if ($group === null) {
+                $underscorePos = strpos($column, '_');
+                if ($underscorePos === false) {
+                    continue;
+                }
+                $singleToken = substr($column, 0, $underscorePos);
+                $rest = substr($column, $underscorePos + 1);
+                $group = $singleTokenPrefixes[$singleToken] ?? null;
+            }
+
+            if ($group === null || $rest === null) {
                 continue;
             }
 
