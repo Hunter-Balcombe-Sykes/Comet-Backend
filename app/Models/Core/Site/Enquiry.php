@@ -2,7 +2,10 @@
 
 namespace App\Models\Core\Site;
 
+use App\Enums\EnquiryStatus;
 use App\Models\BaseModel;
+use App\Models\Core\Notifications\Notification;
+use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +34,13 @@ class Enquiry extends BaseModel
         'user_agent',
         'read_at',
         'email_sent_at',
+        'status',
+        'customer_id',
+        'notification_id',
+        'replied_at',
+        'archived_at',
+        'spam_at',
+        'redacted_at',
     ];
 
     // Submitter PII + request telemetry hidden from default model serialization.
@@ -51,6 +61,11 @@ class Enquiry extends BaseModel
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
         'email_sent_at' => 'datetime',
+        'status' => EnquiryStatus::class,
+        'replied_at' => 'datetime',
+        'archived_at' => 'datetime',
+        'spam_at' => 'datetime',
+        'redacted_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -61,5 +76,15 @@ class Enquiry extends BaseModel
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class, 'site_id');
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
+    }
+
+    public function notification(): BelongsTo
+    {
+        return $this->belongsTo(Notification::class, 'notification_id');
     }
 }
