@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
+use App\Models\Core\Site\Enquiry;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ function setupContactSubmissionSchema(): void
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         site_id TEXT NOT NULL,
+        customer_id TEXT NULL,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
         phone TEXT NULL,
@@ -281,4 +283,18 @@ it('stops dispatching notification job once per-brand hourly limit is exceeded b
 
     Bus::assertDispatchedTimes(SendEnquiryNotificationJob::class, 2);
     expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(3);
+});
+
+it('links the created Enquiry to the upserted Customer via customer_id', function () {
+    seedPublishedContactSite();
+    Bus::fake();
+
+    $response = $this->postJson('/api/public/enquiry', validEnquiryPayload(['email' => 'alice@example.com']), [
+        'X-Site-Subdomain' => 'testpro',
+    ]);
+    $response->assertOk();
+
+    $enquiry = Enquiry::latest()->first();
+    expect($enquiry->customer_id)->not->toBeNull();
+    expect($enquiry->customer->email)->toBe('alice@example.com');
 });
