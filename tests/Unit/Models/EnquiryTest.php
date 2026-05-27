@@ -3,6 +3,7 @@
 use App\Enums\EnquiryStatus;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -108,4 +109,51 @@ it('transitions are idempotent', function () {
     $enquiry->archive();
 
     expect(Enquiry::find($enquiryId)->status)->toBe(EnquiryStatus::Archived);
+});
+
+it('redact() nulls PII and scrubs the linked notification', function () {
+    $user = makeInboxUser();
+
+    $notificationId = (string) Str::uuid();
+    DB::connection('pgsql')->table('notifications.notifications')->insert([
+        'id' => $notificationId,
+        'type' => 'enquiry.received',
+        'category' => 'inbox',
+        'title' => 'New enquiry',
+        'body' => 'Hello, I need...',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), [
+        'name' => 'Jane Doe',
+        'email' => 'jane@example.com',
+        'message' => 'Sensitive content',
+        'notification_id' => $notificationId,
+    ]);
+    $enquiry = Enquiry::find($enquiryId);
+
+    $enquiry->redact();
+
+    $fresh = Enquiry::find($enquiryId);
+    expect($fresh->name)->toBeNull();
+    expect($fresh->email)->toBeNull();
+    expect($fresh->message)->toBeNull();
+    expect($fresh->redacted_at)->not->toBeNull();
+
+    $notif = DB::connection('pgsql')->table('notifications.notifications')->where('id', $notificationId)->first();
+    expect($notif->title)->toBe('[redacted]');
+    expect($notif->body)->toBe('[redacted]');
+});
+
+it('redact() is a no-op for notification when notification_id is null', function () {
+    $user = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), ['notification_id' => null]);
+    $enquiry = Enquiry::find($enquiryId);
+
+    $enquiry->redact();
+
+    $fresh = Enquiry::find($enquiryId);
+    expect($fresh->name)->toBeNull();
+    expect($fresh->redacted_at)->not->toBeNull();
 });

@@ -125,4 +125,26 @@ class Enquiry extends BaseModel
     {
         $this->update(['status' => 'new']);
     }
+
+    /**
+     * Scrub all submitter PII from this enquiry and null out the linked
+     * notification body/title. Safe to call on enquiries with no notification.
+     */
+    public function redact(): void
+    {
+        $this->update([
+            'name' => null,
+            'email' => null,
+            'phone' => null,
+            'message' => null,
+            'ip_hash' => null,
+            'user_agent' => null,
+            'redacted_at' => now(),
+        ]);
+
+        if ($this->notification_id) {
+            Notification::where('id', $this->notification_id)
+                ->update(['title' => '[redacted]', 'body' => '[redacted]']);
+        }
+    }
 }
