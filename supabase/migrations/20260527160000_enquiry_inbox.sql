@@ -30,6 +30,9 @@ ALTER TABLE site.enquiries
     ADD COLUMN spam_at timestamptz,
     ADD COLUMN redacted_at timestamptz;
 
+-- 4b. Add redacted_at to site.customers (PII redaction cascade target — Task 7)
+ALTER TABLE site.customers ADD COLUMN IF NOT EXISTS redacted_at timestamptz;
+
 -- 5. Backfill customer_id by email match (live customers only)
 UPDATE site.enquiries e
 SET customer_id = c.id
