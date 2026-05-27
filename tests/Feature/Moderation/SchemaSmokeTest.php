@@ -37,3 +37,28 @@ it('has audit schema with moderation_events table', function () {
 
     expect($exists->present)->toBeTrue();
 })->group('postgres');
+
+it('has the hot-path partial indexes for moderation queries', function () {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('information_schema queries require PostgreSQL.');
+    }
+
+    $indexes = collect(DB::select(<<<'SQL'
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'moderation'
+        ORDER BY indexname
+    SQL))->pluck('indexname')->all();
+
+    expect($indexes)->toContain(
+        'cases_open_queue_idx',
+        'cases_target_open_idx',
+        'cases_sla_due_idx',
+        'cases_owner_status_idx',
+        'case_signals_dedup_uniq',
+        'case_signals_case_idx',
+        'evidence_case_idx',
+        'decisions_case_idx',
+        'action_log_decision_idx',
+        'action_log_pending_idx',
+    );
+})->group('postgres');
