@@ -38,7 +38,8 @@ class EvidenceSnapshotService
         unset($hashInput['captured_at']);
         $contentHash = hash('sha256', json_encode($hashInput, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
 
-        return Evidence::create([
+        // forceCreate() bypasses the model's $guarded = ['id'] so the explicit UUID is stored.
+        return Evidence::forceCreate([
             'id'            => (string) \Illuminate\Support\Str::uuid(),
             'case_id'       => $caseId,
             'signal_id'     => $signalId,
