@@ -4,7 +4,9 @@ use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicMarketingPreferenceController;
+use App\Http\Controllers\Api\PublicSite\PublicReportController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
+use App\Http\Middleware\Moderation\PerTargetReportThrottle;
 use Illuminate\Support\Facades\Route;
 
 // TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
@@ -43,4 +45,14 @@ Route::group([
 
     Route::post('/unsubscribe/{token}', [PublicMarketingPreferenceController::class, 'unsubscribe'])
         ->middleware('throttle:public-site');
+});
+
+// ── Global (non-subdomain) public endpoints ─────────────────────────────────
+Route::middleware([
+    'bot.token:report',
+    'throttle:partna.moderation.report',
+    PerTargetReportThrottle::class,
+])->group(function () {
+    Route::post('/v1/public/report', [PublicReportController::class, 'submit'])
+        ->name('public.moderation.report');
 });

@@ -488,5 +488,22 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        RateLimiter::for('partna.moderation.report', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $cfg = config('partna.moderation.reporting.public_throttle', ['requests' => 5, 'minutes' => 1]);
+
+            return Limit::perMinutes($cfg['minutes'], $cfg['requests'])
+                ->by($request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'error'   => 'RATE_LIMITED',
+                        'message' => 'Hold on a sec, try again in a minute.',
+                    ], 429);
+                });
+        });
+
     }
 }
