@@ -156,6 +156,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.typography_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_title_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
             // Orphan typography slots from the earlier wiped vars — left in
             // the allowlist so the request doesn't 422 on legacy clients,
             // but the columns store NULL and nothing reads them.
