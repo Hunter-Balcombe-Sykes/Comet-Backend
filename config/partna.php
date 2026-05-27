@@ -970,10 +970,11 @@ return [
          * No edits to the publisher, no edits to the email dispatch job.
          */
         'mailables' => [
-            'profile_tasks' => ProfileTaskMail::class,
-            'policy_update' => PolicyUpdateMail::class,
-            'incident' => IncidentMail::class,
             'feature_announcement' => FeatureAnnouncementMail::class,
+            'incident' => IncidentMail::class,
+            'inbox' => null,  // in-app only — enquiry inbox; no mailable (email goes via SendEnquiryNotificationJob)
+            'policy_update' => PolicyUpdateMail::class,
+            'profile_tasks' => ProfileTaskMail::class,
         ],
 
         /*

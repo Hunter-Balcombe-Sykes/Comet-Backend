@@ -41,7 +41,7 @@ class NotificationPublisher
         ?string $secondaryActionLabel = 'Dismiss',
         ?string $secondaryActionUrl = null,
         ?string $retentionConfigKey = null,
-    ): void {
+    ): ?Notification {
         $userId = trim($userId);
         if ($userId === '') {
             Log::warning('NotificationPublisher: dropped notification — empty user_id', [
@@ -49,7 +49,7 @@ class NotificationPublisher
                 'frontend_type' => $frontendType,
             ]);
 
-            return;
+            return null;
         }
 
         $title = trim($title);
@@ -61,7 +61,7 @@ class NotificationPublisher
                 'empty_field' => $title === '' ? 'title' : 'body',
             ]);
 
-            return;
+            return null;
         }
 
         $dedupeKey = trim($dedupeKey);
@@ -73,7 +73,7 @@ class NotificationPublisher
                 'user_id' => $userId,
             ]);
 
-            return;
+            return null;
         }
 
         // Defence-in-depth capability gate (audit #6). The downstream email
@@ -87,7 +87,7 @@ class NotificationPublisher
                 'category' => $category,
             ]);
 
-            return;
+            return null;
         }
 
         $now = now();
@@ -120,6 +120,14 @@ class NotificationPublisher
             'updated_at' => $now,
         ]);
 
+        // Always return the row (newly inserted OR existing on dedupe conflict).
+        // Falls back to a select-by-(user_id, dedupe_key) lookup when insertOrIgnore
+        // reported 0 rows (i.e., conflict) so callers can capture the canonical id.
+        $notification = Notification::query()
+            ->where('user_id', $userId)
+            ->where('dedupe_key', $dedupeKey)
+            ->first();
+
         // Only dispatch the email job for genuinely-new rows. insertOrIgnore()
         // returns the number of rows actually inserted (0 on conflict).
         if ($inserted > 0 && config('partna.notifications.email_enabled', false)) {
@@ -129,6 +137,8 @@ class NotificationPublisher
                 $userId,
             )->onQueue('mail');
         }
+
+        return $notification;
     }
 
     /**
