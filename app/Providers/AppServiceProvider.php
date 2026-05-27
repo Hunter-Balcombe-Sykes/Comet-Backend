@@ -92,6 +92,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
         Gate::policy(Feedback::class, FeedbackPolicy::class);
+        Gate::policy(\App\Models\Moderation\ModerationCase::class, \App\Policies\CasePolicy::class);
+        Gate::policy(\App\Models\Moderation\Decision::class, \App\Policies\DecisionPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
