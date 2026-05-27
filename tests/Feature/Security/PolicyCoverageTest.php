@@ -44,6 +44,11 @@ const POLICY_EXEMPT = [
     // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
     \App\Models\Core\Gdpr\GdprRequest::class,
 
+    // Moderation models — staff-internal only. No user-facing API endpoints;
+    // access is via staff tooling and SQL. Policy will be added when a
+    // staff moderation UI endpoint is built.
+    \App\Models\Moderation\ModerationCase::class,
+
 ];
 
 it('every tenant-owned model has a registered policy', function () {
