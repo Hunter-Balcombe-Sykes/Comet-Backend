@@ -44,6 +44,8 @@ expect()->extend('toBeOne', function () {
 |
 */
 
+require_once __DIR__.'/Helpers/EnquiryInboxTestHelpers.php';
+
 function something()
 {
     // ..
@@ -77,10 +79,10 @@ function something()
  * Usage: actingAsUser($pro)->getJson('/api/stripe/payouts')
  */
 function actingAsUser(
-    \App\Models\Core\User\User $professional,
+    User $professional,
     array $claims = [],
-): \Pest\Support\HigherOrderTapProxy {
-    $supabaseUid = $professional->auth_user_id ?? (string) \Illuminate\Support\Str::uuid();
+): HigherOrderTapProxy {
+    $supabaseUid = $professional->auth_user_id ?? (string) Str::uuid();
 
     // Default claims mirror a verified user. Tests that need to exercise the
     // unverified path should bind their own stub before calling actingAsProfessional
@@ -91,7 +93,7 @@ function actingAsUser(
         'email_verified' => true,
         'aal' => 'aal1',
         'amr' => [],
-        'session_id' => (string) \Illuminate\Support\Str::uuid(),
+        'session_id' => (string) Str::uuid(),
     ];
     $resolvedClaims = array_merge($defaultClaims, $claims);
 
@@ -106,7 +108,7 @@ function actingAsUser(
     // app()->resolving(Request::class, ...) doesn't help here: Laravel's HTTP
     // testing layer creates the Request via createFromBase, not via container
     // resolution, so resolving() callbacks never fire.
-    app()->bind(\App\Http\Middleware\Auth\VerifySupabaseJwt::class, function () use ($supabaseUid, $resolvedClaims) {
+    app()->bind(VerifySupabaseJwt::class, function () use ($supabaseUid, $resolvedClaims) {
         return new class($supabaseUid, $resolvedClaims)
         {
             public function __construct(
@@ -114,7 +116,7 @@ function actingAsUser(
                 private readonly array $claims,
             ) {}
 
-            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            public function handle(Request $request, Closure $next)
             {
                 $request->attributes->set('supabase_uid', $this->uid);
                 $request->attributes->set('supabase_claims', $this->claims);
@@ -127,12 +129,12 @@ function actingAsUser(
         };
     });
 
-    app()->bind(\App\Http\Middleware\Context\LoadCurrentUser::class, function () use ($professional) {
+    app()->bind(LoadCurrentUser::class, function () use ($professional) {
         return new class($professional)
         {
-            public function __construct(private readonly \App\Models\Core\User\User $pro) {}
+            public function __construct(private readonly User $pro) {}
 
-            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            public function handle(Request $request, Closure $next)
             {
                 $request->attributes->set('professional', $this->pro);
 
@@ -184,7 +186,7 @@ function aal2ClaimsWithFreshTotp(int $verifiedSecondsAgo = 0): array
  */
 function attachTestSchemas(): void
 {
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+    $conn = DB::connection('pgsql');
     if ($conn->getDriverName() !== 'sqlite') {
         return;
     }
@@ -192,7 +194,7 @@ function attachTestSchemas(): void
     foreach (['core', 'site', 'audit', 'moderation', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // already attached — ignore
         }
     }
@@ -205,7 +207,7 @@ function attachTestSchemas(): void
 function setupUsersTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         auth_user_id TEXT NULL,
         handle TEXT NULL,
@@ -246,7 +248,7 @@ function setupUsersTable(): void
 function setupFeedbackTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.feedback (
+    DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.feedback (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         reply_email TEXT NULL,
@@ -275,7 +277,7 @@ function setupFeedbackTable(): void
 function setupSitesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.sites (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.sites (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         subdomain TEXT NULL,
@@ -296,7 +298,7 @@ function setupSitesTable(): void
 function setupPublicSitePayloadTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.public_site_payload (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.public_site_payload (
         site_id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         subdomain TEXT NULL,
@@ -311,7 +313,7 @@ function setupPublicSitePayloadTable(): void
 function setupMediaTables(): void
 {
     attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+    $conn = DB::connection('pgsql');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS site.site_media (
         id TEXT PRIMARY KEY,
@@ -370,7 +372,7 @@ function setupMediaTables(): void
 function setupWaitlistTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
         id TEXT PRIMARY KEY,
         name TEXT NULL,
         email TEXT NULL,
@@ -401,7 +403,7 @@ function setupWaitlistTable(): void
  */
 function shimPgAdvisoryLockForSqlite(): void
 {
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+    $conn = DB::connection('pgsql');
     if ($conn->getDriverName() !== 'sqlite') {
         return;
     }
@@ -418,7 +420,7 @@ function shimPgAdvisoryLockForSqlite(): void
 function setupBlocksTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.blocks (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.blocks (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
@@ -443,7 +445,7 @@ function setupBlocksTable(): void
 function setupNotificationPreferencesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_preferences (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_preferences (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         channel TEXT NULL,
@@ -463,8 +465,26 @@ function setupNotificationPreferencesTable(): void
 | the live Eloquent model so tests can wire it to a Request.
 */
 
-use App\Models\Core\User\User;
+use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\Context\LoadCurrentUser;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\BotProtection\Providers\FakeProvider;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
+use Mockery\MockInterface;
+use Pest\Support\HigherOrderTapProxy;
+use Stripe\StripeClient;
+use Tests\TestCase;
 
 function tenantHelpersEnsureTables(): void
 {
@@ -482,13 +502,13 @@ function createTenant(string $handle, string $type = 'professional'): User
 {
     tenantHelpersEnsureTables();
 
-    $proId = (string) \Illuminate\Support\Str::uuid();
-    $siteId = (string) \Illuminate\Support\Str::uuid();
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
+    DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
-        'auth_user_id' => 'auth-'.\Illuminate\Support\Str::random(12),
+        'auth_user_id' => 'auth-'.Str::random(12),
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
@@ -499,7 +519,7 @@ function createTenant(string $handle, string $type = 'professional'): User
         'updated_at' => $now,
     ]);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+    DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $proId,
         'subdomain' => $handle,
@@ -515,13 +535,13 @@ function createTenant(string $handle, string $type = 'professional'): User
 function createBrandTenant(string $handle = 'brand-a'): User
 {
     $pro = createTenant($handle, 'brand');
-    \Illuminate\Support\Facades\DB::connection('pgsql')
+    DB::connection('pgsql')
         ->table('core.users')
         ->where('id', $pro->id)
         ->update(['account_type' => 'brand']);
-    \App\Services\Accounts\AccountCapabilities::flushCache();
+    AccountCapabilities::flushCache();
 
-    return \App\Models\Core\User\User::query()->findOrFail($pro->id);
+    return User::query()->findOrFail($pro->id);
 }
 
 function createAffiliateTenant(string $handle = 'affiliate-a'): User
@@ -530,13 +550,13 @@ function createAffiliateTenant(string $handle = 'affiliate-a'): User
     // generic professional. Set account_type='partner' so AccountCapabilities
     // returns the partner capability set in dispatcher-gate tests.
     $pro = createTenant($handle, 'affiliate');
-    \Illuminate\Support\Facades\DB::connection('pgsql')
+    DB::connection('pgsql')
         ->table('core.users')
         ->where('id', $pro->id)
         ->update(['account_type' => 'partner']);
-    \App\Services\Accounts\AccountCapabilities::flushCache();
+    AccountCapabilities::flushCache();
 
-    return \App\Models\Core\User\User::query()->findOrFail($pro->id);
+    return User::query()->findOrFail($pro->id);
 }
 
 /**
@@ -560,9 +580,9 @@ function createTwoTenants(string $type = 'brand'): array
  * Named tenantRequestAs() to avoid collision with the local requestAs() helper
  * declared in UserEnquiryControllerTest (different signature).
  */
-function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'): \Illuminate\Http\Request
+function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'): Request
 {
-    $req = \Illuminate\Http\Request::create('/', $method, $input);
+    $req = Request::create('/', $method, $input);
     $req->attributes->set('professional', $tenant);
     $req->setUserResolver(fn () => (object) ['professional' => $tenant]);
 
@@ -575,7 +595,7 @@ function tenantRequestAs(User $tenant, array $input = [], string $method = 'GET'
 function setupUserDeletionAuditTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.user_deletion_audit (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.user_deletion_audit (
         id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
         user_id TEXT NULL,
         professional_handle_snapshot TEXT NULL,
@@ -600,7 +620,7 @@ function setupUserDeletionAuditTable(): void
 function setupUserIntegrationsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         provider TEXT NULL,
@@ -660,7 +680,7 @@ function signStripeBody(string $body, string $secret, ?int $timestamp = null): s
 function setupServiceCategoriesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.service_categories (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.service_categories (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         title TEXT NULL,
@@ -678,7 +698,7 @@ function setupServicesTable(): void
 {
     attachTestSchemas();
     setupServiceCategoriesTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         category_id TEXT NULL,
@@ -712,7 +732,7 @@ function setupServicesTable(): void
 function setupCustomersTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.customers (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         email TEXT NULL,
@@ -734,26 +754,26 @@ function setupCustomersTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\User\Customer
+function createCustomerFor(User $pro, array $overrides = []): Customer
 {
     setupCustomersTable();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     $row = array_merge([
         'id' => $id,
         'user_id' => $pro->id,
-        'email' => 'customer-'.\Illuminate\Support\Str::random(6).'@example.test',
+        'email' => 'customer-'.Str::random(6).'@example.test',
         'full_name' => 'Test Customer',
         'source' => 'manual',
         'created_at' => $now,
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.customers')->insert($row);
+    DB::connection('pgsql')->table('site.customers')->insert($row);
 
-    return \App\Models\Core\User\Customer::query()->findOrFail($id);
+    return Customer::query()->findOrFail($id);
 }
 
 /**
@@ -761,11 +781,11 @@ function createCustomerFor(User $pro, array $overrides = []): \App\Models\Core\U
  *
  * @param  array<string, mixed>  $overrides
  */
-function createServiceFor(User $pro, array $overrides = []): \App\Models\Core\User\Service
+function createServiceFor(User $pro, array $overrides = []): Service
 {
     setupServicesTable();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     $row = array_merge([
@@ -780,9 +800,9 @@ function createServiceFor(User $pro, array $overrides = []): \App\Models\Core\Us
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.services')->insert($row);
+    DB::connection('pgsql')->table('site.services')->insert($row);
 
-    return \App\Models\Core\User\Service::withTrashed()->findOrFail($id);
+    return Service::withTrashed()->findOrFail($id);
 }
 
 /**
@@ -790,11 +810,11 @@ function createServiceFor(User $pro, array $overrides = []): \App\Models\Core\Us
  *
  * @param  array<string, mixed>  $overrides
  */
-function createServiceCategoryFor(User $pro, array $overrides = []): \App\Models\Core\User\ServiceCategory
+function createServiceCategoryFor(User $pro, array $overrides = []): ServiceCategory
 {
     setupServiceCategoriesTable();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     $row = array_merge([
@@ -806,19 +826,19 @@ function createServiceCategoryFor(User $pro, array $overrides = []): \App\Models
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.service_categories')->insert($row);
+    DB::connection('pgsql')->table('site.service_categories')->insert($row);
 
-    return \App\Models\Core\User\ServiceCategory::withoutGlobalScopes()->findOrFail($id);
+    return ServiceCategory::withoutGlobalScopes()->findOrFail($id);
 }
 
 /**
  * Insert a link-type Block row for $pro and return the Eloquent model.
  */
-function createLinkBlockFor(User $pro, array $overrides = []): \App\Models\Core\Site\Block
+function createLinkBlockFor(User $pro, array $overrides = []): Block
 {
     setupBlocksTable();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $site = $pro->relationLoaded('site') ? $pro->site : $pro->load('site')->site;
     $now = now()->toDateTimeString();
 
@@ -836,9 +856,9 @@ function createLinkBlockFor(User $pro, array $overrides = []): \App\Models\Core\
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.blocks')->insert($row);
+    DB::connection('pgsql')->table('site.blocks')->insert($row);
 
-    return \App\Models\Core\Site\Block::query()->findOrFail($id);
+    return Block::query()->findOrFail($id);
 }
 
 /**
@@ -847,7 +867,7 @@ function createLinkBlockFor(User $pro, array $overrides = []): \App\Models\Core\
 function setupNotificationsTable(): void
 {
     attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+    $conn = DB::connection('pgsql');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
@@ -883,20 +903,20 @@ function setupNotificationsTable(): void
 /**
  * Insert a SiteMedia document-pool row for $pro's site and return the model.
  */
-function createDocumentFor(User $pro, array $overrides = []): \App\Models\Core\Site\SiteMedia
+function createDocumentFor(User $pro, array $overrides = []): SiteMedia
 {
     setupMediaTables();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $site = $pro->relationLoaded('site') ? $pro->site : $pro->load('site')->site;
     $now = now()->toDateTimeString();
 
     $row = array_merge([
         'id' => $id,
         'site_id' => $site->id,
-        'pool' => \App\Models\Core\Site\SiteMedia::POOL_DOCUMENTS,
+        'pool' => SiteMedia::POOL_DOCUMENTS,
         'media_type' => 'application/pdf',
-        'processing_state' => \App\Models\Core\Site\SiteMedia::PROCESSING_STATE_READY,
+        'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
         'alt_text' => 'Test Document',
         'original_filename' => 'test.pdf',
@@ -905,9 +925,9 @@ function createDocumentFor(User $pro, array $overrides = []): \App\Models\Core\S
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert($row);
+    DB::connection('pgsql')->table('site.site_media')->insert($row);
 
-    return \App\Models\Core\Site\SiteMedia::query()->findOrFail($id);
+    return SiteMedia::query()->findOrFail($id);
 }
 
 /**
@@ -918,7 +938,7 @@ function createDocumentFor(User $pro, array $overrides = []): \App\Models\Core\S
 function setupFeatureFlagsTable(): void
 {
     attachTestSchemas();
-    $conn = \Illuminate\Support\Facades\DB::connection('pgsql');
+    $conn = DB::connection('pgsql');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flags (
         key TEXT PRIMARY KEY,
@@ -949,7 +969,7 @@ function setupFeatureFlagsTable(): void
 function setupPartnaStaffTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (
         id TEXT PRIMARY KEY,
         auth_user_id TEXT NULL,
         role TEXT NULL,
@@ -968,7 +988,7 @@ function setupPartnaStaffTable(): void
 function setupSiteVisitsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
@@ -993,7 +1013,7 @@ function setupSiteVisitsTable(): void
 function setupLinkClicksTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.link_clicks (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.link_clicks (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
@@ -1017,7 +1037,7 @@ function setupLinkClicksTable(): void
 function setupSectionViewsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.section_views (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.section_views (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
@@ -1044,7 +1064,7 @@ function setupSectionViewsTable(): void
 function setupEmailSubscriptionsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         list_key TEXT NOT NULL DEFAULT "marketing",
@@ -1071,7 +1091,7 @@ function setupEmailSubscriptionsTable(): void
 function setupSubdomainAliasesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.site_subdomain_aliases (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.site_subdomain_aliases (
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
         subdomain TEXT NULL,
@@ -1111,9 +1131,9 @@ function setupSubdomainAliasesTable(): void
  *
  * @param  array<string, object>  $services
  */
-function mockStripeClient(array $services = []): \Mockery\MockInterface
+function mockStripeClient(array $services = []): MockInterface
 {
-    $mock = Mockery::mock(\Stripe\StripeClient::class);
+    $mock = Mockery::mock(StripeClient::class);
 
     foreach ($services as $name => $stub) {
         $mock->shouldReceive('getService')->with($name)->andReturn($stub);
@@ -1135,7 +1155,7 @@ function mockStripeClient(array $services = []): \Mockery\MockInterface
 function stripeWebhookEvent(string $type, array $object): array
 {
     return [
-        'id' => 'evt_'.\Illuminate\Support\Str::random(24),
+        'id' => 'evt_'.Str::random(24),
         'object' => 'event',
         'type' => $type,
         'data' => ['object' => $object],
@@ -1155,7 +1175,7 @@ function stripeWebhookEvent(string $type, array $object): array
  *
  * @param  array<string, mixed>  $event
  */
-function postStripeWebhook(array $event): \Illuminate\Testing\TestResponse
+function postStripeWebhook(array $event): TestResponse
 {
     $body = json_encode($event);
     $secret = (string) config('services.stripe.connect_webhook_secret', 'whsec_test');
@@ -1183,7 +1203,7 @@ function buildTestStripeSignature(string $body, string $secret, ?int $timestamp 
 function setupEnquiriesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
@@ -1207,13 +1227,13 @@ function setupEnquiriesTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createEnquiryFor(User $pro, array $overrides = []): \App\Models\Core\Site\Enquiry
+function createEnquiryFor(User $pro, array $overrides = []): Enquiry
 {
     setupEnquiriesTable();
     setupSitesTable();
 
     $site = $pro->relationLoaded('site') ? $pro->site : $pro->load('site')->site;
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     $row = array_merge([
@@ -1228,9 +1248,9 @@ function createEnquiryFor(User $pro, array $overrides = []): \App\Models\Core\Si
         'updated_at' => $now,
     ], $overrides);
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.enquiries')->insert($row);
+    DB::connection('pgsql')->table('site.enquiries')->insert($row);
 
-    return \App\Models\Core\Site\Enquiry::withTrashed()->findOrFail($id);
+    return Enquiry::withTrashed()->findOrFail($id);
 }
 
 /**
@@ -1240,7 +1260,7 @@ function createEnquiryFor(User $pro, array $overrides = []): \App\Models\Core\Si
 function setupBroadcastEmailReceiptsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.broadcast_email_receipts (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.broadcast_email_receipts (
         notification_id TEXT NOT NULL,
         subscription_id TEXT NOT NULL,
         email_sent_at TEXT NULL,
@@ -1255,7 +1275,7 @@ function setupBroadcastEmailReceiptsTable(): void
 function setupNotificationEmailPoliciesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         category_key TEXT NULL,
@@ -1272,7 +1292,7 @@ function setupNotificationEmailPoliciesTable(): void
 function setupNotificationEmailPreferencesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         category_key TEXT NULL,
@@ -1289,7 +1309,7 @@ function setupNotificationEmailPreferencesTable(): void
 function setupAuthFactorEventsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.auth_factor_events (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.auth_factor_events (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         session_id TEXT NULL,
@@ -1306,7 +1326,7 @@ function setupAuthFactorEventsTable(): void
 function setupHandleAliasesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         handle TEXT NULL,
@@ -1327,7 +1347,7 @@ function setupHandleAliasesTable(): void
 function setupHandleChangeLogTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         old_handle TEXT NULL,
@@ -1353,8 +1373,7 @@ function setupHandleChangeLogTable(): void
 
 function has_auth_middleware($route): bool
 {
-    return collect($route->gatherMiddleware())->some(fn ($m) =>
-        $m === 'supabase.jwt'
+    return collect($route->gatherMiddleware())->some(fn ($m) => $m === 'supabase.jwt'
         || $m === 'professional.api'
         || str_starts_with((string) $m, 'professional.api')
         || $m === 'staff'
@@ -1366,8 +1385,8 @@ function has_auth_middleware($route): bool
 uses()->beforeEach(function () {
     config(['partna.bot_protection.driver' => 'fake']);
     app()->instance(
-        \App\Services\BotProtection\Providers\FakeProvider::class,
-        new \App\Services\BotProtection\Providers\FakeProvider(),
+        FakeProvider::class,
+        new FakeProvider,
     );
 })->in('Feature/Http/Middleware', 'Feature/PublicSite', 'Feature/Security');
 
@@ -1388,7 +1407,7 @@ uses()->beforeEach(function () {
 function setupModerationCasesTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.cases (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.cases (
         id TEXT PRIMARY KEY,
         case_type TEXT NOT NULL DEFAULT \'content_report\',
         reportable_type TEXT NOT NULL DEFAULT \'Site\',
@@ -1412,7 +1431,7 @@ function setupModerationCaseSignalsTable(): void
 {
     attachTestSchemas();
     setupModerationCasesTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.case_signals (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.case_signals (
         id TEXT PRIMARY KEY,
         case_id TEXT NOT NULL,
         signal_source TEXT NOT NULL DEFAULT \'content_report\',
@@ -1431,7 +1450,7 @@ function setupModerationEvidenceTable(): void
 {
     attachTestSchemas();
     setupModerationCasesTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.evidence (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.evidence (
         id TEXT PRIMARY KEY,
         case_id TEXT NOT NULL,
         signal_id TEXT NULL,
@@ -1446,7 +1465,7 @@ function setupModerationDecisionsTable(): void
 {
     attachTestSchemas();
     setupModerationCasesTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.decisions (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.decisions (
         id TEXT PRIMARY KEY,
         case_id TEXT NOT NULL,
         decision_type TEXT NOT NULL DEFAULT \'dismiss\',
@@ -1465,7 +1484,7 @@ function setupModerationActionLogTable(): void
 {
     attachTestSchemas();
     setupModerationDecisionsTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.action_log (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.action_log (
         id TEXT PRIMARY KEY,
         decision_id TEXT NOT NULL,
         action_type TEXT NOT NULL DEFAULT \'notify_reporter\',
@@ -1484,7 +1503,7 @@ function setupModerationActionLogTable(): void
 function setupAuditModerationEventsTable(): void
 {
     attachTestSchemas();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.moderation_events (
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.moderation_events (
         id TEXT PRIMARY KEY,
         actor_kind TEXT NOT NULL DEFAULT \'system\',
         actor_staff_id TEXT NULL,
