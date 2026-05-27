@@ -1,5 +1,26 @@
 <?php
 
+use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\Context\LoadCurrentUser;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\BotProtection\Providers\FakeProvider;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
+use Mockery\MockInterface;
+use Pest\Support\HigherOrderTapProxy;
+use Stripe\StripeClient;
+use Tests\TestCase;
+
 /*
 |--------------------------------------------------------------------------
 | Test Case
@@ -464,27 +485,6 @@ function setupNotificationPreferencesTable(): void
 | creates a minimal but realistic tenant (professional + site) and returns
 | the live Eloquent model so tests can wire it to a Request.
 */
-
-use App\Http\Middleware\Auth\VerifySupabaseJwt;
-use App\Http\Middleware\Context\LoadCurrentUser;
-use App\Models\Core\Site\Block;
-use App\Models\Core\Site\Enquiry;
-use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\User\Customer;
-use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
-use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
-use App\Services\BotProtection\Providers\FakeProvider;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use Illuminate\Testing\TestResponse;
-use Mockery\MockInterface;
-use Pest\Support\HigherOrderTapProxy;
-use Stripe\StripeClient;
-use Tests\TestCase;
 
 function tenantHelpersEnsureTables(): void
 {

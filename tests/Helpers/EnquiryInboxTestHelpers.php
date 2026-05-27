@@ -153,8 +153,8 @@ if (! function_exists('seedInboxCustomer')) {
     }
 }
 
-if (! function_exists('seedContactBlock')) {
-    function seedContactBlock(string $siteId, string $userId, array $settings = []): string
+if (! function_exists('seedInboxContactBlock')) {
+    function seedInboxContactBlock(string $siteId, string $userId, array $settings = []): string
     {
         $id = (string) Str::uuid();
         DB::connection('pgsql')->table('site.blocks')->insert([

@@ -25,6 +25,14 @@ class NotifyStaffOfCaseUpdateJob implements ShouldQueue, ShouldQueueAfterCommit
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+
+    // Stepped backoff — let transient notification failures settle
+    // instead of burning the full backoff window before Horizon alerts.
+    public array $backoff = [10, 30, 60];
+
+    public int $timeout = 30;
+
     public function __construct(public readonly string $caseId) {}
 
     public function handle(): void
