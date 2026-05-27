@@ -279,6 +279,7 @@ function setupSitesTable(): void
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         subdomain TEXT NULL,
+        skeleton_id TEXT NULL,
         subdomain_changed_at TEXT NULL,
         is_published INTEGER NULL,
         unpublished_at TEXT NULL,

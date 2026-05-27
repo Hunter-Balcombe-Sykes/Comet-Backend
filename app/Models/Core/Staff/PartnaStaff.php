@@ -3,6 +3,7 @@
 namespace App\Models\Core\Staff;
 
 use App\Models\BaseModel;
+use Database\Factories\Core\Staff\PartnaStaffFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -78,5 +79,10 @@ class PartnaStaff extends BaseModel
     {
         $this->role = self::ROLE_SUPPORT;
         $this->save();
+    }
+
+    protected static function newFactory(): PartnaStaffFactory
+    {
+        return PartnaStaffFactory::new();
     }
 }
