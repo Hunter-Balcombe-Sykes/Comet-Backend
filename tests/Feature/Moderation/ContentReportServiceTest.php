@@ -54,3 +54,57 @@ it('rejects when target handle does not resolve', function () {
     expect(fn () => app(ContentReportService::class)->submit($dto))
         ->toThrow(ReportTargetNotFound::class);
 });
+
+it('merges into the existing open case rather than creating a new one', function () {
+    Queue::fake();
+
+    $user = User::factory()->create(['handle' => 'joeplumber', 'handle_lc' => 'joeplumber']);
+    Site::factory()->for($user, 'user')->create();
+
+    $dto1 = new PublicReportDto('Site', 'joeplumber', 'spam',       null, 'r1@e.com', '203.0.113.1');
+    $dto2 = new PublicReportDto('Site', 'joeplumber', 'harassment', null, 'r2@e.com', '203.0.113.2');
+
+    app(ContentReportService::class)->submit($dto1);
+    app(ContentReportService::class)->submit($dto2);
+
+    expect(ModerationCase::count())->toBe(1);
+    expect(CaseSignal::count())->toBe(2);
+    expect(ModerationCase::first()->signal_count)->toBe(2);
+    expect(Evidence::count())->toBe(2);
+});
+
+it('does NOT merge into a resolved case (opens a fresh one)', function () {
+    Queue::fake();
+
+    $user = User::factory()->create(['handle' => 'joeplumber', 'handle_lc' => 'joeplumber']);
+    $site = Site::factory()->for($user, 'user')->create();
+
+    ModerationCase::factory()->resolved()->create([
+        'reportable_type' => 'Site',
+        'reportable_id'   => $site->id,
+    ]);
+
+    $dto = new PublicReportDto('Site', 'joeplumber', 'spam', null, 'r@e.com', '203.0.113.5');
+    app(ContentReportService::class)->submit($dto);
+
+    expect(ModerationCase::count())->toBe(2);
+    expect(ModerationCase::query()->where('status', 'open')->count())->toBe(1);
+});
+
+it('rejects duplicate signals via UNIQUE constraint on dedup_hash', function () {
+    if (\Illuminate\Support\Facades\DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('UNIQUE index enforcement requires PostgreSQL.');
+    }
+
+    Queue::fake();
+
+    $user = User::factory()->create(['handle' => 'joeplumber', 'handle_lc' => 'joeplumber']);
+    Site::factory()->for($user, 'user')->create();
+
+    $dto = new PublicReportDto('Site', 'joeplumber', 'spam', null, 'reporter@e.com', '203.0.113.9');
+
+    app(ContentReportService::class)->submit($dto);
+
+    expect(fn () => app(ContentReportService::class)->submit($dto))
+        ->toThrow(\Illuminate\Database\QueryException::class);
+})->group('postgres');
