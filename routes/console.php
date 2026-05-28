@@ -119,6 +119,28 @@ Schedule::command('feature-flags:prune-expired')
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: feature-flags:prune-expired');
     });
 
+// Keep Laravel Cloud warm. Fires a 3-second HTTP request to the local /up
+// health endpoint every minute so the autoscaler doesn't park the web
+// pod between visitor bursts. Cold starts (when the pod has been parked)
+// can run 5-10s on Laravel Cloud and were tripping the Astro Worker's
+// fetchProfile timeout — manifesting as random "profile not found" for
+// the visitor. The keep-alive eliminates those blips at the cost of
+// ~1440 lightweight requests per day.
+Schedule::call(function () {
+    try {
+        $url = rtrim((string) config('app.url'), '/').'/up';
+        \Illuminate\Support\Facades\Http::timeout(3)->retry(1, 200)->get($url);
+    } catch (\Throwable $e) {
+        // Silent — keep-alive failures aren't actionable.
+    }
+})
+    // description() / name() must precede onOneServer() — Laravel uses the
+    // string as the cluster-wide mutex key for the closure event.
+    ->name('keep-alive-ping')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping(2);
+
 // Cloudflare KV subdomain routing backstop.
 Schedule::command('partna:backfill-subdomain-kv', ['--all', '--queue'])
     ->weeklyOn(0, '04:00') // Sunday 04:00 UTC — off-peak for AU/NZ
