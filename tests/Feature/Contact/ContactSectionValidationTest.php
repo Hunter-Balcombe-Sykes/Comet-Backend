@@ -109,3 +109,53 @@ it('strips HTML tags from headline and description (defense-in-depth)', function
     expect($result['data']['settings']['headline'])->toBe('Get in touch');
     expect($result['data']['settings']['description'])->toBe('Fill out the form.');
 });
+
+it('rejects notification_channels with an invalid channel name', function () {
+    $result = validateContactUpsert([
+        'block_type' => 'contact',
+        'settings' => ['notification_channels' => ['sms']],
+    ]);
+
+    expect($result['ok'])->toBeFalse();
+    expect($result['errors'])->toHaveKey('settings.notification_channels.0');
+});
+
+it('rejects email channel when notification_email is empty', function () {
+    $result = validateContactUpsert([
+        'block_type' => 'contact',
+        'settings' => ['notification_channels' => ['email']],
+    ]);
+
+    expect($result['ok'])->toBeFalse();
+    expect($result['errors'])->toHaveKey('settings.notification_channels');
+});
+
+it('accepts email channel when notification_email is present', function () {
+    $result = validateContactUpsert([
+        'block_type' => 'contact',
+        'settings' => [
+            'notification_channels' => ['in_app', 'email'],
+            'notification_email' => 'hello@mybrand.com',
+        ],
+    ]);
+
+    expect($result['ok'])->toBeTrue();
+});
+
+it('accepts in_app-only channels', function () {
+    $result = validateContactUpsert([
+        'block_type' => 'contact',
+        'settings' => ['notification_channels' => ['in_app']],
+    ]);
+
+    expect($result['ok'])->toBeTrue();
+});
+
+it('accepts a contact block with no notification_channels key (defaults applied downstream)', function () {
+    $result = validateContactUpsert([
+        'block_type' => 'contact',
+        'settings' => ['notification_email' => 'hello@mybrand.com'],
+    ]);
+
+    expect($result['ok'])->toBeTrue();
+});
