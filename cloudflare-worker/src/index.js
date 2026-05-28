@@ -71,13 +71,28 @@ function staleShadowKey(request) {
   return new Request(u.toString(), {method: "GET", headers: request.headers});
 }
 
-/** Clone a response and rewrite its Cache-Control so the cache stores it
- * for a different TTL than the freshly-served body. The original
- * response is returned to the visitor untouched. */
+/** Clone a response and overlay a long s-maxage so the EDGE cache stores
+ * it for the requested TTL while the BROWSER continues to honour the
+ * original max-age + stale-while-revalidate directives Astro set. Edits
+ * the Cache-Control in place — preserves every directive except
+ * s-maxage, which it replaces. */
 async function withCacheTtl(response, ttlSeconds) {
   const body = await response.clone().arrayBuffer();
   const headers = new Headers(response.headers);
-  headers.set("Cache-Control", `public, max-age=${ttlSeconds}, s-maxage=${ttlSeconds}`);
+
+  const original = headers.get("Cache-Control") ?? "";
+  const directives = original
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.toLowerCase().startsWith("s-maxage="));
+  directives.push(`s-maxage=${ttlSeconds}`);
+  // Force `public` so the edge cache stores it even if the upstream
+  // omitted explicit public/private (CF defaults to private on missing).
+  if (!directives.some((d) => d.toLowerCase() === "public")) {
+    directives.unshift("public");
+  }
+  headers.set("Cache-Control", directives.join(", "));
+
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
