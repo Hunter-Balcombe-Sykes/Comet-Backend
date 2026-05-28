@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Core\Site\Enquiry;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -32,4 +34,68 @@ it('excludes other pros enquiries from counts', function () {
         ->getJson('/api/enquiries/counts')
         ->assertOk()
         ->assertJson(['new' => 1]);
+});
+
+it('returns enquiry + customer + history; auto-transitions new -> read', function () {
+    $user = makeInboxUser();
+    $customerId = seedInboxCustomer($user->id);
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), [
+        'status' => 'new', 'customer_id' => $customerId,
+    ]);
+    seedInboxEnquiry($user->id, (string) Str::uuid(), [
+        'customer_id' => $customerId, 'subject' => 'Earlier question',
+    ]);
+
+    $response = actingAsUser($user)->getJson("/api/enquiries/{$enquiryId}");
+
+    $response->assertOk()
+        ->assertJsonPath('data.status', 'read')
+        ->assertJsonPath('data.customer.id', (string) $customerId);
+
+    expect(Enquiry::find($enquiryId)->status->value)->toBe('read');
+});
+
+it('returns 404 when enquiry belongs to another pro', function () {
+    $me = makeInboxUser();
+    $other = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($other->id, (string) Str::uuid());
+
+    actingAsUser($me)->getJson("/api/enquiries/{$enquiryId}")->assertNotFound();
+});
+
+it('marks the linked notification receipt as read on view', function () {
+    $user = makeInboxUser();
+
+    // Recreate notification_receipts with the UNIQUE constraint required by
+    // NotificationListingService::upsertReceipt's ON CONFLICT clause (SQLite
+    // requires the constraint to exist even when there's no actual conflict).
+    DB::connection('pgsql')->statement('DROP TABLE IF EXISTS notifications.notification_receipts');
+    DB::connection('pgsql')->statement('CREATE TABLE notifications.notification_receipts (
+        id TEXT PRIMARY KEY,
+        notification_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        read_at TEXT NULL,
+        dismissed_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(notification_id, user_id)
+    )');
+
+    // Seed a notification linked to the enquiry via notification_id.
+    $notificationId = (string) Str::uuid();
+    DB::connection('pgsql')->table('notifications.notifications')->insert([
+        'id' => $notificationId, 'user_id' => $user->id, 'type' => 'enquiry.received',
+        'category' => 'inbox', 'title' => 'New enquiry', 'body' => 'x',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), [
+        'status' => 'new', 'notification_id' => $notificationId,
+    ]);
+
+    actingAsUser($user)->getJson("/api/enquiries/{$enquiryId}")->assertOk();
+
+    // upsertReceipt creates the receipt row with read_at set.
+    $receipt = DB::connection('pgsql')->table('notifications.notification_receipts')
+        ->where('notification_id', $notificationId)->where('user_id', $user->id)->first();
+    expect($receipt->read_at)->not->toBeNull();
 });

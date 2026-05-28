@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api\User\Customers;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
+use App\Http\Resources\EnquiryDetailResource;
 use App\Http\Resources\EnquiryResource;
+use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Enquiry;
+use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,6 +34,59 @@ class UserEnquiryController extends ApiController
         $page->through(fn (Enquiry $e) => EnquiryResource::make($e)->resolve());
 
         return $this->success($this->paginatedResponse($page));
+    }
+
+    /**
+     * Return the full enquiry detail payload for a single enquiry.
+     *
+     * Auto-transitions status from 'new' → 'read' and marks the linked
+     * notification receipt read so the inbox bell count stays accurate.
+     */
+    public function show(Request $request, string $id): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $enquiry = Enquiry::query()
+            ->where('user_id', $user->id)
+            ->with('customer')
+            ->find($id);
+
+        if (! $enquiry) {
+            return $this->error('Enquiry not found.', 404);
+        }
+
+        $this->authorizeForUser($user, 'view', $enquiry);
+
+        // Auto-read transition + notification receipt update.
+        // Must happen before setting historyForDetailView — Eloquent would try
+        // to persist any dynamic property set on the model before markRead() runs.
+        if ($enquiry->status?->value === 'new') {
+            $enquiry->markRead();
+
+            if ($enquiry->notification_id) {
+                $notification = Notification::find($enquiry->notification_id);
+                if ($notification) {
+                    app(NotificationListingService::class)
+                        ->markRead($notification, (string) $user->id);
+                }
+            }
+        }
+
+        // Last 10 enquiries from the same contact (excludes this one + redacted/deleted).
+        // Set after all DB writes to avoid Eloquent treating it as a dirty column.
+        $enquiry->historyForDetailView = $enquiry->customer_id
+            ? Enquiry::query()
+                ->where('user_id', $user->id)
+                ->where('customer_id', $enquiry->customer_id)
+                ->where('id', '!=', $enquiry->id)
+                ->whereNull('redacted_at')
+                ->whereNull('deleted_at')
+                ->latest('created_at')
+                ->limit(10)
+                ->get(['id', 'subject', 'created_at', 'status'])
+            : collect();
+
+        return $this->success(['data' => (new EnquiryDetailResource($enquiry))->resolve()]);
     }
 
     public function update(Request $request, string $id): JsonResponse

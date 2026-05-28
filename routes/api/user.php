@@ -159,6 +159,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Contact section enquiry inbox
         Route::get('/enquiries/counts', [UserEnquiryController::class, 'counts']);
         Route::get('/enquiries', [UserEnquiryController::class, 'index']);
+        Route::get('/enquiries/{id}', [UserEnquiryController::class, 'show'])->whereUuid('id');
         Route::patch('/enquiries/{id}', [UserEnquiryController::class, 'update'])
             ->whereUuid('id');
         Route::delete('/enquiries/{id}', [UserEnquiryController::class, 'destroy'])
