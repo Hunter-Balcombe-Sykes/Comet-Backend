@@ -168,6 +168,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/enquiries/{id}/replied', [UserEnquiryController::class, 'markReplied'])->whereUuid('id');
         Route::post('/enquiries/{id}/archive', [UserEnquiryController::class, 'archive'])->whereUuid('id');
         Route::post('/enquiries/{id}/restore', [UserEnquiryController::class, 'restore'])->whereUuid('id');
+        Route::post('/enquiries/{id}/spam', [UserEnquiryController::class, 'markSpam'])->whereUuid('id');
 
         // UI Confirmation Preferences ("don't ask again" toggles)
         Route::get('/confirmation-preferences', [ConfirmationPreferenceController::class, 'show']);

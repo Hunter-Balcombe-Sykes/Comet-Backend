@@ -7,11 +7,15 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\EnquiryDetailResource;
 use App\Http\Resources\EnquiryResource;
+use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\User\Customer;
+use App\Services\Notifications\EnquirySpamBlocklist;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 // V2: Dashboard inbox for visitor-submitted enquiries. Read-only list + mark read/unread + soft-delete, scoped to the current professional.
 class UserEnquiryController extends ApiController
@@ -158,6 +162,58 @@ class UserEnquiryController extends ApiController
         $enquiry->delete();
 
         return $this->success(['ok' => true]);
+    }
+
+    /**
+     * Mark an enquiry as spam, add the sender's email to the blocklist,
+     * and soft-delete the Customer if it has no other touchpoints.
+     *
+     * All side-effects run inside a transaction with a row-level lock on
+     * the Customer to prevent concurrent spam actions from double-deleting.
+     */
+    public function markSpam(Request $request, string $id): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $enquiry = Enquiry::query()->where('user_id', $user->id)->find($id);
+        if (! $enquiry) {
+            return $this->error('Enquiry not found.', 404);
+        }
+
+        $this->authorizeForUser($user, 'update', $enquiry);
+
+        DB::transaction(function () use ($enquiry, $user) {
+            $enquiry->markSpam();
+
+            if ($enquiry->customer_id) {
+                $customer = Customer::whereKey($enquiry->customer_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($customer && $customer->source === 'enquiry') {
+                    $hasOtherEnquiries = Enquiry::query()
+                        ->where('customer_id', $customer->id)
+                        ->where('id', '!=', $enquiry->id)
+                        ->exists();
+
+                    $hasSubscription = EmailSubscription::query()
+                        ->where('user_id', (string) $user->id)
+                        ->whereRaw('lower(email) = ?', [strtolower((string) $customer->email)])
+                        ->exists();
+
+                    // Only remove the customer record when the spammer has no
+                    // other known presence — no other enquiries, no email subscription,
+                    // and no external POS/booking ID tying them to real customer data.
+                    if (! $hasOtherEnquiries && ! $hasSubscription && empty($customer->external_id)) {
+                        $customer->delete();
+                    }
+                }
+            }
+
+            app(EnquirySpamBlocklist::class)
+                ->add((string) $user->id, (string) $enquiry->email);
+        });
+
+        return $this->success(['enquiry' => (new EnquiryResource($enquiry->fresh()))->resolve()]);
     }
 
     // Status transition endpoints — idempotent POST actions that move an enquiry
