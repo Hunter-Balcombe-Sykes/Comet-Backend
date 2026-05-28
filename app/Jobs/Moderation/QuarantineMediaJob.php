@@ -32,7 +32,7 @@ class QuarantineMediaJob implements ShouldQueue
 
     public function handle(): void
     {
-        DB::transaction(function () {
+        DB::connection('pgsql')->transaction(function () {
             $case  = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
