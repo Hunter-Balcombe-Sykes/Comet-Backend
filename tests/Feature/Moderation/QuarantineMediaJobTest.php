@@ -133,10 +133,10 @@ it('falls back to reportable_id when action_target has no site_media_id', functi
         'reportable_id'   => $mediaId,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    // No site_media_id key in action_target — job must fall back to reportable_id
+    // Empty action_target — no site_media_id key present, so job falls back to reportable_id
     $entry = ActionLogEntry::factory()->forDecision($decision)->create([
         'action_type'   => 'quarantine_media',
-        'action_target' => null,
+        'action_target' => [],
     ]);
 
     (new QuarantineMediaJob($entry->id, $case->id))->handle();
