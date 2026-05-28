@@ -1,11 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\User\Account\MfaController;
+use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
-use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Controllers\Api\User\Account\UserDataExportController;
 use App\Http\Controllers\Api\User\Account\UserDocumentController;
-use App\Http\Controllers\Api\User\Account\SessionController;
+use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Controllers\Api\User\Analytics\UserAnalyticsController;
 use App\Http\Controllers\Api\User\Customers\UserCustomerController;
 use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
@@ -23,7 +24,6 @@ use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
-use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
 
@@ -157,6 +157,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->withTrashed();
 
         // Contact section enquiry inbox
+        Route::get('/enquiries/counts', [UserEnquiryController::class, 'counts']);
         Route::get('/enquiries', [UserEnquiryController::class, 'index']);
         Route::patch('/enquiries/{id}', [UserEnquiryController::class, 'update'])
             ->whereUuid('id');
