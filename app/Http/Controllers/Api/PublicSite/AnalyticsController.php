@@ -295,4 +295,46 @@ class AnalyticsController extends ApiController
             Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
         }
     }
+
+    /**
+     * Real-user monitoring beacon (Phase E O5). Receives the dispatcher's
+     * inline-script payload with first-paint / load timings + handle +
+     * lkg-flag, and writes them to a structured log channel for offline
+     * P50/P95 analysis. No DB writes — RUM is high-volume metric data
+     * and Nightwatch / log aggregation is the right destination.
+     *
+     * No FormRequest because the payload is fire-and-forget from the
+     * browser and we don't want to 4xx-reject anything: drop unrecognised
+     * shapes silently and accept the rest. Bot traffic is filtered so
+     * we don't pollute the percentile.
+     */
+    public function rum(\Illuminate\Http\Request $request): JsonResponse
+    {
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'ok'], 200);
+        }
+
+        $payload = $request->json()->all();
+        $handle = isset($payload['handle']) ? (string) $payload['handle'] : null;
+        if (! $handle || ! preg_match('/^[a-z0-9-]{1,63}$/i', $handle)) {
+            return $this->success(['message' => 'ok'], 200);
+        }
+
+        try {
+            Log::info('rum', [
+                'handle' => strtolower($handle),
+                'ttfb_ms' => isset($payload['ttfb']) ? (int) $payload['ttfb'] : null,
+                'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
+                'load_ms' => isset($payload['load']) ? (int) $payload['load'] : null,
+                'fcp_ms' => isset($payload['fcp']) ? (int) $payload['fcp'] : null,
+                'lkg' => isset($payload['lkg']) ? (bool) $payload['lkg'] : false,
+                'ua' => substr((string) $request->userAgent(), 0, 256),
+                'country' => $request->header('cf-ipcountry'),
+            ]);
+        } catch (Throwable $e) {
+            // RUM is best-effort; never bubble logging errors back to the visitor.
+        }
+
+        return $this->success(['message' => 'ok'], 200);
+    }
 }

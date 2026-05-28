@@ -20,6 +20,7 @@ const BOT_PROTECTION_EXEMPT = [
     'api/public/analytics/pageviews',
     'api/public/analytics/clicks',
     'api/public/analytics/section-seen',
+    'api/public/analytics/rum',
     // Resolve-identifier — enumeration defence via constant-time jitter, not interactive CAPTCHA.
     'api/public/auth/resolve-identifier',
     // Signup-availability — deferred to Tier 3 hardening.
