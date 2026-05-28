@@ -11,9 +11,6 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
 use Illuminate\Support\Str;
-use Tests\TestCase;
-
-uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupUsersTable();

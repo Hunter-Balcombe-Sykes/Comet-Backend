@@ -2,9 +2,6 @@
 
 use App\Services\Notifications\EnquirySpamBlocklist;
 use Illuminate\Support\Facades\Redis;
-use Tests\TestCase;
-
-uses(TestCase::class)->in(__FILE__);
 
 beforeEach(fn () => Redis::connection()->flushdb());
 

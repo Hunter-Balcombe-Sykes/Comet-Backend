@@ -11,9 +11,6 @@ use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
-use Tests\TestCase;
-
-uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupUsersTable();

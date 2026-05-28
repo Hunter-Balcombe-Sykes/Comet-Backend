@@ -14,28 +14,31 @@ use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Notifications\NotificationEmailPolicy;
 use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
-use App\Models\Core\User\Customer;
-use App\Models\Core\User\UserConfirmationPreference;
-use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\Customer;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Models\Core\User\UserConfirmationPreference;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Policies\CustomerPolicy;
 use App\Policies\FeatureFlagPolicy;
 use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
-use App\Policies\UserSelfPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
+use App\Policies\UserSelfPolicy;
 use App\Services\FeatureFlags\FeatureFlagService;
+use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
+use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
+use App\Services\Notifications\EnquiryNotificationDispatcher;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -62,6 +65,16 @@ class AppServiceProvider extends ServiceProvider
         // single request. Without this, app(FeatureFlagService::class) resolves
         // a fresh instance on every helper call and the memo is always empty.
         $this->app->singleton(FeatureFlagService::class);
+
+        // Wire up the channel adapters in priority order: in-app first (fast,
+        // in-process), email second (async job dispatch). Both adapters are
+        // resolved from the container so their own dependencies are injected.
+        $this->app->singleton(EnquiryNotificationDispatcher::class, function ($app) {
+            return new EnquiryNotificationDispatcher([
+                $app->make(InAppEnquiryNotificationAdapter::class),
+                $app->make(EmailEnquiryNotificationAdapter::class),
+            ]);
+        });
 
     }
 
