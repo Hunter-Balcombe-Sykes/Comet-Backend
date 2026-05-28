@@ -16,6 +16,12 @@ class DispatchEnquiryNotificationsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+
+    public array $backoff = [30, 90, 180];
+
+    public int $timeout = 30;
+
     public function __construct(public readonly string $enquiryId) {}
 
     public function handle(EnquiryNotificationDispatcher $dispatcher): void
