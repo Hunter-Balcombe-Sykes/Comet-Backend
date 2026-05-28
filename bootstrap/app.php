@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\CompactHourlyAnalytics::class,
         \App\Console\Commands\Moderation\ModerationRedactReporterPiiCommand::class,
         \App\Console\Commands\Moderation\ModerationSlaScanCommand::class,
+        \App\Console\Commands\Moderation\ModerationShowCaseCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust all proxy IPs — the app is exclusively behind Cloudflare, so every
