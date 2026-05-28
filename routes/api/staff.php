@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffGoogleBusinessProfileController;
+use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffMeController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationEmailPolicyController;
@@ -33,6 +34,9 @@ Route::prefix('staff')
 
         // Staff Dashboard
         Route::get('/me', [StaffMeController::class, 'show']);
+
+        // Moderation queue
+        Route::get('/cases', [StaffCaseController::class, 'index'])->name('staff.cases.index');
 
         // Platform-wide stats
         Route::get('/stats', [StaffStatsController::class, 'show']);
