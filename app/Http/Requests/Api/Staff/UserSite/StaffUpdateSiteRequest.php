@@ -78,6 +78,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.effect_overlay_blur' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.effect_overlay_opacity' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.effect_bg_image_enabled' => ['sometimes', 'nullable', 'boolean'],
+            'design_kit.effect_halftone_enabled' => ['sometimes', 'nullable', 'boolean'],
             // Sizing — UI control intrinsic dimensions
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
