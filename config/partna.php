@@ -1161,4 +1161,21 @@ return [
             '3x00000000000000000000FF',
         ],
     ],
+
+    'moderation' => [
+        'enabled' => env('PARTNA_MODERATION_ENABLED', true),
+        'reporting' => [
+            'public_throttle'         => [
+                'requests' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_REQUESTS', 5),
+                'minutes'  => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_MINUTES', 1),
+            ],
+            'per_target_throttle'     => [
+                'requests'        => (int) env('PARTNA_REPORT_TARGET_THROTTLE_REQUESTS', 3),
+                'window_minutes'  => (int) env('PARTNA_REPORT_TARGET_THROTTLE_WINDOW_MIN', 60),
+            ],
+            'details_max_chars'       => 4000,
+            'merge_window_minutes'    => 60 * 24 * 7,
+            'staff_notify_thresholds' => [1, 3, 5, 10],
+        ],
+    ],
 ];

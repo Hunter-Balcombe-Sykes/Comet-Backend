@@ -6,7 +6,9 @@ use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SiteVisit;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
+use Database\Factories\Core\Site\SiteFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -19,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // from that value. Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel
 {
-    use HasUuids;
+    use HasUuids, HasFactory;
 
     protected $table = 'site.sites';
 
@@ -101,5 +103,10 @@ class Site extends BaseModel
 
         // Otherwise store in is_published
         $this->attributes['is_published'] = $bool;
+    }
+
+    protected static function newFactory(): SiteFactory
+    {
+        return SiteFactory::new();
     }
 }

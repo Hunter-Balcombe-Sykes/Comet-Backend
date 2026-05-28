@@ -106,6 +106,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
         Gate::policy(Feedback::class, FeedbackPolicy::class);
+        Gate::policy(\App\Models\Moderation\ModerationCase::class, \App\Policies\CasePolicy::class);
+        Gate::policy(\App\Models\Moderation\Decision::class, \App\Policies\DecisionPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -496,6 +498,23 @@ class AppServiceProvider extends ServiceProvider
                 ->response(function () {
                     return response()->json([
                         'message' => 'Too many session management requests. Please try again later.',
+                    ], 429);
+                });
+        });
+
+        RateLimiter::for('partna.moderation.report', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $cfg = config('partna.moderation.reporting.public_throttle', ['requests' => 5, 'minutes' => 1]);
+
+            return Limit::perMinutes($cfg['minutes'], $cfg['requests'])
+                ->by($request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'error'   => 'RATE_LIMITED',
+                        'message' => 'Hold on a sec, try again in a minute.',
                     ], 429);
                 });
         });

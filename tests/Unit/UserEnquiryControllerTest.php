@@ -11,6 +11,10 @@ use Tests\TestCase;
 // + DB, so it needs facades resolved.
 uses(TestCase::class)->in(__FILE__);
 
+// setupContactInboxSchema, makeInboxUser, seedInboxEnquiry, requestAs are
+// provided globally by tests/Helpers/EnquiryInboxTestHelpers.php (loaded
+// via Pest.php). No local re-declarations needed.
+
 beforeEach(function () {
     setupUsersTable();
     setupContactInboxSchema();

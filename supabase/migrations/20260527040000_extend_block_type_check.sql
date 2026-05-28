@@ -34,6 +34,11 @@ ALTER TABLE site.blocks ADD CONSTRAINT blocks_block_type_check
         'credentials',
         'experience',
         'bio'
-    ));
+    )) NOT VALID;
 
+COMMIT;
+
+-- Validate in a separate transaction (CONVENTIONS.md §2 — avoids long lock on populated tables).
+BEGIN;
+ALTER TABLE site.blocks VALIDATE CONSTRAINT blocks_block_type_check;
 COMMIT;
