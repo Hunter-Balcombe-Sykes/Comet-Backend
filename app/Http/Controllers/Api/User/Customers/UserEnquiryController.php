@@ -27,9 +27,18 @@ class UserEnquiryController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $page = Enquiry::query()
-            ->where('user_id', $pro->id)
-            ->orderByDesc('created_at')
+        $query = Enquiry::query()->where('user_id', $pro->id);
+
+        // If a valid status is supplied, filter to that status only.
+        // Otherwise default to the inbox view: exclude archived and spam.
+        $status = $request->string('status')->toString();
+        if ($status !== '' && in_array($status, ['new', 'read', 'replied', 'archived', 'spam'], true)) {
+            $query->where('status', $status);
+        } else {
+            $query->whereNotIn('status', ['archived', 'spam']);
+        }
+
+        $page = $query->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
 
         // through() transforms items in place; the paginator's count metadata
