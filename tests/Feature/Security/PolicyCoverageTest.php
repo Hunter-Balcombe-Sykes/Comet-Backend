@@ -44,6 +44,14 @@ const POLICY_EXEMPT = [
     // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
     \App\Models\Core\Gdpr\GdprRequest::class,
 
+    // Moderation write-only / child models — no user-facing API endpoints;
+    // access is via staff tooling and SQL. Parent resources (ModerationCase,
+    // Decision) are covered by CasePolicy / DecisionPolicy.
+    \App\Models\Moderation\Evidence::class,        // child of ModerationCase; owned via parent policy
+    \App\Models\Moderation\ActionLogEntry::class,  // append-only audit log; no per-row gate needed
+    \App\Models\Moderation\AuditEvent::class,      // append-only audit log; no per-row gate needed
+    \App\Models\Moderation\CaseSignal::class,      // write-only ingest; read access via parent case
+
 ];
 
 it('every tenant-owned model has a registered policy', function () {

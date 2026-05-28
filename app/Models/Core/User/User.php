@@ -9,6 +9,7 @@ use App\Models\BaseModel;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -169,6 +170,13 @@ class User extends BaseModel
     public function emailSubscriptions(): HasMany
     {
         return $this->hasMany(EmailSubscription::class, 'user_id');
+    }
+
+    // Point HasFactory at the non-namespaced UserFactory so User::factory()
+    // resolves correctly regardless of whether it's called from Feature or Unit tests.
+    protected static function newFactory(): UserFactory
+    {
+        return UserFactory::new();
     }
 
     public function resolveChildRouteBindingQuery($childType, $value, $field): Builder
