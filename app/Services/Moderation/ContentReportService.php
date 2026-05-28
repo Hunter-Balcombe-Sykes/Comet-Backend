@@ -51,7 +51,8 @@ class ContentReportService
         // 2. Open-or-merge inside a transaction.
         $signal = DB::transaction(function () use ($dto, $site, $user, $reporterIpHash, $dedupHash) {
 
-            $case = $this->openOrMergeCase($dto->targetType, $site->id, $user->id);
+            $case    = $this->openOrMergeCase($dto->targetType, $site->id, $user->id);
+            $isNew   = $case->wasRecentlyCreated;
 
             // forceCreate() is required because these models guard 'id' via $guarded.
             $signal = CaseSignal::forceCreate([
@@ -66,8 +67,12 @@ class ContentReportService
                 'dedup_hash'       => $dedupHash,
             ]);
 
-            $case->signal_count = $case->signal_count + 1;
-            $case->save();
+            // New cases start at signal_count=1 (satisfies CHECK signal_count >= 1).
+            // Existing cases need incrementing after the new signal is attached.
+            if (! $isNew) {
+                $case->signal_count = $case->signal_count + 1;
+                $case->save();
+            }
 
             $this->evidence->capture($case->id, $dto->targetType, $site->id, $signal->id);
 
@@ -104,7 +109,10 @@ class ContentReportService
             'reportable_owner_user_id' => $ownerId,
             'severity'                 => 2,
             'status'                   => 'open',
-            'signal_count'             => 0,
+            // Start at 1: this INSERT satisfies CHECK (signal_count >= 1) without
+            // needing a separate UPDATE in the same statement. The signal being
+            // processed is the first one for this case.
+            'signal_count'             => 1,
             'priority'                 => 5,
         ]);
     }
