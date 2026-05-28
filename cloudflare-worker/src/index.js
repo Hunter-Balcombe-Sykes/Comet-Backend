@@ -101,15 +101,48 @@ async function withCacheTtl(response, ttlSeconds) {
 }
 
 /** Decorate the outgoing response with a CF cache-status hint header so
- * the dashboard surfaces hit/stale/miss/origin without bespoke metrics. */
+ * the dashboard surfaces hit/stale/miss/origin without bespoke metrics.
+ * Also stamps the security-header set every visitor-facing response
+ * needs (HSTS + the basic XFO / referrer / nosniff trio). */
 function tagResponse(response, status) {
   const headers = new Headers(response.headers);
   headers.set("X-Partna-Cache", status);
+  applySecurityHeaders(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+}
+
+/** Apply the standard set of security headers in place on a Headers
+ * instance. Mirrors the backend SecureHeaders middleware so the
+ * sitepage stack doesn't lag behind the API on baseline hardening.
+ *
+ * - HSTS: 1 year + includeSubDomains. Browsers that have ever loaded
+ *   any partna.au page over HTTPS will refuse plain HTTP for the next
+ *   year, eliminating the "Not Secure" Safari banner for repeat
+ *   visitors. (First-time HTTP visit still relies on the HTTP→HTTPS
+ *   redirect at the top of fetch(), below.)
+ * - X-Content-Type-Options: nosniff — blocks MIME sniffing.
+ * - Referrer-Policy: strict-origin-when-cross-origin — leak less on
+ *   outbound link clicks.
+ * - X-Frame-Options: SAMEORIGIN — defence-in-depth against clickjacking
+ *   for older browsers (CSP frame-ancestors is the modern equivalent;
+ *   the sitepage doesn't ship a CSP yet). */
+function applySecurityHeaders(headers) {
+  if (!headers.has("Strict-Transport-Security")) {
+    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  if (!headers.has("X-Content-Type-Options")) {
+    headers.set("X-Content-Type-Options", "nosniff");
+  }
+  if (!headers.has("Referrer-Policy")) {
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  }
+  if (!headers.has("X-Frame-Options")) {
+    headers.set("X-Frame-Options", "SAMEORIGIN");
+  }
 }
 
 async function fetchAndCache(env, ctx, request, cache) {
@@ -134,6 +167,19 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const hostname = url.hostname.toLowerCase();
+
+    // Force HTTPS for every partna.au request the router sees.
+    // Without this Safari labels the HTTP page "Not Secure" until HSTS
+    // is pinned in the browser, and ad-blockers + WAFs can downgrade
+    // mid-session. 301 (not 308) so caches treat it as a permanent
+    // upgrade; HSTS below handles the repeat-visit case.
+    if (url.protocol === "http:") {
+      const httpsUrl = new URL(request.url);
+      httpsUrl.protocol = "https:";
+      const headers = new Headers({Location: httpsUrl.toString()});
+      applySecurityHeaders(headers);
+      return new Response(null, {status: 301, headers});
+    }
 
     // Apex and non-partna.au requests pass through untouched.
     if (
@@ -160,24 +206,25 @@ export default {
     }
 
     if (!entry) {
-      return new Response("Not Found", {
-        status: 404,
-        headers: {"Content-Type": "text/plain", "Cache-Control": "no-store"},
+      const h = new Headers({
+        "Content-Type": "text/plain",
+        "Cache-Control": "no-store",
       });
+      applySecurityHeaders(h);
+      return new Response("Not Found", {status: 404, headers: h});
     }
 
     // Alias entries redirect old subdomains to the canonical URL.
     // Written by SyncSubdomainToKvJob when a professional renames their handle.
     if (entry.type === "alias" && typeof entry.redirect === "string") {
-      return new Response(null, {
-        status: 301,
-        headers: {
-          Location: entry.redirect,
-          // Without this, browsers cache 301s indefinitely. A handle rename
-          // would leave stale redirects in client caches until users manually clear.
-          "Cache-Control": "max-age=0, must-revalidate",
-        },
+      const h = new Headers({
+        Location: entry.redirect,
+        // Without this, browsers cache 301s indefinitely. A handle rename
+        // would leave stale redirects in client caches until users manually clear.
+        "Cache-Control": "max-age=0, must-revalidate",
       });
+      applySecurityHeaders(h);
+      return new Response(null, {status: 301, headers: h});
     }
 
     // Individual sitepage — served by the `partna-pages` Astro Worker via
