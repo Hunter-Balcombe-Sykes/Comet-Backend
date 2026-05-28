@@ -18,6 +18,8 @@ class NotifyOnCallStaffJob implements ShouldQueue
 
     public int $timeout = 30;
 
+    public string $queue = 'moderation_high';
+
     public function __construct(public readonly string $actionLogId, public readonly string $caseId) {}
 
     public function handle(): void

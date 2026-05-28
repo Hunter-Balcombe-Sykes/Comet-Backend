@@ -51,6 +51,7 @@ return [
     ],
 
     'waits' => [
+        'redis:moderation_high' => 30,
         'redis:notifications' => 60,
         'redis:default' => 60,
         'redis:analytics' => 300,
@@ -83,6 +84,21 @@ return [
     'memory_limit' => 64,
 
     'defaults' => [
+        // High-priority lane for immediate-impact moderation jobs (suspend, notify on-call).
+        // Kept isolated from the default queue so a moderation spike never starves notifications.
+        'supervisor-moderation-high' => [
+            'connection'   => 'redis',
+            'queue'        => ['moderation_high'],
+            'balance'      => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 3,
+            'maxTime'      => 0,
+            'maxJobs'      => 0,
+            'memory'       => 128,
+            'tries'        => 3,
+            'timeout'      => 60,
+            'nice'         => 0,
+        ],
         'supervisor-notifications' => [
             'connection' => 'redis',
             'queue' => ['notifications', 'mail'],
@@ -162,6 +178,7 @@ return [
     'environments' => [
 
         'production' => [
+            'supervisor-moderation-high' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-notifications' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-default' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-analytics' => ['minProcesses' => 1, 'maxProcesses' => 2],
@@ -172,7 +189,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -201,7 +218,7 @@ return [
             // redis_gdpr connection (see supervisor-gdpr note above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
