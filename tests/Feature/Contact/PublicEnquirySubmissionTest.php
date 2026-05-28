@@ -156,7 +156,7 @@ it('upserts submitter as a Customer with source=enquiry', function () {
     expect($customer->user_id)->toBe($proId);
 });
 
-it('dispatches SendEnquiryNotificationJob carrying the contact block id (not the email)', function () {
+it('does NOT dispatch SendEnquiryNotificationJob directly from the controller (now owned by EmailEnquiryNotificationAdapter)', function () {
     seedPublishedContactSite();
     Bus::fake();
 
@@ -164,17 +164,11 @@ it('dispatches SendEnquiryNotificationJob carrying the contact block id (not the
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    // B3/P1-10: notification_email is no longer a constructor prop. The job
-    // looks it up from the contact block at handle() time so the Redis
-    // payload contains only UUIDs.
-    $contactBlock = DB::connection('pgsql')->table('site.blocks')->where('block_type', 'contact')->first();
-    $enquiry = DB::connection('pgsql')->table('site.enquiries')->first();
-
-    Bus::assertDispatched(SendEnquiryNotificationJob::class, function ($job) use ($contactBlock, $enquiry) {
-        return $job->enquiryId === $enquiry->id
-            && $job->blockId === $contactBlock->id
-            && ! property_exists($job, 'notificationEmail');
-    });
+    // Dispatch moved to EmailEnquiryNotificationAdapter; Task 15 will wire
+    // DispatchEnquiryNotificationsJob to invoke it after controller returns.
+    Bus::assertNotDispatched(SendEnquiryNotificationJob::class);
+    // Enquiry row is still saved.
+    expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(1);
 });
 
 it('rejects a subject not in the merged options list', function () {
@@ -269,19 +263,20 @@ it('logs outcome=created on success', function () {
     expect($lead?->outcome)->toBe('created');
 });
 
-it('stops dispatching notification job once per-brand hourly limit is exceeded but still returns 200', function () {
+it('persists all enquiries regardless of rate limit (no dispatch from controller)', function () {
     seedPublishedContactSite();
     config(['partna.throttle.enquiry_notification_per_hour' => 2]);
     Bus::fake();
 
-    // Three submissions from different submitters; limit is 2.
+    // Rate-limit enforcement now lives in EmailEnquiryNotificationAdapter.
+    // The controller just saves the enquiry and returns 200.
     foreach (['a@example.com', 'b@example.com', 'c@example.com'] as $email) {
         $this->postJson('/api/public/enquiry', validEnquiryPayload(['email' => $email]), [
             'X-Site-Subdomain' => 'testpro',
         ])->assertOk();
     }
 
-    Bus::assertDispatchedTimes(SendEnquiryNotificationJob::class, 2);
+    Bus::assertNotDispatched(SendEnquiryNotificationJob::class);
     expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(3);
 });
 

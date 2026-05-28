@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
-use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
@@ -15,7 +14,6 @@ use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\RateLimiter;
 
 // V2: Handles public contact form submissions. Saves enquiry, upserts submitter as Customer lead, dispatches notification email.
 class PublicEnquiryController extends ApiController
@@ -118,20 +116,7 @@ class PublicEnquiryController extends ApiController
         // 7) Log unified lead analytics.
         $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);
 
-        // 8) Dispatch notification email (only if settings.notification_email is present and per-brand hourly limit not reached).
-        // B3/P1-10: the job re-reads notification_email from $block->settings inside
-        // handle() — we only pass UUIDs across the queue boundary so the brand's
-        // inbox address never sits in a serialised Redis payload.
-        $notificationEmail = data_get($block->settings, 'notification_email');
-        if (is_string($notificationEmail) && trim($notificationEmail) !== '') {
-            $notifyKey = 'enquiry_notify:'.$site->user_id;
-            $notifyLimit = config('partna.throttle.enquiry_notification_per_hour', 10);
-
-            if (! RateLimiter::tooManyAttempts($notifyKey, $notifyLimit)) {
-                RateLimiter::hit($notifyKey, 3600);
-                SendEnquiryNotificationJob::dispatch((string) $enquiry->id, (string) $block->id);
-            }
-        }
+        // (Rate limit + email dispatch moved to EmailEnquiryNotificationAdapter; queued via DispatchEnquiryNotificationsJob.)
 
         return $this->success(['ok' => true]);
     }
