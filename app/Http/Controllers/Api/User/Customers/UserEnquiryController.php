@@ -159,4 +159,48 @@ class UserEnquiryController extends ApiController
 
         return $this->success(['ok' => true]);
     }
+
+    // Status transition endpoints — idempotent POST actions that move an enquiry
+    // through its lifecycle. Each delegates to the shared transition() helper
+    // which handles ownership check, policy gate, and resource serialisation.
+
+    public function markRead(Request $request, string $id): JsonResponse
+    {
+        return $this->transition($request, $id, fn (Enquiry $e) => $e->markRead());
+    }
+
+    public function markReplied(Request $request, string $id): JsonResponse
+    {
+        return $this->transition($request, $id, fn (Enquiry $e) => $e->markReplied());
+    }
+
+    public function archive(Request $request, string $id): JsonResponse
+    {
+        return $this->transition($request, $id, fn (Enquiry $e) => $e->archive());
+    }
+
+    public function restore(Request $request, string $id): JsonResponse
+    {
+        return $this->transition($request, $id, fn (Enquiry $e) => $e->restoreToNew());
+    }
+
+    /**
+     * Shared transition helper: resolve ownership, gate, apply, return fresh resource.
+     *
+     * Returns 404 when the enquiry doesn't exist or belongs to another user
+     * (consistent with the 403-vs-404 doctrine — existence must not be revealed).
+     */
+    private function transition(Request $request, string $id, \Closure $apply): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $enquiry = Enquiry::query()->where('user_id', $user->id)->find($id);
+        if (! $enquiry) {
+            return $this->error('Enquiry not found.', 404);
+        }
+
+        $this->authorizeForUser($user, 'update', $enquiry);
+        $apply($enquiry);
+
+        return $this->success(['enquiry' => (new EnquiryResource($enquiry->fresh()))->resolve()]);
+    }
 }
