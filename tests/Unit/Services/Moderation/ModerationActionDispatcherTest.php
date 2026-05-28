@@ -3,11 +3,16 @@
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\Decision;
 use App\Services\Moderation\ModerationActionDispatcher;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 uses(TestCase::class);
 
 beforeEach(function () {
+    // Fake the queue so dispatched jobs are captured, not executed inline.
+    // This is a unit test for the dispatcher (does it create the right action_log rows
+    // and dispatch the right jobs?) — not for the jobs themselves.
+    Queue::fake();
     setupPartnaStaffTable();
     setupAllModerationTables();
 });
