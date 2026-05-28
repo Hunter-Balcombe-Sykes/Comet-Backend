@@ -6,10 +6,12 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
+use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
 use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\User\Customer;
+use App\Services\Notifications\EnquirySpamBlocklist;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -76,7 +78,13 @@ class PublicEnquiryController extends ApiController
             return $this->error('This site is not accepting enquiries.', 422);
         }
 
-        // 4) Validate subject against merged options (platform defaults + affiliate additions).
+        // 4a) Spam pre-check: silently accept but discard if sender is blocklisted.
+        // Returns identical 200 response so blocklisted senders can't probe for their status.
+        if (app(EnquirySpamBlocklist::class)->contains((string) $site->user_id, $data['email'])) {
+            return $this->success(['ok' => true]);
+        }
+
+        // 4b) Validate subject against merged options (platform defaults + affiliate additions).
         $defaults = (array) config('partna.contact_subject_defaults', []);
         $custom = data_get($block->settings, 'subject_options');
         $custom = is_array($custom) ? $custom : [];
@@ -116,7 +124,8 @@ class PublicEnquiryController extends ApiController
         // 7) Log unified lead analytics.
         $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);
 
-        // (Rate limit + email dispatch moved to EmailEnquiryNotificationAdapter; queued via DispatchEnquiryNotificationsJob.)
+        // 8) Queue notification dispatch off the hot path — rate-limit + email handled in the adapter.
+        DispatchEnquiryNotificationsJob::dispatch((string) $enquiry->id);
 
         return $this->success(['ok' => true]);
     }

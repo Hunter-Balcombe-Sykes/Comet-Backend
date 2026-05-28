@@ -1,10 +1,13 @@
 <?php
 
+use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Models\Core\Site\Enquiry;
+use App\Services\Notifications\EnquirySpamBlocklist;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -164,9 +167,10 @@ it('does NOT dispatch SendEnquiryNotificationJob directly from the controller (n
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk();
 
-    // Dispatch moved to EmailEnquiryNotificationAdapter; Task 15 will wire
-    // DispatchEnquiryNotificationsJob to invoke it after controller returns.
+    // The controller dispatches DispatchEnquiryNotificationsJob (queued), not SendEnquiryNotificationJob directly.
+    // Rate-limit logic and the actual email send are owned by EmailEnquiryNotificationAdapter.
     Bus::assertNotDispatched(SendEnquiryNotificationJob::class);
+    Bus::assertDispatched(DispatchEnquiryNotificationsJob::class);
     // Enquiry row is still saved.
     expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(1);
 });
@@ -263,20 +267,23 @@ it('logs outcome=created on success', function () {
     expect($lead?->outcome)->toBe('created');
 });
 
-it('persists all enquiries regardless of rate limit (no dispatch from controller)', function () {
+it('persists all enquiries regardless of rate limit and queues DispatchEnquiryNotificationsJob per submission', function () {
     seedPublishedContactSite();
     config(['partna.throttle.enquiry_notification_per_hour' => 2]);
     Bus::fake();
 
-    // Rate-limit enforcement now lives in EmailEnquiryNotificationAdapter.
-    // The controller just saves the enquiry and returns 200.
+    // Rate-limit enforcement lives in EmailEnquiryNotificationAdapter (inside the queued job).
+    // The controller always saves and always dispatches DispatchEnquiryNotificationsJob.
     foreach (['a@example.com', 'b@example.com', 'c@example.com'] as $email) {
         $this->postJson('/api/public/enquiry', validEnquiryPayload(['email' => $email]), [
             'X-Site-Subdomain' => 'testpro',
         ])->assertOk();
     }
 
+    // SendEnquiryNotificationJob is never dispatched directly from the controller.
     Bus::assertNotDispatched(SendEnquiryNotificationJob::class);
+    // One DispatchEnquiryNotificationsJob queued per submission.
+    Bus::assertDispatchedTimes(DispatchEnquiryNotificationsJob::class, 3);
     expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(3);
 });
 
@@ -292,4 +299,45 @@ it('links the created Enquiry to the upserted Customer via customer_id', functio
     $enquiry = Enquiry::latest()->first();
     expect($enquiry->customer_id)->not->toBeNull();
     expect($enquiry->customer->email)->toBe('alice@example.com');
+});
+
+it('queues DispatchEnquiryNotificationsJob after enquiry persists', function () {
+    Bus::fake();
+    seedPublishedContactSite();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ])->assertOk();
+
+    Bus::assertDispatched(DispatchEnquiryNotificationsJob::class);
+});
+
+it('returns silent 200 + does NOT persist when sender email is in spam blocklist', function () {
+    Redis::connection()->flushdb();
+
+    [$proId] = seedPublishedContactSite();
+
+    app(EnquirySpamBlocklist::class)
+        ->add((string) $proId, 'spammer@example.com');
+
+    $before = Enquiry::count();
+
+    $response = $this->postJson('/api/public/enquiry', validEnquiryPayload(['email' => 'spammer@example.com']), [
+        'X-Site-Subdomain' => 'testpro',
+    ]);
+
+    $response->assertOk();
+    expect(Enquiry::count())->toBe($before);
+});
+
+it('response shape is {ok: true} only — no enquiry_id leaked', function () {
+    Bus::fake();
+    seedPublishedContactSite();
+
+    $response = $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ]);
+    $response->assertOk();
+
+    expect(array_keys($response->json()))->toBe(['ok']);
 });
