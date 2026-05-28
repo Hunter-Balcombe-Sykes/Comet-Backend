@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\User\Site;
 use App\Http\Requests\BaseFormRequest;
 use App\Rules\MaxWords;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 // V2: Validates section block upsert — block type from config allowlist, title, publication state, and word-limited text for bio/promo sections.
 class UpsertSectionBlockRequest extends BaseFormRequest
@@ -62,6 +63,10 @@ class UpsertSectionBlockRequest extends BaseFormRequest
      * `sidest.contact_subject_defaults`); at render + submission time the
      * two lists are merged.
      *
+     * notification_channels constrains delivery to known channel identifiers;
+     * the cross-field rule (withValidator) enforces that email channel selection
+     * requires a notification_email to route to.
+     *
      * @return array<string, array<int, mixed>>
      */
     private function contactRules(): array
@@ -70,9 +75,25 @@ class UpsertSectionBlockRequest extends BaseFormRequest
             'settings.headline' => ['sometimes', 'nullable', 'string', 'max:80'],
             'settings.description' => ['sometimes', 'nullable', 'string', 'max:300'],
             'settings.notification_email' => ['sometimes', 'nullable', 'email:rfc', 'max:255'],
+            'settings.notification_channels' => ['sometimes', 'array', 'min:1'],
+            'settings.notification_channels.*' => ['string', Rule::in(['in_app', 'email'])],
             'settings.subject_options' => ['sometimes', 'nullable', 'array', 'max:10'],
             'settings.subject_options.*' => ['string', 'max:60', 'distinct'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        // Cross-field rule: selecting the email channel requires a destination address.
+        // Checked after field-level rules so notification_channels is already coerced.
+        $validator->after(function ($v) {
+            $channels = (array) $this->input('settings.notification_channels', []);
+            $email = (string) $this->input('settings.notification_email', '');
+            if (in_array('email', $channels, true) && trim($email) === '') {
+                $v->errors()->add('settings.notification_channels',
+                    'Cannot select email channel without a notification_email set.');
+            }
+        });
     }
 
     /**

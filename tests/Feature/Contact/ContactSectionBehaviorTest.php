@@ -25,7 +25,9 @@ function seedContactProAndSite(): array
     return [$proId, $siteId];
 }
 
-function seedContactBlock(string $proId, string $siteId, array $settings = [], bool $isActive = false): void
+// Local helper — different signature from EnquiryInboxTestHelpers::seedContactBlock
+// (no return value, adds $isActive param). Renamed to avoid global-scope conflict.
+function seedContactBlockForVisibility(string $proId, string $siteId, array $settings = [], bool $isActive = false): void
 {
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
@@ -51,7 +53,7 @@ it('rejects publishing a contact block with no stored block', function () {
 
 it('rejects publishing a contact block with empty settings', function () {
     [$proId, $siteId] = seedContactProAndSite();
-    seedContactBlock($proId, $siteId, []);
+    seedContactBlockForVisibility($proId, $siteId, []);
 
     [$canBeVisible, $reason] = app(SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'contact');
@@ -62,7 +64,7 @@ it('rejects publishing a contact block with empty settings', function () {
 
 it('rejects publishing a contact block with a blank notification_email', function () {
     [$proId, $siteId] = seedContactProAndSite();
-    seedContactBlock($proId, $siteId, ['notification_email' => '   ']);
+    seedContactBlockForVisibility($proId, $siteId, ['notification_email' => '   ']);
 
     [$canBeVisible] = app(SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'contact');
@@ -72,7 +74,7 @@ it('rejects publishing a contact block with a blank notification_email', functio
 
 it('rejects publishing a contact block with an invalid notification_email', function () {
     [$proId, $siteId] = seedContactProAndSite();
-    seedContactBlock($proId, $siteId, ['notification_email' => 'not-an-email']);
+    seedContactBlockForVisibility($proId, $siteId, ['notification_email' => 'not-an-email']);
 
     [$canBeVisible] = app(SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'contact');
@@ -82,7 +84,7 @@ it('rejects publishing a contact block with an invalid notification_email', func
 
 it('allows publishing a contact block with a valid notification_email', function () {
     [$proId, $siteId] = seedContactProAndSite();
-    seedContactBlock($proId, $siteId, ['notification_email' => 'hello@mybrand.com']);
+    seedContactBlockForVisibility($proId, $siteId, ['notification_email' => 'hello@mybrand.com']);
 
     [$canBeVisible, $reason] = app(SectionVisibilityService::class)
         ->checkVisibilityRequirements($proId, $siteId, 'contact');
@@ -93,7 +95,7 @@ it('allows publishing a contact block with a valid notification_email', function
 
 it('honours pendingSettings on the first-publish path', function () {
     [$proId, $siteId] = seedContactProAndSite();
-    seedContactBlock($proId, $siteId, []);
+    seedContactBlockForVisibility($proId, $siteId, []);
 
     [$canBeVisible] = app(SectionVisibilityService::class)
         ->checkVisibilityRequirements(

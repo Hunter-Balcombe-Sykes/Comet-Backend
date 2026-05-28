@@ -6,15 +6,16 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
-use App\Jobs\Notifications\SendEnquiryNotificationJob;
+use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Core\User\Customer;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\User\Customer;
+use App\Services\Notifications\EnquirySpamBlocklist;
 use App\Services\PublicSite\PublicSiteResolver;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\RateLimiter;
 
 // V2: Handles public contact form submissions. Saves enquiry, upserts submitter as Customer lead, dispatches notification email.
 class PublicEnquiryController extends ApiController
@@ -77,7 +78,13 @@ class PublicEnquiryController extends ApiController
             return $this->error('This site is not accepting enquiries.', 422);
         }
 
-        // 4) Validate subject against merged options (platform defaults + affiliate additions).
+        // 4a) Spam pre-check: silently accept but discard if sender is blocklisted.
+        // Returns identical 200 response so blocklisted senders can't probe for their status.
+        if (app(EnquirySpamBlocklist::class)->contains((string) $site->user_id, $data['email'])) {
+            return $this->success(['ok' => true]);
+        }
+
+        // 4b) Validate subject against merged options (platform defaults + affiliate additions).
         $defaults = (array) config('partna.contact_subject_defaults', []);
         $custom = data_get($block->settings, 'subject_options');
         $custom = is_array($custom) ? $custom : [];
@@ -87,10 +94,24 @@ class PublicEnquiryController extends ApiController
             return $this->error('Invalid subject.', 422);
         }
 
-        // 5) Save the enquiry.
+        // 5) Upsert submitter as Customer lead so we can link customer_id on the enquiry.
+        // Wrap in try/catch to handle the rare concurrent-insert race: two identical submissions
+        // arriving simultaneously can both pass the SELECT check then both attempt INSERT.
+        try {
+            $customer = $this->upsertEnquiryCustomer((string) $site->user_id, $data['email'], $data['name'], $data['phone'] ?? null);
+        } catch (UniqueConstraintViolationException $e) {
+            // Concurrent submission won the insert race; re-fetch the winner.
+            $customer = Customer::query()
+                ->where('user_id', $site->user_id)
+                ->whereRaw('lower(email) = ?', [strtolower($data['email'])])
+                ->firstOrFail();
+        }
+
+        // 6) Save the enquiry, linking the upserted customer.
         $enquiry = Enquiry::query()->create([
             'user_id' => $site->user_id,
             'site_id' => $site->id,
+            'customer_id' => $customer->id,
             'name' => $data['name'],
             'email' => $data['email'],
             'phone' => $data['phone'] ?? null,
@@ -100,36 +121,18 @@ class PublicEnquiryController extends ApiController
             'user_agent' => mb_substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        // 6) Upsert submitter as Customer lead.
-        $this->upsertEnquiryCustomer((string) $site->user_id, $data['email'], $data['name'], $data['phone'] ?? null);
-
         // 7) Log unified lead analytics.
         $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);
 
-        // 8) Dispatch notification email (only if settings.notification_email is present and per-brand hourly limit not reached).
-        // B3/P1-10: the job re-reads notification_email from $block->settings inside
-        // handle() — we only pass UUIDs across the queue boundary so the brand's
-        // inbox address never sits in a serialised Redis payload.
-        $notificationEmail = data_get($block->settings, 'notification_email');
-        if (is_string($notificationEmail) && trim($notificationEmail) !== '') {
-            $notifyKey = 'enquiry_notify:'.$site->user_id;
-            $notifyLimit = config('partna.throttle.enquiry_notification_per_hour', 10);
-
-            if (! RateLimiter::tooManyAttempts($notifyKey, $notifyLimit)) {
-                RateLimiter::hit($notifyKey, 3600);
-                SendEnquiryNotificationJob::dispatch((string) $enquiry->id, (string) $block->id);
-            }
-        }
+        // 8) Queue notification dispatch off the hot path — rate-limit + email handled in the adapter.
+        DispatchEnquiryNotificationsJob::dispatch((string) $enquiry->id);
 
         return $this->success(['ok' => true]);
     }
 
-    private function upsertEnquiryCustomer(string $userId, string $email, ?string $fullName, ?string $phone): void
+    private function upsertEnquiryCustomer(string $userId, string $email, ?string $fullName, ?string $phone): Customer
     {
         $normalizedEmail = strtolower(trim($email));
-        if ($normalizedEmail === '') {
-            return;
-        }
 
         $existing = Customer::query()
             ->withTrashed()
@@ -156,7 +159,7 @@ class PublicEnquiryController extends ApiController
 
             $existing->save();
 
-            return;
+            return $existing;
         }
 
         $customer = new Customer;
@@ -166,6 +169,8 @@ class PublicEnquiryController extends ApiController
         $customer->phone = $phone ?: null;
         $customer->source = 'enquiry';
         $customer->save();
+
+        return $customer;
     }
 
     private function logLead(

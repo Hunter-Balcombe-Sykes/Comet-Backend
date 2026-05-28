@@ -3,6 +3,8 @@
 namespace App\Models\Core\User;
 
 use App\Models\BaseModel;
+use App\Models\Core\Notifications\EmailSubscription;
+use App\Models\Core\Site\Enquiry;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -56,7 +58,7 @@ class Customer extends BaseModel
             return (bool) $this->marketing_opt_in_cached;
         }
 
-        $status = \App\Models\Core\Notifications\EmailSubscription::query()
+        $status = EmailSubscription::query()
             ->where('user_id', $this->user_id)
             ->where('list_key', 'marketing')
             ->where('email_lc', strtolower($this->email ?? ''))
@@ -76,7 +78,7 @@ class Customer extends BaseModel
             return;
         }
 
-        $subscription = \App\Models\Core\Notifications\EmailSubscription::query()
+        $subscription = EmailSubscription::query()
             ->where('user_id', $this->user_id)
             ->where('list_key', 'marketing')
             ->where('email_lc', strtolower($this->email))
@@ -89,5 +91,26 @@ class Customer extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Erase customer PII and cascade to all linked enquiries.
+     *
+     * Nulls contact fields and stamps redacted_at so downstream consumers
+     * (exports, API resources) know the row has been sanitised. Cascades to
+     * every enquiry that references this customer so PII doesn't linger there.
+     */
+    public function redact(): void
+    {
+        $this->update([
+            'email' => null,
+            'full_name' => null,
+            'phone' => null,
+            'notes' => null,
+            'redacted_at' => now(),
+        ]);
+
+        Enquiry::where('customer_id', $this->id)
+            ->each(fn ($e) => $e->redact());
     }
 }

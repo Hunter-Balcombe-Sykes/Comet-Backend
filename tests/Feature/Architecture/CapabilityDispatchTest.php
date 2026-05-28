@@ -37,6 +37,12 @@ it('every notification dispatcher job consults AccountCapabilities or is documen
         // gate (can_submit_feedback) is enforced upstream in FeedbackService
         // before the job is ever dispatched.
         'app/Jobs/Notifications/SendFeedbackEmailJob.php' => 'Internal team@ dispatch; capability gate (can_submit_feedback) enforced upstream in FeedbackService::submit before dispatch',
+        // Enquiry inbox fan-out (in_app + email adapters). Enquiry notifications
+        // are universal for individual accounts (the only account type) — gated by
+        // contact-block presence, not a per-category capability. The "inbox"
+        // category is intentionally outside notification_categories. Email path
+        // delegates to SendEnquiryNotificationJob (itself exempt as brand-inbox dispatch).
+        'app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php' => 'Enquiry inbox dispatch; universal for individual accounts, gated by contact-block presence not a per-category capability',
     ];
 
     $dir = base_path('app/Jobs/Notifications');
