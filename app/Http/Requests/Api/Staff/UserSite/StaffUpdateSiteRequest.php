@@ -77,11 +77,9 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // Effects
             'design_kit.effect_overlay_blur' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.effect_overlay_opacity' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.effect_bg_image_enabled' => ['sometimes', 'nullable', 'boolean'],
             // Sizing — UI control intrinsic dimensions
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Responsive companion groups — per-breakpoint partial overrides
             // (tablet = @media min-width 640px, desktop = min-width 1024px).
@@ -104,11 +102,9 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.spacing_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_tablet_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_tablet_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_tablet_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_desktop_row_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_tablet_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_tablet_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],

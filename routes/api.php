@@ -92,6 +92,11 @@ Route::post('/public/analytics/clicks', [AnalyticsController::class, 'click'])
     ->middleware(['throttle:analytics', 'throttle:analytics-click']);
 Route::post('/public/analytics/section-seen', [AnalyticsController::class, 'sectionSeen'])
     ->middleware('throttle:analytics');
+// Real-user monitoring beacon — receives perf timings from the
+// partna-pages dispatcher's inline script. Same throttle group as the
+// other analytics endpoints; no DB writes, log-only.
+Route::post('/public/analytics/rum', [AnalyticsController::class, 'rum'])
+    ->middleware('throttle:analytics');
 
 Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'subscribe'])
     ->middleware(['throttle:public-subscribe', 'bot.token:subscribe']);
