@@ -51,3 +51,31 @@ it('preserves existing priority when dto.priority is null', function () {
     $updated = app(ModerationCaseService::class)->triage($case, $staff, $dto);
     expect($updated->priority)->toBe(3);
 });
+
+it('takes a triaged case (triaged → under_review) and records audit', function () {
+    $staff = PartnaStaff::factory()->create();
+    $case  = ModerationCase::factory()->triaged()->create();
+
+    $updated = app(ModerationCaseService::class)->take($case, $staff);
+
+    expect($updated->status)->toBe('under_review');
+    expect(AuditEvent::query()->where('action', 'case.taken')->exists())->toBeTrue();
+});
+
+it('releases a taken case (under_review → triaged) and records audit', function () {
+    $staff = PartnaStaff::factory()->create();
+    $case  = ModerationCase::factory()->underReview()->create();
+
+    $updated = app(ModerationCaseService::class)->release($case, $staff);
+
+    expect($updated->status)->toBe('triaged');
+    expect(AuditEvent::query()->where('action', 'case.released')->exists())->toBeTrue();
+});
+
+it('rejects take when case is not in triaged status (race)', function () {
+    $staff = PartnaStaff::factory()->create();
+    $case  = ModerationCase::factory()->resolved()->create();
+
+    expect(fn () => app(ModerationCaseService::class)->take($case, $staff))
+        ->toThrow(IllegalCaseTransition::class);
+});
