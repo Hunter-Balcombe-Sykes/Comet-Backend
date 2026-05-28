@@ -307,10 +307,20 @@ function setupSitesTable(): void
         is_published INTEGER NULL,
         unpublished_at TEXT NULL,
         settings TEXT NULL,
+        moderation_state TEXT NOT NULL DEFAULT \'active\',
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    // Ensure moderation_state column exists for tests run against a pre-existing table.
+    // Wrapped in try-catch because SQLite's ADD COLUMN IF NOT EXISTS syntax differs from Postgres.
+    try {
+        DB::connection('pgsql')->statement(
+            "ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS moderation_state TEXT NOT NULL DEFAULT 'active'"
+        );
+    } catch (Throwable $e) {
+        // Column already exists or SQLite doesn't support this syntax — ignore
+    }
 }
 
 /**
