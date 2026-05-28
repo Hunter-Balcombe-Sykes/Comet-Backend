@@ -105,15 +105,21 @@ class UserEnquiryController extends ApiController
             return $this->error('Enquiry not found.', 404);
         }
 
+        $this->authorizeForUser($pro, 'update', $enquiry);
+
         $request->validate([
             'read' => ['required', 'boolean'],
         ]);
 
-        $enquiry->read_at = $request->boolean('read') ? now() : null;
-        $enquiry->save();
+        // Sync both status and read_at together so they never diverge.
+        if ($request->boolean('read')) {
+            $enquiry->markRead();
+        } else {
+            $enquiry->update(['status' => 'new', 'read_at' => null]);
+        }
 
         return $this->success([
-            'enquiry' => (new EnquiryResource($enquiry))->toArray($request),
+            'enquiry' => (new EnquiryResource($enquiry->fresh()))->resolve(),
         ]);
     }
 

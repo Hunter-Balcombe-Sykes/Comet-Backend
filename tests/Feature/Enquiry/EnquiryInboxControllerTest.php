@@ -99,3 +99,27 @@ it('marks the linked notification receipt as read on view', function () {
         ->where('notification_id', $notificationId)->where('user_id', $user->id)->first();
     expect($receipt->read_at)->not->toBeNull();
 });
+
+it('PATCH /api/enquiries/{id} with {read: true} sets status=read AND read_at', function () {
+    $user = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), ['status' => 'new']);
+
+    actingAsUser($user)->patchJson("/api/enquiries/{$enquiryId}", ['read' => true])->assertOk();
+
+    $fresh = Enquiry::find($enquiryId);
+    expect($fresh->status->value)->toBe('read');
+    expect($fresh->read_at)->not->toBeNull();
+});
+
+it('PATCH /api/enquiries/{id} with {read: false} sets status=new AND clears read_at', function () {
+    $user = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), [
+        'status' => 'read', 'read_at' => now()->toDateTimeString(),
+    ]);
+
+    actingAsUser($user)->patchJson("/api/enquiries/{$enquiryId}", ['read' => false])->assertOk();
+
+    $fresh = Enquiry::find($enquiryId);
+    expect($fresh->status->value)->toBe('new');
+    expect($fresh->read_at)->toBeNull();
+});
