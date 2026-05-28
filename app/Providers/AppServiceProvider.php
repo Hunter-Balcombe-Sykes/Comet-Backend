@@ -27,6 +27,7 @@ use App\Models\Core\User\User;
 use App\Models\Core\User\UserConfirmationPreference;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Policies\CustomerPolicy;
+use App\Policies\EnquiryPolicy;
 use App\Policies\FeatureFlagPolicy;
 use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
@@ -88,7 +89,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Block::class, SitePolicy::class);
         Gate::policy(SiteMedia::class, SitePolicy::class);
         Gate::policy(SiteSubdomainAlias::class, SitePolicy::class);
-        Gate::policy(Enquiry::class, SitePolicy::class);
+        Gate::policy(Enquiry::class, EnquiryPolicy::class);
         Gate::policy(LeadSubmission::class, SitePolicy::class);
         Gate::policy(Service::class, ServicePolicy::class);
         Gate::policy(ServiceCategory::class, ServicePolicy::class);
