@@ -32,7 +32,7 @@ use Tests\TestCase;
 |
 */
 
-pest()->extend(Tests\TestCase::class)
+pest()->extend(TestCase::class)
  // ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
 // Note: Unit tests like MediaJobReliabilityTest opt into Tests\TestCase via
@@ -64,8 +64,6 @@ expect()->extend('toBeOne', function () {
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
-
-require_once __DIR__.'/Helpers/EnquiryInboxTestHelpers.php';
 
 function something()
 {
@@ -212,7 +210,7 @@ function attachTestSchemas(): void
         return;
     }
 
-    foreach (['core', 'site', 'audit', 'moderation', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
+    foreach (['core', 'site', 'audit', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
         } catch (Throwable $e) {
@@ -302,7 +300,6 @@ function setupSitesTable(): void
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         subdomain TEXT NULL,
-        skeleton_id TEXT NULL,
         subdomain_changed_at TEXT NULL,
         is_published INTEGER NULL,
         unpublished_at TEXT NULL,
@@ -1390,140 +1387,4 @@ uses()->beforeEach(function () {
     );
 })->in('Feature/Http/Middleware', 'Feature/PublicSite', 'Feature/Security');
 
-/*
-|--------------------------------------------------------------------------
-| Moderation schema SQLite helpers (Trust & Safety Foundation)
-|--------------------------------------------------------------------------
-|
-| The moderation schema runs on PostgreSQL in production. For SQLite-based
-| tests we ATTACH DATABASE 'moderation' and create lightweight table stubs.
-| All columns are nullable TEXT so factory insertions work without type coercion.
-|
-| Postgres-group tests (CHECK constraints, UNIQUE indexes, EXPLAIN plans)
-| still target real PostgreSQL; these helpers are for the SQLite test path only.
-|
-*/
-
-function setupModerationCasesTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.cases (
-        id TEXT PRIMARY KEY,
-        case_type TEXT NOT NULL DEFAULT \'content_report\',
-        reportable_type TEXT NOT NULL DEFAULT \'Site\',
-        reportable_id TEXT NOT NULL,
-        reportable_owner_user_id TEXT NULL,
-        severity INTEGER NOT NULL DEFAULT 2,
-        status TEXT NOT NULL DEFAULT \'open\',
-        signal_count INTEGER NOT NULL DEFAULT 1,
-        auto_actioned INTEGER NOT NULL DEFAULT 0,
-        priority INTEGER NOT NULL DEFAULT 5,
-        sla_due_at TEXT NULL,
-        triaged_at TEXT NULL,
-        triaged_by_staff_id TEXT NULL,
-        resolved_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-function setupModerationCaseSignalsTable(): void
-{
-    attachTestSchemas();
-    setupModerationCasesTable();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.case_signals (
-        id TEXT PRIMARY KEY,
-        case_id TEXT NOT NULL,
-        signal_source TEXT NOT NULL DEFAULT \'content_report\',
-        signal_data TEXT NOT NULL DEFAULT \'[]\',
-        reporter_user_id TEXT NULL,
-        reporter_email TEXT NULL,
-        reporter_ip_hash TEXT NULL,
-        reason_code TEXT NOT NULL DEFAULT \'spam\',
-        reason_details TEXT NULL,
-        dedup_hash TEXT NOT NULL,
-        created_at TEXT NULL
-    )');
-}
-
-function setupModerationEvidenceTable(): void
-{
-    attachTestSchemas();
-    setupModerationCasesTable();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.evidence (
-        id TEXT PRIMARY KEY,
-        case_id TEXT NOT NULL,
-        signal_id TEXT NULL,
-        evidence_type TEXT NOT NULL DEFAULT \'content_snapshot\',
-        payload TEXT NOT NULL DEFAULT \'[]\',
-        content_hash TEXT NULL,
-        captured_at TEXT NULL
-    )');
-}
-
-function setupModerationDecisionsTable(): void
-{
-    attachTestSchemas();
-    setupModerationCasesTable();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.decisions (
-        id TEXT PRIMARY KEY,
-        case_id TEXT NOT NULL,
-        decision_type TEXT NOT NULL DEFAULT \'dismiss\',
-        reason TEXT NULL,
-        decided_by_staff_id TEXT NULL,
-        decided_by_system INTEGER NOT NULL DEFAULT 0,
-        auto_actioned INTEGER NOT NULL DEFAULT 0,
-        supersedes_decision_id TEXT NULL,
-        second_staff_approval_id TEXT NULL,
-        second_staff_approved_at TEXT NULL,
-        decided_at TEXT NULL
-    )');
-}
-
-function setupModerationActionLogTable(): void
-{
-    attachTestSchemas();
-    setupModerationDecisionsTable();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.action_log (
-        id TEXT PRIMARY KEY,
-        decision_id TEXT NOT NULL,
-        action_type TEXT NOT NULL DEFAULT \'notify_reporter\',
-        action_target TEXT NOT NULL DEFAULT \'[]\',
-        job_uuid TEXT NULL,
-        status TEXT NOT NULL DEFAULT \'pending\',
-        attempts INTEGER NOT NULL DEFAULT 0,
-        failure_reason TEXT NULL,
-        dispatched_at TEXT NULL,
-        completed_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-function setupAuditModerationEventsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.moderation_events (
-        id TEXT PRIMARY KEY,
-        actor_kind TEXT NOT NULL DEFAULT \'system\',
-        actor_staff_id TEXT NULL,
-        action TEXT NOT NULL,
-        target_type TEXT NULL,
-        target_id TEXT NULL,
-        payload TEXT NOT NULL DEFAULT \'[]\',
-        created_at TEXT NULL
-    )');
-}
-
-/**
- * Setup all moderation tables at once (convenience for integration tests).
- */
-function setupAllModerationTables(): void
-{
-    setupModerationCasesTable();
-    setupModerationCaseSignalsTable();
-    setupModerationEvidenceTable();
-    setupModerationDecisionsTable();
-    setupModerationActionLogTable();
-    setupAuditModerationEventsTable();
-}
+require_once __DIR__.'/Helpers/EnquiryInboxTestHelpers.php';
