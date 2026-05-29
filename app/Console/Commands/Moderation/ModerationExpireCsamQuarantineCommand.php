@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\Log;
 
 class ModerationExpireCsamQuarantineCommand extends Command
 {
+    // Cap per-run batch to avoid OOM on a delayed backlog. In steady state
+    // the expiry window is small; 500 rows gives a safe upper bound.
+    private const BATCH_LIMIT = 500;
+
     protected $signature = 'moderation:expire-csam-quarantine';
     protected $description = 'Delete R2 binaries for csam_quarantine rows past their 90-day preservation window.';
 
@@ -18,6 +22,7 @@ class ModerationExpireCsamQuarantineCommand extends Command
         $expired = CsamQuarantine::query()
             ->where('r2_binary_deleted', false)
             ->where('preservation_expires_at', '<', now())
+            ->limit(self::BATCH_LIMIT)
             ->get();
 
         $deleted = 0;

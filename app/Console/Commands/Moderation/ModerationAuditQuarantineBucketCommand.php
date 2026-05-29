@@ -22,7 +22,11 @@ class ModerationAuditQuarantineBucketCommand extends Command
             ->get("https://api.cloudflare.com/client/v4/accounts/{$accountId}/r2/buckets/{$bucket}");
 
         if (! $res->successful()) {
-            $this->error("Bucket inspection failed: {$res->status()}");
+            Log::error('moderation.quarantine_bucket.api_failure', [
+                'bucket' => $bucket,
+                'status' => $res->status(),
+            ]);
+            $this->error("Bucket inspection failed for {$bucket}: HTTP {$res->status()}");
             return self::FAILURE;
         }
 
