@@ -35,9 +35,16 @@ Route::prefix('staff')
         // Staff Dashboard
         Route::get('/me', [StaffMeController::class, 'show']);
 
-        // Moderation queue
+        // Moderation queue — list + detail
         Route::get('/cases', [StaffCaseController::class, 'index'])->name('staff.cases.index');
         Route::get('/cases/{case}', [StaffCaseController::class, 'show'])->name('staff.cases.show');
+
+        // Moderation case lifecycle mutations
+        Route::post('/cases/{case}/triage',   [StaffCaseController::class, 'triage'])->name('staff.cases.triage');
+        Route::post('/cases/{case}/take',     [StaffCaseController::class, 'take'])->name('staff.cases.take');
+        Route::post('/cases/{case}/release',  [StaffCaseController::class, 'release'])->name('staff.cases.release');
+        Route::post('/cases/{case}/decide',   [StaffCaseController::class, 'decide'])->name('staff.cases.decide');
+        Route::post('/cases/{case}/escalate', [StaffCaseController::class, 'escalate'])->name('staff.cases.escalate');
 
         // Platform-wide stats
         Route::get('/stats', [StaffStatsController::class, 'show']);
