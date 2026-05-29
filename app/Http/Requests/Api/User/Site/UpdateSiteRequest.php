@@ -169,16 +169,13 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.border_radius' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.border_focus_color' => ['sometimes', 'nullable', 'string', 'max:32'],
-            // Spacing
-            'design_kit.spacing_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            // Padding
-            'design_kit.padding_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_large' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Space — single scale used for both CSS padding props AND
+            // flex/grid gap props. Replaces the prior padding + spacing pair.
+            'design_kit.space_xs' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_s' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_regular' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_medium' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_large' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Icons
             'design_kit.icon_size' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32'],
@@ -189,33 +186,17 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            // Responsive companion groups — per-breakpoint partial overrides
-            // (tablet = @media min-width 640px, desktop = min-width 1024px).
-            // Empty values cascade from the next-smaller breakpoint.
-            'design_kit.padding_tablet_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Responsive companion groups — single desktop breakpoint
+            // (@media min-width 550px). Empty values cascade from the
+            // mobile base via the CSS cascade.
+            'design_kit.space_desktop_xs' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_s' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_regular' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_medium' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.typography_tablet_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.typography_tablet_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Motion — animation durations consumed by skeleton interactions
