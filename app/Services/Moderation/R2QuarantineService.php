@@ -14,7 +14,10 @@ use Illuminate\Support\Facades\Storage;
 class R2QuarantineService
 {
     public const QUARANTINE_DISK = 'r2_quarantine';
-    public const PRODUCTION_DISK = 'r2';
+    // 'media' is the S3-compatible production disk (Laravel Cloud Object Storage
+    // or any S3/R2 bucket). Configured via AWS_* env vars (Laravel Cloud injects
+    // these automatically for its managed storage resource).
+    public const PRODUCTION_DISK = 'media';
 
     /**
      * Generate a pre-signed upload URL for the quarantine bucket.

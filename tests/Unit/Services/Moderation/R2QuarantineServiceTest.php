@@ -8,7 +8,7 @@ uses(TestCase::class);
 
 beforeEach(function () {
     Storage::fake('r2_quarantine');
-    Storage::fake('r2');
+    Storage::fake('media');
 });
 
 it('generates a signed upload URL targeting the quarantine bucket', function () {
@@ -46,7 +46,7 @@ it('promote copies object from quarantine → production and deletes from quaran
     $service->promoteToProduction(quarantineKey: 'quarantine/test.jpg', productionKey: 'media/test.jpg');
 
     expect(Storage::disk('r2_quarantine')->exists('quarantine/test.jpg'))->toBeFalse();
-    expect(Storage::disk('r2')->exists('media/test.jpg'))->toBeTrue();
+    expect(Storage::disk('media')->exists('media/test.jpg'))->toBeTrue();
 });
 
 it('delete quarantine binary removes the object', function () {
