@@ -4,6 +4,7 @@ namespace App\Services\Moderation;
 
 use App\DTOs\Moderation\CloudflareCsamMatchDto;
 use App\DTOs\Moderation\DecisionDto;
+use App\Jobs\Moderation\FileCyberTipReportJob;
 use App\Models\Moderation\CsamQuarantine;
 use App\Models\Moderation\Evidence;
 use App\Models\Moderation\ModerationCase;
@@ -135,6 +136,18 @@ class CsamMatchHandlerService
                 reason:                'auto_csam_match',
                 secondStaffApprovalId: null,
             ));
+
+            // Dispatch FileCyberTipReportJob after the transaction commits so the
+            // ncmec_submission row is visible to the worker. afterCommit fires before
+            // the return value is resolved, ensuring dispatch is registered.
+            DB::afterCommit(function () use ($quarantine) {
+                $sub = NcmecSubmission::query()
+                    ->where('csam_quarantine_id', $quarantine->id)
+                    ->first();
+                if ($sub !== null) {
+                    FileCyberTipReportJob::dispatch($sub->id);
+                }
+            });
 
             return [
                 'case_id'       => $case->id,
