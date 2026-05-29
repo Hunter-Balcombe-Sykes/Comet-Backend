@@ -901,13 +901,14 @@ return [
     | video_queue.timeout    = worker --timeout (seconds); must exceed
     |                          worst-case transcode time for your machine
     |
-    | video_variants define the two MP4 output tiers.  HLS streams are
-    | packaged from these MP4 files (no extra re-encode).
+    | video_variants define the two MP4 output tiers delivered directly to
+    | the player: optimized (720p, autoplay) + maximized (1080p, on-demand).
+    | The frontend chooses which to load by context.
     */
     'video_uploads_enabled' => (bool) env('PARTNA_VIDEO_UPLOADS_ENABLED', env('SIDEST_VIDEO_UPLOADS_ENABLED', false)),
 
-    'video_max_upload_size' => (int) env('PARTNA_VIDEO_MAX_UPLOAD_KB', env('SIDEST_VIDEO_MAX_UPLOAD_KB', 512000)), // 500 MB
-    'video_max_duration_seconds' => (int) env('PARTNA_VIDEO_MAX_DURATION_SECONDS', env('SIDEST_VIDEO_MAX_DURATION_SECONDS', 300)), // 5 min
+    'video_max_upload_size' => (int) env('PARTNA_VIDEO_MAX_UPLOAD_KB', env('SIDEST_VIDEO_MAX_UPLOAD_KB', 204800)), // 200 MB
+    'video_max_duration_seconds' => (int) env('PARTNA_VIDEO_MAX_DURATION_SECONDS', env('SIDEST_VIDEO_MAX_DURATION_SECONDS', 30)), // 30s — short autoplay clips
 
     'ffmpeg_binary' => env('PARTNA_FFMPEG_BINARY', env('SIDEST_FFMPEG_BINARY', 'ffmpeg')),
     'ffprobe_binary' => env('PARTNA_FFPROBE_BINARY', env('SIDEST_FFPROBE_BINARY', 'ffprobe')),
