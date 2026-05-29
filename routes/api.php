@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
+use App\Http\Middleware\Moderation\EnforceCsamScanGate;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
@@ -72,7 +73,7 @@ Route::get('/public/site-by-slug', [PublicSiteController::class, 'showByHeader']
 // forces a download instead of rendering inline.
 Route::get('/public/documents/{document}/download', PublicDocumentDownloadController::class)
     ->whereUuid('document')
-    ->middleware('throttle:public-site');
+    ->middleware(['throttle:public-site', EnforceCsamScanGate::class]);
 
 // Static frontend config (social platform registry, etc). Aggressively cacheable.
 // See docs/social-links.md for the social platforms contract.
@@ -110,9 +111,10 @@ Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
 
 // §28.8 — Individual public profile (Astro Worker subrequest target).
 // Public, unauthenticated. Rate limit + cache key isolated from generic public-site.
+// EnforceCsamScanGate annotates the gate; actual filtering is in SitepageDataResolverService.
 Route::get('/public/profiles/{handle}', [\App\Http\Controllers\Api\PublicSite\IndividualProfileController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
-    ->middleware('throttle:public-profile');
+    ->middleware(['throttle:public-profile', EnforceCsamScanGate::class]);
 
 Route::post('/public/customers', [PublicCustomerLeadController::class, 'store'])
     ->middleware(['lead.log', 'throttle:leads', 'bot.token:lead']);

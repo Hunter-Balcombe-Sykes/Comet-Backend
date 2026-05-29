@@ -83,6 +83,35 @@ class SitepageDataResolverService
             ->keyBy('block_type');
     }
 
+    // ── CSAM scan gate ───────────────────────────────────────────────────
+
+    /**
+     * Defence-in-depth WHERE clause applied to every public media query.
+     *
+     * Rules:
+     *  1. Media with a non-null scanned_at passes — it has been scanned clean.
+     *  2. Media with null scanned_at AND created_at < grandfather_cutoff passes —
+     *     it was uploaded before the CSAM scanning gate was introduced.
+     *  3. Media with null scanned_at AND created_at >= grandfather_cutoff is
+     *     excluded — it entered the scanning pipeline but hasn't cleared yet.
+     *
+     * The `processing_state = 'ready'` filter is the primary gate; this is a
+     * secondary defence for edge cases (e.g. a race where state was promoted
+     * before the scan completed).
+     */
+    private function applyCsamScanGate(\Illuminate\Database\Eloquent\Builder $q): void
+    {
+        $cutoff = config('partna.moderation.csam.grandfather_cutoff', '2026-05-26 00:00:00');
+
+        $q->where(function ($inner) use ($cutoff): void {
+            $inner->whereNotNull('scanned_at')
+                ->orWhere(function ($g) use ($cutoff): void {
+                    $g->whereNull('scanned_at')
+                        ->where('created_at', '<', $cutoff);
+                });
+        });
+    }
+
     // ── Gallery ──────────────────────────────────────────────────────────
 
     /**
@@ -101,6 +130,7 @@ class SitepageDataResolverService
                 ->where('pool', SiteMedia::POOL_GALLERY)
                 ->where('is_active', true)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                ->where(fn ($q) => $this->applyCsamScanGate($q))
                 ->with('mediaVariants')
                 ->orderBy('sort_order')
                 ->get()
@@ -185,6 +215,7 @@ class SitepageDataResolverService
             ->where('pool', SiteMedia::POOL_CONTENT)
             ->where('is_active', true)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+            ->where(fn ($q) => $this->applyCsamScanGate($q))
             ->with('mediaVariants')
             ->orderBy('sort_order')
             ->get()
@@ -382,6 +413,7 @@ class SitepageDataResolverService
                 ->where('pool', SiteMedia::POOL_DOCUMENTS)
                 ->where('is_active', true)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                ->where(fn ($q) => $this->applyCsamScanGate($q))
                 ->orderByDesc('created_at')
                 ->first()
             : null;

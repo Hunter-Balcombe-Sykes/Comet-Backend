@@ -1198,6 +1198,11 @@ return [
         // Disabled by default — set PARTNA_CSAM_SCAN_ENABLED=true to activate.
         'csam' => [
             'enabled' => (bool) env('PARTNA_CSAM_SCAN_ENABLED', false),
+            // Grandfather cutoff — media created BEFORE this timestamp that has
+            // null scanned_at is served normally (it pre-dates the CSAM gate).
+            // Media created ON OR AFTER this timestamp with null scanned_at is
+            // still in the scanning pipeline and must NOT be served publicly.
+            'grandfather_cutoff' => env('PARTNA_CSAM_GRANDFATHER_CUTOFF', '2026-05-26 00:00:00'),
         ],
     ],
 ];
