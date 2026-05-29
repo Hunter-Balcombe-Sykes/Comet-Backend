@@ -149,6 +149,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_placeholder' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Typography group — body + title font + size + weight; fontFamily
