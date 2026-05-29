@@ -37,7 +37,7 @@ class UploadImageRequest extends BaseFormRequest
                 'sometimes',
                 'nullable',
                 'file',
-                'mimes:mp4,mov,webm,avi',
+                'mimes:mp4,mov,webm',
                 "max:{$videoMaxKb}",
             ],
             'alt_text' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -93,7 +93,7 @@ class UploadImageRequest extends BaseFormRequest
             'image.mimes' => 'Image must be JPEG, PNG, or WebP.',
             'image.image' => 'The file must be a valid image.',
             'video.max' => "Video must be smaller than {$videoMaxMb} MB.",
-            'video.mimes' => 'Video must be MP4, MOV, WebM, or AVI.',
+            'video.mimes' => 'Video must be MP4, MOV, or WebM.',
         ];
     }
 }
