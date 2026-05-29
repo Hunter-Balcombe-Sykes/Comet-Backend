@@ -488,6 +488,8 @@ class AccountDeletionService
         // Step 3: bust the public site cache (15-min TTL) so a just-purged site
         // stops serving stale payloads to public requests the instant we delete.
         // invalidateSite() handles the main subdomain + all aliases in one call.
+        // Deliberate direct call (NOT redundant): teardown runs a force-delete cascade
+        // that we don't want to depend on observer ordering for — invalidate explicitly.
         $site = Site::query()->where('user_id', $professional->id)->first();
         if ($site) {
             try {

@@ -297,7 +297,11 @@ class UserCacheService
 
         Cache::deleteMultiple(array_values(array_unique($keys)));
 
-        // Also invalidate site cache (public payload includes professional fields)
+        // Conservative catch-all: bust the site payload for ANY professional change.
+        // Kept deliberately (not redundant with UserObserver's touch, which only
+        // fires for PUBLIC_PROFILE_USER_FIELDS). Removing this risks under-invalidation
+        // if a non-listed column ever leaks into the public payload — invalidate-only
+        // here is cheaper than that staleness class of bug.
         if ($professional->site) {
             app(SiteCacheService::class)->invalidateSite($professional->site);
         }
