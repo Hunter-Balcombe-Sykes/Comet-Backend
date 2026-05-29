@@ -780,6 +780,10 @@ return [
         'enabled' => (bool) env('PARTNA_THROTTLE_ENABLED', env('SIDEST_THROTTLE_ENABLED', true)),
         // Max notification emails sent per brand inbox per hour regardless of how many enquiries arrive.
         'enquiry_notification_per_hour' => (int) env('PARTNA_ENQUIRY_NOTIFY_PER_HOUR', env('SIDEST_ENQUIRY_NOTIFY_PER_HOUR', 10)),
+        // Max visitor-facing confirmation emails per recipient address per hour
+        // (shared across enquiry + subscription confirmations). Public forms send
+        // to attacker-controllable addresses, so this caps email-bombing.
+        'visitor_confirmation_per_hour' => (int) env('PARTNA_VISITOR_CONFIRMATION_PER_HOUR', 5),
     ],
 
     // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
