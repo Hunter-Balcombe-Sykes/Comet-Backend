@@ -18,8 +18,12 @@ use Throwable;
 
 // Syncs one professional's subdomain routing entries in Cloudflare KV.
 // All accounts are individual; only {"type":"individual"} entries are written.
-// Historical aliases: {"type":"alias","target":"<current-handle>"} with expirationTtl.
-// Genuine deletes go through RetireSubdomainFromKvJob, NOT this job.
+// Historical aliases: {"type":"alias","redirect":"https://<current>.partna.au"}
+// with expirationTtl. The Worker reads `entry.redirect` as a full URL — it
+// does NOT reconstruct from a handle. Pre-computing the URL here keeps
+// alias entries valid against the canonical subdomain regardless of future
+// Worker-side URL composition changes. Genuine deletes go through
+// RetireSubdomainFromKvJob, NOT this job.
 //
 // `ShouldBeUnique` with a 45s window collapses observer storms to a single KV write per 45s.
 class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
@@ -53,7 +57,13 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // All accounts are individual. The Astro Worker reads this entry via
         // Service Binding and renders the public profile page.
         $kv->put($current, ['type' => 'individual'], null);
-        $this->writeAliasEntries($kv, $pro->id, $current);
+
+        // Pre-compute the canonical URL for alias-redirect entries. Format
+        // matches site.compute_user_url() — `https://<handle>.partna.au` —
+        // and the trg_recompute_partna_url DB trigger keeps
+        // core.users.partna_url in sync so this fallback is rarely needed.
+        $canonical = $pro->partna_url ?: "https://{$current}.partna.au";
+        $this->writeAliasEntries($kv, $pro->id, $current, $canonical);
     }
 
     public function failed(Throwable $e): void
@@ -66,11 +76,17 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * Write alias KV entries — {type:'alias', target:'<current>'} with a TTL
-     * derived from expires_at so Cloudflare auto-evicts when the alias expires.
-     * Legacy NULL-expires_at aliases get no TTL (permanent until the next prune sweep).
+     * Write alias KV entries — {type:'alias', redirect:'https://<current>.partna.au'}
+     * with a TTL derived from expires_at so Cloudflare auto-evicts when the
+     * alias expires. Legacy NULL-expires_at aliases get no TTL (permanent
+     * until the next prune sweep).
+     *
+     * The Worker contract reads `entry.redirect` as a full URL — sending
+     * `target: <handle>` (the older shape) silently falls through the
+     * Worker's alias branch and routes to fetch(request), producing an
+     * infinite self-loop that surfaces to the visitor as a 522.
      */
-    private function writeAliasEntries(CloudflareKvService $kv, string $proId, string $current): void
+    private function writeAliasEntries(CloudflareKvService $kv, string $proId, string $current, string $canonical): void
     {
         $aliases = DB::table('core.user_handle_aliases')
             ->where('user_id', $proId)
@@ -90,7 +106,7 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
                 ? max(60, (int) now()->diffInSeconds(Carbon::parse($alias->expires_at), false))
                 : null;
 
-            $kv->put($handle, ['type' => 'alias', 'target' => $current], $ttl);
+            $kv->put($handle, ['type' => 'alias', 'redirect' => $canonical], $ttl);
         }
     }
 }
