@@ -171,3 +171,16 @@ Schedule::command('moderation:sla-scan')
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:sla-scan');
     });
+
+// Poll Cloudflare CSAM scan status for site_media rows stuck in 'scanning'.
+// Promotes clean objects from quarantine to the production bucket.
+// withoutOverlapping(3) gives a 3x ceiling over the everyMinute cadence —
+// the batch is bounded to 100 rows so a slow run won't cause same-tick races
+// under normal load; the 3-min ceiling prevents queue buildup if CF is slow.
+Schedule::job(new \App\Jobs\Moderation\PromoteCleanMediaJob)
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping(3) // 3min lock — 3x the 1min cadence safety ceiling.
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:promote-clean-media');
+    });
