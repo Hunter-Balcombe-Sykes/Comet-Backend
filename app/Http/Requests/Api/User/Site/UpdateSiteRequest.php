@@ -149,6 +149,8 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Typography group — body + title font + size + weight; fontFamily
             // is a slug resolved by @partnaau/design-system/design-assets.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
