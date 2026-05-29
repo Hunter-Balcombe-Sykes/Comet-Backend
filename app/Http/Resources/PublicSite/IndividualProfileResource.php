@@ -92,6 +92,7 @@ class IndividualProfileResource extends ApiResource
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
+                'workplace' => $this->sections['workplace'] ?? null,
 
                 // Retained for compat — content-pool images aren't a phase-8
                 // engine but skeletons read them as the "section background"
