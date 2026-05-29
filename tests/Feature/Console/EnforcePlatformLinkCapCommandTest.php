@@ -6,6 +6,35 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
+ * Shared fixture helper — also defined in BackfillLinkCategoriesTest.php.
+ * Duplicated here so this file is self-contained when run in isolation
+ * (global PHP functions from other test files aren't available unless
+ * those files happen to be loaded first, which is not guaranteed).
+ */
+if (! function_exists('createBackfillFixtureIds')) {
+    function createBackfillFixtureIds(): array
+    {
+        $userId = (string) Str::uuid();
+        $siteId = (string) Str::uuid();
+
+        DB::connection('pgsql')->table('core.users')->insert([
+            'id'         => $userId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('pgsql')->table('site.sites')->insert([
+            'id'         => $siteId,
+            'user_id'    => $userId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return [$userId, $siteId];
+    }
+}
+
+/**
  * Tests for partna:enforce-platform-link-cap — the one-shot data remediation
  * command that soft-deletes excess platform link blocks for professionals
  * already over the platform_links_max cap.

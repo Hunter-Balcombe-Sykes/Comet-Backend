@@ -40,6 +40,14 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
 
     $raw = file_get_contents($file);
 
+    // Allow a per-file opt-out for migrations that intentionally deviate from the
+    // safe-lock conventions (e.g., transactional CREATE INDEX that can't use
+    // CONCURRENTLY, or FKs on empty columns added in the same migration).
+    // Usage: add  -- guard:no-unsafe-migrations:disable-file  anywhere in the file.
+    if (preg_match('/--\s*guard:no-unsafe-migrations:disable-file\b/i', $raw)) {
+        continue;
+    }
+
     // Strip single-line SQL comments so patterns inside comments don't false-positive.
     $content = preg_replace('/--[^\n]*/', '', $raw);
 
