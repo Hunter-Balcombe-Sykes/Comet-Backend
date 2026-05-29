@@ -4,6 +4,7 @@ namespace App\Http\Middleware\Cloudflare;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -18,6 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
  * - Bad HMAC → 401
  * - Timestamp older than 5 minutes → 401 (clock-skew window)
  * - Signature seen in last 10 minutes (Redis nonce) → 409
+ * - Redis unavailable → 401 (fail-closed)
  */
 class VerifyCloudflareWebhookSignature
 {
@@ -27,9 +29,8 @@ class VerifyCloudflareWebhookSignature
     public function handle(Request $request, Closure $next): Response
     {
         $sigHeader = $request->header('Cf-Webhook-Signature');
-        $tsHeader  = $request->header('Cf-Webhook-Timestamp');
 
-        if ($sigHeader === null || $tsHeader === null) {
+        if ($sigHeader === null) {
             return response()->json(['error' => 'INVALID_SIGNATURE'], 401);
         }
 
@@ -60,9 +61,19 @@ class VerifyCloudflareWebhookSignature
 
         // phpredis returns false on a failed NX set; Predis returns null.
         // Treat any falsy return as "key already existed" → replay.
+        // Wrap in try/catch: Redis unavailability is fail-closed (401), not a pass-through.
         $nonceKey = "moderation:cf_webhook_nonce:{$providedHex}";
-        if (! Redis::set($nonceKey, '1', 'EX', self::NONCE_TTL, 'NX')) {
-            return response()->json(['error' => 'REPLAY_DETECTED'], 409);
+        try {
+            if (! Redis::set($nonceKey, '1', 'EX', self::NONCE_TTL, 'NX')) {
+                return response()->json(['error' => 'REPLAY_DETECTED'], 409);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('csam_webhook.nonce_store_failed', [
+                'error'    => $e->getMessage(),
+                'nonce_key' => $nonceKey,
+            ]);
+            // Fail-closed: cannot verify replay safety without the nonce store.
+            return response()->json(['error' => 'INVALID_SIGNATURE'], 401);
         }
 
         return $next($request);
