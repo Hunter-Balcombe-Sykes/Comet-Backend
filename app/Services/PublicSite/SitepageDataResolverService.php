@@ -345,7 +345,6 @@ class SitepageDataResolverService
             if ($name === '') {
                 return null;
             }
-            $hours = is_array($profile['hours'] ?? null) ? $profile['hours'] : [];
 
             return [
                 'place_id' => $this->trimToNull($profile['place_id'] ?? null),
@@ -360,10 +359,6 @@ class SitepageDataResolverService
                 'longitude' => isset($profile['longitude']) ? (float) $profile['longitude'] : null,
                 'phone' => $this->trimToNull($profile['phone'] ?? null),
                 'website' => $this->trimToNull($profile['website'] ?? null),
-                'hours' => array_values(array_filter(
-                    $hours,
-                    fn ($v) => is_string($v) && trim($v) !== ''
-                )),
             ];
         });
     }
