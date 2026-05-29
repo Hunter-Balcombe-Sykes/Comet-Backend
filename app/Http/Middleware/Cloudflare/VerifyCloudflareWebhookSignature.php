@@ -43,7 +43,14 @@ class VerifyCloudflareWebhookSignature
             return response()->json(['error' => 'INVALID_SIGNATURE'], 401);
         }
 
+        // Fail-closed: reject immediately if the secret is not configured.
+        // hash_hmac() coerces null → '' and would accept attacker-crafted
+        // signatures signed with the same empty string key.
         $secret = config('partna.moderation.csam.cloudflare_webhook_secret');
+        if (! is_string($secret) || $secret === '') {
+            return response()->json(['error' => 'INVALID_SIGNATURE'], 401);
+        }
+
         $body   = $request->getContent();
         $expected = hash_hmac('sha256', "{$ts}.{$body}", $secret);
 
