@@ -10,6 +10,7 @@ use App\Models\Moderation\ModerationCase;
 use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\NcmecSubmission;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -27,6 +28,11 @@ use RuntimeException;
  */
 class CsamMatchHandlerService
 {
+    // CSAM is always maximum severity (5) and top priority (1) —
+    // PhotoDNA hash matching has near-zero false-positive rate.
+    private const CSAM_SEVERITY = 5;
+    private const CSAM_PRIORITY = 1;
+
     public function __construct(
         private readonly DedupHashCalculator $dedup,
         private readonly ModerationDecisionService $decisions,
@@ -34,6 +40,12 @@ class CsamMatchHandlerService
 
     public function handle(CloudflareCsamMatchDto $dto): array
     {
+        Log::critical('csam_handler.match_received', [
+            'match_id' => $dto->matchId,
+            'r2_key'   => $dto->r2Key,
+            'confidence' => $dto->confidence,
+        ]);
+
         return DB::transaction(function () use ($dto) {
             // Resolve the SiteMedia row by quarantine path.
             $siteMedia = DB::selectOne(
@@ -41,6 +53,7 @@ class CsamMatchHandlerService
                 [$dto->r2Key]
             );
             if ($siteMedia === null) {
+                Log::warning('csam_handler.media_not_found', ['r2_key' => $dto->r2Key, 'match_id' => $dto->matchId]);
                 throw new RuntimeException("MEDIA_NOT_FOUND:{$dto->r2Key}");
             }
 
@@ -50,17 +63,27 @@ class CsamMatchHandlerService
                 [$siteMedia->site_id]
             );
 
+            if ($siteOwner === null) {
+                // Orphaned media (no owning site row). Proceed with null owner but
+                // log critical so on-call can investigate the data integrity issue.
+                Log::critical('csam_handler.no_owner_resolved', [
+                    'match_id'     => $dto->matchId,
+                    'site_media_id'=> $siteMedia->id,
+                    'site_id'      => $siteMedia->site_id,
+                ]);
+            }
+
             $case = ModerationCase::forceCreate([
                 'id'                       => Str::uuid()->toString(),
                 'case_type'                => 'csam_match',
                 'reportable_type'          => 'SiteMedia',
                 'reportable_id'            => $siteMedia->id,
                 'reportable_owner_user_id' => $siteOwner?->user_id,
-                'severity'                 => 5,
+                'severity'                 => self::CSAM_SEVERITY,
                 'status'                   => 'open',
                 'signal_count'             => 1,
                 'auto_actioned'            => false,
-                'priority'                 => 1,
+                'priority'                 => self::CSAM_PRIORITY,
             ]);
 
             CaseSignal::forceCreate([
@@ -88,6 +111,8 @@ class CsamMatchHandlerService
                 'content_hash'             => $dto->matchedHash,
                 'cloudflare_match_payload' => $dto->rawPayload,
                 'r2_quarantine_key'        => $dto->r2Key,
+                // 90-day legal preservation minimum per NCMEC guidance.
+                // Configurable via partna.moderation.csam.preservation_days.
                 'preservation_expires_at'  => now()->addDays(
                     config('partna.moderation.csam.preservation_days', 90)
                 ),

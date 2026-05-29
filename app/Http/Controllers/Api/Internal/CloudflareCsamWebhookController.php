@@ -18,6 +18,10 @@ class CloudflareCsamWebhookController extends Controller
         try {
             $dto    = CloudflareCsamMatchDto::fromArray($payload);
             $result = $handler->handle($dto);
+        } catch (\InvalidArgumentException $e) {
+            // Malformed payload (missing required field) — return 422 so Cloudflare
+            // does not endlessly retry an unfixable request.
+            return response()->json(['error' => 'INVALID_PAYLOAD', 'detail' => $e->getMessage()], 422);
         } catch (RuntimeException $e) {
             if (str_starts_with($e->getMessage(), 'MEDIA_NOT_FOUND:')) {
                 return response()->json(['error' => 'MEDIA_NOT_FOUND'], 404);
