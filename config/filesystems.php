@@ -88,26 +88,6 @@ return [
             ],
         ],
 
-        /*
-        |----------------------------------------------------------------------
-        | Quarantine disk – separate R2 bucket for CSAM / flagged media
-        |----------------------------------------------------------------------
-        | Media flagged by Cloudflare CSAM scanning is uploaded here rather
-        | than the production bucket, isolating sensitive binaries. Objects are
-        | retained for preservation_expires_at (default 90 days) then purged
-        | by the moderation:purge-quarantine-binaries command.
-        */
-        'r2_quarantine' => [
-            'driver'   => 's3',
-            'key'      => env('R2_QUARANTINE_ACCESS_KEY_ID'),
-            'secret'   => env('R2_QUARANTINE_SECRET_ACCESS_KEY'),
-            'region'   => 'auto',
-            'bucket'   => env('R2_QUARANTINE_BUCKET', 'partna-media-quarantine'),
-            'endpoint' => env('R2_QUARANTINE_ENDPOINT'),
-            'use_path_style_endpoint' => true,
-            'throw'    => true,
-        ],
-
         // Legacy alias: media_variants rows uploaded when PARTNA_MEDIA_DISK='public_dev'
         // reference this disk name. Mirrors the 'media' disk so those variant URLs
         // resolve correctly without a data migration. Non-throwing so old media rows

@@ -6,7 +6,7 @@ use App\Models\Moderation\ModerationCase;
 
 /**
  * Pure FSM for moderation.cases.status transitions. No side effects.
- * Used by ModerationCaseService and CsamMatchHandlerService — the only legal write paths.
+ * Used by ModerationCaseService — the only legal write path.
  */
 class CaseStateMachine
 {

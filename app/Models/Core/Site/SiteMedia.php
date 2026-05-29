@@ -54,15 +54,9 @@ class SiteMedia extends BaseModel
 
     public const PROCESSING_STATE_PROCESSING = 'processing';
 
-    // Awaiting CSAM hash-match scan in the quarantine bucket.
-    // Transition: scanning → pending (clean) via CsamScanCompleteJob, or scanning → quarantined (match).
-    public const PROCESSING_STATE_SCANNING = 'scanning';
-
     public const PROCESSING_STATE_READY = 'ready';
 
     public const PROCESSING_STATE_FAILED = 'failed';
-
-    public const PROCESSING_STATE_QUARANTINED = 'quarantined';
 
     protected $attributes = [
         'is_active' => true,

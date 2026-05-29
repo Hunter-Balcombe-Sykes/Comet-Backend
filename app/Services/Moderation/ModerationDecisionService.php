@@ -78,8 +78,8 @@ class ModerationDecisionService
     }
 
     /**
-     * Auto-action path used by CsamMatchHandlerService and any future automated
-     * detector. Writes a system-attributed decision (decided_by_system=true),
+     * Auto-action path for automated detectors (system-attributed decisions).
+     * Writes a system-attributed decision (decided_by_system=true),
      * transitions the case to 'auto_actioned' (skipped if already there), dispatches
      * the action set via the existing dispatcher, and records a system audit row.
      * All writes are wrapped in a single DB transaction; jobs fire afterCommit.
