@@ -9,7 +9,6 @@ use App\Http\Requests\Api\User\ImageGallery\ReorderGalleryImageRequest;
 use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
 use App\Http\Resources\GalleryImageResource;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
@@ -91,7 +90,11 @@ class UserGalleryController extends ApiController
             }
         });
 
-        app(SiteCacheService::class)->invalidateSite($site);
+        // Mass `update()` above bypasses Eloquent events, so SiteMediaObserver
+        // never touches the site. Touch explicitly to fire SiteObserver — Redis
+        // invalidation + Cloudflare edge purge + cache warm — matching the
+        // image-reorder path (UserUploadController::reorder).
+        $site->touch();
 
         return $this->success(['ok' => true]);
     }
