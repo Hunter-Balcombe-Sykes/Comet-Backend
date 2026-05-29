@@ -88,19 +88,32 @@ class SitepageDataResolverService
     /**
      * Defence-in-depth WHERE clause applied to every public media query.
      *
-     * Rules:
+     * Gated by `partna.moderation.csam.enabled` — when scanning is OFF
+     * (the platform-wide default), uploads bypass the quarantine bucket
+     * and never receive a `scanned_at` value, so enforcing the gate would
+     * blanket-hide every newly-uploaded image. Skip in that case; rely
+     * on `processing_state = 'ready'` for visibility. When scanning is
+     * ON, apply the full gate:
+     *
      *  1. Media with a non-null scanned_at passes — it has been scanned clean.
      *  2. Media with null scanned_at AND created_at < grandfather_cutoff passes —
      *     it was uploaded before the CSAM scanning gate was introduced.
      *  3. Media with null scanned_at AND created_at >= grandfather_cutoff is
      *     excluded — it entered the scanning pipeline but hasn't cleared yet.
      *
-     * The `processing_state = 'ready'` filter is the primary gate; this is a
-     * secondary defence for edge cases (e.g. a race where state was promoted
-     * before the scan completed).
+     * The `processing_state = 'ready'` filter is the primary gate; the
+     * scanned_at clauses above are a secondary defence for edge cases
+     * (e.g. a race where state was promoted before the scan completed).
      */
     private function applyCsamScanGate(\Illuminate\Database\Eloquent\Builder $q): void
     {
+        // Feature flag — gate only fires when CSAM scanning is enabled.
+        // Otherwise the upload pipeline doesn't produce scanned_at values
+        // and the gate would hide every newly-uploaded image silently.
+        if (! (bool) config('partna.moderation.csam.enabled', false)) {
+            return;
+        }
+
         $cutoff = config('partna.moderation.csam.grandfather_cutoff', '2026-05-26 00:00:00');
 
         $q->where(function ($inner) use ($cutoff): void {
