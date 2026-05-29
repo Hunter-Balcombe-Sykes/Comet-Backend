@@ -1192,5 +1192,12 @@ return [
             'severity_1_hours'   => 168,
             'breach_warning_min' => 120,
         ],
+        // CSAM (child sexual abuse material) scanning via Cloudflare Image Resizing hash matching.
+        // When enabled, new uploads are routed to the quarantine bucket and created with
+        // processing_state='scanning' until the scan job clears or flags them.
+        // Disabled by default — set PARTNA_CSAM_SCAN_ENABLED=true to activate.
+        'csam' => [
+            'enabled' => (bool) env('PARTNA_CSAM_SCAN_ENABLED', false),
+        ],
     ],
 ];
