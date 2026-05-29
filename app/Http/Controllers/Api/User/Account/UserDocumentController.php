@@ -8,7 +8,6 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -197,8 +196,6 @@ class UserDocumentController extends ApiController
             }
         }
 
-        app(SiteCacheService::class)->invalidateSite($site);
-
         return $this->success(['document' => $this->buildDocumentPayload($media)], 201);
     }
 
@@ -236,17 +233,11 @@ class UserDocumentController extends ApiController
             $update['is_active'] = (bool) $data['is_enabled'];
         }
 
-        $changed = false;
         if (! empty($update)) {
             $document->fill($update);
             if ($document->isDirty(['alt_text', 'caption', 'is_active'])) {
                 $document->save();
-                $changed = true;
             }
-        }
-
-        if ($changed) {
-            app(SiteCacheService::class)->invalidateSite($site);
         }
 
         return $this->success(['document' => $this->buildDocumentPayload($document->fresh())]);
@@ -278,8 +269,6 @@ class UserDocumentController extends ApiController
         }
 
         $document->delete();
-
-        app(SiteCacheService::class)->invalidateSite($site);
 
         return $this->success(['deleted' => true]);
     }
