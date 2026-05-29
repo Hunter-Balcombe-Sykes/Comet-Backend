@@ -120,17 +120,11 @@ class UserGalleryController extends ApiController
             $update['alt_text'] = $this->normaliseOptionalString($data['alt_text']);
         }
 
-        $changed = false;
         if (! empty($update)) {
             $image->fill($update);
             if ($image->isDirty(['caption', 'alt_text'])) {
                 $image->save();
-                $changed = true;
             }
-        }
-
-        if ($changed) {
-            app(SiteCacheService::class)->invalidateSite($site);
         }
 
         return $this->success([
@@ -175,8 +169,6 @@ class UserGalleryController extends ApiController
                 ConfirmationPreferenceService::ACTION_DELETE_MEDIA
             );
         }
-
-        app(SiteCacheService::class)->invalidateSite($site);
 
         return $this->success(['deleted' => true]);
     }
