@@ -119,7 +119,7 @@ class CsamMatchHandlerService
                 ),
             ]);
 
-            NcmecSubmission::forceCreate([
+            $ncmecSub = NcmecSubmission::forceCreate([
                 'id'                 => Str::uuid()->toString(),
                 'csam_quarantine_id' => $quarantine->id,
                 'payload'            => [
@@ -138,15 +138,10 @@ class CsamMatchHandlerService
             ));
 
             // Dispatch FileCyberTipReportJob after the transaction commits so the
-            // ncmec_submission row is visible to the worker. afterCommit fires before
-            // the return value is resolved, ensuring dispatch is registered.
-            DB::afterCommit(function () use ($quarantine) {
-                $sub = NcmecSubmission::query()
-                    ->where('csam_quarantine_id', $quarantine->id)
-                    ->first();
-                if ($sub !== null) {
-                    FileCyberTipReportJob::dispatch($sub->id);
-                }
+            // ncmec_submission row is visible to the worker. Use the captured $ncmecSub
+            // directly rather than re-querying — the row was just created above.
+            DB::afterCommit(function () use ($ncmecSub) {
+                FileCyberTipReportJob::dispatch($ncmecSub->id);
             });
 
             return [
