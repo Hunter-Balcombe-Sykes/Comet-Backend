@@ -22,12 +22,13 @@ class SuspendUserJob implements ShouldQueue
 
     public int $timeout = 60;
 
-    public string $queue = 'moderation_high';
-
     public function __construct(
         public readonly string $actionLogId,
         public readonly string $caseId,
-    ) {}
+    ) {
+        // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
+        $this->queue = 'moderation_high';
+    }
 
     /**
      * Apply a suspension (or ban) to the case owner and mark the action log entry

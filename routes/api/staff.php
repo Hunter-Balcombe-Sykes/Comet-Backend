@@ -37,6 +37,7 @@ Route::prefix('staff')
 
         // Moderation queue
         Route::get('/cases', [StaffCaseController::class, 'index'])->name('staff.cases.index');
+        Route::get('/cases/{case}', [StaffCaseController::class, 'show'])->name('staff.cases.show');
 
         // Platform-wide stats
         Route::get('/stats', [StaffStatsController::class, 'show']);

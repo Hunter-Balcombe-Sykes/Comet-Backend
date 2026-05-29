@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Moderation\CaseDetailResource;
 use App\Http\Resources\Moderation\CaseResource;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Http\Request;
@@ -30,5 +31,21 @@ class StaffCaseController extends Controller
         $query->orderByDesc('severity')->orderBy('priority')->orderBy('created_at');
 
         return CaseResource::collection($query->paginate(25));
+    }
+
+    /**
+     * GET /api/staff/cases/{id} — full case detail with eager-loaded relations.
+     * Returns CaseDetailResource (case + signals + evidence + decisions).
+     * PII fields (reporter_email, reporter_ip_hash) are never exposed via CaseSignalResource.
+     */
+    public function show(Request $request, string $caseId): CaseDetailResource
+    {
+        $case  = ModerationCase::query()
+            ->with(['signals', 'evidence', 'decisions'])
+            ->findOrFail($caseId);
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'view', $case);
+
+        return new CaseDetailResource($case);
     }
 }
