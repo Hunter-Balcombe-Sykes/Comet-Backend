@@ -127,7 +127,7 @@ class IndividualProfilePayloadBuilder
      * remap to the wire's camelCase here.
      *
      * @param  Collection<string, Block>  $sections
-     * @return array{placeId: string|null, name: string, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null, hours: list<string>}|null
+     * @return array{placeId: string|null, name: string, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
      */
     private function buildWorkplace(?Site $site, Collection $sections): ?array
     {
@@ -150,7 +150,6 @@ class IndividualProfilePayloadBuilder
             'longitude' => $data['longitude'] ?? null,
             'phone' => $data['phone'] ?? null,
             'website' => $data['website'] ?? null,
-            'hours' => is_array($data['hours'] ?? null) ? array_values($data['hours']) : [],
         ];
     }
 

@@ -4,7 +4,7 @@ namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
 
-// V2: Validates Google Business Profile upsert — place ID, name, address, coordinates, phone, website, and hours array.
+// V2: Validates Google Business Profile upsert — place ID, name, address, coordinates, phone, website.
 //
 // Two entry paths share this request:
 //   1. Google Places autofill — visitor picks a result; we get a place_id + name + full structured data.
@@ -15,15 +15,6 @@ class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
 {
     protected function prepareForValidation(): void
     {
-        $hours = $this->input('hours');
-        if (is_array($hours)) {
-            $hours = array_values(array_filter(array_map(function ($value) {
-                return is_string($value) ? trim($value) : '';
-            }, $hours), fn ($value) => $value !== ''));
-        } else {
-            $hours = [];
-        }
-
         $trimmed = [];
         foreach ([
             'place_id', 'name', 'address', 'phone', 'website',
@@ -39,7 +30,7 @@ class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
             }
         }
 
-        $this->merge(array_merge($trimmed, ['hours' => $hours]));
+        $this->merge($trimmed);
     }
 
     public function rules(): array
@@ -62,8 +53,6 @@ class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'phone' => ['nullable', ...$this->phoneRule()],
             'website' => ['nullable', 'url', 'max:2048'],
-            'hours' => ['sometimes', 'array', 'max:14'],
-            'hours.*' => ['string', 'max:120'],
         ];
     }
 }
