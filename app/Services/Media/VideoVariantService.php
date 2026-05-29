@@ -4,24 +4,23 @@ namespace App\Services\Media;
 
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\SiteMedia;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
 
 /**
- * Transcodes a video original into MP4 + HLS variants and a poster image,
+ * Transcodes a video original into two MP4 tiers and a poster image,
  * stores all artifacts on the media disk, and persists MediaVariant rows.
  *
  * Processing order (avoids extra re-encodes):
  *   1. FFprobe  – extract metadata + validate duration
  *   2. FFmpeg   – encode optimized MP4 (720p)
  *   3. FFmpeg   – encode maximized MP4 (1080p)
- *   4. FFmpeg   – package HLS segments from each MP4 (stream-copy, no re-encode)
- *   5. Build    – write master adaptive HLS playlist
- *   6. FFmpeg   – extract poster JPEG at 1s mark
- *   7. Upload   – stream all artifacts to media disk
- *   8. DB upsert – persist one MediaVariant row per logical artifact
- *   9. SiteMedia update – set processing_state, duration_ms, poster_path
+ *   4. FFmpeg   – extract poster JPEG at 1s mark
+ *   5. Upload   – stream all artifacts to media disk
+ *   6. DB upsert – persist one MediaVariant row per logical artifact
+ *   7. SiteMedia update – set processing_state, duration_ms, poster_path
  *
  * Storage layout under the media disk (all artifact paths are
  * content-hashed so the CDN treats re-processed files as fresh URLs —
@@ -30,21 +29,23 @@ use Symfony\Component\Process\Process;
  *     original_{hash}.{ext}
  *     optimized_{hash}.mp4
  *     maximized_{hash}.mp4
- *     hls/
- *       optimized_{hash}/playlist.m3u8  + seg_*.ts
- *       maximized_{hash}/playlist.m3u8  + seg_*.ts
- *       adaptive_{hash}.m3u8             (master playlist)
  *     poster_{hash}.jpg
  *
  * Requires ffmpeg and ffprobe to be available (configured via config/partna.php).
  */
-// V2: Transcodes videos to MP4 + HLS via FFmpeg. Feature-flagged (PARTNA_VIDEO_UPLOADS_ENABLED). Uses dedicated redis_video connection.
+// V2: Transcodes videos to two MP4 tiers (720p + 1080p) + a poster via FFmpeg.
+// Feature-flagged (PARTNA_VIDEO_UPLOADS_ENABLED). Uses dedicated redis_video connection.
 class VideoVariantService
 {
     /** Codecs we will transcode. hevc = H.265 (ffprobe reports 'hevc', not 'h265'). */
     private const ALLOWED_CODECS = ['h264', 'hevc', 'vp9'];
 
-    /** 4K ceiling: long edge ≤ 3840px, short edge ≤ 2160px. */
+    /**
+     * 4K ceiling: long edge ≤ 3840px, short edge ≤ 2160px. This guards FFmpeg
+     * decode cost/memory (full-res frame buffers), NOT file size — a small but
+     * highly-compressed 8K source would otherwise blow up the worker. Output is
+     * always downscaled to ≤1080p regardless.
+     */
     private const MAX_RESOLUTION_LONG = 3840;
 
     private const MAX_RESOLUTION_SHORT = 2160;
@@ -166,7 +167,6 @@ class VideoVariantService
         $encodingTimeout = max(120, (int) round($durationMs / 1000) * 2 + 60);
 
         $variantDefs = (array) config('partna.video_variants', []);
-        $tmpDirs = [];
 
         try {
             // --- 2 & 3. Encode MP4 variants ---
@@ -177,39 +177,20 @@ class VideoVariantService
                 $mp4Paths[$variantKey] = $tmpMp4;
             }
 
-            // --- 4. Package HLS from each MP4 ---
-            $hlsDirs = [];
-            foreach ($mp4Paths as $variantKey => $mp4) {
-                $tmpHlsDir = sys_get_temp_dir().'/sidest_hls_'.$variantKey.'_'.uniqid();
-                if (! mkdir($tmpHlsDir, 0755, true)) {
-                    throw new \RuntimeException("Failed to create HLS temp dir: {$tmpHlsDir}");
-                }
-                $tmpDirs[] = $tmpHlsDir;
-                $this->packageHls($mp4, $tmpHlsDir.'/playlist.m3u8', $encodingTimeout);
-                $hlsDirs[$variantKey] = $tmpHlsDir;
-            }
-
-            // --- 5. Adaptive master playlist is built after upload, once
-            //        per-variant content hashes are known (see below). ---
-
-            // --- 6. Extract poster ---
+            // --- 4. Extract poster ---
             $tmpPoster = $this->makeTmpFile('sidest_poster_', '.jpg');
             $this->extractPoster($localOriginalPath, $tmpPoster, $encodingTimeout);
 
-            // --- 7. Upload all artifacts ---
+            // --- 5. Upload all artifacts ---
             $disk = $this->disk();
             $diskName = $this->resolvedDiskName();
 
-            // Content-hash each MP4 once and reuse for the matching HLS dir below.
-            // Mirrors ImageVariantService — re-encoding the same source produces
-            // identical paths (idempotent), a *different* source produces a new
-            // URL (CDN can't serve a stale half-overwritten file mid-replace).
-            $variantHashes = [];
-
-            // Upload MP4s
+            // Upload MP4s. Content-hash each so re-encoding the same source
+            // produces identical paths (idempotent) while a different source
+            // produces a new URL — the CDN can't serve a stale half-overwritten
+            // file mid-replace. Mirrors ImageVariantService.
             foreach ($mp4Paths as $variantKey => $mp4) {
                 $hash = substr((string) hash_file('sha256', $mp4), 0, 16);
-                $variantHashes[$variantKey] = $hash;
 
                 $remotePath = "{$basePath}/{$variantKey}_{$hash}.mp4";
                 $stream = fopen($mp4, 'rb');
@@ -234,63 +215,6 @@ class VideoVariantService
                     ]
                 );
             }
-
-            // Upload HLS segments + playlists
-            // HLS dir reuses the MP4 hash — segments are a stream-copy of the
-            // MP4, so they share its identity. Keeps cache busting consistent
-            // across the MP4 + HLS pair without re-hashing N segment files.
-            foreach ($hlsDirs as $variantKey => $hlsDir) {
-                $hash = $variantHashes[$variantKey];
-                $remoteHlsBase = "{$basePath}/hls/{$variantKey}_{$hash}";
-                foreach (scandir($hlsDir) ?: [] as $file) {
-                    if ($file === '.' || $file === '..') {
-                        continue;
-                    }
-                    $localFile = "{$hlsDir}/{$file}";
-                    $remotePath = "{$remoteHlsBase}/{$file}";
-                    $mime = str_ends_with($file, '.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
-                    $stream = fopen($localFile, 'rb');
-                    $disk->put($remotePath, $stream, ['visibility' => 'public', 'ContentType' => $mime]);
-                    if (is_resource($stream)) {
-                        fclose($stream);
-                    }
-                }
-
-                $playlistPath = "{$remoteHlsBase}/playlist.m3u8";
-                $def = $variantDefs[$variantKey] ?? [];
-                MediaVariant::updateOrCreate(
-                    ['media_id' => $mediaId, 'variant_key' => $variantKey, 'artifact_type' => 'hls_playlist'],
-                    [
-                        'disk' => $diskName,
-                        'path' => $playlistPath,
-                        'mime' => 'application/vnd.apple.mpegurl',
-                        'duration_ms' => $durationMs,
-                        'content_hash' => $hash,
-                        'metadata' => ['resolution' => $def['resolution'] ?? null],
-                    ]
-                );
-            }
-
-            // Adaptive master playlist references the per-variant HLS dirs by
-            // name, so rebuild it now that the hashes are known. Then hash the
-            // resulting content itself so the master URL also busts on change.
-            $adaptiveContent = $this->buildAdaptivePlaylist($variantDefs, $variantHashes);
-            $adaptiveHash = substr(hash('sha256', $adaptiveContent), 0, 16);
-            $adaptiveRemotePath = "{$basePath}/hls/adaptive_{$adaptiveHash}.m3u8";
-            $disk->put($adaptiveRemotePath, $adaptiveContent, [
-                'visibility' => 'public',
-                'ContentType' => 'application/vnd.apple.mpegurl',
-            ]);
-
-            MediaVariant::updateOrCreate(
-                ['media_id' => $mediaId, 'variant_key' => 'adaptive', 'artifact_type' => 'hls_playlist'],
-                [
-                    'disk' => $diskName,
-                    'path' => $adaptiveRemotePath,
-                    'mime' => 'application/vnd.apple.mpegurl',
-                    'content_hash' => $adaptiveHash,
-                ]
-            );
 
             // Upload poster
             $posterHash = substr((string) hash_file('sha256', $tmpPoster), 0, 16);
@@ -328,7 +252,7 @@ class VideoVariantService
                 'duration_ms' => $durationMs,
             ]);
         } finally {
-            // Cleanup temp files and dirs
+            // Cleanup temp files
             foreach ($mp4Paths ?? [] as $mp4) {
                 if (file_exists($mp4)) {
                     @unlink($mp4);
@@ -336,9 +260,6 @@ class VideoVariantService
             }
             if (isset($tmpPoster) && file_exists($tmpPoster)) {
                 @unlink($tmpPoster);
-            }
-            foreach ($tmpDirs as $dir) {
-                $this->removeDir($dir);
             }
         }
     }
@@ -451,27 +372,6 @@ class VideoVariantService
         }
     }
 
-    private function packageHls(string $mp4Input, string $playlistOutput, int $timeout): void
-    {
-        $ffmpeg = $this->ffmpegBinary();
-        $outputDir = dirname($playlistOutput);
-        $segmentPattern = $outputDir.'/seg_%03d.ts';
-
-        $cmd = [
-            $ffmpeg, '-y', '-i', $mp4Input,
-            '-c', 'copy', '-f', 'hls',
-            '-hls_time', '6', '-hls_playlist_type', 'vod',
-            '-hls_segment_filename', $segmentPattern,
-            $playlistOutput,
-        ];
-
-        $output = $this->runCommand($cmd, $exitCode, $timeout);
-
-        if ($exitCode !== 0) {
-            throw new \RuntimeException("ffmpeg HLS packaging failed (exit {$exitCode}): {$output}");
-        }
-    }
-
     private function extractPoster(string $input, string $output, int $timeout): void
     {
         $ffmpeg = $this->ffmpegBinary();
@@ -515,47 +415,6 @@ class VideoVariantService
         imagedestroy($img);
 
         return $written;
-    }
-
-    /**
-     * Build the adaptive (master) HLS playlist content.
-     *
-     * @param  array<string, array<string, mixed>>  $variantDefs
-     * @param  array<string, string>  $variantHashes  variant_key → content hash
-     *                                                used to reference the per-variant
-     *                                                hashed HLS directory.
-     */
-    private function buildAdaptivePlaylist(array $variantDefs, array $variantHashes): string
-    {
-        $lines = ['#EXTM3U'];
-
-        foreach ($variantDefs as $variantKey => $def) {
-            // Guard against config values containing newlines or special chars
-            // that would corrupt the line-based M3U8 format.
-            if (! preg_match('/^[a-zA-Z0-9_-]+$/', (string) $variantKey)) {
-                throw new \RuntimeException("Invalid video variant key: {$variantKey}");
-            }
-
-            $videoBitrate = (int) ($def['video_bitrate_kbps'] ?? 2000);
-            $audioBitrate = (int) ($def['audio_bitrate_kbps'] ?? 128);
-            $bandwidth = ($videoBitrate + $audioBitrate) * 1000;
-            $resolution = strtoupper((string) ($def['resolution'] ?? '1280x720'));
-
-            // Resolution must be WxH (digits only) — e.g. 1280x720, 1920X1080.
-            if (! preg_match('/^\d+X\d+$/', $resolution)) {
-                throw new \RuntimeException("Invalid video resolution for variant '{$variantKey}': {$resolution}");
-            }
-
-            $hash = $variantHashes[$variantKey] ?? null;
-            if ($hash === null) {
-                throw new \RuntimeException("Missing content hash for variant '{$variantKey}'.");
-            }
-
-            $lines[] = "#EXT-X-STREAM-INF:BANDWIDTH={$bandwidth},RESOLUTION={$resolution}";
-            $lines[] = "{$variantKey}_{$hash}/playlist.m3u8";
-        }
-
-        return implode("\n", $lines)."\n";
     }
 
     private function extractDurationMs(array $probe): int
@@ -606,23 +465,6 @@ class VideoVariantService
         return $process->getOutput().$process->getErrorOutput();
     }
 
-    private function removeDir(string $dir): void
-    {
-        if (! is_dir($dir)) {
-            return;
-        }
-
-        foreach (scandir($dir) ?: [] as $file) {
-            if ($file === '.' || $file === '..') {
-                continue;
-            }
-            $path = "{$dir}/{$file}";
-            is_dir($path) ? $this->removeDir($path) : @unlink($path);
-        }
-
-        @rmdir($dir);
-    }
-
     /**
      * Legacy jobs may pass the original file path instead of the media directory.
      * Normalize to the directory prefix expected by allFiles().
@@ -652,7 +494,7 @@ class VideoVariantService
         return MediaDiskResolver::resolve();
     }
 
-    private function disk(): \Illuminate\Contracts\Filesystem\Filesystem
+    private function disk(): Filesystem
     {
         return Storage::disk($this->diskName());
     }

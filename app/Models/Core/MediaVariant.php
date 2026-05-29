@@ -6,6 +6,7 @@ use App\Models\BaseModel;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -16,18 +17,19 @@ use Illuminate\Support\Facades\Storage;
  *   - variant_key='optimized'  + artifact_type='webp'         → optimised WebP
  *   - variant_key='maximized'  + artifact_type='webp'         → full-quality WebP
  *
- * Videos:
- *   - variant_key='optimized'  + artifact_type='mp4'          → 720p MP4
- *   - variant_key='maximized'  + artifact_type='mp4'          → 1080p MP4
- *   - variant_key='optimized'  + artifact_type='hls_playlist' → 720p HLS playlist
- *   - variant_key='maximized'  + artifact_type='hls_playlist' → 1080p HLS playlist
- *   - variant_key='adaptive'   + artifact_type='hls_playlist' → master HLS playlist
- *   - variant_key='poster'     + artifact_type='poster'       → poster JPEG
+ * Videos (new uploads, 2026-05-29+):
+ *   - variant_key='optimized'  + artifact_type='mp4'    → 720p MP4 (autoplay default)
+ *   - variant_key='maximized'  + artifact_type='mp4'    → 1080p MP4 (on-demand / fullscreen)
+ *   - variant_key='poster'     + artifact_type='poster' → poster JPEG
+ *
+ * Legacy (pre-2026-05-29) videos may still carry artifact_type='hls_playlist'
+ * rows + hls/ segment files; these are no longer produced, but deleteVariants()
+ * stays format-agnostic so they remain cleanable.
  *
  * @property string $id
  * @property string $media_id FK → site_media.id
- * @property string $variant_key Logical tier: optimized|maximized|adaptive|poster
- * @property string $artifact_type Physical format: mp4|hls_playlist|poster
+ * @property string $variant_key Logical tier: optimized|maximized|poster (legacy rows may also be 'adaptive')
+ * @property string $artifact_type Physical format: mp4|poster (legacy rows may also be 'hls_playlist')
  * @property string $disk
  * @property string $path Storage path (not a public URL)
  * @property string|null $mime
@@ -38,7 +40,7 @@ use Illuminate\Support\Facades\Storage;
  * @property int|null $duration_ms
  * @property array|null $metadata
  */
-// V2: Processed media artifact (WebP image, MP4 video, HLS playlist, poster). Each SiteMedia can have multiple variants at different quality tiers.
+// V2: Processed media artifact (WebP image, MP4 video, poster). Each SiteMedia can have multiple variants at different quality tiers.
 //
 // Lifecycle: wholly owned by parent SiteMedia. SiteMedia::booted() forceDeleting hook collects
 // variant paths and deletes storage files before the DB CASCADE removes these rows.
@@ -122,7 +124,7 @@ class MediaVariant extends BaseModel
         // whole /brand/design response — the controller surfaces the row
         // with an empty URL and the dashboard renders an empty card.
         try {
-            /** @var \Illuminate\Filesystem\FilesystemAdapter $adapter */
+            /** @var FilesystemAdapter $adapter */
             $adapter = Storage::disk($disk);
 
             return $adapter->url($this->path);
