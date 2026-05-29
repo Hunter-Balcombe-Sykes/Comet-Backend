@@ -28,3 +28,16 @@ it('falls back to the Partna reply-to when the pro has no contact email', functi
 
     $mail->assertHasReplyTo('hello@partna.au');
 });
+
+it('builds the subscription confirmation with subject, body, and unsubscribe link', function () {
+    $mail = new App\Mail\SubscriptionConfirmationMail(
+        proDisplayName: 'Test Pro',
+        siteUrl: 'https://testpro.partna.au',
+        unsubscribeUrl: 'https://api.partna.au/api/public/unsubscribe/tok123',
+        visitorName: 'Sarah',
+    );
+
+    $mail->assertHasSubject("You're subscribed — Test Pro");
+    $mail->assertSeeInHtml('Test Pro');
+    $mail->assertSeeInHtml('https://api.partna.au/api/public/unsubscribe/tok123');
+});
