@@ -5,7 +5,6 @@ namespace App\Observers\Core;
 use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -20,10 +19,6 @@ use Illuminate\Support\Facades\Log;
 class ServiceCategoryObserver
 {
     public bool $afterCommit = true;
-
-    public function __construct(
-        private readonly SiteCacheService $siteCache,
-    ) {}
 
     public function saved(ServiceCategory $category): void
     {
@@ -66,15 +61,15 @@ class ServiceCategoryObserver
         }
 
         // Category titles are embedded in the public site payload's services array
-        // (SitepageDataResolverService::buildServicesData line ~461), so a rename
-        // also stales the cached public page. Load the site relation only for this.
+        // (SitepageDataResolverService::buildServicesData), so a rename also stales
+        // the cached page. Touch the site to fire SiteObserver (Redis invalidation +
+        // Cloudflare edge purge + cache warm) — invalidateSite alone never purged
+        // the edge, so renames lagged ~s-maxage at <handle>.partna.au.
         try {
             $pro = User::query()->with('site')->find($userId);
-            if ($pro?->site) {
-                $this->siteCache->invalidateSite($pro->site);
-            }
+            $pro?->site?->touch();
         } catch (\Throwable $e) {
-            Log::warning('Site cache bust failed on ServiceCategory change', [
+            Log::warning('Site touch failed on ServiceCategory change', [
                 'category_id' => $category->id,
                 'user_id' => $userId,
                 'message' => $e->getMessage(),

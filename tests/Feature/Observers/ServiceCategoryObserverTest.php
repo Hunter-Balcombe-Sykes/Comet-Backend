@@ -6,16 +6,19 @@
 // this fix the observer called invalidateUser() which nuked 13+ keys
 // including the hydrated User model — forcing unnecessary Postgres round-trips.
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    setupSitesTable();
+    setupSubdomainAliasesTable();
     setupServiceCategoriesTable();
 });
 
@@ -45,12 +48,6 @@ it('busts only the services cache keys when a ServiceCategory is created', funct
     Cache::put($svcKey, ['old'], 60);
     Cache::put($svcKey.':stale', ['old-stale'], 60);
 
-    // SiteCacheService::invalidateSite is called for the site payload — mock it
-    // so we don't need a full site fixture. No site → skipped gracefully.
-    $siteCache = Mockery::mock(SiteCacheService::class);
-    $siteCache->shouldNotReceive('invalidateSite'); // no site on this pro
-    app()->instance(SiteCacheService::class, $siteCache);
-
     ServiceCategory::query()->create([
         'user_id' => $pro->id,
         'title' => 'Haircuts',
@@ -78,10 +75,6 @@ it('busts only the services cache keys when a ServiceCategory is updated', funct
     Cache::put($svcKey, ['old'], 60);
     Cache::put($svcKey.':stale', ['old-stale'], 60);
 
-    $siteCache = Mockery::mock(SiteCacheService::class);
-    $siteCache->shouldNotReceive('invalidateSite');
-    app()->instance(SiteCacheService::class, $siteCache);
-
     $category->update(['title' => 'Renamed']);
 
     expect(Cache::get($dashKey))->toBeNull()
@@ -105,14 +98,35 @@ it('busts only the services cache keys when a ServiceCategory is deleted', funct
     Cache::put($svcKey, ['old'], 60);
     Cache::put($svcKey.':stale', ['old-stale'], 60);
 
-    $siteCache = Mockery::mock(SiteCacheService::class);
-    $siteCache->shouldNotReceive('invalidateSite');
-    app()->instance(SiteCacheService::class, $siteCache);
-
     $category->delete();
 
     expect(Cache::get($dashKey))->toBeNull()
         ->and(Cache::get($dashKey.':stale'))->toBeNull()
         ->and(Cache::get($svcKey))->toBeNull()
         ->and(Cache::get($svcKey.':stale'))->toBeNull();
+});
+
+it('touches the site so a ServiceCategory change purges the Cloudflare edge', function () {
+    $pro = seedCategoryTestPro();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => 'cat-pro',
+        'is_published' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Queue::fake();
+
+    ServiceCategory::query()->create([
+        'user_id' => $pro->id,
+        'title' => 'Haircuts',
+        'sort_order' => 0,
+    ]);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'cat-pro';
+    });
 });
