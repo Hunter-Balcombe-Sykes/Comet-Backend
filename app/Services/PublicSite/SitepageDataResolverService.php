@@ -389,10 +389,15 @@ class SitepageDataResolverService
             return null;
         }
 
+        $description = isset($row['description']) && is_string($row['description'])
+            ? trim($row['description'])
+            : '';
+
         return [
             'title' => $title,
             'issuer' => trim((string) ($row['issuer'] ?? '')),
             'year' => isset($row['year']) && $row['year'] !== '' ? (string) $row['year'] : null,
+            'description' => $description !== '' ? $description : null,
         ];
     }
 
@@ -426,10 +431,15 @@ class SitepageDataResolverService
             $period = null;
         }
 
+        $description = isset($row['description']) && is_string($row['description'])
+            ? trim($row['description'])
+            : '';
+
         return [
             'title' => $title,
             'organisation' => $organisation,
             'period' => $period,
+            'description' => $description !== '' ? $description : null,
         ];
     }
 
