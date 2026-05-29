@@ -3,6 +3,8 @@
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\SiteMedia;
+use App\Services\Cache\CacheKeyGenerator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -22,6 +24,7 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupSubdomainAliasesTable();
     setupBlocksTable();
     setupMediaTables();
 });
@@ -154,6 +157,29 @@ it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain',
     Queue::fake();
     $media->delete();
     Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+it('SiteMedia::delete clears the public payload cache via SiteObserver (invalidation, not just purge)', function () {
+    Queue::fake();
+    $fixture = seedTouchFixture();
+    $media = SiteMedia::create([
+        'site_id' => $fixture['site_id'],
+        'user_id' => $fixture['pro_id'],
+        'pool' => 'content',
+        'path' => 'images/test.webp',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => true,
+    ]);
+
+    // Seed the key AFTER create() so the create's own invalidation can't pre-clear it.
+    $key = CacheKeyGenerator::publicSitePayload('touchtest');
+    Cache::put($key, ['stale' => true], 600);
+
+    $media->delete();
+
+    expect(Cache::get($key))->toBeNull();
 });
 
 // Bulk reorder paths bypass Eloquent observers (mass `update(['sort_order'])`

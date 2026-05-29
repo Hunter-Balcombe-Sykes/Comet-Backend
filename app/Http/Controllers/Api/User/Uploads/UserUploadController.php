@@ -9,7 +9,6 @@ use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
@@ -330,8 +329,6 @@ class UserUploadController extends ApiController
                 ConfirmationPreferenceService::ACTION_DELETE_MEDIA
             );
         }
-
-        app(SiteCacheService::class)->invalidateSite($site);
 
         return $this->success(['deleted' => true]);
     }
