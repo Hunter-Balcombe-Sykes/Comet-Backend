@@ -52,6 +52,12 @@ const POLICY_EXEMPT = [
     \App\Models\Moderation\AuditEvent::class,      // append-only audit log; no per-row gate needed
     \App\Models\Moderation\CaseSignal::class,      // write-only ingest; read access via parent case
 
+    // Legal compliance records — system-generated; never exposed over user-facing API.
+    // Written only by automated CSAM-detection pipeline; read by staff via SQL and
+    // the NCMEC submission job. No per-row tenant ownership; no Gate actor applies.
+    \App\Models\Moderation\CsamQuarantine::class,  // system-generated legal compliance record
+    \App\Models\Moderation\NcmecSubmission::class, // system-generated legal compliance record
+
 ];
 
 it('every tenant-owned model has a registered policy', function () {

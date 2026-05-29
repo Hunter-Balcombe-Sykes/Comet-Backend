@@ -1,6 +1,6 @@
 # Trust & Safety — operator runbook
 
-> **Scope:** Plan B landed. Staff queue, decision pipeline, and lifecycle commands are live. CSAM scanning ships in Plan C.
+> **Scope:** Plans B and C landed. Staff queue, decision pipeline, lifecycle commands, CSAM scanning, and NCMEC outbox are live.
 
 ## Current state of moderation
 
@@ -14,11 +14,13 @@
 | Decision pipeline + outcome jobs | ✅ live |
 | AAL2-gated staff workflow | ✅ live |
 | Lifecycle commands (SLA scan, redact, show, reverse) | ✅ live |
-| CSAM scanning | ⏳ Plan C |
+| **CSAM scanning + NCMEC outbox** | ✅ live |
 
 ## Staff workflow
 
 See [`docs/moderation/staff-workflow.md`](staff-workflow.md) for the day-to-day staff playbook.
+
+- Operator runbook: [CSAM pipeline](csam-pipeline.md)
 
 ## Quick checks
 

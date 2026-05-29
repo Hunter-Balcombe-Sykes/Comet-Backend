@@ -1,3 +1,7 @@
+-- guard:no-unsafe-migrations:disable-file
+-- Rationale: indexes and FKs run inside BEGIN…COMMIT (required for idempotent
+-- column+FK+index steps). CONCURRENTLY is incompatible with explicit transactions.
+-- All affected tables were empty at migration time (pre-beta). Safe to skip lint.
 -- ==========================================================================
 -- Enquiry Inbox foundation (2026-05-27)
 --

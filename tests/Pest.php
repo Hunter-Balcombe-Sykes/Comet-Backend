@@ -1591,6 +1591,54 @@ function setupAuditModerationEventsTable(): void
 }
 
 /**
+ * moderation.csam_quarantine — legal-hold records for CSAM-matched media assets.
+ * Columns mirror the production schema; all nullable here for SQLite permissiveness.
+ */
+function setupCsamQuarantineTable(): void
+{
+    attachTestSchemas();
+    setupModerationCasesTable();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.csam_quarantine (
+        id TEXT PRIMARY KEY,
+        case_id TEXT NOT NULL,
+        site_media_id TEXT NOT NULL,
+        uploader_user_id TEXT NULL,
+        content_hash TEXT NOT NULL,
+        cloudflare_match_payload TEXT NULL,
+        r2_quarantine_key TEXT NOT NULL,
+        r2_binary_deleted INTEGER NOT NULL DEFAULT 0,
+        r2_binary_deleted_at TEXT NULL,
+        preservation_expires_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * moderation.ncmec_submissions — CyberTipline submission attempts per quarantined asset.
+ * Columns mirror the production schema; all nullable here for SQLite permissiveness.
+ */
+function setupNcmecSubmissionsTable(): void
+{
+    attachTestSchemas();
+    setupCsamQuarantineTable();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS moderation.ncmec_submissions (
+        id TEXT PRIMARY KEY,
+        csam_quarantine_id TEXT NOT NULL,
+        payload TEXT NULL,
+        status TEXT NOT NULL DEFAULT \'pending\',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        ncmec_tip_id TEXT NULL,
+        ncmec_response_payload TEXT NULL,
+        last_error TEXT NULL,
+        submitted_at TEXT NULL,
+        response_received_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
  * Setup all moderation tables at once (convenience for integration tests).
  */
 function setupAllModerationTables(): void
@@ -1601,4 +1649,16 @@ function setupAllModerationTables(): void
     setupModerationDecisionsTable();
     setupModerationActionLogTable();
     setupAuditModerationEventsTable();
+    setupCsamQuarantineTable();
+    setupNcmecSubmissionsTable();
 }
+
+/**
+ * Alias for setupMediaTables() — ensures site.site_media exists.
+ * Named to match the "setup*" pattern used in CSAM webhook tests.
+ */
+function setupSiteMediaTable(): void
+{
+    setupMediaTables();
+}
+

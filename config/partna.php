@@ -1192,5 +1192,39 @@ return [
             'severity_1_hours'   => 168,
             'breach_warning_min' => 120,
         ],
+        // CSAM (child sexual abuse material) scanning via Cloudflare CSAM Scanning Tool + NCMEC PhotoDNA.
+        // When enabled, new uploads are routed to the quarantine bucket (processing_state='scanning')
+        // until Cloudflare posts a result. Clean images are promoted to production by PromoteCleanMediaJob.
+        // Matches trigger auto-suspension, case creation, and NCMEC CyberTipline reporting.
+        // Disabled by default — set PARTNA_CSAM_SCAN_ENABLED=true before production launch.
+        'csam' => [
+            'enabled'                   => (bool) env('PARTNA_CSAM_SCAN_ENABLED', false),
+
+            // HMAC-SHA256 secret used to verify Cloudflare's webhook callbacks
+            // at POST /v1/internal/cloudflare-csam-webhook. When unset the
+            // middleware rejects all requests (fail-closed).
+            'cloudflare_webhook_secret' => env('PARTNA_CSAM_CLOUDFLARE_WEBHOOK_SECRET'),
+
+            // R2 buckets. Quarantine is private — uploads land here while scanning.
+            // Production is public-assets — clean media is promoted here.
+            'quarantine_bucket'         => env('R2_QUARANTINE_BUCKET', 'partna-media-quarantine'),
+            'production_bucket'         => env('R2_PRODUCTION_BUCKET', 'public-assets'),
+
+            // Days to retain quarantine binary evidence (metadata is kept indefinitely).
+            // 90 days covers typical law-enforcement subpoena windows.
+            'preservation_days'         => 90,
+
+            // Grandfather cutoff — media created BEFORE this timestamp with null scanned_at
+            // is served normally (pre-dates the CSAM gate). Media created ON OR AFTER with
+            // null scanned_at is still in the pipeline and must NOT be served publicly.
+            'grandfather_cutoff'        => env('PARTNA_CSAM_GRANDFATHER_CUTOFF', '2026-05-26 00:00:00'),
+
+            // NCMEC CyberTipline — outbox pattern with retry up to ncmec_max_attempts.
+            // After exhausting retries → manual_fallback_required (see runbook).
+            'ncmec_endpoint'            => env('NCMEC_CYBERTIP_ENDPOINT', 'https://hashmatching.api.missingkids.org/cybertip'),
+            'ncmec_api_key'             => env('NCMEC_API_KEY'),
+            'ncmec_esp_id'              => env('NCMEC_ESP_ID'),
+            'ncmec_max_attempts'        => 5,
+        ],
     ],
 ];
