@@ -317,16 +317,11 @@ class IndividualProfilePayloadBuilder
     private function groupKitColumns(array $cols): array
     {
         // Responsive companion groups use a two-token prefix (e.g.
-        // `padding_tablet_general` → paddingTablet.general). Match these
+        // `space_desktop_regular` → spaceDesktop.regular). Match these
         // BEFORE the single-token prefixes so the longer match wins.
         $twoTokenPrefixes = [
-            'padding_tablet' => 'paddingTablet',
-            'padding_desktop' => 'paddingDesktop',
-            'spacing_tablet' => 'spacingTablet',
-            'spacing_desktop' => 'spacingDesktop',
-            'sizing_tablet' => 'sizingTablet',
+            'space_desktop' => 'spaceDesktop',
             'sizing_desktop' => 'sizingDesktop',
-            'typography_tablet' => 'typographyTablet',
             'typography_desktop' => 'typographyDesktop',
         ];
 
@@ -336,8 +331,7 @@ class IndividualProfilePayloadBuilder
             'color' => 'colors',
             'typography' => 'typography',
             'border' => 'borders',
-            'spacing' => 'spacing',
-            'padding' => 'padding',
+            'space' => 'space',
             'motion' => 'motion',
             'icon' => 'icons',
             'effect' => 'effects',
