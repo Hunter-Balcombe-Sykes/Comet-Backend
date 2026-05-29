@@ -78,6 +78,51 @@ class ModerationDecisionService
     }
 
     /**
+     * Auto-action path used by CsamMatchHandlerService and any future automated
+     * detector. Writes a system-attributed decision (decided_by_system=true),
+     * transitions the case to 'auto_actioned' (skipped if already there), dispatches
+     * the action set via the existing dispatcher, and records a system audit row.
+     * All writes are wrapped in a single DB transaction; jobs fire afterCommit.
+     */
+    public function decideAsSystem(ModerationCase $case, DecisionDto $dto): Decision
+    {
+        return DB::transaction(function () use ($case, $dto) {
+            $decision = Decision::forceCreate([
+                'id'                        => Str::uuid()->toString(),
+                'case_id'                   => $case->id,
+                'decision_type'             => $dto->decisionType,
+                'reason'                    => $dto->reason,
+                'decided_by_staff_id'       => null,
+                'decided_by_system'         => true,
+                'auto_actioned'             => true,
+                'second_staff_approval_id'  => null,
+                'second_staff_approved_at'  => null,
+                'decided_at'                => now(),
+            ]);
+
+            // Only transition if not already auto_actioned (e.g. case was 'open'
+            // when the system fires; a re-decision against an already-actioned case
+            // should not re-trigger the FSM).
+            if ($this->sm->canTransition($case, 'auto_actioned')) {
+                $this->sm->transition($case, 'auto_actioned');
+                $case->auto_actioned = true;
+                $case->save();
+            }
+
+            $this->dispatcher->dispatchFor($decision);
+
+            $this->audit->recordSystemAction(
+                'case.auto_decided',
+                'ModerationCase',
+                $case->id,
+                ['decision_type' => $dto->decisionType, 'decision_id' => $decision->id],
+            );
+
+            return $decision;
+        });
+    }
+
+    /**
      * CSAM override decisions require a second approver to prevent a single staff
      * member from unilaterally overriding automated CSAM enforcement.
      */

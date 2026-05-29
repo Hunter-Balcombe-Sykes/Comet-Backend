@@ -13,6 +13,11 @@ use Tests\TestCase;
 uses(TestCase::class);
 
 beforeEach(function () {
+    // Fake the queue globally so dispatcher jobs are captured, not executed inline.
+    // Inline execution would fail because site.sites does not exist in the SQLite
+    // in-memory test database. Individual tests that need to assert on dispatched
+    // jobs call Queue::fake() themselves (redundant but harmless).
+    Queue::fake();
     setupPartnaStaffTable();
     setupAllModerationTables();
 });
@@ -66,4 +71,35 @@ it('records CSAM override with second_staff_approved_at timestamp', function () 
 
     expect($decision->second_staff_approval_id)->toBe($staff2->id);
     expect($decision->second_staff_approved_at)->not->toBeNull();
+});
+
+it('decideAsSystem writes a decision with decided_by_system=true and auto_actioned=true', function () {
+    $case = ModerationCase::factory()->csamMatch()->create();
+    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+
+    $decision = app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
+
+    expect($decision->decided_by_system)->toBeTrue();
+    expect($decision->decided_by_staff_id)->toBeNull();
+    expect($decision->auto_actioned)->toBeTrue();
+});
+
+it('decideAsSystem transitions auto_actioned cases', function () {
+    $case = ModerationCase::factory()->create(['status' => 'open']);
+    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+
+    app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
+
+    expect($case->fresh()->status)->toBe('auto_actioned');
+});
+
+it('decideAsSystem dispatches the appropriate action set', function () {
+    \Illuminate\Support\Facades\Queue::fake();
+    $case = ModerationCase::factory()->csamMatch()->create();
+    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+
+    $decision = app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
+
+    expect(\App\Models\Moderation\ActionLogEntry::query()->where('decision_id', $decision->id)->count())
+        ->toBeGreaterThan(0);
 });
