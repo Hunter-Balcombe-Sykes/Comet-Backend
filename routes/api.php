@@ -137,10 +137,10 @@ Route::post('/internal/csp-report', CspReportController::class)
 // Cloudflare CSAM webhook — receives hash-match callbacks from Cloudflare's
 // Image Resizing CSAM scanning pipeline. Signature-gated via HMAC-SHA256;
 // replay prevention via Redis nonce store.
-// TODO(Task 10): replace stub closure with CloudflareCsamWebhookController.
-Route::post('/v1/internal/cloudflare-csam-webhook', function () {
-    return response()->json(['status' => 'stub'], 200);
-})->middleware([VerifyCloudflareWebhookSignature::class, 'throttle:webhooks']);
+Route::post('/v1/internal/cloudflare-csam-webhook',
+    [\App\Http\Controllers\Api\Internal\CloudflareCsamWebhookController::class, 'handle']
+)->middleware([\App\Http\Middleware\Cloudflare\VerifyCloudflareWebhookSignature::class, 'throttle:webhooks'])
+ ->name('internal.cloudflare.csam.webhook');
 
 Route::get('/ready', [HealthController::class, 'check'])->middleware('throttle:health-check');
 Route::get('/health/scheduler', [HealthController::class, 'scheduler'])->middleware('throttle:health-check');

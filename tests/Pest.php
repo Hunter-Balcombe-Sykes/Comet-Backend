@@ -1602,6 +1602,7 @@ function setupCsamQuarantineTable(): void
         id TEXT PRIMARY KEY,
         case_id TEXT NOT NULL,
         site_media_id TEXT NOT NULL,
+        uploader_user_id TEXT NULL,
         content_hash TEXT NOT NULL,
         cloudflare_match_payload TEXT NULL,
         r2_quarantine_key TEXT NOT NULL,
@@ -1651,3 +1652,13 @@ function setupAllModerationTables(): void
     setupCsamQuarantineTable();
     setupNcmecSubmissionsTable();
 }
+
+/**
+ * Alias for setupMediaTables() — ensures site.site_media exists.
+ * Named to match the "setup*" pattern used in CSAM webhook tests.
+ */
+function setupSiteMediaTable(): void
+{
+    setupMediaTables();
+}
+
