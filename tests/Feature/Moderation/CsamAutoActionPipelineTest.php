@@ -43,8 +43,8 @@ function createCsamPipelineTestTenant(): array
     DB::connection('pgsql')->table('core.users')->insert([
         'id'            => $userId,
         'auth_user_id'  => 'auth-' . Str::random(12),
-        'handle'        => 'pipeline-fixture-' . Str::random(6),
-        'handle_lc'     => 'pipeline-fixture-' . strtolower(Str::random(6)),
+        'handle'        => 'pipeline-fixture-' . ($rand = Str::random(6)),
+        'handle_lc'     => 'pipeline-fixture-' . strtolower($rand),  // must match lower(handle)
         'display_name'  => 'Pipeline Fixture User',
         'primary_email' => 'pipeline-' . Str::random(6) . '@example.test',
         'account_type'  => 'individual',
