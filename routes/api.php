@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
+use App\Http\Middleware\Cloudflare\VerifyCloudflareWebhookSignature;
 use App\Http\Middleware\Moderation\EnforceCsamScanGate;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
@@ -132,6 +133,14 @@ Route::get('/internal/env-check', EnvCheckController::class);
 // throttled hard so a single misconfigured page cannot flood logs.
 Route::post('/internal/csp-report', CspReportController::class)
     ->middleware('throttle:120,1');
+
+// Cloudflare CSAM webhook — receives hash-match callbacks from Cloudflare's
+// Image Resizing CSAM scanning pipeline. Signature-gated via HMAC-SHA256;
+// replay prevention via Redis nonce store.
+// TODO(Task 10): replace stub closure with CloudflareCsamWebhookController.
+Route::post('/v1/internal/cloudflare-csam-webhook', function () {
+    return response()->json(['status' => 'stub'], 200);
+})->middleware([VerifyCloudflareWebhookSignature::class, 'throttle:webhooks']);
 
 Route::get('/ready', [HealthController::class, 'check'])->middleware('throttle:health-check');
 Route::get('/health/scheduler', [HealthController::class, 'scheduler'])->middleware('throttle:health-check');

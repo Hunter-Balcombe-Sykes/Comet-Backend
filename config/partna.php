@@ -1203,6 +1203,11 @@ return [
             // Media created ON OR AFTER this timestamp with null scanned_at is
             // still in the scanning pipeline and must NOT be served publicly.
             'grandfather_cutoff' => env('PARTNA_CSAM_GRANDFATHER_CUTOFF', '2026-05-26 00:00:00'),
+            // HMAC-SHA256 secret used to verify Cloudflare's webhook callbacks
+            // at POST /v1/internal/cloudflare-csam-webhook. When unset the
+            // middleware rejects all requests (fail-closed). Set via
+            // PARTNA_CSAM_CLOUDFLARE_WEBHOOK_SECRET in environment config.
+            'cloudflare_webhook_secret' => env('PARTNA_CSAM_CLOUDFLARE_WEBHOOK_SECRET'),
         ],
     ],
 ];
