@@ -57,7 +57,6 @@ it('returns the normalised profile when stored', function () {
         'longitude' => '151.21',
         'phone' => '+61 2 0000',
         'website' => 'https://myshop.example',
-        'hours' => ['Mon 9-5', '', 'Tue 9-5'],
     ]);
     $controller = new StaffGoogleBusinessProfileController;
 
@@ -69,7 +68,7 @@ it('returns the normalised profile when stored', function () {
         ->and($profile['name'])->toBe('My Shop')
         ->and($profile['latitude'])->toBe(-33.86)
         ->and($profile['longitude'])->toBe(151.21)
-        ->and($profile['hours'])->toBe(['Mon 9-5', 'Tue 9-5']); // empties filtered
+        ->and($profile)->not()->toHaveKey('hours');
 });
 
 it('returns 404 when the professional has no site', function () {

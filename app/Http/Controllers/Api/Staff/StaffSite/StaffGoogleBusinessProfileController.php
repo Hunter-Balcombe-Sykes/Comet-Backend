@@ -59,13 +59,6 @@ class StaffGoogleBusinessProfileController extends ApiController
             return null;
         }
 
-        $hours = [];
-        if (isset($raw['hours']) && is_array($raw['hours'])) {
-            $hours = array_values(array_filter($raw['hours'], function ($value) {
-                return is_string($value) && trim($value) !== '';
-            }));
-        }
-
         return [
             'place_id' => $placeId,
             'name' => $name,
@@ -79,7 +72,6 @@ class StaffGoogleBusinessProfileController extends ApiController
             'longitude' => is_numeric($raw['longitude'] ?? null) ? (float) $raw['longitude'] : null,
             'phone' => $this->trimOrNull($raw['phone'] ?? null),
             'website' => $this->trimOrNull($raw['website'] ?? null),
-            'hours' => $hours,
         ];
     }
 }

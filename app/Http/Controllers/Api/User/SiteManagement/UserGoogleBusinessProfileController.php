@@ -61,9 +61,6 @@ class UserGoogleBusinessProfileController extends ApiController
             'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
             'phone' => $this->trimOrNull($data['phone'] ?? null),
             'website' => $this->trimOrNull($data['website'] ?? null),
-            'hours' => array_values(array_filter($data['hours'] ?? [], function ($value) {
-                return is_string($value) && trim($value) !== '';
-            })),
         ];
 
         $settings = is_array($site->settings) ? $site->settings : [];
@@ -133,13 +130,6 @@ class UserGoogleBusinessProfileController extends ApiController
             return null;
         }
 
-        $hours = [];
-        if (isset($raw['hours']) && is_array($raw['hours'])) {
-            $hours = array_values(array_filter($raw['hours'], function ($value) {
-                return is_string($value) && trim($value) !== '';
-            }));
-        }
-
         return [
             'place_id' => $placeId,
             'name' => $name,
@@ -153,7 +143,6 @@ class UserGoogleBusinessProfileController extends ApiController
             'longitude' => is_numeric($raw['longitude'] ?? null) ? (float) $raw['longitude'] : null,
             'phone' => $this->trimOrNull($raw['phone'] ?? null),
             'website' => $this->trimOrNull($raw['website'] ?? null),
-            'hours' => $hours,
         ];
     }
 }
