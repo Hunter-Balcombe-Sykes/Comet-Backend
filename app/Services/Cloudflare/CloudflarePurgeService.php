@@ -68,7 +68,15 @@ class CloudflarePurgeService
      * Purge the full cache chain for one individual's public profile:
      *   1. Page URL (`https://<handle>.partna.au/`) — what visitors hit. Cached by
      *      the router Worker via `caches.default.put` with `s-maxage=10`.
-     *   2. Backend API subrequest URL (`<app.url>/api/public/profiles/<handle>`) —
+     *   2. SWR stale shadow (`https://<handle>.partna.au/_swr-shadow/`) — the
+     *      router Worker stores a second copy under a `_swr-shadow` path prefix
+     *      with a 7-day TTL (cloudflare-worker/src/index.js `staleShadowKey`).
+     *      On a primary cache MISS the Worker serves the shadow immediately and
+     *      kicks off an origin refresh in the background. Without this purge,
+     *      the first refresh after a mutation still hits the stale shadow and
+     *      shows pre-mutation content — and the visitor who triggered the
+     *      refresh always sees stale, even though the next visitor sees fresh.
+     *   3. Backend API subrequest URL (`<app.url>/api/public/profiles/<handle>`) —
      *      the Astro Worker calls this with `cf: {cacheTtl: 300, cacheEverything: true}`,
      *      so without this purge the edge holds the API response for 5 minutes
      *      and re-renders stale HTML even after the page URL has been evicted.
@@ -88,6 +96,10 @@ class CloudflarePurgeService
             // these as distinct cache keys, so list both.
             "https://{$h}.partna.au/",
             "https://{$h}.partna.au",
+            // SWR stale shadow — the router Worker's second cache layer,
+            // 7-day TTL. Without purging this, post-mutation refreshes serve
+            // pre-mutation content from the shadow.
+            "https://{$h}.partna.au/_swr-shadow/",
         ];
 
         $apiBase = rtrim((string) config('app.url', ''), '/');
