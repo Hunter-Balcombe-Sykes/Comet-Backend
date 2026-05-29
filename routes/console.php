@@ -159,3 +159,15 @@ Schedule::command('media:cleanup-stuck-processing')
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: media:cleanup-stuck-processing');
     });
+
+// Scan open/triaged/under_review moderation cases and log warnings for any approaching
+// their SLA deadline. Threshold defaults to 120 min; configurable via
+// partna.moderation.sla.breach_warning_min. withoutOverlapping(30) gives a 2x ceiling
+// over the 15-min cadence with headroom for a slow Postgres scan.
+Schedule::command('moderation:sla-scan')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — 2x the 15min cadence to prevent same-tick races.
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:sla-scan');
+    });

@@ -185,6 +185,71 @@ function aal2ClaimsWithFreshTotp(int $verifiedSecondsAgo = 0): array
     ];
 }
 
+/**
+ * Authenticate the test HTTP client as a PartnaStaff member with AAL2 claims.
+ * Stubs out VerifySupabaseJwt + EnsurePartnaStaff so route attributes are set
+ * the same way the production middleware would set them.
+ *
+ * Mirrors actingAsUser() (tests/Pest.php). Pairs with aal2ClaimsWithFreshTotp()
+ * when a staff route needs fresh-AAL2 instead of sticky-AAL2.
+ */
+function actingAsStaff(
+    \App\Models\Core\Staff\PartnaStaff $staff,
+    array $claims = [],
+): \Pest\Support\HigherOrderTapProxy {
+    $authUserId = $staff->auth_user_id ?? (string) \Illuminate\Support\Str::uuid();
+
+    // Staff routes are gated by require.aal2 — default to AAL2 unless the test
+    // overrides (e.g. to assert the gate rejects AAL1).
+    $defaultClaims = array_merge([
+        'sub'             => $authUserId,
+        'email'           => $staff->primary_email ?? "staff-{$staff->id}@partna.au",
+        'email_verified'  => true,
+        'aal'             => 'aal2',
+        'amr'             => [['method' => 'totp', 'timestamp' => time()]],
+        'session_id'      => (string) \Illuminate\Support\Str::uuid(),
+    ], $claims);
+
+    // Stub VerifySupabaseJwt — same shape as actingAsUser uses.
+    app()->bind(\App\Http\Middleware\Auth\VerifySupabaseJwt::class, function () use ($authUserId, $defaultClaims) {
+        return new class($authUserId, $defaultClaims)
+        {
+            public function __construct(
+                private readonly string $uid,
+                private readonly array $claims,
+            ) {}
+
+            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            {
+                $request->attributes->set('supabase_uid', $this->uid);
+                $request->attributes->set('supabase_claims', $this->claims);
+                $request->attributes->set('supabase_aal', $this->claims['aal'] ?? 'aal1');
+                $request->attributes->set('supabase_amr', $this->claims['amr'] ?? []);
+                $request->attributes->set('supabase_session_id', $this->claims['session_id'] ?? null);
+
+                return $next($request);
+            }
+        };
+    });
+
+    // Stub EnsurePartnaStaff to inject the staff record on the request.
+    app()->bind(\App\Http\Middleware\Auth\EnsurePartnaStaff::class, function () use ($staff) {
+        return new class($staff)
+        {
+            public function __construct(private readonly \App\Models\Core\Staff\PartnaStaff $s) {}
+
+            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            {
+                $request->attributes->set('partna_staff', $this->s);
+                return $next($request);
+            }
+        };
+    });
+
+    return test();
+}
+
+
 /*
 |--------------------------------------------------------------------------
 | Schema Bootstrap Helpers
@@ -307,10 +372,20 @@ function setupSitesTable(): void
         is_published INTEGER NULL,
         unpublished_at TEXT NULL,
         settings TEXT NULL,
+        moderation_state TEXT NOT NULL DEFAULT \'active\',
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    // Ensure moderation_state column exists for tests run against a pre-existing table.
+    // Wrapped in try-catch because SQLite's ADD COLUMN IF NOT EXISTS syntax differs from Postgres.
+    try {
+        DB::connection('pgsql')->statement(
+            "ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS moderation_state TEXT NOT NULL DEFAULT 'active'"
+        );
+    } catch (Throwable $e) {
+        // Column already exists or SQLite doesn't support this syntax — ignore
+    }
 }
 
 /**

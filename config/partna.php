@@ -1177,5 +1177,20 @@ return [
             'merge_window_minutes'    => 60 * 24 * 7,
             'staff_notify_thresholds' => [1, 3, 5, 10],
         ],
+        // Dedicated Horizon queue lane for high-priority moderation jobs (suspend, notify on-call).
+        // Isolated from the default queue so a moderation burst doesn't starve other workers.
+        'queue' => [
+            'high_priority_lane' => env('PARTNA_MODERATION_HIGH_LANE', 'moderation_high'),
+        ],
+        // SLA breach thresholds per severity level (hours). severity_5 = most urgent.
+        // breach_warning_min: minutes before the SLA deadline at which to emit an early warning.
+        'sla' => [
+            'severity_5_hours'   => 1,
+            'severity_4_hours'   => 4,
+            'severity_3_hours'   => 24,
+            'severity_2_hours'   => 72,
+            'severity_1_hours'   => 168,
+            'breach_warning_min' => 120,
+        ],
     ],
 ];

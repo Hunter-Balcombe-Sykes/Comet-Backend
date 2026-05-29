@@ -10,12 +10,14 @@
 -- Adds the two new types and keeps every existing type. 'link' is retained
 -- because it lives in the `links` block_group, not the `sections` group, and
 -- the constraint covers both groups.
+--
+-- Safe pattern: DROP old constraint, ADD new one with NOT VALID (no table scan
+-- / no write lock), then VALIDATE in a separate transaction (uses weaker
+-- SHARE UPDATE EXCLUSIVE lock — writes continue during validation).
 -- ==========================================================================
 
 BEGIN;
-
 ALTER TABLE site.blocks DROP CONSTRAINT blocks_block_type_check;
-
 ALTER TABLE site.blocks ADD CONSTRAINT blocks_block_type_check
     CHECK (block_type IN (
         'link',
@@ -35,7 +37,6 @@ ALTER TABLE site.blocks ADD CONSTRAINT blocks_block_type_check
         'experience',
         'bio'
     )) NOT VALID;
-
 COMMIT;
 
 -- Validate in a separate transaction (CONVENTIONS.md §2 — avoids long lock on populated tables).

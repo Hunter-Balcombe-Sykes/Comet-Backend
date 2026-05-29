@@ -22,11 +22,20 @@ final readonly class AccountCapabilitySet
      * @param  bool  $can_submit_feedback  Always true today. The gate exists so a future
      *                                     per-user feedback ban can disable abusers without
      *                                     a controller change.
+     * @param  bool  $can_be_reported  True only for active accounts. Suspended/disabled users
+     *                                 are already under moderation action so new public reports
+     *                                 are suppressed (Plan B, T&S foundation).
+     * @param  bool  $receive_moderation_notifications  True only for active accounts. Suspended
+     *                                                   or banned users do not receive email/push
+     *                                                   moderation notifications.
      */
     public function __construct(
         public bool $can_edit_design,
         public string $notification_categories,
         public string $worker_kv_type,
         public bool $can_submit_feedback,
+        // NEW — moderation capabilities (Plan B, T&S foundation):
+        public bool $can_be_reported,
+        public bool $receive_moderation_notifications,
     ) {}
 }

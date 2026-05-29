@@ -37,11 +37,15 @@ final class AccountCapabilities
 
     private static function individualCapabilities(User $pro): AccountCapabilitySet
     {
+        $status = (string) ($pro->status ?? '');
+
         return new AccountCapabilitySet(
             can_edit_design: true,
             notification_categories: 'profile,platform',
             worker_kv_type: 'individual',
             can_submit_feedback: true,
+            can_be_reported: $status === 'active',
+            receive_moderation_notifications: in_array($status, ['active'], true),
         );
     }
 }

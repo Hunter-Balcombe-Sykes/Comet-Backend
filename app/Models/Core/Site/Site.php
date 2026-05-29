@@ -35,6 +35,7 @@ class Site extends BaseModel
         'is_published',
         'unpublished_at',
         'settings',
+        'moderation_state',
     ];
 
     protected $casts = [
