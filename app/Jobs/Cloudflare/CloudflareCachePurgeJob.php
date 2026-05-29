@@ -4,6 +4,7 @@ namespace App\Jobs\Cloudflare;
 
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -20,7 +21,7 @@ use Throwable;
 //   purge has its own 4xx/5xx semantics — short retries with exponential backoff
 //   are enough; a third retry at 60s is wasted because the underlying mutation
 //   has long since settled. Keep this distinct from the KV trait.
-class CloudflareCachePurgeJob implements ShouldQueue
+class CloudflareCachePurgeJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -30,6 +31,19 @@ class CloudflareCachePurgeJob implements ShouldQueue
     public array $backoff = [5, 15, 60];
 
     public int $timeout = 15;
+
+    /**
+     * Coalesce window: while a purge for this handle is queued/running, duplicate
+     * dispatches from the same request's observer cascade (or a rapid burst of
+     * edits) are dropped. Exceeds $timeout so a slow purge can't release the lock
+     * early and let a duplicate through.
+     */
+    public int $uniqueFor = 120;
+
+    public function uniqueId(): string
+    {
+        return strtolower(trim($this->handle));
+    }
 
     public function __construct(public readonly string $handle)
     {

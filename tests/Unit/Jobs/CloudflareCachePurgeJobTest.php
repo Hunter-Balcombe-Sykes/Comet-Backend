@@ -2,6 +2,7 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Cloudflare\CloudflarePurgeService;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 
 it('has its own retry policy and queue (not the KV trait — see §28.7)', function () {
     $job = new CloudflareCachePurgeJob('h');
@@ -28,4 +29,12 @@ it('no-ops for empty handle without touching the service', function () {
     $purge->shouldNotReceive('purgeHandle');
 
     $job->handle($purge);
+});
+
+it('is unique per lowered handle so a burst of site touches coalesces to one purge', function () {
+    $job = new CloudflareCachePurgeJob('Mixed-CASE');
+
+    expect($job)->toBeInstanceOf(ShouldBeUnique::class)
+        ->and($job->uniqueId())->toBe('mixed-case')
+        ->and($job->uniqueFor)->toBe(120);
 });
