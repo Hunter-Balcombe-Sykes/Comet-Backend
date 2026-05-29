@@ -7,7 +7,6 @@ use App\Jobs\ProcessVideoVariantsJob;
 use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
@@ -43,7 +42,6 @@ class MediaUploadService
     public function __construct(
         private readonly ImageVariantService $imageService,
         private readonly VideoVariantService $videoVariant,
-        private readonly SiteCacheService $siteCache,
     ) {}
 
     /**
@@ -133,8 +131,6 @@ class MediaUploadService
         } else {
             $this->dispatchImageJob($media->id, $originalPath, $basePath);
         }
-
-        $this->siteCache->invalidateSite($site);
 
         // Refresh — sync mode may have already advanced processing_state to 'ready'.
         $media->refresh();
@@ -261,7 +257,6 @@ class MediaUploadService
         }
 
         $media->delete();
-        $this->siteCache->invalidateSite($site);
     }
 
     /**
