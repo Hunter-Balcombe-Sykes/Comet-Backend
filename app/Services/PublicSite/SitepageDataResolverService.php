@@ -297,6 +297,16 @@ class SitepageDataResolverService
             $credentials = is_array($about['credentials'] ?? null) ? $about['credentials'] : [];
             $experience = is_array($about['experience'] ?? null) ? $about['experience'] : [];
 
+            // Public contact opt-in — render the blob only when at
+            // least one of the two fields is set; collapse to null
+            // otherwise so the engine's hasAboutMeContent gate can
+            // treat absence as a single null check.
+            $publicEmail = $this->trimToNull($pro->public_contact_email ?? null);
+            $publicPhone = $this->trimToNull($pro->public_contact_number ?? null);
+            $publicContact = ($publicEmail !== null || $publicPhone !== null)
+                ? ['email' => $publicEmail, 'phone' => $publicPhone]
+                : null;
+
             return [
                 'text' => (string) ($pro->bio ?? ''),
                 'credentials' => array_values(array_filter(array_map(
@@ -307,8 +317,66 @@ class SitepageDataResolverService
                     fn ($row) => $this->normaliseExperience($row),
                     $experience,
                 ))),
+                'public_contact' => $publicContact,
             ];
         });
+    }
+
+    /**
+     * Workplace — Google Business Profile data stored on
+     * site.sites.settings.google_business_profile by the dashboard.
+     * Both Google-anchored (place_id set) and manual (place_id null)
+     * entries flow through the same blob shape. Gated by the
+     * 'workplace' section block so a designer can hide the workplace
+     * card without deleting the underlying data.
+     */
+    public function getWorkplace(?Site $site, Collection $sections): array
+    {
+        return $this->sectionEnvelope($sections, 'workplace', function () use ($site): ?array {
+            if (! $site) {
+                return null;
+            }
+            $settings = is_array($site->settings) ? $site->settings : [];
+            $profile = $settings['google_business_profile'] ?? null;
+            if (! is_array($profile)) {
+                return null;
+            }
+            $name = trim((string) ($profile['name'] ?? ''));
+            if ($name === '') {
+                return null;
+            }
+            $hours = is_array($profile['hours'] ?? null) ? $profile['hours'] : [];
+
+            return [
+                'place_id' => $this->trimToNull($profile['place_id'] ?? null),
+                'name' => $name,
+                'address' => $this->trimToNull($profile['address'] ?? null),
+                'address_line1' => $this->trimToNull($profile['address_line1'] ?? null),
+                'city' => $this->trimToNull($profile['city'] ?? null),
+                'state' => $this->trimToNull($profile['state'] ?? null),
+                'postcode' => $this->trimToNull($profile['postcode'] ?? null),
+                'country' => $this->trimToNull($profile['country'] ?? null),
+                'latitude' => isset($profile['latitude']) ? (float) $profile['latitude'] : null,
+                'longitude' => isset($profile['longitude']) ? (float) $profile['longitude'] : null,
+                'phone' => $this->trimToNull($profile['phone'] ?? null),
+                'website' => $this->trimToNull($profile['website'] ?? null),
+                'hours' => array_values(array_filter(
+                    $hours,
+                    fn ($v) => is_string($v) && trim($v) !== ''
+                )),
+            ];
+        });
+    }
+
+    /** Trim a possibly-non-string value to a non-empty string, or null. */
+    private function trimToNull(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        $trimmed = trim($value);
+
+        return $trimmed !== '' ? $trimmed : null;
     }
 
     private function normaliseCredential($row): ?array

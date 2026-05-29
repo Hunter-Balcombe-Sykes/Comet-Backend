@@ -80,6 +80,7 @@ class IndividualProfilePayloadBuilder
             'services' => $this->buildServices($site, $pro->id, $sections),
             'document' => $this->buildDocument($site),
             'newsletter' => $this->buildNewsletter($sections),
+            'workplace' => $this->buildWorkplace($site, $sections),
         ]))->resolve();
     }
 
@@ -101,14 +102,55 @@ class IndividualProfilePayloadBuilder
             return null;
         }
 
-        // Resolver returns the same shape we want — no remapping required
-        // (text + credentials[] + experience[] with title/issuer/year and
-        // title/organisation/period). Cast values defensively in case the
-        // section is somehow empty-ish.
+        // Resolver returns the bio shape we want; we just remap the
+        // public_contact snake_case to the wire's camelCase publicContact.
+        $publicContact = is_array($data['public_contact'] ?? null) ? [
+            'email' => $data['public_contact']['email'] ?? null,
+            'phone' => $data['public_contact']['phone'] ?? null,
+        ] : null;
+
         return [
             'text' => (string) ($data['text'] ?? ''),
             'credentials' => array_values($data['credentials'] ?? []),
             'experience' => array_values($data['experience'] ?? []),
+            'publicContact' => $publicContact,
+        ];
+    }
+
+    /**
+     * Workplace engine — WorkplaceData | null.
+     *
+     * Returns null when the workplace section is not live (block
+     * missing / is_active or is_enabled false) OR when no Google
+     * Business Profile data has been stored. Resolver hands back
+     * snake_case keys mirroring the JSONB shape on site.settings; we
+     * remap to the wire's camelCase here.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{placeId: string|null, name: string, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null, hours: list<string>}|null
+     */
+    private function buildWorkplace(?Site $site, Collection $sections): ?array
+    {
+        $envelope = $this->resolver->getWorkplace($site, $sections);
+        $data = $envelope['data'] ?? null;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        return [
+            'placeId' => $data['place_id'] ?? null,
+            'name' => (string) ($data['name'] ?? ''),
+            'address' => $data['address'] ?? null,
+            'addressLine1' => $data['address_line1'] ?? null,
+            'city' => $data['city'] ?? null,
+            'state' => $data['state'] ?? null,
+            'postcode' => $data['postcode'] ?? null,
+            'country' => $data['country'] ?? null,
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
+            'phone' => $data['phone'] ?? null,
+            'website' => $data['website'] ?? null,
+            'hours' => is_array($data['hours'] ?? null) ? array_values($data['hours']) : [],
         ];
     }
 
