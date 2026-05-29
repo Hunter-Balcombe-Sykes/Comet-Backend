@@ -184,3 +184,38 @@ Schedule::job(new \App\Jobs\Moderation\PromoteCleanMediaJob)
     ->onFailure(function (): void {
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:promote-clean-media');
     });
+
+// Hard-delete R2 quarantine binaries once the 90-day legal-hold window passes.
+// Daily cadence; runInBackground() prevents blocking the per-minute tick for
+// large batches. withoutOverlapping(600) guards against a slow R2 delete run
+// carrying over to the next day.
+Schedule::command('moderation:expire-csam-quarantine')
+    ->dailyAt('03:00')
+    ->onOneServer()
+    ->withoutOverlapping(600) // 10h lock — R2 deletes can be slow for large batches.
+    ->runInBackground()
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:expire-csam-quarantine');
+    });
+
+// Verify that the quarantine R2 bucket has not drifted to public-access.
+// Fires once daily; withoutOverlapping(10) is a safety ceiling — the HTTP
+// check to the Cloudflare API completes in under a second under normal conditions.
+Schedule::command('moderation:audit-quarantine-bucket')
+    ->dailyAt('04:00')
+    ->onOneServer()
+    ->withoutOverlapping(10) // 10min lock — single HTTP round-trip, completes in seconds.
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:audit-quarantine-bucket');
+    });
+
+// Re-dispatch FileCyberTipReportJob for NCMEC submissions stuck in pending/failed
+// under the max-attempts ceiling. withoutOverlapping(3) gives a 3x safety margin
+// over the everyFiveMinutes cadence — the query is bounded and dispatch is fast.
+Schedule::command('moderation:retry-ncmec-submissions')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(3) // 3min lock — bounded query + queue dispatch, completes in seconds.
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:retry-ncmec-submissions');
+    });
