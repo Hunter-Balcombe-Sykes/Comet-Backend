@@ -8,6 +8,7 @@ use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\Log;
 // This job now ALSO pre-fills that §28.8 key when the subdomain belongs to an
 // individual, sharing the canonical builder + cache-key helpers so the two paths
 // can't drift.
-class WarmPublicSiteCacheJob implements ShouldQueue
+class WarmPublicSiteCacheJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -31,6 +32,18 @@ class WarmPublicSiteCacheJob implements ShouldQueue
     public array $backoff = [5, 15, 30];
 
     public int $timeout = 10;
+
+    /**
+     * Coalesce window: a single edit can touch the site more than once (media +
+     * section-visibility), each firing SiteObserver. Without this, every touch
+     * re-dispatches a full payload rebuild. Exceeds $timeout to avoid early release.
+     */
+    public int $uniqueFor = 120;
+
+    public function uniqueId(): string
+    {
+        return strtolower($this->subdomain);
+    }
 
     public function __construct(
         public string $subdomain
