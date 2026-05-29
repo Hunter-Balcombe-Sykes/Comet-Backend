@@ -2,7 +2,9 @@
 
 namespace App\Services\PublicSite;
 
+use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
+use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -44,8 +46,8 @@ use Illuminate\Support\Facades\DB;
  * not a separate engine field — `bucketLinks` in @partnaau/design-system
  * splits the list at render time.
  *
- * @see \App\Http\Controllers\Api\PublicSite\IndividualProfileController
- * @see \App\Jobs\Cache\WarmPublicSiteCacheJob
+ * @see IndividualProfileController
+ * @see WarmPublicSiteCacheJob
  */
 class IndividualProfilePayloadBuilder
 {
@@ -160,7 +162,7 @@ class IndividualProfilePayloadBuilder
      * camelCase wire shape (alt, durationMs).
      *
      * @param  Collection<string, Block>  $sections
-     * @return list<array{url: string, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null}>
+     * @return list<array{url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null}>
      */
     private function buildGallery(?Site $site, Collection $sections): array
     {
@@ -169,6 +171,7 @@ class IndividualProfilePayloadBuilder
 
         return array_values(array_map(static fn (array $item): array => [
             'url' => (string) ($item['url'] ?? ''),
+            'urlHd' => $item['url_hd'] ?? null,
             'alt' => $item['alt_text'] ?? null,
             'caption' => $item['caption'] ?? null,
             'kind' => (string) ($item['kind'] ?? 'image'),

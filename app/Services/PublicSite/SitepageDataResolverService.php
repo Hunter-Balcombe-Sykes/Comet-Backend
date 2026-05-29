@@ -2,11 +2,11 @@
 
 namespace App\Services\PublicSite;
 
-use App\Models\Core\User\User;
-use App\Models\Core\User\Service;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
 use Illuminate\Support\Collection;
 
 /**
@@ -112,38 +112,39 @@ class SitepageDataResolverService
     }
 
     /**
-     * Project a SiteMedia row to the public-payload gallery shape. Videos
-     * prefer the HLS stream URL (plays natively in Safari + hls.js elsewhere)
-     * and fall back to progressive MP4 variants; images use the optimised WebP.
+     * Project a SiteMedia row to the public-payload gallery shape. Videos emit
+     * two plain MP4 tiers — `url` (optimized 720p, the autoplay default) and
+     * `url_hd` (maximized 1080p, loaded on tap/fullscreen); images use the
+     * optimised WebP and carry `url_hd => null` for a uniform shape.
      *
-     * @return array{url: string, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
+     * @return array{url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
      */
     public function buildGalleryItem(SiteMedia $media): ?array
     {
         $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
 
         if ($isVideo) {
-            $streams = [];
+            // Two MP4 tiers, delivered directly (no HLS): optimized 720p is the
+            // default/autoplay source, maximized 1080p is loaded on demand
+            // (tap / fullscreen). The frontend picks; we expose both URLs.
             $variants = [];
             $poster = null;
             foreach ($media->mediaVariants as $mv) {
-                if ($mv->artifact_type === 'hls_playlist') {
-                    $streams[$mv->variant_key] = $mv->url;
-                } elseif ($mv->artifact_type === 'mp4') {
+                if ($mv->artifact_type === 'mp4') {
                     $variants[$mv->variant_key] = $mv->url;
                 } elseif ($mv->artifact_type === 'poster') {
                     $poster = $mv->url;
                 }
             }
-            $url = $streams['optimized']
-                ?? $streams['maximized']
-                ?? $variants['optimized']
-                ?? $variants['maximized']
-                ?? $variants['original']
-                ?? '';
+
+            // optimized is the contract default; fall back to maximized then
+            // original so a partially-processed item still renders something.
+            $url = $variants['optimized'] ?? $variants['maximized'] ?? $variants['original'] ?? '';
+            $urlHd = $variants['maximized'] ?? null;
 
             return [
                 'url' => $url,
+                'url_hd' => $urlHd,
                 'alt_text' => $media->alt_text,
                 'caption' => $media->caption,
                 'kind' => 'video',
@@ -157,6 +158,7 @@ class SitepageDataResolverService
 
         return [
             'url' => $url,
+            'url_hd' => null,
             'alt_text' => $media->alt_text,
             'caption' => $media->caption,
             'kind' => 'image',
