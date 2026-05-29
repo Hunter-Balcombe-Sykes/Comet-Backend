@@ -40,11 +40,13 @@ class EmailSubscription extends BaseModel
         'consent_ip_hash',
         'consent_user_agent',
         'email_lc',
+        'confirmation_sent_at',
     ];
 
     protected $casts = [
         'subscribed_at' => 'datetime',
         'unsubscribed_at' => 'datetime',
+        'confirmation_sent_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

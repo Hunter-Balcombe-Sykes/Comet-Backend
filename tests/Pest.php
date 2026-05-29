@@ -1150,6 +1150,7 @@ function setupEmailSubscriptionsTable(): void
         subscribed_at TEXT NULL,
         unsubscribed_at TEXT NULL,
         unsubscribe_token TEXT NOT NULL,
+        confirmation_sent_at TEXT NULL,
         consent_source TEXT NULL,
         consent_ip_hash TEXT NULL,
         consent_user_agent TEXT NULL,

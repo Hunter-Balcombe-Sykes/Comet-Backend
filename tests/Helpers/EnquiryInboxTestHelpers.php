@@ -30,6 +30,7 @@ if (! function_exists('setupContactInboxSchema')) {
             spam_at TEXT NULL,
             redacted_at TEXT NULL,
             email_sent_at TEXT NULL,
+            confirmation_sent_at TEXT NULL,
             deleted_at TEXT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
