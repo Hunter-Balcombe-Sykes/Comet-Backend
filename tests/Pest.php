@@ -416,6 +416,7 @@ function setupMediaTables(): void
         site_id TEXT NULL,
         user_id TEXT NULL,
         pool TEXT NULL,
+        bucket TEXT NULL,
         path TEXT NULL,
         original_path TEXT NULL,
         original_mime TEXT NULL,
@@ -1611,5 +1612,30 @@ function setupAllModerationTables(): void
 function setupSiteMediaTable(): void
 {
     setupMediaTables();
+}
+
+/**
+ * site.design_kits — per-site design token table (1:1 with site.sites).
+ * All token columns are NULLABLE TEXT so tests can insert partial rows and
+ * the resolver falls back to defaults for unset columns. Mirrors the
+ * production schema; the production trigger trg_create_empty_design_kit is
+ * absent in SQLite — tests that need a kit row must insert one manually.
+ */
+function setupDesignKitsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
+        site_id TEXT PRIMARY KEY,
+        color_accent TEXT NULL,
+        color_accent_contrast TEXT NULL,
+        color_bg TEXT NULL,
+        color_text TEXT NULL,
+        color_text_muted TEXT NULL,
+        border_radius TEXT NULL,
+        button_primary_bg TEXT NULL,
+        button_primary_text TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
 }
 
