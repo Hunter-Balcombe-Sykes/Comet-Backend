@@ -5,18 +5,21 @@ namespace App\Http\Controllers\Api\User\SiteManagement;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
-use App\Http\Requests\Api\User\Site\UpsertGoogleBusinessProfileRequest;
+use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// V2: Store and retrieve Google Business Profile settings (place ID, hours, location, contact info).
-class UserGoogleBusinessProfileController extends ApiController
+// Store and retrieve a professional's workplace card data — business name,
+// address, contact details. The dashboard's editor offers a Google Places
+// autofill on the name field; whichever way the visitor populates the
+// record, the stored shape is the same.
+class UserWorkplaceController extends ApiController
 {
     use ResolveCurrentUser;
     use ResolveCurrentSite;
 
-    private const SETTINGS_KEY = 'google_business_profile';
+    private const SETTINGS_KEY = 'workplace';
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
@@ -29,23 +32,17 @@ class UserGoogleBusinessProfileController extends ApiController
         $settings = is_array($site->settings) ? $site->settings : [];
 
         return $this->success([
-            'google_business_profile' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
+            'workplace' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
         ]);
     }
 
-    public function upsert(UpsertGoogleBusinessProfileRequest $request): JsonResponse
+    public function upsert(UpsertWorkplaceRequest $request): JsonResponse
     {
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
         $data = $request->validated();
 
-        // place_id is nullable to allow manual entries (no Google pick). Persist
-        // null rather than the literal string "null" so downstream consumers
-        // can branch on isset/!== ''.
-        $placeId = $this->trimOrNull($data['place_id'] ?? null);
-
         $profile = [
-            'place_id' => $placeId,
             'name' => (string) $data['name'],
             'address' => $this->trimOrNull($data['address'] ?? null),
             // Structured address components stored alongside the formatted
@@ -78,7 +75,7 @@ class UserGoogleBusinessProfileController extends ApiController
         );
 
         return $this->success([
-            'google_business_profile' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
+            'workplace' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
         ]);
     }
 
@@ -101,7 +98,7 @@ class UserGoogleBusinessProfileController extends ApiController
             'workplace',
         );
 
-        return $this->success(['google_business_profile' => null]);
+        return $this->success(['workplace' => null]);
     }
 
     private function trimOrNull(mixed $value): ?string
@@ -121,17 +118,14 @@ class UserGoogleBusinessProfileController extends ApiController
             return null;
         }
 
-        // place_id is optional for manual entries — a workplace with just a
-        // name is a valid record. Reject only if name is missing, since
-        // without a name the row carries no identity.
-        $placeId = $this->trimOrNull($raw['place_id'] ?? null);
+        // A row with no name has no identity — drop it. Every other field
+        // is optional; the dashboard can save a workplace with just a name.
         $name = $this->trimOrNull($raw['name'] ?? null);
         if (! $name) {
             return null;
         }
 
         return [
-            'place_id' => $placeId,
             'name' => $name,
             'address' => $this->trimOrNull($raw['address'] ?? null),
             'address_line1' => $this->trimOrNull($raw['address_line1'] ?? null),

@@ -7,15 +7,15 @@ use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use Illuminate\Http\JsonResponse;
 
-// Staff inspector for a brand's Google Business Profile config (#GBP-1).
-// Mirrors UserGoogleBusinessProfileController::show. Upsert is an admin
-// write — out of scope here.
-class StaffGoogleBusinessProfileController extends ApiController
+// Staff inspector for a professional's stored workplace card data.
+// Mirrors UserWorkplaceController::show. Upsert is out of scope here —
+// staff write paths are admin-only and not wired through this controller.
+class StaffWorkplaceController extends ApiController
 {
-    private const SETTINGS_KEY = 'google_business_profile';
+    private const SETTINGS_KEY = 'workplace';
 
     /**
-     * GET /staff/professionals/{professional}/site/google-business-profile
+     * GET /staff/professionals/{professional}/site/workplace
      */
     public function show(User $professional): JsonResponse
     {
@@ -30,7 +30,7 @@ class StaffGoogleBusinessProfileController extends ApiController
         $settings = is_array($site->settings) ? $site->settings : [];
 
         return $this->success([
-            'google_business_profile' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
+            'workplace' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
         ]);
     }
 
@@ -51,16 +51,14 @@ class StaffGoogleBusinessProfileController extends ApiController
             return null;
         }
 
-        // place_id is optional — manual workplace entries (no Google pick)
-        // still surface to staff. A row with no name has no identity, drop it.
-        $placeId = $this->trimOrNull($raw['place_id'] ?? null);
+        // A row with no name has no identity — drop it. Every other field
+        // is optional.
         $name = $this->trimOrNull($raw['name'] ?? null);
         if (! $name) {
             return null;
         }
 
         return [
-            'place_id' => $placeId,
             'name' => $name,
             'address' => $this->trimOrNull($raw['address'] ?? null),
             'address_line1' => $this->trimOrNull($raw['address_line1'] ?? null),

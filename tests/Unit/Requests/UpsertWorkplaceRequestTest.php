@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Requests\Api\User\Site\UpsertGoogleBusinessProfileRequest;
+use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;
@@ -13,7 +13,7 @@ uses(TestCase::class)->in(__FILE__);
 function validateWorkplacePayload(array $payload): array
 {
     /** @var FormRequest $request */
-    $request = new UpsertGoogleBusinessProfileRequest;
+    $request = new UpsertWorkplaceRequest;
     $request->merge($payload);
 
     // Mirror Laravel's pre-validation hook so the trim/normalize stage runs.
@@ -26,9 +26,8 @@ function validateWorkplacePayload(array $payload): array
     return $validator->errors()->toArray();
 }
 
-it('accepts a Google-pick payload with place_id + name', function () {
+it('accepts a Google-autofill-shaped payload', function () {
     $errors = validateWorkplacePayload([
-        'place_id' => 'ChIJxxxxxxxxxxxx',
         'name' => 'Test Salon',
         'address' => '123 Main St, Sydney NSW 2000',
         'latitude' => -33.8688,
@@ -38,9 +37,16 @@ it('accepts a Google-pick payload with place_id + name', function () {
     expect($errors)->toBe([]);
 });
 
-it('accepts a manual entry without place_id', function () {
+it('accepts a manual entry with just a name', function () {
     $errors = validateWorkplacePayload([
-        'place_id' => null,
+        'name' => 'My Home Studio',
+    ]);
+
+    expect($errors)->toBe([]);
+});
+
+it('accepts a manual entry with name + address', function () {
+    $errors = validateWorkplacePayload([
         'name' => 'My Home Studio',
         'address' => '42 Some St',
     ]);
@@ -48,17 +54,8 @@ it('accepts a manual entry without place_id', function () {
     expect($errors)->toBe([]);
 });
 
-it('accepts a manual entry with place_id key omitted entirely', function () {
-    $errors = validateWorkplacePayload([
-        'name' => 'My Home Studio',
-    ]);
-
-    expect($errors)->toBe([]);
-});
-
 it('rejects a payload with no name', function () {
     $errors = validateWorkplacePayload([
-        'place_id' => null,
         'address' => '42 Some St',
     ]);
 
@@ -83,17 +80,17 @@ it('rejects an invalid website URL', function () {
     expect($errors)->toHaveKey('website');
 });
 
-it('trims whitespace and treats blank place_id as null', function () {
-    $request = new UpsertGoogleBusinessProfileRequest;
+it('trims whitespace and treats blank strings as null', function () {
+    $request = new UpsertWorkplaceRequest;
     $request->merge([
-        'place_id' => '   ',
-        'name' => 'Studio',
+        'name' => '  Studio  ',
+        'address' => '   ',
     ]);
 
     $reflection = new ReflectionMethod($request, 'prepareForValidation');
     $reflection->setAccessible(true);
     $reflection->invoke($request);
 
-    expect($request->input('place_id'))->toBeNull();
     expect($request->input('name'))->toBe('Studio');
+    expect($request->input('address'))->toBeNull();
 });
