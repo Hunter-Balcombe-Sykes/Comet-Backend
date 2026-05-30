@@ -43,6 +43,13 @@ it('every notification dispatcher job consults AccountCapabilities or is documen
         // category is intentionally outside notification_categories. Email path
         // delegates to SendEnquiryNotificationJob (itself exempt as brand-inbox dispatch).
         'app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php' => 'Enquiry inbox dispatch; universal for individual accounts, gated by contact-block presence not a per-category capability',
+        // Visitor-facing confirmation receipts (Tier-2 transactional). The recipient
+        // is the public submitter (a non-account visitor), NOT a Professional with
+        // notification-category preferences — so there is no per-category capability
+        // to consult, exactly like SendEnquiryNotificationJob. Gated instead by a
+        // per-block toggle + per-recipient rate limit inside the job.
+        'app/Jobs/Notifications/SendEnquiryConfirmationJob.php' => 'Visitor confirmation receipt; recipient is a public submitter not a Professional, gated by per-block toggle + rate limit not a per-category capability',
+        'app/Jobs/Notifications/SendSubscriptionConfirmationJob.php' => 'Visitor confirmation receipt; recipient is a public subscriber not a Professional, gated by per-block toggle + rate limit not a per-category capability',
     ];
 
     $dir = base_path('app/Jobs/Notifications');
