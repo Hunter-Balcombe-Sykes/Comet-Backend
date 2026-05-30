@@ -1,0 +1,147 @@
+<?php
+
+namespace App\Mail\Branding;
+
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Resolves a per-site EmailBrand (pro name, logo, palette, reply-to) for
+ * white-label visitor emails. The only DB/cache-touching unit in the branding
+ * stack — everything downstream is pure data + rendering.
+ *
+ * Cached per site through CacheLockService::rememberLocked (single-flight +
+ * jitter + SWR), so a broadcast to N recipients of one pro resolves once.
+ * Invalidated via SiteCacheService::invalidateSite (see SiteCacheService).
+ */
+class ProEmailBrandResolver
+{
+    public function __construct(private readonly CacheLockService $cacheLock) {}
+
+    public function partna(): EmailBrand
+    {
+        return EmailBrand::partna();
+    }
+
+    public function forSite(string $siteId): EmailBrand
+    {
+        $key = CacheKeyGenerator::emailBrand($siteId);
+        $ttl = (int) config('partna.cache.ttls.email_brand', 86400);
+
+        $payload = $this->cacheLock->rememberLocked(
+            $key,
+            $ttl,
+            fn (): array => $this->build($siteId)->toArray(),
+        );
+
+        return EmailBrand::fromArray($payload);
+    }
+
+    public function forget(string $siteId): void
+    {
+        $key = CacheKeyGenerator::emailBrand($siteId);
+        Cache::deleteMultiple([$key, $key.':stale']);
+    }
+
+    private function build(string $siteId): EmailBrand
+    {
+        $site = Site::query()->find($siteId);
+        if ($site === null) {
+            return EmailBrand::partna();
+        }
+
+        $user = $site->user_id ? User::query()->find($site->user_id) : null;
+
+        $proName = trim((string) ($user->display_name ?? '')) ?: 'the team';
+        $siteUrl = ($user && $user->handle)
+            ? 'https://'.$user->handle.'.partna.au'
+            : 'https://partna.au';
+
+        $kit = (array) (DB::connection('pgsql')
+            ->table('site.design_kits')
+            ->where('site_id', $siteId)
+            ->first() ?? []);
+
+        return new EmailBrand(
+            isPartna: false,
+            proName: $proName,
+            siteUrl: $siteUrl,
+            logoUrl: $this->resolveLogoUrl($siteId),
+            replyToEmail: $this->resolveReplyTo($siteId, $user),
+            palette: EmailBrandDefaults::palette($kit),
+        );
+    }
+
+    /** Prefer logo_full over logo_square; only ready, active design-pool media. */
+    private function resolveLogoUrl(string $siteId): ?string
+    {
+        $media = SiteMedia::query()
+            ->where('site_id', $siteId)
+            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->whereIn('purpose', [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE])
+            ->where('is_active', true)
+            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+            ->with('mediaVariants')
+            ->orderByRaw("case purpose when '".SiteMedia::PURPOSE_LOGO_FULL."' then 0 else 1 end")
+            ->first();
+
+        if ($media === null) {
+            return null;
+        }
+
+        // Prefer the 'optimized' webp variant (2400px, ~500KB cap) over 'maximized'
+        // (4000px, multi-MB) for email weight; fall back to whatever exists. Keyed
+        // selection is deterministic — the same logo always yields the same URL.
+        $urls = $media->variantUrls();
+        $url = $urls['optimized'] ?? ($urls === [] ? null : reset($urls));
+        $url = $url !== null ? (string) $url : null;
+
+        return ($url !== null && $this->isSafeLogoUrl($url)) ? $url : null;
+    }
+
+    /** Defence-in-depth: https only, and (if configured) from the media host. */
+    private function isSafeLogoUrl(string $url): bool
+    {
+        if (! str_starts_with($url, 'https://')) {
+            return false;
+        }
+
+        $disk = (string) config('partna.media_disk');
+        $base = (string) config("filesystems.disks.{$disk}.url", '');
+        if ($base === '') {
+            return true; // no configured host to assert against
+        }
+
+        $expectedHost = parse_url($base, PHP_URL_HOST);
+        $actualHost = parse_url($url, PHP_URL_HOST);
+
+        return $expectedHost === null || $expectedHost === $actualHost;
+    }
+
+    /** Contact-block inbox, else account email, else null (→ Partna default). */
+    private function resolveReplyTo(string $siteId, ?User $user): ?string
+    {
+        $block = Block::query()
+            ->where('site_id', $siteId)
+            ->where('block_group', 'sections')
+            ->where('block_type', 'contact')
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
+
+        $email = $block ? trim((string) data_get($block->settings, 'notification_email', '')) : '';
+        if ($email !== '') {
+            return $email;
+        }
+
+        $account = trim((string) ($user->email ?? ''));
+
+        return $account !== '' ? $account : null;
+    }
+}

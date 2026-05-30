@@ -78,6 +78,15 @@ class CacheKeyGenerator
     }
 
     /**
+     * Per-site cached email-branding bundle (logo, palette, reply-to).
+     * Busted via SiteCacheService::invalidateSite().
+     */
+    public static function emailBrand(string $siteId): string
+    {
+        return "site:{$siteId}:email_brand";
+    }
+
+    /**
      * Filtered gallery-view cache for /api/images. Keyed by site + (pool,
      * media_type) so the dashboard's pool/type filter chips don't poison
      * one another. Polling requests with ?ids[] use siteImagesPolling

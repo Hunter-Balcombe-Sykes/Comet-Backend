@@ -2,23 +2,22 @@
 
 namespace App\Mail;
 
-// Visitor-facing "we received your enquiry" receipt, sent to the person who
-// submitted the contact form. Reply-To is set to the professional's contact
-// inbox so a visitor reply reaches them directly. Tier-2 transactional email:
-// not registered in config('partna.notifications.mailables').
+use App\Mail\Branding\EmailBrand;
+
+// Visitor-facing "we received your enquiry" receipt, white-labelled to the
+// professional via EmailBrand. From shows the pro's name (Partna sending domain);
+// Reply-To is the pro's contact inbox so a visitor reply reaches them directly.
+// Tier-2 transactional email: not registered in config('partna.notifications.mailables').
 class EnquiryConfirmationMail extends BaseTransactionalMail
 {
-    // $enquirySubject stores the form subject line. We cannot use constructor
-    // property promotion with the name "subject" because Mailable::$subject is
-    // non-readonly — PHP forbids redeclaring it as readonly on a subclass.
+    // Mailable::$subject is non-readonly, so we cannot promote a "subject" arg
+    // as readonly — keep the form subject under a distinct name.
     public readonly string $enquirySubject;
 
     public function __construct(
-        public readonly string $proDisplayName,
+        public readonly EmailBrand $brand,
         public readonly string $visitorName,
         string $subject,
-        public readonly string $siteUrl,
-        public readonly ?string $replyToEmail,
     ) {
         $this->enquirySubject = $subject;
     }
@@ -26,19 +25,20 @@ class EnquiryConfirmationMail extends BaseTransactionalMail
     public function build(): self
     {
         $this->buildEnvelope()
-            ->subject("We received your enquiry — {$this->proDisplayName}")
+            ->from(config('mail.from.address', 'hello@partna.au'), $this->brand->proName)
+            ->subject("We received your enquiry — {$this->brand->proName}")
             ->view('emails.enquiry-confirmation', [
-                'proDisplayName' => $this->proDisplayName,
+                'brand' => $this->brand,
+                'proDisplayName' => $this->brand->proName,
                 'visitorName' => $this->visitorName,
                 'subject' => $this->enquirySubject,
-                'siteUrl' => $this->siteUrl,
+                'siteUrl' => $this->brand->siteUrl,
             ]);
 
-        // Replace the Partna default reply-to so visitor replies reach the pro.
-        // buildEnvelope() seeds the default; we drop it and set the pro inbox.
-        if ($this->replyToEmail !== null && trim($this->replyToEmail) !== '') {
+        // Replace the Partna default reply-to with the pro inbox when present.
+        if ($this->brand->replyToEmail !== null && trim($this->brand->replyToEmail) !== '') {
             $this->replyTo = [];
-            $this->replyTo(trim($this->replyToEmail), $this->proDisplayName);
+            $this->replyTo(trim($this->brand->replyToEmail), $this->brand->proName);
         }
 
         return $this;

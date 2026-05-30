@@ -1,20 +1,23 @@
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>You're subscribed</title></head>
-<body style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 14px; color: #111; line-height: 1.5;">
-    <h2 style="margin: 0 0 16px;">You're subscribed{{ $visitorName ? ', '.$visitorName : '' }}</h2>
+@extends('mail.layouts.partna')
 
-    <p style="margin: 0 0 12px;">Thanks for joining {{ $proDisplayName }}'s list. You'll hear about news and updates straight from them.</p>
+@section('preheader')You're subscribed to {{ $proDisplayName }}'s updates.@endsection
 
-    <p style="margin: 16px 0 12px;">
-        <a href="{{ $siteUrl }}" style="color: #3a6efc;">Visit {{ $proDisplayName }}'s page</a>
+@section('footer_note')
+    Didn't sign up, or changed your mind? <a href="{{ $unsubscribeUrl }}" style="color:#a1a1a6; text-decoration:underline;">Unsubscribe</a>.
+@endsection
+
+@section('content')
+    <h1 class="headline text-primary" style="margin:0 0 16px; font-size:24px; line-height:1.2; color:{{ $brand->palette->text }};">
+        You're subscribed{{ $visitorName ? ', '.e($visitorName) : '' }}
+    </h1>
+
+    <p class="body-text" style="margin:0 0 12px; font-size:15px; line-height:1.5; color:{{ $brand->palette->text }};">
+        Thanks for joining {{ $proDisplayName }}'s list. You'll hear about news and updates straight from them.
     </p>
 
-    <hr style="border: none; border-top: 1px solid #ddd; margin: 16px 0;">
-
-    <p style="margin: 0; color: #666; font-size: 12px;">
-        Didn't sign up, or changed your mind?
-        <a href="{{ $unsubscribeUrl }}" style="color: #666;">Unsubscribe</a>.
+    <p class="button-cell" style="margin:24px 0 0;">
+        <a href="{{ $siteUrl }}" style="display:inline-block; background:{{ $brand->palette->buttonBg }}; color:{{ $brand->palette->buttonText }}; padding:12px 22px; border-radius:{{ $brand->palette->borderRadius }}; font-size:15px; font-weight:600; text-decoration:none;">
+            Visit {{ $proDisplayName }}'s page
+        </a>
     </p>
-</body>
-</html>
+@endsection

@@ -9,6 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Views\PublicSitePayload;
 use App\Services\Cache\Concerns\JitteredTtl;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -263,7 +264,7 @@ class SiteCacheService
      * Mirrors CacheLockService — the finally block must never throw on top of an
      * earlier exception from the closure.
      */
-    private function releaseLockQuiet(\Illuminate\Contracts\Cache\Lock $lock): void
+    private function releaseLockQuiet(Lock $lock): void
     {
         try {
             $lock->release();
@@ -280,7 +281,7 @@ class SiteCacheService
     {
         try {
             return $this->resolveImageVariantUrlsInSite($site, $siteId);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('Public site payload hydration failed; returning base site payload.', [
                 'subdomain' => $subdomain,
                 'user_id' => $userId,
@@ -507,6 +508,9 @@ class SiteCacheService
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'links')),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'sections')),
             CacheKeyGenerator::siteImages($site->id),
+            // White-label email branding bundle (logo, palette, reply-to). Same SWR
+            // contract as the payload keys — bust both primary and :stale.
+            ...self::bustWithStale(CacheKeyGenerator::emailBrand($site->id)),
         ];
 
         // CACHE-1: every (pool, media_type) variant of /api/images. The polling
