@@ -358,6 +358,56 @@ it('omits processing-state != ready content_images', function () {
     expect($data['profile']['content_images'])->toBeEmpty();
 });
 
+it('exposes content-pool images via the resolver getContentMedia method', function () {
+    $pro = seedIndividualProfile('cmedia1');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId,
+        'site_id' => $siteId,
+        'user_id' => $pro->id,
+        'pool' => 'content',
+        'path' => 'images/content/original.jpg',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => 1,
+        'alt_text' => 'Studio shot',
+        'caption' => 'Behind the scenes',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    // Seed a webp variant so variantUrls() returns a non-empty url — without
+    // this, buildMediaItem returns url='', which the filter drops.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'webp',
+        'disk' => 'media', 'path' => 'images/content/optimized.webp', 'mime' => 'image/webp',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $resolver = app(\App\Services\PublicSite\SitepageDataResolverService::class);
+
+    $items = $resolver->getContentMedia($site);
+
+    expect($items)->toBeArray()->toHaveCount(1);
+    // Resolver-internal shape is snake_case; the builder later camelCases.
+    expect($items[0])->toMatchArray([
+        'id' => $mediaId,
+        'sort_order' => 0,
+        'kind' => 'image',
+        'alt_text' => 'Studio shot',
+        'caption' => 'Behind the scenes',
+        'poster' => null,
+        'duration_ms' => null,
+        'url_hd' => null,
+    ]);
+    expect($items[0])->toHaveKey('url');
+});
+
 // ── Phase 8 engines: bio / gallery / links / services / document / newsletter
 // Each test seeds the minimum storage rows and confirms the projection lands
 // in the right engine field with the right shape (null/[]/object) and key casing.

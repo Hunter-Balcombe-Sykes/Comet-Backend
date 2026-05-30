@@ -191,12 +191,51 @@ class SitepageDataResolverService
         return $this->buildMediaItem($media);
     }
 
-    // ── Content images ──────────────────────────────────────────────────
+    // ── Content media (polymorphic — design layer) ──────────────────────
 
     /**
-     * Content-pool images (the "background image per section" slot). For
-     * brands these get layered with placeholders in the affiliate controller;
-     * for individuals the array is returned as-is.
+     * Content-pool media — design-layer assets the skeleton paints with
+     * (backgrounds, section covers, decorative imagery). Polymorphic: images
+     * and videos in a single sort-ordered list, projected through the shared
+     * buildMediaItem helper so the shape matches gallery items exactly.
+     *
+     * Unlike the phase-8 engines, this is not gated by a Block row — it's
+     * design infrastructure, not user content. The skeleton consumes whatever
+     * is in the pool in order.
+     *
+     * Returns snake_case keys (id, sort_order, url, url_hd, alt_text,
+     * caption, kind, poster, duration_ms) — the resolver-internal shape.
+     * IndividualProfilePayloadBuilder::buildDesignMedia remaps to camelCase
+     * for the wire.
+     *
+     * @return list<array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}>
+     */
+    public function getContentMedia(?Site $site): array
+    {
+        if (! $site) {
+            return [];
+        }
+
+        return SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', SiteMedia::POOL_CONTENT)
+            ->where('is_active', true)
+            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+            ->with('mediaVariants')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn (SiteMedia $media) => $this->buildMediaItem($media))
+            ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @deprecated Use getContentMedia() instead. Removed in Task 6 of the same PR.
+     *
+     * Content-pool images (the legacy image-only field). Kept temporarily so
+     * the resource's content_images field continues to resolve during the
+     * in-PR transition; deleted once the wire migration in Task 5 is green.
      *
      * @return list<array{url: string, alt_text: string|null}>
      */
