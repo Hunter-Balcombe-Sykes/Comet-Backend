@@ -2,8 +2,7 @@
 
 namespace App\Jobs\Notifications;
 
-use App\Mail\Branding\EmailBrand;
-use App\Mail\Branding\EmailBrandDefaults;
+use App\Mail\Branding\ProEmailBrandResolver;
 use App\Mail\SubscriptionConfirmationMail;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
@@ -93,20 +92,21 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             return;
         }
 
-        $proName = trim((string) ($user->display_name ?? '')) ?: 'the team';
-        $siteUrl = ($user && $user->handle) ? 'https://'.$user->handle.'.partna.au' : 'https://partna.au';
         $unsubscribeUrl = route('public.unsubscribe', ['token' => $sub->unsubscribe_token]);
 
-        // Stopgap: build a lightweight EmailBrand from data already in scope.
-        // Task 13 will replace this with a ProEmailBrandResolver call.
-        $brand = new EmailBrand(
-            isPartna: false,
-            proName: $proName,
-            siteUrl: $siteUrl,
-            logoUrl: null,
-            replyToEmail: null,
-            palette: EmailBrandDefaults::defaults(),
-        );
+        // Resolve the white-label brand outside any DB lock; fall back to Partna
+        // on failure so a branding error never drops the confirmation.
+        $resolver = app(ProEmailBrandResolver::class);
+        $siteId = ($user && $user->site) ? (string) $user->site->id : null;
+        try {
+            $brand = $siteId !== null ? $resolver->forSite($siteId) : $resolver->partna();
+        } catch (\Throwable $e) {
+            Log::warning('email brand resolve failed; falling back to Partna brand', [
+                'site_id' => $siteId,
+                'error' => $e->getMessage(),
+            ]);
+            $brand = $resolver->partna();
+        }
 
         Mail::to($recipient)->send(new SubscriptionConfirmationMail(
             brand: $brand,
