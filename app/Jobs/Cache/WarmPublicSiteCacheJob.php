@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Log;
 // This job now ALSO pre-fills that §28.8 key when the subdomain belongs to an
 // individual, sharing the canonical builder + cache-key helpers so the two paths
 // can't drift.
-class WarmPublicSiteCacheJob implements ShouldQueue, ShouldBeUnique
+class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 

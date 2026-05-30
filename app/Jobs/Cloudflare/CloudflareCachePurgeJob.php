@@ -21,7 +21,7 @@ use Throwable;
 //   purge has its own 4xx/5xx semantics — short retries with exponential backoff
 //   are enough; a third retry at 60s is wasted because the underlying mutation
 //   has long since settled. Keep this distinct from the KV trait.
-class CloudflareCachePurgeJob implements ShouldQueue, ShouldBeUnique
+class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
