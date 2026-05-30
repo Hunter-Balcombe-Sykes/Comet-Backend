@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
+use App\Jobs\Notifications\SendEnquiryConfirmationJob;
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Models\Core\Site\Enquiry;
 use App\Services\Notifications\EnquirySpamBlocklist;
@@ -340,4 +341,15 @@ it('response shape is {ok: true} only — no enquiry_id leaked', function () {
     $response->assertOk();
 
     expect(array_keys($response->json()))->toBe(['ok']);
+});
+
+it('dispatches SendEnquiryConfirmationJob to confirm receipt to the visitor', function () {
+    seedPublishedContactSite();
+    Bus::fake();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ])->assertOk();
+
+    Bus::assertDispatched(SendEnquiryConfirmationJob::class);
 });

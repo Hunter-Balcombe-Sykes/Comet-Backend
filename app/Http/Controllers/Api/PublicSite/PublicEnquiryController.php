@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
 use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
+use App\Jobs\Notifications\SendEnquiryConfirmationJob;
 use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
@@ -126,6 +127,9 @@ class PublicEnquiryController extends ApiController
 
         // 8) Queue notification dispatch off the hot path — rate-limit + email handled in the adapter.
         DispatchEnquiryNotificationsJob::dispatch((string) $enquiry->id);
+
+        // 9) Confirm receipt to the visitor (Tier-2 transactional; gated in the job).
+        SendEnquiryConfirmationJob::dispatch((string) $enquiry->id);
 
         return $this->success(['ok' => true]);
     }
