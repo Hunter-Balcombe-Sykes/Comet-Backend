@@ -507,6 +507,9 @@ class SiteCacheService
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'links')),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'sections')),
             CacheKeyGenerator::siteImages($site->id),
+            // White-label email branding bundle (logo, palette, reply-to). Same SWR
+            // contract as the payload keys — bust both primary and :stale.
+            ...self::bustWithStale(CacheKeyGenerator::emailBrand($site->id)),
         ];
 
         // CACHE-1: every (pool, media_type) variant of /api/images. The polling
