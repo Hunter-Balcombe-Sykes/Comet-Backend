@@ -1,15 +1,23 @@
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>We received your enquiry</title></head>
-<body style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 14px; color: #111; line-height: 1.5;">
-    <h2 style="margin: 0 0 16px;">Thanks{{ $visitorName !== '' ? ', '.$visitorName : '' }} — we've got your enquiry</h2>
+@extends('mail.layouts.partna')
 
-    <p style="margin: 0 0 12px;">{{ $proDisplayName }} has received your message about &ldquo;{{ $subject }}&rdquo; and will get back to you soon.</p>
+@section('preheader'){{ $proDisplayName }} has received your enquiry and will reply soon.@endsection
 
-    <p style="margin: 0 0 12px;">You can reply directly to this email if you need to add anything.</p>
+@section('content')
+    <h1 class="headline text-primary" style="margin:0 0 16px; font-size:24px; line-height:1.2; color:{{ $brand->palette->text }};">
+        Thanks{{ $visitorName !== '' ? ', '.e($visitorName) : '' }} — we've got your enquiry
+    </h1>
 
-    <p style="margin: 16px 0 0;">
-        <a href="{{ $siteUrl }}" style="color: #3a6efc;">Visit {{ $proDisplayName }}'s page</a>
+    <p class="body-text" style="margin:0 0 12px; font-size:15px; line-height:1.5; color:{{ $brand->palette->text }};">
+        {{ $proDisplayName }} has received your message about &ldquo;{{ $subject }}&rdquo; and will get back to you soon.
     </p>
-</body>
-</html>
+
+    <p class="body-text" style="margin:0 0 12px; font-size:15px; line-height:1.5; color:{{ $brand->palette->textMuted }};">
+        You can reply directly to this email if you need to add anything.
+    </p>
+
+    <p class="button-cell" style="margin:24px 0 0;">
+        <a href="{{ $siteUrl }}" style="display:inline-block; background:{{ $brand->palette->buttonBg }}; color:{{ $brand->palette->buttonText }}; padding:12px 22px; border-radius:{{ $brand->palette->borderRadius }}; font-size:15px; font-weight:600; text-decoration:none;">
+            Visit {{ $proDisplayName }}'s page
+        </a>
+    </p>
+@endsection

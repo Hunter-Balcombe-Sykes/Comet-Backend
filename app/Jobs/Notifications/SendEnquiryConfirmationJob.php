@@ -2,6 +2,8 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Mail\Branding\EmailBrand;
+use App\Mail\Branding\EmailBrandDefaults;
 use App\Mail\EnquiryConfirmationMail;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
@@ -87,12 +89,23 @@ class SendEnquiryConfirmationJob implements ShouldQueue
         $siteUrl = ($user && $user->handle) ? 'https://'.$user->handle.'.partna.au' : 'https://partna.au';
         $replyTo = $block ? trim((string) data_get($block->settings, 'notification_email', '')) : '';
 
+        // Build a lightweight EmailBrand from the data already in scope — the
+        // job runs synchronously off the enquiry record so we avoid a separate
+        // resolver call here. Full palette resolution (design_kits row) would
+        // require the site context; callers that need it should use ProEmailBrandResolver.
+        $brand = new EmailBrand(
+            isPartna: false,
+            proName: $proName,
+            siteUrl: $siteUrl,
+            logoUrl: null,
+            replyToEmail: $replyTo !== '' ? $replyTo : null,
+            palette: EmailBrandDefaults::defaults(),
+        );
+
         Mail::to($recipient)->send(new EnquiryConfirmationMail(
-            proDisplayName: $proName,
+            brand: $brand,
             visitorName: trim((string) ($enquiry->name ?? '')),
             subject: (string) $enquiry->subject,
-            siteUrl: $siteUrl,
-            replyToEmail: $replyTo !== '' ? $replyTo : null,
         ));
 
         $enquiry->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
