@@ -95,8 +95,12 @@ class ProEmailBrandResolver
             return null;
         }
 
+        // Prefer the 'optimized' webp variant (2400px, ~500KB cap) over 'maximized'
+        // (4000px, multi-MB) for email weight; fall back to whatever exists. Keyed
+        // selection is deterministic — the same logo always yields the same URL.
         $urls = $media->variantUrls();
-        $url = $urls === [] ? null : (string) reset($urls);
+        $url = $urls['optimized'] ?? ($urls === [] ? null : reset($urls));
+        $url = $url !== null ? (string) $url : null;
 
         return ($url !== null && $this->isSafeLogoUrl($url)) ? $url : null;
     }
