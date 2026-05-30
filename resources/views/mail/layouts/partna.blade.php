@@ -1,3 +1,4 @@
+@php($brand = $brand ?? \App\Mail\Branding\EmailBrand::partna())
 {{--
   Universal email layout for all Partna outbound mail.
 
@@ -50,35 +51,44 @@
         }
     </style>
 </head>
-<body class="bg-body" style="margin:0; padding:0; background-color:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Helvetica Neue',Arial,sans-serif;">
+<body class="bg-body" style="margin:0; padding:0; background-color:{{ $brand->palette->bg }}; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Helvetica Neue',Arial,sans-serif;">
 
     {{-- Preheader: shown as preview text in the inbox list, never visible in the open email --}}
     <div style="display:none; font-size:1px; color:#ffffff; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
         @yield('preheader')&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
     </div>
 
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#ffffff;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:{{ $brand->palette->bg }};">
         <tr>
             <td align="center" style="padding: 32px 16px;">
 
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="container" style="width:600px; max-width:600px;">
 
-                    {{-- Header: icon + wordmark, side by side. Table layout
-                         because Outlook ignores inline-block on links. --}}
+                    {{-- Header: pro logo / wordmark in white-label mode, Partna assets otherwise. --}}
                     <tr>
                         <td class="px-gutter" align="left" style="padding: 8px 40px 40px 40px;">
-                            <a href="https://app.partna.au" style="text-decoration:none;">
-                                <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                                    <tr>
-                                        <td valign="middle" style="line-height:0;">
-                                            <img src="https://app.partna.au/branding/Partna/email-icon.png" alt="" width="20" height="20" style="display:block; width:20px; height:20px; border:0; outline:none;">
-                                        </td>
-                                        <td valign="middle" style="line-height:0; padding-left:14px;">
-                                            <img src="https://app.partna.au/branding/Partna/email-wordmark.png" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">
-                                        </td>
-                                    </tr>
-                                </table>
-                            </a>
+                            @if (! $brand->isPartna && $brand->logoUrl)
+                                <a href="{{ $brand->siteUrl }}" style="text-decoration:none;">
+                                    <img src="{{ $brand->logoUrl }}" alt="{{ $brand->proName }}" height="32" style="display:block; max-height:48px; border:0; outline:none;">
+                                </a>
+                            @elseif (! $brand->isPartna)
+                                <a href="{{ $brand->siteUrl }}" style="text-decoration:none;">
+                                    <span style="font-size:20px; font-weight:600; color:{{ $brand->palette->text }};">{{ $brand->proName }}</span>
+                                </a>
+                            @else
+                                <a href="https://app.partna.au" style="text-decoration:none;">
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                        <tr>
+                                            <td valign="middle" style="line-height:0;">
+                                                <img src="https://app.partna.au/branding/Partna/email-icon.png" alt="" width="20" height="20" style="display:block; width:20px; height:20px; border:0; outline:none;">
+                                            </td>
+                                            <td valign="middle" style="line-height:0; padding-left:14px;">
+                                                <img src="https://app.partna.au/branding/Partna/email-wordmark.png" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </a>
+                            @endif
                         </td>
                     </tr>
 
@@ -92,16 +102,25 @@
                     {{-- Footer --}}
                     <tr>
                         <td class="px-gutter" align="left" style="padding: 24px 40px 8px 40px; border-top: 1px solid #f0f0f2;">
-                            <p style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.5; color:#86868b;">
-                                {{ config('mail.from.name', 'Partna') }} ·
-                                <a href="https://partna.au" style="color:#86868b; text-decoration:none;">partna.au</a> ·
-                                <a href="mailto:{{ config('mail.from.address', 'hello@partna.au') }}" style="color:#86868b; text-decoration:none;">{{ config('mail.from.address', 'hello@partna.au') }}</a>
-                            </p>
-                            <p style="margin: 0; font-size: 11px; line-height: 1.5; color:#a1a1a6;">
-                                @yield('footer_note')
-                                @hasSection('footer_note') &nbsp;·&nbsp; @endif
-                                You're receiving this because you have an account at Partna.
-                            </p>
+                            @if ($brand->isPartna)
+                                <p style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.5; color:#86868b;">
+                                    {{ config('mail.from.name', 'Partna') }} ·
+                                    <a href="https://partna.au" style="color:#86868b; text-decoration:none;">partna.au</a> ·
+                                    <a href="mailto:{{ config('mail.from.address', 'hello@partna.au') }}" style="color:#86868b; text-decoration:none;">{{ config('mail.from.address', 'hello@partna.au') }}</a>
+                                </p>
+                                <p style="margin: 0; font-size: 11px; line-height: 1.5; color:#a1a1a6;">
+                                    @yield('footer_note')
+                                    @hasSection('footer_note') &nbsp;·&nbsp; @endif
+                                    You're receiving this because you have an account at Partna.
+                                </p>
+                            @else
+                                <p style="margin: 0 0 6px 0; font-size: 12px; line-height: 1.5; color:#86868b;">
+                                    {{ $brand->proName }} &nbsp;·&nbsp; sent via <a href="https://partna.au" style="color:#86868b; text-decoration:none;">Partna</a>
+                                </p>
+                                @hasSection('footer_note')
+                                    <p style="margin: 0; font-size: 11px; line-height: 1.5; color:#a1a1a6;">@yield('footer_note')</p>
+                                @endif
+                            @endif
                         </td>
                     </tr>
 
