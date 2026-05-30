@@ -230,38 +230,6 @@ class SitepageDataResolverService
             ->all();
     }
 
-    /**
-     * @deprecated Use getContentMedia() instead. Removed in Task 6 of the same PR.
-     *
-     * Content-pool images (the legacy image-only field). Kept temporarily so
-     * the resource's content_images field continues to resolve during the
-     * in-PR transition; deleted once the wire migration in Task 5 is green.
-     *
-     * @return list<array{url: string, alt_text: string|null}>
-     */
-    public function getContentImages(?Site $site): array
-    {
-        if (! $site) {
-            return [];
-        }
-
-        return SiteMedia::query()
-            ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_CONTENT)
-            ->where('is_active', true)
-            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-            ->with('mediaVariants')
-            ->orderBy('sort_order')
-            ->get()
-            ->map(fn (SiteMedia $media) => [
-                'url' => $media->variantUrls()['optimized'] ?? null,
-                'alt_text' => $media->alt_text,
-            ])
-            ->filter(fn (array $item) => $item['url'] !== null)
-            ->values()
-            ->all();
-    }
-
     // ── Links (every category + synthesised booking) ────────────────────
 
     /**
