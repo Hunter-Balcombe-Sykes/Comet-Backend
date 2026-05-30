@@ -112,14 +112,22 @@ class SitepageDataResolverService
     }
 
     /**
-     * Project a SiteMedia row to the public-payload gallery shape. Videos emit
-     * two plain MP4 tiers — `url` (optimized 720p, the autoplay default) and
-     * `url_hd` (maximized 1080p, loaded on tap/fullscreen); images use the
+     * Project a SiteMedia row to the resolver-internal polymorphic envelope
+     * used by both the gallery engine and the new design media field. Videos
+     * emit two plain MP4 tiers — `url` (optimized 720p, autoplay default) and
+     * `url_hd` (maximized 1080p, on-demand/fullscreen); images use the
      * optimised WebP and carry `url_hd => null` for a uniform shape.
      *
-     * @return array{url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
+     * NOTE: keys are snake_case — this is the resolver's internal shape.
+     * IndividualProfilePayloadBuilder remaps to camelCase for the wire
+     * (e.g. url_hd → urlHd, duration_ms → durationMs, alt_text → alt).
+     *
+     * Returns null when the media has no resolvable primary URL (e.g. variants
+     * row missing post-failure). Callers must filter those out.
+     *
+     * @return array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
      */
-    public function buildGalleryItem(SiteMedia $media): ?array
+    private function buildMediaItem(SiteMedia $media): ?array
     {
         $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
 
@@ -136,13 +144,14 @@ class SitepageDataResolverService
                     $poster = $mv->url;
                 }
             }
-
             // optimized is the contract default; fall back to maximized then
             // original so a partially-processed item still renders something.
             $url = $variants['optimized'] ?? $variants['maximized'] ?? $variants['original'] ?? '';
             $urlHd = $variants['maximized'] ?? null;
 
             return [
+                'id' => (string) $media->id,
+                'sort_order' => (int) $media->sort_order,
                 'url' => $url,
                 'url_hd' => $urlHd,
                 'alt_text' => $media->alt_text,
@@ -155,16 +164,31 @@ class SitepageDataResolverService
 
         $variantUrls = $media->variantUrls();
         $url = $variantUrls['optimized'] ?? $variantUrls['original'] ?? '';
+        $urlHd = $variantUrls['maximized'] ?? null;
 
         return [
+            'id' => (string) $media->id,
+            'sort_order' => (int) $media->sort_order,
             'url' => $url,
-            'url_hd' => null,
+            'url_hd' => $urlHd,
             'alt_text' => $media->alt_text,
             'caption' => $media->caption,
             'kind' => 'image',
             'poster' => null,
             'duration_ms' => null,
         ];
+    }
+
+    /**
+     * Backwards-compatible gallery item projection. Delegates to the shared
+     * polymorphic helper. Kept as a thin alias so the gallery engine's call
+     * site reads naturally; future callers should use buildMediaItem directly.
+     *
+     * @return array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
+     */
+    public function buildGalleryItem(SiteMedia $media): ?array
+    {
+        return $this->buildMediaItem($media);
     }
 
     // ── Content images ──────────────────────────────────────────────────
