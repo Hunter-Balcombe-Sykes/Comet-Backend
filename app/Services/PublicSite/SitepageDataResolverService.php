@@ -112,14 +112,22 @@ class SitepageDataResolverService
     }
 
     /**
-     * Project a SiteMedia row to the public-payload gallery shape. Videos emit
-     * two plain MP4 tiers — `url` (optimized 720p, the autoplay default) and
-     * `url_hd` (maximized 1080p, loaded on tap/fullscreen); images use the
+     * Project a SiteMedia row to the resolver-internal polymorphic envelope
+     * used by both the gallery engine and the new design media field. Videos
+     * emit two plain MP4 tiers — `url` (optimized 720p, autoplay default) and
+     * `url_hd` (maximized 1080p, on-demand/fullscreen); images use the
      * optimised WebP and carry `url_hd => null` for a uniform shape.
      *
-     * @return array{url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
+     * NOTE: keys are snake_case — this is the resolver's internal shape.
+     * IndividualProfilePayloadBuilder remaps to camelCase for the wire
+     * (e.g. url_hd → urlHd, duration_ms → durationMs, alt_text → alt).
+     *
+     * Returns null when the media has no resolvable primary URL (e.g. variants
+     * row missing post-failure). Callers must filter those out.
+     *
+     * @return array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
      */
-    public function buildGalleryItem(SiteMedia $media): ?array
+    private function buildMediaItem(SiteMedia $media): ?array
     {
         $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
 
@@ -136,13 +144,14 @@ class SitepageDataResolverService
                     $poster = $mv->url;
                 }
             }
-
             // optimized is the contract default; fall back to maximized then
             // original so a partially-processed item still renders something.
             $url = $variants['optimized'] ?? $variants['maximized'] ?? $variants['original'] ?? '';
             $urlHd = $variants['maximized'] ?? null;
 
             return [
+                'id' => (string) $media->id,
+                'sort_order' => (int) $media->sort_order,
                 'url' => $url,
                 'url_hd' => $urlHd,
                 'alt_text' => $media->alt_text,
@@ -155,10 +164,13 @@ class SitepageDataResolverService
 
         $variantUrls = $media->variantUrls();
         $url = $variantUrls['optimized'] ?? $variantUrls['original'] ?? '';
+        $urlHd = $variantUrls['maximized'] ?? null;
 
         return [
+            'id' => (string) $media->id,
+            'sort_order' => (int) $media->sort_order,
             'url' => $url,
-            'url_hd' => null,
+            'url_hd' => $urlHd,
             'alt_text' => $media->alt_text,
             'caption' => $media->caption,
             'kind' => 'image',
@@ -167,16 +179,38 @@ class SitepageDataResolverService
         ];
     }
 
-    // ── Content images ──────────────────────────────────────────────────
+    /**
+     * Backwards-compatible gallery item projection. Delegates to the shared
+     * polymorphic helper. Kept as a thin alias so the gallery engine's call
+     * site reads naturally; future callers should use buildMediaItem directly.
+     *
+     * @return array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
+     */
+    public function buildGalleryItem(SiteMedia $media): ?array
+    {
+        return $this->buildMediaItem($media);
+    }
+
+    // ── Content media (polymorphic — design layer) ──────────────────────
 
     /**
-     * Content-pool images (the "background image per section" slot). For
-     * brands these get layered with placeholders in the affiliate controller;
-     * for individuals the array is returned as-is.
+     * Content-pool media — design-layer assets the skeleton paints with
+     * (backgrounds, section covers, decorative imagery). Polymorphic: images
+     * and videos in a single sort-ordered list, projected through the shared
+     * buildMediaItem helper so the shape matches gallery items exactly.
      *
-     * @return list<array{url: string, alt_text: string|null}>
+     * Unlike the phase-8 engines, this is not gated by a Block row — it's
+     * design infrastructure, not user content. The skeleton consumes whatever
+     * is in the pool in order.
+     *
+     * Returns snake_case keys (id, sort_order, url, url_hd, alt_text,
+     * caption, kind, poster, duration_ms) — the resolver-internal shape.
+     * IndividualProfilePayloadBuilder::buildDesignMedia remaps to camelCase
+     * for the wire.
+     *
+     * @return list<array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}>
      */
-    public function getContentImages(?Site $site): array
+    public function getContentMedia(?Site $site): array
     {
         if (! $site) {
             return [];
@@ -190,11 +224,8 @@ class SitepageDataResolverService
             ->with('mediaVariants')
             ->orderBy('sort_order')
             ->get()
-            ->map(fn (SiteMedia $media) => [
-                'url' => $media->variantUrls()['optimized'] ?? null,
-                'alt_text' => $media->alt_text,
-            ])
-            ->filter(fn (array $item) => $item['url'] !== null)
+            ->map(fn (SiteMedia $media) => $this->buildMediaItem($media))
+            ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
             ->values()
             ->all();
     }

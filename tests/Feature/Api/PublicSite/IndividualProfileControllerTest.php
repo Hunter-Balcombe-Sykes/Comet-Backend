@@ -126,9 +126,11 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
         'bio', 'gallery', 'links', 'services', 'document', 'newsletter',
-        'content_images',
     ]);
     expect($profile)->not->toHaveKey('booking');
+    // designMedia is a top-level sibling of designKit, not a profile field.
+    expect($data)->toHaveKey('designMedia');
+    expect($data['designMedia'])->toBeArray();
     expect($profile['handle'])->toBe('solo1');
     expect($profile['displayName'])->toBe('Solo Pro');
 
@@ -286,12 +288,13 @@ it('is case-insensitive on the handle path param', function () {
 // Content-pool images, gallery items, and the document slot all read off
 // site.site_media rows. Same projection as the Hydrogen affiliate endpoint.
 
-it('surfaces content-pool site_media as profile.content_images[]', function () {
+it('surfaces content-pool site_media as top-level designMedia[] in camelCase', function () {
     $pro = seedIndividualProfile('content1');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $mediaId,
         'site_id' => $siteId,
         'user_id' => $pro->id,
         'pool' => 'content',
@@ -304,16 +307,29 @@ it('surfaces content-pool site_media as profile.content_images[]', function () {
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
+    // Seed a webp variant so the item survives the URL filter.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'webp',
+        'disk' => 'media', 'path' => 'images/content/optimized.webp', 'mime' => 'image/webp',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
 
     $data = $this->getJson('/api/public/profiles/content1')->assertOk()->json('data');
 
-    // The exact URL depends on media-variant lookup which the test env stubs
-    // with empty variants — but the array structure (one row, alt text
-    // preserved) is what the contract guarantees.
-    expect($data['profile']['content_images'])->toBeArray();
+    expect($data)->toHaveKey('designMedia');
+    expect($data['designMedia'])->toBeArray()->toHaveCount(1);
+    // Wire shape is camelCase, matching gallery[i] and every engine output.
+    expect($data['designMedia'][0])->toHaveKeys([
+        'id', 'sortOrder', 'kind', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
+    ]);
+    expect($data['designMedia'][0]['kind'])->toBe('image');
+    expect($data['designMedia'][0]['alt'])->toBe('Studio shot');
+    expect($data['designMedia'][0]['sortOrder'])->toBe(0);
+    expect($data['profile'])->not->toHaveKey('content_images');
 });
 
-it('omits soft-deleted content_images', function () {
+it('omits soft-deleted content-pool media from designMedia', function () {
     $pro = seedIndividualProfile('content2');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -333,10 +349,10 @@ it('omits soft-deleted content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content2')->assertOk()->json('data');
-    expect($data['profile']['content_images'])->toBeEmpty();
+    expect($data['designMedia'])->toBeArray()->toBeEmpty();
 });
 
-it('omits processing-state != ready content_images', function () {
+it('omits processing-state != ready content-pool media from designMedia', function () {
     $pro = seedIndividualProfile('content3');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -355,7 +371,179 @@ it('omits processing-state != ready content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
-    expect($data['profile']['content_images'])->toBeEmpty();
+    expect($data['designMedia'])->toBeArray()->toBeEmpty();
+});
+
+it('projects content-pool videos with kind=video, poster and duration_ms', function () {
+    $pro = seedIndividualProfile('cmedia-video');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'pool' => 'content', 'path' => 'videos/content/original.mp4',
+        'media_type' => 'video', 'processing_state' => 'ready',
+        'sort_order' => 0, 'is_active' => 1,
+        'alt_text' => 'Intro reel', 'duration_ms' => 12500,
+        'poster_path' => 'videos/content/poster.jpg',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    foreach ([
+        ['variant_key' => 'optimized', 'artifact_type' => 'mp4',    'mime' => 'video/mp4',  'path' => 'videos/content/opt.mp4'],
+        ['variant_key' => 'maximized', 'artifact_type' => 'mp4',    'mime' => 'video/mp4',  'path' => 'videos/content/max.mp4'],
+        ['variant_key' => 'poster',    'artifact_type' => 'poster',  'mime' => 'image/jpeg', 'path' => 'videos/content/poster.jpg'],
+    ] as $row) {
+        DB::connection('pgsql')->table('site.media_variants')->insert([
+            'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+            'variant_key' => $row['variant_key'], 'artifact_type' => $row['artifact_type'],
+            'disk' => 'media', 'path' => $row['path'], 'mime' => $row['mime'],
+            'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+
+    expect($items)->toHaveCount(1);
+    expect($items[0]['kind'])->toBe('video');
+    expect($items[0]['duration_ms'])->toBe(12500);
+    expect($items[0]['poster'])->toBeString()->not->toBeEmpty();
+    expect($items[0]['url'])->toBeString()->not->toBeEmpty();
+    expect($items[0]['url_hd'])->toBeString()->not->toBeEmpty();
+});
+
+it('interleaves content-pool images and videos by sort_order', function () {
+    $pro = seedIndividualProfile('cmedia-mixed');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $imageId = (string) Str::uuid();
+    $videoId = (string) Str::uuid();
+
+    // Image at sort_order=1, video at sort_order=0 — video must come first.
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        [
+            'id' => $imageId, 'site_id' => $siteId, 'user_id' => $pro->id,
+            'pool' => 'content', 'path' => 'images/content/a.jpg',
+            'media_type' => 'image', 'processing_state' => 'ready',
+            'sort_order' => 1, 'is_active' => 1,
+            'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        ],
+        [
+            'id' => $videoId, 'site_id' => $siteId, 'user_id' => $pro->id,
+            'pool' => 'content', 'path' => 'videos/content/a.mp4',
+            'media_type' => 'video', 'processing_state' => 'ready',
+            'sort_order' => 0, 'is_active' => 1,
+            'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        ],
+    ]);
+    // Image needs a webp variant to survive the URL filter.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $imageId,
+        'variant_key' => 'optimized', 'artifact_type' => 'webp',
+        'disk' => 'media', 'path' => 'images/content/a-opt.webp', 'mime' => 'image/webp',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    // Video needs an mp4 variant.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $videoId,
+        'variant_key' => 'optimized', 'artifact_type' => 'mp4',
+        'disk' => 'media', 'path' => 'videos/content/opt.mp4', 'mime' => 'video/mp4',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+
+    expect($items)->toHaveCount(2);
+    expect($items[0]['id'])->toBe($videoId);    // sort_order=0
+    expect($items[0]['kind'])->toBe('video');
+    expect($items[1]['id'])->toBe($imageId);    // sort_order=1
+    expect($items[1]['kind'])->toBe('image');
+});
+
+it('excludes content-pool media that is not ready / not active / soft-deleted / wrong pool', function () {
+    $pro = seedIndividualProfile('cmedia-filter');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    $base = [
+        'site_id' => $siteId, 'user_id' => $pro->id, 'media_type' => 'image',
+        'sort_order' => 0, 'deleted_at' => null,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ];
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        // Excluded: processing_state != ready
+        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'a.jpg', 'processing_state' => 'processing', 'is_active' => 1]),
+        // Excluded: is_active = false
+        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'b.jpg', 'processing_state' => 'ready', 'is_active' => 0]),
+        // Excluded: soft-deleted
+        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'c.jpg', 'processing_state' => 'ready', 'is_active' => 1, 'deleted_at' => now()->toDateTimeString()]),
+        // Excluded: gallery pool (wrong pool)
+        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'gallery', 'path' => 'd.jpg', 'processing_state' => 'ready', 'is_active' => 1]),
+    ]);
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+
+    expect($items)->toBeArray()->toBeEmpty();
+});
+
+it('returns empty when the site is null', function () {
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia(null);
+    expect($items)->toBeArray()->toBeEmpty();
+});
+
+it('handles content-pool video with no poster artifact (poster=null)', function () {
+    $pro = seedIndividualProfile('cmedia-no-poster');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'pool' => 'content', 'media_type' => 'video',
+        'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
+        'path' => 'videos/np.mp4', 'duration_ms' => 4200,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'mp4',
+        'disk' => 'media', 'path' => 'videos/np-opt.mp4', 'mime' => 'video/mp4',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+
+    expect($items)->toHaveCount(1);
+    expect($items[0]['kind'])->toBe('video');
+    expect($items[0]['poster'])->toBeNull();
+    expect($items[0]['url'])->toBeString()->not->toBeEmpty();
+});
+
+it('returns url_hd=null for content-pool video with only optimized variant', function () {
+    $pro = seedIndividualProfile('cmedia-opt-only');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'pool' => 'content', 'media_type' => 'video',
+        'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
+        'path' => 'videos/oo.mp4', 'duration_ms' => 3000,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'mp4',
+        'disk' => 'media', 'path' => 'videos/oo-opt.mp4', 'mime' => 'video/mp4',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
+    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+
+    expect($items)->toHaveCount(1);
+    expect($items[0]['url'])->toBeString()->not->toBeEmpty();
+    expect($items[0]['url_hd'])->toBeNull();
 });
 
 // ── Phase 8 engines: bio / gallery / links / services / document / newsletter
