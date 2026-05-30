@@ -185,7 +185,8 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.icons_xl_size' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.icons_xxl_size' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.icons_xxl_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.icons_stroke_width' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.icons_large_stroke_width' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Effects
             'design_kit.effect_overlay_blur' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.effect_overlay_opacity' => ['sometimes', 'nullable', 'string', 'max:16'],
