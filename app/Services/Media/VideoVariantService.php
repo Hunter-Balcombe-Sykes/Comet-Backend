@@ -237,15 +237,7 @@ class VideoVariantService
             );
 
             // --- 8. Update SiteMedia ---
-            SiteMedia::query()
-                ->where('id', $mediaId)
-                ->whereNull('deleted_at')
-                ->update([
-                    'processing_state' => SiteMedia::PROCESSING_STATE_READY,
-                    'processing_error' => null,
-                    'duration_ms' => $durationMs,
-                    'poster_path' => $posterRemotePath,
-                ]);
+            $this->markReady($mediaId, $durationMs, $posterRemotePath);
 
             Log::info('VideoVariantService: completed', [
                 'media_id' => $mediaId,
@@ -262,6 +254,35 @@ class VideoVariantService
                 @unlink($tmpPoster);
             }
         }
+    }
+
+    /**
+     * Advance a video SiteMedia row to ready and touch the parent Site so
+     * SiteObserver::saved fires (Cloudflare purge + cache-key roll + local
+     * Redis invalidation). Mass-updates via the query builder bypass
+     * SiteMediaObserver — the same gap the reorder controller works around
+     * with $site->touch(). Without this, content-pool and gallery videos
+     * surface only after the public_profile cache TTL expires (60 s default).
+     *
+     * Use a model load + save() rather than a mass update so the observer
+     * chain fires naturally. The DB cost is one extra SELECT, paid once
+     * per video at completion — well worth a push-fresh public profile.
+     */
+    public function markReady(string $mediaId, int $durationMs, ?string $posterPath): void
+    {
+        $media = SiteMedia::query()
+            ->whereNull('deleted_at')
+            ->find($mediaId);
+
+        if (! $media) {
+            return; // Soft-deleted mid-processing; nothing to advance.
+        }
+
+        $media->processing_state = SiteMedia::PROCESSING_STATE_READY;
+        $media->processing_error = null;
+        $media->duration_ms = $durationMs;
+        $media->poster_path = $posterPath;
+        $media->save(); // SiteMediaObserver::saved → $site->touch() → cache roll.
     }
 
     /**
