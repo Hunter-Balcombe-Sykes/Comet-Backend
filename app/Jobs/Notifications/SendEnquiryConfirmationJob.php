@@ -2,8 +2,7 @@
 
 namespace App\Jobs\Notifications;
 
-use App\Mail\Branding\EmailBrand;
-use App\Mail\Branding\EmailBrandDefaults;
+use App\Mail\Branding\ProEmailBrandResolver;
 use App\Mail\EnquiryConfirmationMail;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
@@ -84,23 +83,19 @@ class SendEnquiryConfirmationJob implements ShouldQueue
             return;
         }
 
-        $user = $enquiry->user;
-        $proName = trim((string) ($user->display_name ?? '')) ?: 'the team';
-        $siteUrl = ($user && $user->handle) ? 'https://'.$user->handle.'.partna.au' : 'https://partna.au';
-        $replyTo = $block ? trim((string) data_get($block->settings, 'notification_email', '')) : '';
-
-        // Build a lightweight EmailBrand from the data already in scope — the
-        // job runs synchronously off the enquiry record so we avoid a separate
-        // resolver call here. Full palette resolution (design_kits row) would
-        // require the site context; callers that need it should use ProEmailBrandResolver.
-        $brand = new EmailBrand(
-            isPartna: false,
-            proName: $proName,
-            siteUrl: $siteUrl,
-            logoUrl: null,
-            replyToEmail: $replyTo !== '' ? $replyTo : null,
-            palette: EmailBrandDefaults::defaults(),
-        );
+        // Resolve the white-label brand AFTER the idempotency transaction has
+        // committed — never inside the lockForUpdate hold above. A branding
+        // failure must never drop a transactional email, so fall back to Partna.
+        $resolver = app(ProEmailBrandResolver::class);
+        try {
+            $brand = $resolver->forSite((string) $enquiry->site_id);
+        } catch (\Throwable $e) {
+            Log::warning('email brand resolve failed; falling back to Partna brand', [
+                'site_id' => (string) $enquiry->site_id,
+                'error' => $e->getMessage(),
+            ]);
+            $brand = $resolver->partna();
+        }
 
         Mail::to($recipient)->send(new EnquiryConfirmationMail(
             brand: $brand,
