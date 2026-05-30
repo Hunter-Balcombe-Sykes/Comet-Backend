@@ -108,7 +108,10 @@ it('returns 404 when site is unpublished (does not leak existence)', function ()
     $response->assertStatus(404);
 });
 
-it('validates an optional block_id belongs to the site (cross-site IDOR defence)', function () {
+it('drops an optional block_id that belongs to another site (cross-site IDOR defence)', function () {
+    // Full-decouple: the controller no longer cross-checks the block synchronously, so a
+    // foreign block_id is accepted (201) and dropped by the writer. The security invariant
+    // — NO cross-site row is ever written — is preserved at the writer.
     $tenant = createBrandTenant('section-seen-block-valid');
     $otherTenant = createBrandTenant('section-seen-other-tenant');
     $foreignBlock = createLinkBlockFor($otherTenant);
@@ -120,7 +123,7 @@ it('validates an optional block_id belongs to the site (cross-site IDOR defence)
         'session_id' => (string) Str::uuid(),
     ]);
 
-    $response->assertStatus(404);
+    $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(0);
 });
 

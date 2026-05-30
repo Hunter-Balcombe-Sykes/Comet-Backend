@@ -923,6 +923,14 @@ return [
         'timeout' => (int) env('PARTNA_VIDEO_QUEUE_TIMEOUT', env('SIDEST_VIDEO_QUEUE_TIMEOUT', 3600)),
     ],
 
+    // Analytics ingest queue. Reuses the default 'redis' connection — Horizon's
+    // supervisor-analytics already consumes the 'analytics' queue (config/horizon.php).
+    // No dedicated connection: jobs are tiny + PK-idempotent, so the default
+    // retry_after is harmless.
+    'analytics_queue' => [
+        'name' => env('PARTNA_ANALYTICS_QUEUE', 'analytics'),
+    ],
+
     'video_variants' => [
         'optimized' => [
             'resolution' => env('PARTNA_VIDEO_OPTIMIZED_RESOLUTION', env('SIDEST_VIDEO_OPTIMIZED_RESOLUTION', '1280x720')),

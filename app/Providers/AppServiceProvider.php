@@ -36,6 +36,11 @@ use App\Policies\PartnaStaffPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSelfPolicy;
+use App\Services\Analytics\Contracts\AnalyticsEventWriter;
+use App\Services\Analytics\Contracts\AnalyticsIngestor;
+use App\Services\Analytics\Ingestors\QueuedIngestor;
+use App\Services\Analytics\Ingestors\SyncIngestor;
+use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
@@ -75,6 +80,17 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(InAppEnquiryNotificationAdapter::class),
                 $app->make(EmailEnquiryNotificationAdapter::class),
             ]);
+        });
+
+        // Analytics ingest seams. Writer is fixed (Postgres today); ingestor switches
+        // on env/queue connection — inline in local/testing or when queue is sync,
+        // queued otherwise. Mirrors MediaUploadService::dispatchImageJob's gate.
+        $this->app->singleton(AnalyticsEventWriter::class, PostgresEventWriter::class);
+        $this->app->singleton(AnalyticsIngestor::class, function ($app) {
+            $inline = in_array($app->environment(), ['local', 'testing'], true)
+                || (string) config('queue.default', 'sync') === 'sync';
+
+            return $inline ? $app->make(SyncIngestor::class) : $app->make(QueuedIngestor::class);
         });
 
     }

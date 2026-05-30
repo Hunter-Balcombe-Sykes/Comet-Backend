@@ -19,7 +19,9 @@ class ClickRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'block_id' => ['required', 'uuid', Rule::exists('pgsql.site.blocks', 'id')],
+            // Existence/ownership/trackability now validated in PostgresEventWriter
+            // (worker side) so the beacon never blocks on a DB read. Optimistic accept.
+            'block_id' => ['required', 'uuid'],
             'site_id' => ['required_without:subdomain', 'uuid', Rule::exists('pgsql.site.sites', 'id')],
             'subdomain' => ['required_without:site_id', 'string', 'max:63'],
             'session_id' => ['nullable', 'uuid'],

@@ -228,16 +228,10 @@ class AnalyticsQueryService
     public function topSections(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
-            // block_type allowlist mirrors the ingest-side `partna.section_block_types`
-            // config so a block_type accepted on /public/analytics/clicks is also
-            // counted here.
-            $trackableSectionTypes = collect(config('partna.section_block_types', [
-                'gallery', 'services', 'booking',
-            ]))
-                ->filter(fn ($type) => is_string($type) && trim($type) !== '')
-                ->map(fn (string $type) => strtolower(trim($type)))
-                ->values()
-                ->all();
+            // Shared allowlist (TrackableBlockTypes) so a block_type accepted on
+            // /public/analytics/clicks by the writer is also counted here — write-side
+            // and read-side can't diverge on a config change.
+            $trackableSectionTypes = TrackableBlockTypes::sectionTypes();
 
             return DB::table('analytics.link_clicks as lc')
                 ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')

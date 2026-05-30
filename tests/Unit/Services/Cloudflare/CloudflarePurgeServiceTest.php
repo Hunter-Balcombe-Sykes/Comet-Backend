@@ -58,6 +58,7 @@ it('purgeHandle composes page URLs + the API subrequest URL', function () {
     Http::assertSent(fn ($req) => $req['files'] === [
         'https://mixed-case.partna.au/',
         'https://mixed-case.partna.au',
+        'https://mixed-case.partna.au/_swr-shadow/',
         'https://dev-api.partna.au/api/public/profiles/mixed-case',
     ]);
 });
@@ -73,6 +74,7 @@ it('purgeHandle strips trailing slash on app.url before composing API URL', func
     Http::assertSent(fn ($req) => $req['files'] === [
         'https://jane.partna.au/',
         'https://jane.partna.au',
+        'https://jane.partna.au/_swr-shadow/',
         'https://dev-api.partna.au/api/public/profiles/jane',
     ]);
 });
@@ -88,6 +90,7 @@ it('purgeHandle skips the API URL when app.url is unset', function () {
     Http::assertSent(fn ($req) => $req['files'] === [
         'https://jane.partna.au/',
         'https://jane.partna.au',
+        'https://jane.partna.au/_swr-shadow/',
     ]);
 });
 
