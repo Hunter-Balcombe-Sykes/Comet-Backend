@@ -2,6 +2,8 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Mail\Branding\EmailBrand;
+use App\Mail\Branding\EmailBrandDefaults;
 use App\Mail\SubscriptionConfirmationMail;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
@@ -95,9 +97,19 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
         $siteUrl = ($user && $user->handle) ? 'https://'.$user->handle.'.partna.au' : 'https://partna.au';
         $unsubscribeUrl = route('public.unsubscribe', ['token' => $sub->unsubscribe_token]);
 
-        Mail::to($recipient)->send(new SubscriptionConfirmationMail(
-            proDisplayName: $proName,
+        // Stopgap: build a lightweight EmailBrand from data already in scope.
+        // Task 13 will replace this with a ProEmailBrandResolver call.
+        $brand = new EmailBrand(
+            isPartna: false,
+            proName: $proName,
             siteUrl: $siteUrl,
+            logoUrl: null,
+            replyToEmail: null,
+            palette: EmailBrandDefaults::defaults(),
+        );
+
+        Mail::to($recipient)->send(new SubscriptionConfirmationMail(
+            brand: $brand,
             unsubscribeUrl: $unsubscribeUrl,
             visitorName: $sub->full_name ?: null,
         ));
