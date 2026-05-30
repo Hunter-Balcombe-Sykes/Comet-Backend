@@ -124,13 +124,13 @@ class IndividualProfilePayloadBuilder
      * Workplace engine — WorkplaceData | null.
      *
      * Returns null when the workplace section is not live (block
-     * missing / is_active or is_enabled false) OR when no Google
-     * Business Profile data has been stored. Resolver hands back
-     * snake_case keys mirroring the JSONB shape on site.settings; we
-     * remap to the wire's camelCase here.
+     * missing / is_active or is_enabled false) OR when no workplace
+     * data has been stored. Resolver hands back snake_case keys
+     * mirroring the JSONB shape on site.settings.workplace; we remap
+     * to the wire's camelCase here.
      *
      * @param  Collection<string, Block>  $sections
-     * @return array{placeId: string|null, name: string, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
+     * @return array{name: string, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
      */
     private function buildWorkplace(?Site $site, Collection $sections): ?array
     {
@@ -141,7 +141,6 @@ class IndividualProfilePayloadBuilder
         }
 
         return [
-            'placeId' => $data['place_id'] ?? null,
             'name' => (string) ($data['name'] ?? ''),
             'address' => $data['address'] ?? null,
             'addressLine1' => $data['address_line1'] ?? null,

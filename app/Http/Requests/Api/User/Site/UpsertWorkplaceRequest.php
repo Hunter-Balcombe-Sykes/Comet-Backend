@@ -4,23 +4,21 @@ namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
 
-// V2: Validates Google Business Profile upsert — place ID, name, address, coordinates, phone, website.
-//
-// Two entry paths share this request:
-//   1. Google Places autofill — visitor picks a result; we get a place_id + name + full structured data.
-//   2. Manual entry          — visitor types the workplace by hand; no place_id, just a name (and
-//                              whatever address/contact details they provide). place_id is nullable
-//                              for this case; name remains the minimum to identify the workplace.
-class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
+// Validates a workplace upsert. One shape covers both flows:
+//   - Google Places autofill — visitor picks a result in the dashboard; the
+//     name + structured address + phone + website all land in one go.
+//   - Manual entry           — visitor types whatever fields they want by hand.
+// The stored record is identical either way — there's no `source` flag.
+class UpsertWorkplaceRequest extends BaseFormRequest
 {
     protected function prepareForValidation(): void
     {
         $trimmed = [];
         foreach ([
-            'place_id', 'name', 'address', 'phone', 'website',
+            'name', 'address', 'phone', 'website',
             // Structured address components — populated either by Google
             // Places (parseAddressParts in /api/google/places/search) or
-            // by manual entry in the workplace card.
+            // by manual entry in the workplace editor.
             'address_line1', 'city', 'state', 'postcode', 'country',
         ] as $key) {
             $value = $this->input($key);
@@ -36,9 +34,6 @@ class UpsertGoogleBusinessProfileRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            // Nullable so manual entries (no Google pick) can save. Still capped
-            // at 255 so a Google ID never silently overflows the JSONB column.
-            'place_id' => ['nullable', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'],
             // Structured fields — stored alongside the formatted `address`

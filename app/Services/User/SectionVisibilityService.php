@@ -221,7 +221,7 @@ class SectionVisibilityService
                 ->getQuery();
         }
 
-        // Workplace: at least a name or address on the google_business_profile
+        // Workplace: at least a name or address on the settings.workplace
         // JSONB. pgsql-specific JSON arrow — same dialect contract as
         // has_credential / has_experience above.
         if ($needsWorkplace) {
@@ -229,8 +229,8 @@ class SectionVisibilityService
                 ->select(DB::raw('1'))
                 ->where('id', $siteId)
                 ->where(function ($q) {
-                    $q->whereRaw("COALESCE(settings->'google_business_profile'->>'name', '') <> ''")
-                        ->orWhereRaw("COALESCE(settings->'google_business_profile'->>'address', '') <> ''");
+                    $q->whereRaw("COALESCE(settings->'workplace'->>'name', '') <> ''")
+                        ->orWhereRaw("COALESCE(settings->'workplace'->>'address', '') <> ''");
                 })
                 ->getQuery();
         }
@@ -671,7 +671,7 @@ class SectionVisibilityService
 
     /**
      * Workplace section goes live once the professional has at least a name
-     * OR an address on the google_business_profile JSONB. Either field is
+     * OR an address on the settings.workplace JSONB. Either field is
      * enough — name without address is a generic-business listing; address
      * without name is a manual-only entry. Both empty → draft.
      */
@@ -683,7 +683,7 @@ class SectionVisibilityService
             ->first();
 
         $profile = $site && is_array($site->settings)
-            ? data_get($site->settings, 'google_business_profile')
+            ? data_get($site->settings, 'workplace')
             : null;
 
         $hasName = is_array($profile) && is_string($profile['name'] ?? null) && trim($profile['name']) !== '';

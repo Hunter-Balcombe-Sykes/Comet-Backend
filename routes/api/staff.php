@@ -14,7 +14,7 @@ use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
-use App\Http\Controllers\Api\Staff\StaffSite\StaffGoogleBusinessProfileController;
+use App\Http\Controllers\Api\Staff\StaffSite\StaffWorkplaceController;
 use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffMeController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
@@ -119,8 +119,8 @@ Route::prefix('staff')
         // #ENQUIRY-1 — contact-form enquiries inbox (read).
         Route::get('/professionals/{professional}/enquiries', [StaffEnquiryController::class, 'index']);
 
-        // #GBP-1 — Google Business Profile snapshot stored in site.settings.
-        Route::get('/professionals/{professional}/site/google-business-profile', [StaffGoogleBusinessProfileController::class, 'show']);
+        // Workplace snapshot stored at site.settings.workplace.
+        Route::get('/professionals/{professional}/site/workplace', [StaffWorkplaceController::class, 'show']);
     });
 
 // Authorised Staff Admin Editing

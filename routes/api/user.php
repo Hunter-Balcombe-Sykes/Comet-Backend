@@ -17,7 +17,7 @@ use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceContr
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
-use App\Http\Controllers\Api\User\SiteManagement\UserGoogleBusinessProfileController;
+use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
@@ -80,14 +80,14 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
 
         // View Site Details
         Route::get('/site', [UserSiteController::class, 'show']);
-        Route::get('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'show']);
+        Route::get('/site/workplace', [UserWorkplaceController::class, 'show']);
 
         // Update Site Details
         Route::patch('/site', [UserSiteController::class, 'update']);
         Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
             ->name('professional.site.reclaim-handle');
-        Route::put('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'upsert']);
-        Route::delete('/site/google-business-profile', [UserGoogleBusinessProfileController::class, 'destroy']);
+        Route::put('/site/workplace', [UserWorkplaceController::class, 'upsert']);
+        Route::delete('/site/workplace', [UserWorkplaceController::class, 'destroy']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
 
         // Booking settings (manual mode — plain external-URL link)

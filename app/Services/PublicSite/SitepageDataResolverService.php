@@ -356,10 +356,10 @@ class SitepageDataResolverService
     }
 
     /**
-     * Workplace — Google Business Profile data stored on
-     * site.sites.settings.google_business_profile by the dashboard.
-     * Both Google-anchored (place_id set) and manual (place_id null)
-     * entries flow through the same blob shape. Gated by the
+     * Workplace — business-location card data stored on
+     * site.sites.settings.workplace by the dashboard. Whether the
+     * visitor used the Google Places autofill or hand-typed every
+     * field, the stored blob looks identical. Gated by the
      * 'workplace' section block so a designer can hide the workplace
      * card without deleting the underlying data.
      */
@@ -370,7 +370,7 @@ class SitepageDataResolverService
                 return null;
             }
             $settings = is_array($site->settings) ? $site->settings : [];
-            $profile = $settings['google_business_profile'] ?? null;
+            $profile = $settings['workplace'] ?? null;
             if (! is_array($profile)) {
                 return null;
             }
@@ -380,7 +380,6 @@ class SitepageDataResolverService
             }
 
             return [
-                'place_id' => $this->trimToNull($profile['place_id'] ?? null),
                 'name' => $name,
                 'address' => $this->trimToNull($profile['address'] ?? null),
                 'address_line1' => $this->trimToNull($profile['address_line1'] ?? null),
