@@ -9,306 +9,212 @@ use App\Http\Controllers\Concerns\ResolvesSiteFromRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
-use App\Models\Analytics\LinkClick;
-use App\Models\Analytics\SectionView;
-use App\Models\Analytics\SiteVisit;
-use App\Models\Core\Site\Block;
-use App\Services\Cache\CacheKeyGenerator;
+use App\Models\Core\Site\Site;
+use App\Services\Analytics\AnalyticsDedupGuard;
+use App\Services\Analytics\AnalyticsEvent;
+use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-use Throwable;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
-// Records pageview and click analytics events from public mini-sites.
-// Read path queries raw site_visits + link_clicks tables directly; cache invalidation
-// bumps a per-professional version token so dashboards see fresh totals on next read.
+// Records pageview / click / section-seen analytics events from public mini-sites.
+//
+// Write path is fully decoupled: the controller validates (in-memory), resolves the
+// site, mints the row PK + stamps request-time fields, does a Redis-only dedup, and
+// hands the event to the AnalyticsIngestor. No Postgres WRITE and no read-for-write on
+// the hot path; authoritative block validation lives in the writer (worker side).
 class AnalyticsController extends ApiController
 {
     use DetectsClientInfo;
     use HashesClientData;
     use ResolvesSiteFromRequest;
 
-    public function __construct() {}
+    public function __construct(
+        private readonly AnalyticsIngestor $ingestor,
+        private readonly AnalyticsDedupGuard $dedup,
+    ) {}
 
     public function pageview(PageviewRequest $request): JsonResponse
     {
         $data = $request->validated();
 
-        // Resolve site by ID or subdomain
-        $site = $this->resolveSiteFromData($data);
-
+        $site = $this->resolvePublishedSite($data, $error);
         if (! $site) {
-            // 422 when site_id was given but failed the subdomain cross-check (IDOR attempt).
-            // 404 when only a subdomain was given and simply wasn't found.
-            $statusCode = ! empty($data['site_id']) ? 422 : 404;
-
-            return $this->error('Site not found', $statusCode);
+            return $error;
         }
 
-        // 404 not 403: public endpoint — returning 403 would reveal the site exists but is unpublished
-        if (! $site->is_published) {
-            return $this->error('Site not found', 404);
-        }
+        // NOTE: pageview intentionally has NO bot filter and NO dedup (preserved). A bot
+        // UA still records a pageview today; changing that is a separate metrics decision.
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_PAGEVIEW,
+            request: $request,
+            site: $site,
+            data: $data,
+            // pageview stores the RAW referrer (no URL sanitisation — preserved).
+            referrer: $data['referrer'] ?? $request->headers->get('referer'),
+        );
 
-        // Create pageview record
-        $visit = new SiteVisit([
-            'occurred_at' => now(),
-            'session_id' => $data['session_id'] ?? null,
-            'visitor_id' => $data['visitor_id'] ?? null,
-            'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => $request->userAgent(),
-            'referrer' => $data['referrer'] ?? $request->headers->get('referer'),
-            'utm_source' => $data['utm_source'] ?? null,
-            'utm_medium' => $data['utm_medium'] ?? null,
-            'utm_campaign' => $data['utm_campaign'] ?? null,
-            'country_code' => $this->detectCountryCode($request),
-            'device_type' => $this->detectDeviceType($request->userAgent()),
-        ]);
-        $visit->user_id = $site->user_id;
-        $visit->site_id = $site->id;
-        $visit->save();
+        $this->ingestor->ingest($event);
 
-        try {
-            $this->debounceInvalidateAnalytics($site->user_id);
-        } catch (Throwable $e) {
-            report($e);
-            Log::warning('Analytics cache invalidation failed on pageview', ['site_id' => $site->id, 'error' => $e->getMessage()]);
-        }
-
-        return $this->success([
-            'message' => 'Pageview recorded',
-            'visit_id' => $visit->id,
-        ], 201);
+        return $this->success(['message' => 'Pageview recorded', 'visit_id' => $event->id], 201);
     }
 
     public function click(ClickRequest $request): JsonResponse
     {
         $data = $request->validated();
 
-        // Resolve site by ID or subdomain
-        $site = $this->resolveSiteFromData($data);
-
+        $site = $this->resolvePublishedSite($data, $error);
         if (! $site) {
-            // 422 when site_id was given but failed the subdomain cross-check (IDOR attempt).
-            // 404 when only a subdomain was given and simply wasn't found.
-            $statusCode = ! empty($data['site_id']) ? 422 : 404;
-
-            return $this->error('Site not found', $statusCode);
+            return $error;
         }
 
-        // 404 not 403: public endpoint — returning 403 would reveal the site exists but is unpublished
-        if (! $site->is_published) {
-            return $this->error('Site not found', 404);
-        }
-
-        // Discard bot traffic silently — fake 200 avoids fingerprinting the filter
         if ($this->isBotUserAgent($request->userAgent())) {
+            // Bot path: 200 with a message and NO id (preserved). Fake-success avoids
+            // fingerprinting the filter.
             return $this->success(['message' => 'Click recorded'], 200);
         }
 
-        // Verify block exists and belongs to this site
-        $block = Block::where('id', $data['block_id'])
-            ->where('site_id', $site->id)
-            ->first();
+        $id = (string) Str::orderedUuid();
 
-        if (! $block) {
-            return $this->error('Block not found or does not belong to this site', 404);
+        // Dedup on (block, strongest identifier) for 3s. Returns the original id on a
+        // duplicate so the response is byte-identical to today's "return existing id".
+        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
+        if ($identifier !== null) {
+            $claim = $this->dedup->claim("analytics:dedup:click:{$data['block_id']}:{$identifier}", $id, 3);
+            if (! $claim['novel']) {
+                return $this->success(['message' => 'Click recorded', 'click_id' => $claim['id']], 201);
+            }
         }
 
-        $blockGroup = strtolower((string) $block->block_group);
-        $blockType = strtolower((string) $block->block_type);
-        $trackableSectionTypes = collect(config('partna.section_block_types', [
-            'gallery',
-            'services',
-            'booking',
-        ]))
-            ->filter(fn ($type) => is_string($type) && trim($type) !== '')
-            ->map(fn (string $type) => strtolower(trim($type)))
-            ->values()
-            ->all();
-        $isTrackableLink = $blockGroup === 'links' && $blockType === 'link';
-        $isTrackableSection =
-            $blockGroup === 'sections'
-            && in_array($blockType, $trackableSectionTypes, true);
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_CLICK,
+            request: $request,
+            site: $site,
+            data: $data,
+            // click sanitises the referrer (preserved SEC behaviour).
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            id: $id,
+            blockId: $data['block_id'],
+        );
 
-        if (! $isTrackableLink && ! $isTrackableSection) {
-            return $this->error('Block is not trackable for analytics', 422);
-        }
+        $this->ingestor->ingest($event);
 
-        // 404 not 403: state check on a public endpoint — 403 reveals the block exists but is disabled
-        if (! $block->is_active) {
-            return $this->error('Block not found', 404);
-        }
-
-        // Sanitize referrer: discard values that are not valid URLs (e.g., injected strings)
-        $rawReferrer = $data['referrer'] ?? $request->headers->get('referer');
-        $referrer = ($rawReferrer !== null && filter_var($rawReferrer, FILTER_VALIDATE_URL)) ? $rawReferrer : null;
-
-        // Dedup: return existing click if same visitor/session hit this block within 3 seconds.
-        $hasIdentifier = ! empty($data['visitor_id']) || ! empty($data['session_id']);
-        $click = null;
-        if ($hasIdentifier) {
-            $click = LinkClick::where('link_block_id', $block->id)
-                ->where(function ($q) use ($data) {
-                    if (! empty($data['visitor_id'])) {
-                        $q->orWhere('visitor_id', $data['visitor_id']);
-                    }
-                    if (! empty($data['session_id'])) {
-                        $q->orWhere('session_id', $data['session_id']);
-                    }
-                })
-                ->where('occurred_at', '>=', now()->subSeconds(3))
-                ->first();
-        }
-
-        if (! $click) {
-            $click = new LinkClick([
-                'occurred_at' => now(),
-                'session_id' => $data['session_id'] ?? null,
-                'visitor_id' => $data['visitor_id'] ?? null,
-                'ip_hash' => $this->hashIp($request->ip()),
-                'user_agent' => $request->userAgent(),
-                'referrer' => $referrer,
-                'utm_source' => $data['utm_source'] ?? null,
-                'utm_medium' => $data['utm_medium'] ?? null,
-                'utm_campaign' => $data['utm_campaign'] ?? null,
-            ]);
-            $click->user_id = $site->user_id;
-            $click->site_id = $site->id;
-            $click->link_block_id = $block->id;
-            $click->save();
-        }
-
-        try {
-            $this->debounceInvalidateAnalytics($site->user_id);
-        } catch (Throwable $e) {
-            report($e);
-            Log::warning('Analytics cache invalidation failed on click', ['site_id' => $site->id, 'error' => $e->getMessage()]);
-        }
-
-        return $this->success([
-            'message' => $isTrackableSection ? 'Section interaction recorded' : 'Click recorded',
-            'click_id' => $click->id,
-        ], 201);
+        return $this->success(['message' => 'Click recorded', 'click_id' => $event->id], 201);
     }
 
     public function sectionSeen(SectionSeenRequest $request): JsonResponse
     {
         $data = $request->validated();
 
-        $site = $this->resolveSiteFromData($data);
-
+        $site = $this->resolvePublishedSite($data, $error);
         if (! $site) {
-            $statusCode = ! empty($data['site_id']) ? 422 : 404;
-
-            return $this->error('Site not found', $statusCode);
-        }
-
-        if (! $site->is_published) {
-            return $this->error('Site not found', 404);
+            return $error;
         }
 
         if ($this->isBotUserAgent($request->userAgent())) {
             return $this->success(['message' => 'Section view recorded'], 200);
         }
 
-        // Optional block_id must belong to this site if provided.
-        $block = null;
-        if (! empty($data['block_id'])) {
-            $block = Block::where('id', $data['block_id'])
-                ->where('site_id', $site->id)
-                ->first();
-            if (! $block) {
-                return $this->error('Block not found or does not belong to this site', 404);
+        $id = (string) Str::orderedUuid();
+
+        // Dedup on (site, section_key, strongest identifier) for 5min.
+        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
+        if ($identifier !== null) {
+            $key = "analytics:dedup:section:{$site->id}:{$data['section_key']}:{$identifier}";
+            $claim = $this->dedup->claim($key, $id, 300);
+            if (! $claim['novel']) {
+                return $this->success(['message' => 'Section view recorded', 'view_id' => $claim['id']], 201);
             }
         }
 
-        // Dedup: a session viewing the same section within 5 minutes is one engagement.
-        // Mirrors the click endpoint's 3-sec dedup but with a longer window because scroll
-        // back to a section is common.
-        $hasIdentifier = ! empty($data['visitor_id']) || ! empty($data['session_id']);
-        $view = null;
-        if ($hasIdentifier) {
-            $view = SectionView::where('site_id', $site->id)
-                ->where('section_key', $data['section_key'])
-                ->where(function ($q) use ($data): void {
-                    if (! empty($data['visitor_id'])) {
-                        $q->orWhere('visitor_id', $data['visitor_id']);
-                    }
-                    if (! empty($data['session_id'])) {
-                        $q->orWhere('session_id', $data['session_id']);
-                    }
-                })
-                ->where('occurred_at', '>=', now()->subMinutes(5))
-                ->first();
-        }
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_SECTION_VIEW,
+            request: $request,
+            site: $site,
+            data: $data,
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            id: $id,
+            blockId: $data['block_id'] ?? null,
+            sectionKey: $data['section_key'],
+        );
 
-        if (! $view) {
-            $rawReferrer = $data['referrer'] ?? $request->headers->get('referer');
-            $referrer = ($rawReferrer !== null && filter_var($rawReferrer, FILTER_VALIDATE_URL)) ? $rawReferrer : null;
+        $this->ingestor->ingest($event);
 
-            $view = new SectionView([
-                'section_key' => $data['section_key'],
-                'block_id' => $block?->id,
-                'occurred_at' => now(),
-                'session_id' => $data['session_id'] ?? null,
-                'visitor_id' => $data['visitor_id'] ?? null,
-                'ip_hash' => $this->hashIp($request->ip()),
-                'user_agent' => $request->userAgent(),
-                'referrer' => $referrer,
-                'utm_source' => $data['utm_source'] ?? null,
-                'utm_medium' => $data['utm_medium'] ?? null,
-                'utm_campaign' => $data['utm_campaign'] ?? null,
-                'country_code' => $this->detectCountryCode($request),
-                'device_type' => $this->detectDeviceType($request->userAgent()),
-            ]);
-            $view->user_id = $site->user_id;
-            $view->site_id = $site->id;
-            $view->save();
-        }
-
-        try {
-            $this->debounceInvalidateAnalytics($site->user_id);
-        } catch (Throwable $e) {
-            report($e);
-            Log::warning('Analytics cache invalidation failed on section view', [
-                'site_id' => $site->id,
-                'section_key' => $data['section_key'],
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return $this->success([
-            'message' => 'Section view recorded',
-            'view_id' => $view->id,
-        ], 201);
+        return $this->success(['message' => 'Section view recorded', 'view_id' => $event->id], 201);
     }
 
     /**
-     * Invalidate analytics cache at most once per 30-second window per professional.
-     * High-volume ingest (pageviews, clicks, section views) would otherwise bust SWR
-     * on every event.
+     * Resolve + publication-gate the site. On failure, sets $error to the right JSON
+     * response (422 IDOR when site_id was supplied but cross-check failed; otherwise
+     * 404 — never 403, no existence leak) and returns null.
      */
-    private function debounceInvalidateAnalytics(string $userId): void
+    private function resolvePublishedSite(array $data, ?JsonResponse &$error): ?Site
     {
-        if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
-            Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
+        $site = $this->resolveSiteFromData($data);
+
+        if (! $site) {
+            $status = ! empty($data['site_id']) ? 422 : 404;
+            $error = $this->error('Site not found', $status);
+
+            return null;
         }
+
+        if (! $site->is_published) {
+            $error = $this->error('Site not found', 404);
+
+            return null;
+        }
+
+        $error = null;
+
+        return $site;
+    }
+
+    // Front-loads every request-derived field into the DTO (occurred_at, geo, device,
+    // ip hash, UA). The worker has no request object, so anything not captured here is
+    // lost. occurred_at is request-time, ISO-8601.
+    private function buildEvent(
+        string $type,
+        Request $request,
+        Site $site,
+        array $data,
+        ?string $referrer,
+        ?string $id = null,
+        ?string $blockId = null,
+        ?string $sectionKey = null,
+    ): AnalyticsEvent {
+        return new AnalyticsEvent(
+            id: $id ?? (string) Str::orderedUuid(),
+            type: $type,
+            occurredAt: now()->toISOString(),
+            userId: $site->user_id,
+            siteId: $site->id,
+            sessionId: $data['session_id'] ?? null,
+            visitorId: $data['visitor_id'] ?? null,
+            ipHash: $this->hashIp($request->ip()),
+            userAgent: $request->userAgent(),
+            referrer: $referrer,
+            utmSource: $data['utm_source'] ?? null,
+            utmMedium: $data['utm_medium'] ?? null,
+            utmCampaign: $data['utm_campaign'] ?? null,
+            countryCode: $this->detectCountryCode($request),
+            deviceType: $this->detectDeviceType($request->userAgent()),
+            blockId: $blockId,
+            sectionKey: $sectionKey,
+        );
+    }
+
+    // Mirrors the old inline rule: keep only values that are valid URLs.
+    private function sanitizeReferrer(?string $raw): ?string
+    {
+        return ($raw !== null && filter_var($raw, FILTER_VALIDATE_URL)) ? $raw : null;
     }
 
     /**
-     * Real-user monitoring beacon (Phase E O5). Receives the dispatcher's
-     * inline-script payload with first-paint / load timings + handle +
-     * lkg-flag, and writes them to a structured log channel for offline
-     * P50/P95 analysis. No DB writes — RUM is high-volume metric data
-     * and Nightwatch / log aggregation is the right destination.
-     *
-     * No FormRequest because the payload is fire-and-forget from the
-     * browser and we don't want to 4xx-reject anything: drop unrecognised
-     * shapes silently and accept the rest. Bot traffic is filtered so
-     * we don't pollute the percentile.
+     * Real-user monitoring beacon — unchanged. Logs first-paint / load timings to a
+     * structured channel for offline percentile analysis. No DB writes.
      */
-    public function rum(\Illuminate\Http\Request $request): JsonResponse
+    public function rum(Request $request): JsonResponse
     {
         if ($this->isBotUserAgent($request->userAgent())) {
             return $this->success(['message' => 'ok'], 200);
@@ -321,7 +227,7 @@ class AnalyticsController extends ApiController
         }
 
         try {
-            Log::info('rum', [
+            \Illuminate\Support\Facades\Log::info('rum', [
                 'handle' => strtolower($handle),
                 'ttfb_ms' => isset($payload['ttfb']) ? (int) $payload['ttfb'] : null,
                 'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
@@ -331,7 +237,7 @@ class AnalyticsController extends ApiController
                 'ua' => substr((string) $request->userAgent(), 0, 256),
                 'country' => $request->header('cf-ipcountry'),
             ]);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             // RUM is best-effort; never bubble logging errors back to the visitor.
         }
 
