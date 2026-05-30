@@ -11,8 +11,9 @@ use stdClass;
  *
  * Consumed by the Astro Worker subrequest path (partna-pages). The payload
  * mirrors the skeleton-system contract (spec §3.4 + phase-8 engines):
- *   - `profile` — content (engine fields + base profile + content_images)
+ *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
+ *   - `designMedia` — content-pool media (polymorphic image/video, camelCase, ordered)
  *   - `skeletonId` — picks which code-side skeleton renders
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
@@ -29,6 +30,8 @@ use stdClass;
  * INTENTIONAL EXCLUSIONS:
  *   - Legacy themeMode / accent / fontFamily / settings.design.* — removed in
  *     the skeleton-system cleanup. The full design surface is now design_kits.
+ *   - Legacy `profile.content_images` — promoted to top-level `designMedia`
+ *     and made polymorphic (images + videos, camelCase). See spec 2026-05-30.
  *   - PII (primary_email, phone, auth_user_id, street address)
  *   - Anything brand- or commerce-related (the platform is individual-only).
  */
@@ -42,15 +45,16 @@ class IndividualProfileResource extends ApiResource
      * @param  array{
      *     site_id?: string|null,
      *     design_kit?: array<string, mixed>,
+     *     design_media?: list<array<string, mixed>>,
      *     skeleton_id?: string|null,
      *     public_config?: array<string, mixed>,
-     *     content_images?: list<array<string, mixed>>,
      *     bio?: array<string, mixed>|null,
      *     gallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,
+     *     workplace?: array<string, mixed>|null,
      * }  $sections
      */
     public function __construct(
@@ -93,30 +97,28 @@ class IndividualProfileResource extends ApiResource
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
-
-                // Retained for compat — content-pool images aren't a phase-8
-                // engine but skeletons read them as the "section background"
-                // slot. May graduate to its own engine later.
-                'content_images' => $this->sections['content_images'] ?? [],
             ],
 
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB
-            // columns to nested camelCase groups (e.g. color_accent →
-            // colors.accent). partna-pages merges this with DESIGN_KIT_DEFAULTS
-            // (code-side) before passing to the skeleton.
+            // columns to nested camelCase groups. partna-pages merges this with
+            // DESIGN_KIT_DEFAULTS (code-side) before passing to the skeleton.
             'designKit' => $designKitOut,
+
+            // Design-layer media — polymorphic image/video items ordered by
+            // sortOrder. The skeleton paints with these (backgrounds, section
+            // covers, decorative imagery). Always an array. Wire shape is
+            // camelCase per §5 convention; the builder's buildDesignMedia()
+            // remaps the resolver's snake_case before it lands here. See spec
+            // docs/superpowers/specs/2026-05-30-design-media-promotion-design.md.
+            'designMedia' => $this->sections['design_media'] ?? [],
 
             // Which of the four code-side skeletons to render. One of
             // 'skeleton-1', 'skeleton-2', 'skeleton-3', 'skeleton-4'.
-            // Falls back to 'skeleton-1' if the site row is missing — same as
-            // the column default.
             'skeletonId' => $this->sections['skeleton_id'] ?? 'skeleton-1',
 
             // Platform-wide knobs the skeleton needs at render time (analytics
-            // endpoint, etc.). Always an object — empty fields stay absent
-            // rather than nulled-out, so the contract is "what's present is
-            // current; everything else is unset".
+            // endpoint, etc.). Always an object.
             'publicConfig' => $publicConfigOut,
         ];
     }

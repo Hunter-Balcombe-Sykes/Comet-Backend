@@ -30,9 +30,10 @@ use Illuminate\Support\Facades\DB;
  *       services: ProfileService[],
  *       document: DocumentData | null,
  *       newsletter: NewsletterData | null,
- *       content_images: [...]  // retained for compat
+ *       workplace: WorkplaceData | null,
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
+ *     designMedia: DesignMediaItem[],
  *     skeletonId: 'skeleton-1' | ... | 'skeleton-4',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
@@ -72,9 +73,9 @@ class IndividualProfilePayloadBuilder
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
+            'design_media' => $this->buildDesignMedia($site),
             'skeleton_id' => $site?->skeleton_id ?? 'skeleton-1',
             'public_config' => $this->buildPublicConfig(),
-            'content_images' => $this->resolver->getContentImages($site),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'bio' => $this->buildBio($pro, $sections),
             'gallery' => $this->buildGallery($site, $sections),
@@ -175,6 +176,33 @@ class IndividualProfilePayloadBuilder
             'alt' => $item['alt_text'] ?? null,
             'caption' => $item['caption'] ?? null,
             'kind' => (string) ($item['kind'] ?? 'image'),
+            'poster' => $item['poster'] ?? null,
+            'durationMs' => $item['duration_ms'] ?? null,
+        ], $items));
+    }
+
+    /**
+     * Design media engine — DesignMediaItem[] (empty array when nothing in pool).
+     *
+     * Remaps the resolver's snake_case keys (sort_order, alt_text, url_hd,
+     * duration_ms) to the camelCase wire shape per the §5 wire convention.
+     * Mirrors buildGallery's pattern — same projection style across the two
+     * polymorphic-media surfaces.
+     *
+     * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, poster: string|null, durationMs: int|null}>
+     */
+    private function buildDesignMedia(?Site $site): array
+    {
+        $items = $this->resolver->getContentMedia($site);
+
+        return array_values(array_map(static fn (array $item): array => [
+            'id' => (string) ($item['id'] ?? ''),
+            'sortOrder' => (int) ($item['sort_order'] ?? 0),
+            'kind' => (string) ($item['kind'] ?? 'image'),
+            'url' => (string) ($item['url'] ?? ''),
+            'urlHd' => $item['url_hd'] ?? null,
+            'alt' => $item['alt_text'] ?? null,
+            'caption' => $item['caption'] ?? null,
             'poster' => $item['poster'] ?? null,
             'durationMs' => $item['duration_ms'] ?? null,
         ], $items));

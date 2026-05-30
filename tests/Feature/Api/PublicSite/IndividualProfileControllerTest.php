@@ -126,9 +126,11 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
         'bio', 'gallery', 'links', 'services', 'document', 'newsletter',
-        'content_images',
     ]);
     expect($profile)->not->toHaveKey('booking');
+    // designMedia is a top-level sibling of designKit, not a profile field.
+    expect($data)->toHaveKey('designMedia');
+    expect($data['designMedia'])->toBeArray();
     expect($profile['handle'])->toBe('solo1');
     expect($profile['displayName'])->toBe('Solo Pro');
 
@@ -286,12 +288,13 @@ it('is case-insensitive on the handle path param', function () {
 // Content-pool images, gallery items, and the document slot all read off
 // site.site_media rows. Same projection as the Hydrogen affiliate endpoint.
 
-it('surfaces content-pool site_media as profile.content_images[]', function () {
+it('surfaces content-pool site_media as top-level designMedia[] in camelCase', function () {
     $pro = seedIndividualProfile('content1');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $mediaId,
         'site_id' => $siteId,
         'user_id' => $pro->id,
         'pool' => 'content',
@@ -304,16 +307,29 @@ it('surfaces content-pool site_media as profile.content_images[]', function () {
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
+    // Seed a webp variant so the item survives the URL filter.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'webp',
+        'disk' => 'media', 'path' => 'images/content/optimized.webp', 'mime' => 'image/webp',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
 
     $data = $this->getJson('/api/public/profiles/content1')->assertOk()->json('data');
 
-    // The exact URL depends on media-variant lookup which the test env stubs
-    // with empty variants — but the array structure (one row, alt text
-    // preserved) is what the contract guarantees.
-    expect($data['profile']['content_images'])->toBeArray();
+    expect($data)->toHaveKey('designMedia');
+    expect($data['designMedia'])->toBeArray()->toHaveCount(1);
+    // Wire shape is camelCase, matching gallery[i] and every engine output.
+    expect($data['designMedia'][0])->toHaveKeys([
+        'id', 'sortOrder', 'kind', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
+    ]);
+    expect($data['designMedia'][0]['kind'])->toBe('image');
+    expect($data['designMedia'][0]['alt'])->toBe('Studio shot');
+    expect($data['designMedia'][0]['sortOrder'])->toBe(0);
+    expect($data['profile'])->not->toHaveKey('content_images');
 });
 
-it('omits soft-deleted content_images', function () {
+it('omits soft-deleted content-pool media from designMedia', function () {
     $pro = seedIndividualProfile('content2');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -333,10 +349,10 @@ it('omits soft-deleted content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content2')->assertOk()->json('data');
-    expect($data['profile']['content_images'])->toBeEmpty();
+    expect($data['designMedia'])->toBeArray()->toBeEmpty();
 });
 
-it('omits processing-state != ready content_images', function () {
+it('omits processing-state != ready content-pool media from designMedia', function () {
     $pro = seedIndividualProfile('content3');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -355,7 +371,7 @@ it('omits processing-state != ready content_images', function () {
     ]);
 
     $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
-    expect($data['profile']['content_images'])->toBeEmpty();
+    expect($data['designMedia'])->toBeArray()->toBeEmpty();
 });
 
 it('exposes content-pool images via the resolver getContentMedia method', function () {
