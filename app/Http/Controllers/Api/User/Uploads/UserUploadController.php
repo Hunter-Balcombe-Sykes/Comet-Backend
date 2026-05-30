@@ -383,25 +383,23 @@ class UserUploadController extends ApiController
                     : $media->mediaVariants()->get();
 
                 $variants = [];
-                $streams = [];
                 $poster = null;
 
+                // Two MP4 tiers (optimized 720p / maximized 1080p) + poster.
+                // HLS was removed (2026-05-29) — the dashboard plays the mp4
+                // directly, so we no longer emit a streams map.
                 foreach ($mvList as $mv) {
                     if ($mv->artifact_type === 'mp4') {
                         $variants[$mv->variant_key] = $mv->url;
-                    } elseif ($mv->artifact_type === 'hls_playlist') {
-                        $streams[$mv->variant_key] = $mv->url;
                     } elseif ($mv->artifact_type === 'poster') {
                         $poster = $mv->url;
                     }
                 }
 
                 $payload['variants'] = $variants;
-                $payload['streams'] = $streams;
                 $payload['poster'] = $poster;
             } else {
                 $payload['variants'] = [];
-                $payload['streams'] = [];
                 $payload['poster'] = null;
             }
         } else {
