@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEmailSubscribeRequest;
+use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
 use App\Services\PublicSite\PublicSiteResolver;
@@ -77,6 +78,13 @@ class PublicEmailSubscriptionController extends ApiController
             }
         }
 
+        // Whether this request is a *genuine* opt-in: a brand-new row, or a
+        // previously-unsubscribed address opting back in. A redundant re-submit
+        // of an already-subscribed address must NOT re-confirm (anti-abuse).
+        $isNewSubscription = ! $subscription->exists;
+        $priorStatus = $isNewSubscription ? null : $subscription->status;
+        $isGenuineOptIn = $isNewSubscription || $priorStatus === 'unsubscribed';
+
         if ($resolvedName) {
             $existingName = is_string($subscription->full_name ?? null) ? trim((string) $subscription->full_name) : '';
             if ($overwriteName || $existingName === '') {
@@ -91,6 +99,12 @@ class PublicEmailSubscriptionController extends ApiController
             'ip_hash' => $this->hashIp($request->ip()),
             'user_agent' => $request->userAgent(),
         ]);
+
+        // A genuine re-subscribe should confirm again — clear the prior stamp.
+        if ($isGenuineOptIn) {
+            $subscription->confirmation_sent_at = null;
+        }
+
         $subscription->save();
 
         try {
@@ -112,6 +126,10 @@ class PublicEmailSubscriptionController extends ApiController
                 'email_hash' => hash('sha256', $email),
                 'error' => $exception->getMessage(),
             ]);
+        }
+
+        if ($isGenuineOptIn) {
+            SendSubscriptionConfirmationJob::dispatch((string) $subscription->id);
         }
 
         return $this->success([
