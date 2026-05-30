@@ -15,6 +15,7 @@ use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // Records pageview / click / section-seen analytics events from public mini-sites.
@@ -227,7 +228,7 @@ class AnalyticsController extends ApiController
         }
 
         try {
-            \Illuminate\Support\Facades\Log::info('rum', [
+            Log::info('rum', [
                 'handle' => strtolower($handle),
                 'ttfb_ms' => isset($payload['ttfb']) ? (int) $payload['ttfb'] : null,
                 'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
