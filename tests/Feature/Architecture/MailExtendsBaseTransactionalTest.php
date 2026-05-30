@@ -11,8 +11,13 @@ use App\Mail\BaseTransactionalMail;
 // Adding a new mailable that extends Illuminate\Mail\Mailable directly will
 // fail this test. The fix is always: extend BaseTransactionalMail and call
 // ->buildEnvelope() as the first step of your build() chain.
+//
+// The App\Mail\Branding namespace is exempt: it holds branding support
+// value-objects (EmailBrand, EmailBrandDefaults, EmailPalette) and the
+// ProEmailBrandResolver service — none are mailables; they model the
+// per-message white-label brand that BaseTransactionalMail consumes.
 
 arch('every mailable extends BaseTransactionalMail')
     ->expect('App\Mail')
     ->toExtend(BaseTransactionalMail::class)
-    ->ignoring(BaseTransactionalMail::class);
+    ->ignoring([BaseTransactionalMail::class, 'App\Mail\Branding']);
