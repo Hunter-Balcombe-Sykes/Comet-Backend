@@ -152,13 +152,16 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.color_placeholder' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32'],
-            // Typography group — body + title font + size + weight; fontFamily
-            // is a slug resolved by @partnaau/design-system/design-assets.
+            // Typography group — body + heading scale (h1 / h2; h3 reuses
+            // body fontSize). fontFamily is a slug resolved by
+            // @partnaau/design-system/design-assets.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.typography_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.typography_title_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.typography_h1_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_h1_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.typography_h2_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_h2_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
             // Orphan typography slots from the earlier wiped vars — left in
             // the allowlist so the request doesn't 422 on legacy clients,
@@ -199,7 +202,8 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.sizing_desktop_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_desktop_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.typography_desktop_title_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_desktop_h1_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.typography_desktop_h2_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             // Motion — animation durations consumed by skeleton interactions
             'design_kit.motion_expand_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.motion_fade_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
