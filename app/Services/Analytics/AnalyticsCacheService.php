@@ -2,12 +2,14 @@
 
 namespace App\Services\Analytics;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Cache orchestration + response composition for the professional analytics summary.
@@ -27,6 +29,25 @@ class AnalyticsCacheService
         private readonly CacheLockService $cacheLock,
         private readonly AnalyticsQueryService $queries,
     ) {}
+
+    /**
+     * Debounced bust of every cached summary variant for a user: increments the
+     * version token (at most once per 30s/user) that summary() folds into the cache
+     * key, atomically invalidating all (range, granularity) variants. Called after a
+     * new ingest lands — inline by SyncIngestor and from RecordAnalyticsEventJob — so
+     * both ingest paths share one implementation. Fail-open: a cache fault is swallowed
+     * (logged) so it can never fail an ingest whose write already committed.
+     */
+    public function bumpVersion(string $userId): void
+    {
+        try {
+            if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
+                Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
+            }
+        } catch (Throwable $e) {
+            Log::warning('analytics.cache_bump_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        }
+    }
 
     /**
      * Build (or read from cache) the full analytics summary payload.

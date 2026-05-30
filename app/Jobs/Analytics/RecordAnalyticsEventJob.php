@@ -1,18 +1,17 @@
 <?php
+
 // app/Jobs/Analytics/RecordAnalyticsEventJob.php
+
 namespace App\Jobs\Analytics;
 
+use App\Services\Analytics\AnalyticsCacheService;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
-use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-use Throwable;
 
 // Writes one analytics event to its raw table, then bumps the per-user analytics
 // summary cache version (debounced). Dispatched onto the 'analytics' queue (default
@@ -36,27 +35,17 @@ class RecordAnalyticsEventJob implements ShouldQueue
         $this->onQueue((string) config('partna.analytics_queue.name', 'analytics'));
     }
 
-    public function handle(AnalyticsEventWriter $writer): void
+    public function handle(AnalyticsEventWriter $writer, AnalyticsCacheService $cache): void
     {
         $event = AnalyticsEvent::fromArray($this->payload);
 
         $writer->write($event);
 
-        $this->bumpAnalyticsVersion($event->userId);
-    }
-
-    // Moved off the request path (was the controller's debounceInvalidateAnalytics).
-    // Wrapped so a cache fault never fails a job whose write already committed —
-    // re-running handle() would be harmless anyway (PK-idempotent), but acking avoids
-    // a needless retry.
-    private function bumpAnalyticsVersion(string $userId): void
-    {
-        try {
-            if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
-                Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
-            }
-        } catch (Throwable $e) {
-            Log::warning('analytics.cache_bump_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
-        }
+        // Debounced version bump (was the controller's debounceInvalidateAnalytics),
+        // moved here so it fires AFTER the row lands. AnalyticsCacheService::bumpVersion
+        // is itself wrapped/fail-open, so a cache fault never fails a job whose write
+        // already committed. SyncIngestor performs the same bump inline, keeping the two
+        // ingest paths' side effects identical.
+        $cache->bumpVersion($event->userId);
     }
 }

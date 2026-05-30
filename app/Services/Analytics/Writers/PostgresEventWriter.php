@@ -1,5 +1,7 @@
 <?php
+
 // app/Services/Analytics/Writers/PostgresEventWriter.php
+
 namespace App\Services\Analytics\Writers;
 
 use App\Models\Analytics\LinkClick;
@@ -8,6 +10,7 @@ use App\Models\Analytics\SiteVisit;
 use App\Models\Core\Site\Block;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
+use App\Services\Analytics\TrackableBlockTypes;
 use Illuminate\Support\Facades\Log;
 
 // Persists analytics events to the raw Postgres tables. Owns authoritative block
@@ -112,7 +115,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
 
             return;
         }
-        if (! $this->isTrackableClickBlock($block)) {
+        if (! TrackableBlockTypes::isClickTrackable($block->block_group, $block->block_type)) {
             $this->drop($e, 'block_not_trackable');
 
             return;
@@ -180,21 +183,6 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'country_code' => $e->countryCode,
             'device_type' => $e->deviceType,
         ];
-    }
-
-    // Mirrors the ingest-side allowlist in config('partna.section_block_types').
-    private function isTrackableClickBlock(Block $block): bool
-    {
-        $group = strtolower((string) $block->block_group);
-        $type = strtolower((string) $block->block_type);
-
-        $trackableSectionTypes = collect(config('partna.section_block_types', ['gallery', 'services', 'booking']))
-            ->filter(fn ($t) => is_string($t) && trim($t) !== '')
-            ->map(fn (string $t) => strtolower(trim($t)))
-            ->all();
-
-        return ($group === 'links' && $type === 'link')
-            || ($group === 'sections' && in_array($type, $trackableSectionTypes, true));
     }
 
     // Breadcrumb only — Nightwatch surfaces sustained spikes via log-channel

@@ -1,15 +1,18 @@
 <?php
+
 // tests/Unit/Analytics/RecordAnalyticsEventJobTest.php
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;
+use App\Services\Analytics\AnalyticsCacheService;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class);
+uses(TestCase::class);
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
@@ -31,7 +34,7 @@ it('persists the event and bumps the analytics summary version', function () {
     $t = createBrandTenant('job-happy');
     $payload = pageviewPayload($t->id, $t->site->id);
 
-    (new RecordAnalyticsEventJob($payload))->handle(new PostgresEventWriter());
+    (new RecordAnalyticsEventJob($payload))->handle(new PostgresEventWriter, app(AnalyticsCacheService::class));
 
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1)
         ->and(Cache::get(CacheKeyGenerator::analyticsSummaryVersion($t->id)))->not->toBeNull();
@@ -40,10 +43,11 @@ it('persists the event and bumps the analytics summary version', function () {
 it('is idempotent across an at-least-once retry (handle twice → one row)', function () {
     $t = createBrandTenant('job-retry');
     $payload = pageviewPayload($t->id, $t->site->id);
-    $writer = new PostgresEventWriter();
+    $writer = new PostgresEventWriter;
+    $cache = app(AnalyticsCacheService::class);
 
-    (new RecordAnalyticsEventJob($payload))->handle($writer);
-    (new RecordAnalyticsEventJob($payload))->handle($writer);
+    (new RecordAnalyticsEventJob($payload))->handle($writer, $cache);
+    (new RecordAnalyticsEventJob($payload))->handle($writer, $cache);
 
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
 });
