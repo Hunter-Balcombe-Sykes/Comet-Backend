@@ -1169,6 +1169,13 @@ return [
 
     'moderation' => [
         'enabled' => env('PARTNA_MODERATION_ENABLED', true),
+        // Emergency kill-switch for automated enforcement (e.g. the CSAM
+        // auto-action pipeline). When false, CSAM matches still preserve
+        // evidence + file the NCMEC CyberTip, but the automated suspend/
+        // quarantine/hide decision is NOT dispatched — the case is left open
+        // for manual staff handling and a critical breadcrumb is logged.
+        // Default true; flip to false only during an incident.
+        'auto_actions_enabled' => (bool) env('PARTNA_MODERATION_AUTO_ACTIONS_ENABLED', true),
         'reporting' => [
             'public_throttle'         => [
                 'requests' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_REQUESTS', 5),

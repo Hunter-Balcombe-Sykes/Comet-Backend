@@ -25,15 +25,21 @@ class SuspendSiteJob implements ShouldQueue
     public function __construct(
         public readonly string $actionLogId,
         public readonly string $caseId,
-    ) {}
+    ) {
+        // Enforcement action — must not sit behind a default-queue backlog.
+        // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
+        $this->queue = 'moderation_high';
+    }
 
     /**
      * Hide the reported site and mark the action log entry as completed.
      * Wrapped in a transaction so the site update and action log update
      * either both commit or both roll back.
      *
-     * Only acts when reportable_type is 'Site' — other types are a graceful no-op
-     * (the entry is still marked completed so the action log stays consistent).
+     * Human-report cases target the Site directly; CSAM cases target a SiteMedia,
+     * so the owning site is resolved from the media row. Any other reportable
+     * type is a graceful no-op (the entry is still marked completed so the action
+     * log stays consistent).
      */
     public function handle(): void
     {
@@ -49,9 +55,10 @@ class SuspendSiteJob implements ShouldQueue
                 'attempts'      => $entry->attempts + 1,
             ]);
 
-            if ($case->reportable_type === 'Site') {
+            $siteId = $this->resolveSiteId($case);
+            if ($siteId !== null) {
                 Site::query()
-                    ->where('id', $case->reportable_id)
+                    ->where('id', $siteId)
                     ->update(['moderation_state' => 'hidden']);
             }
 
@@ -60,5 +67,28 @@ class SuspendSiteJob implements ShouldQueue
                 'completed_at' => now(),
             ]);
         });
+    }
+
+    /**
+     * Resolve which site to hide. 'Site' cases carry the site id directly;
+     * 'SiteMedia' cases (CSAM) carry a media id, so look up its owning site_id.
+     * Returns null for other reportable types (graceful no-op).
+     */
+    private function resolveSiteId(ModerationCase $case): ?string
+    {
+        if ($case->reportable_type === 'Site') {
+            return $case->reportable_id;
+        }
+
+        if ($case->reportable_type === 'SiteMedia') {
+            $media = DB::connection('pgsql')->selectOne(
+                'SELECT site_id FROM site.site_media WHERE id = ?',
+                [$case->reportable_id]
+            );
+
+            return $media?->site_id;
+        }
+
+        return null;
     }
 }

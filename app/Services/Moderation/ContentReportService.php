@@ -8,7 +8,9 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\ModerationCase;
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -39,6 +41,16 @@ class ContentReportService
             throw new ReportTargetNotFound($dto->targetType, $dto->targetHandle);
         }
 
+        // F10: suspended/disabled accounts cannot be reported (they're already
+        // actioned). Return a synthetic receipt without opening a case — same 202
+        // the reporter would see for a real submission, so account status can't be
+        // enumerated via the report endpoint.
+        if (! AccountCapabilities::for($user)->can_be_reported) {
+            return new ContentReportSubmitResult(
+                receiptId: (string) Str::uuid(),
+            );
+        }
+
         $reporterIpHash = hash('sha256', $dto->reporterIp . '|' . config('app.key'));
         $dedupHash = $this->dedup->forReport(
             reportableType: $dto->targetType,
@@ -49,10 +61,14 @@ class ContentReportService
         );
 
         // 2. Open-or-merge inside a transaction.
-        $signal = DB::transaction(function () use ($dto, $site, $user, $reporterIpHash, $dedupHash) {
+        $caseOpened = false;
+        $openedCaseId = null;
+        $signal = DB::transaction(function () use ($dto, $site, $user, $reporterIpHash, $dedupHash, &$caseOpened, &$openedCaseId) {
 
             $case    = $this->openOrMergeCase($dto->targetType, $site->id, $user->id);
             $isNew   = $case->wasRecentlyCreated;
+            $caseOpened   = $isNew;
+            $openedCaseId = $case->id;
 
             // forceCreate() is required because these models guard 'id' via $guarded.
             $signal = CaseSignal::forceCreate([
@@ -78,6 +94,16 @@ class ContentReportService
 
             return $signal;
         });
+
+        // Observability breadcrumb: only when a brand-new case was opened (merges
+        // into an existing case are not "opened" events).
+        if ($caseOpened) {
+            Log::info('moderation.case.opened', [
+                'case_id'         => $openedCaseId,
+                'case_type'       => 'content_report',
+                'reportable_type' => $dto->targetType,
+            ]);
+        }
 
         // 3. Notify staff on threshold-crossing (handled by job).
         // ShouldQueueAfterCommit ensures the job fires only after the DB transaction commits.

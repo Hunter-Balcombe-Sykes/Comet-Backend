@@ -51,12 +51,19 @@ class ModerationCaseService
 
     /**
      * Claim a triaged case for review (triaged → under_review).
-     * Throws IllegalCaseTransition when the case is not in triaged status (race condition guard).
+     * A case another staffer already claimed is a conflict (CaseAlreadyTaken → 409);
+     * any other non-triaged status is an illegal transition (422).
      *
+     * @throws CaseAlreadyTaken
      * @throws IllegalCaseTransition
      */
     public function take(ModerationCase $case, PartnaStaff $staff): ModerationCase
     {
+        // Concurrency guard: already-claimed is a 409 conflict, not a 422.
+        if ($case->status === 'under_review') {
+            throw new CaseAlreadyTaken($case->id);
+        }
+
         return DB::transaction(function () use ($case, $staff) {
             $this->sm->transition($case, 'under_review');
             $case->save();

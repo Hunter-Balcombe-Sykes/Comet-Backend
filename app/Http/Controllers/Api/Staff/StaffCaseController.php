@@ -12,6 +12,8 @@ use App\Http\Resources\Moderation\CaseDetailResource;
 use App\Http\Resources\Moderation\CaseResource;
 use App\Http\Resources\Moderation\DecisionResource;
 use App\Models\Moderation\ModerationCase;
+use App\Services\Moderation\CaseAlreadyResolved;
+use App\Services\Moderation\CaseAlreadyTaken;
 use App\Services\Moderation\IllegalCaseTransition;
 use App\Services\Moderation\ModerationCaseService;
 use App\Services\Moderation\ModerationDecisionService;
@@ -26,6 +28,9 @@ class StaffCaseController extends Controller
 {
     public function index(Request $request)
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'viewAny', ModerationCase::class);
+
         $query = ModerationCase::query();
 
         if ($status = $request->query('status')) {
@@ -90,6 +95,8 @@ class StaffCaseController extends Controller
 
         try {
             $updated = app(ModerationCaseService::class)->take($case, $staff);
+        } catch (CaseAlreadyTaken $e) {
+            abort(409, $e->getMessage());
         } catch (IllegalCaseTransition $e) {
             abort(422, $e->getMessage());
         }
@@ -129,6 +136,8 @@ class StaffCaseController extends Controller
         try {
             $decision = app(ModerationDecisionService::class)
                 ->decide($case, $staff, $request->toDto());
+        } catch (CaseAlreadyResolved $e) {
+            abort(409, $e->getMessage());
         } catch (IllegalCaseTransition|\InvalidArgumentException $e) {
             abort(422, $e->getMessage());
         }
@@ -155,6 +164,8 @@ class StaffCaseController extends Controller
 
         try {
             $decision = app(ModerationDecisionService::class)->decide($case, $staff, $dto);
+        } catch (CaseAlreadyResolved $e) {
+            abort(409, $e->getMessage());
         } catch (IllegalCaseTransition $e) {
             abort(422, $e->getMessage());
         }

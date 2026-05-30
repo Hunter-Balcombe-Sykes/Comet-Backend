@@ -98,14 +98,15 @@ Configured in `config/partna.php` under `moderation.sla`. Breach warning fires 1
 
 | Severity | SLA target |
 |----------|-----------|
-| 5 (CSAM) | 2 hours |
-| 4 | 24 hours |
-| 3 | 72 hours |
-| 1-2 | 7 days |
+| 5 (CSAM) | 1 hour |
+| 4 | 4 hours |
+| 3 | 24 hours |
+| 2 | 72 hours (3 days) |
+| 1 | 168 hours (7 days) |
 
 ## Queue lane
 
-All moderation outcome jobs (`NotifyOnCallStaffJob`, `SuspendUserJob`, `SuspendSiteJob`, etc.) run on the `moderation_high` Horizon queue. This lane is prioritised above `default` but below any real-time payment jobs.
+Time-sensitive enforcement and paging jobs (`QuarantineMediaJob`, `SuspendUserJob`, `SuspendSiteJob`, `PurgeModerationCacheJob`, `NotifyOnCallStaffJob`, `FileCyberTipReportJob`) run on the `moderation_high` Horizon queue, prioritised above `default` but below any real-time payment jobs. Lower-urgency jobs (reporter/reported-user notifications, staff case-update notifications, clean-media promotion) stay on the `default` queue.
 
 Monitor via the Horizon dashboard or:
 

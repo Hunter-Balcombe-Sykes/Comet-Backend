@@ -49,6 +49,26 @@ it('creates a new case + signal + evidence on first report for a target', functi
     expect($result->receiptId)->toBe(CaseSignal::first()->id);
 });
 
+it('returns a synthetic receipt without opening a case for a suspended user (F10)', function () {
+    Queue::fake();
+
+    $user = User::factory()->create([
+        'handle'    => 'suspendedguy',
+        'handle_lc' => 'suspendedguy',
+        'status'    => 'suspended',
+    ]);
+    Site::factory()->for($user, 'user')->create();
+
+    $dto = new PublicReportDto('Site', 'suspendedguy', 'spam', null, 'r@e.com', '203.0.113.7');
+    $result = app(ContentReportService::class)->submit($dto);
+
+    // Looks like a normal submission (synthetic receipt) but nothing is recorded —
+    // suspended/disabled accounts can't be reported and status can't be enumerated.
+    expect($result->receiptId)->not->toBeEmpty();
+    expect(ModerationCase::count())->toBe(0);
+    expect(CaseSignal::count())->toBe(0);
+});
+
 it('rejects when target handle does not resolve', function () {
     $dto = new PublicReportDto('Site', 'no-such-handle', 'spam', null, 'r@e.com', '127.0.0.1');
     expect(fn () => app(ContentReportService::class)->submit($dto))

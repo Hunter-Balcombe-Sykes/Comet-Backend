@@ -70,7 +70,7 @@ final class VerifyBotToken
                 'reason' => 'provider_error',
                 'action' => $action,
                 'route' => $request->path(),
-                'ip' => $request->ip(),
+                'ip_hash' => $this->hashedIp($request),
                 'request_id' => $request->header('X-Request-Id'),
             ]);
 
@@ -162,6 +162,17 @@ final class VerifyBotToken
         }
     }
 
+    /**
+     * Keyed SHA-256 of the client IP for log correlation without storing raw PII.
+     * Mirrors the reporter_ip_hash scheme used elsewhere (sha256 of ip + app key).
+     */
+    private function hashedIp(Request $request): string
+    {
+        $ip = (string) $request->ip();
+
+        return substr(hash('sha256', $ip . '|' . config('app.key')), 0, 16);
+    }
+
     private function logFailOpenOnce(string $driver, string $action, Request $request, string $reason): void
     {
         // Dedup via Redis: log once per cooldown window per driver. If Redis is dead
@@ -175,7 +186,7 @@ final class VerifyBotToken
                 Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
                 Log::warning('bot_protection.fail_open', [
                     'driver' => $driver, 'reason' => $reason, 'action' => $action,
-                    'route' => $request->path(), 'ip' => $request->ip(),
+                    'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
                     'request_id' => $request->header('X-Request-Id'),
                 ]);
             }

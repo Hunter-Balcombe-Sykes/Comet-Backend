@@ -7,6 +7,7 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -38,9 +39,16 @@ class ModerationDecisionService
     public function decide(ModerationCase $case, PartnaStaff $staff, DecisionDto $dto): Decision
     {
         // Validate before entering the transaction so we never partially write.
+        $this->validateDecisionTypeForCase($case, $dto);
         $this->validateCsamOverride($dto, $staff);
 
-        return DB::transaction(function () use ($case, $staff, $dto) {
+        // Concurrency guard: a case another staffer already resolved is a conflict
+        // (HTTP 409), not an illegal transition (422).
+        if ($case->status === 'resolved') {
+            throw new CaseAlreadyResolved($case->id);
+        }
+
+        $decision = DB::transaction(function () use ($case, $staff, $dto) {
             // forceCreate() is required because Decision guards 'id' via $guarded = ['id'].
             $decision = Decision::forceCreate([
                 'id'                        => Str::uuid()->toString(),
@@ -75,6 +83,16 @@ class ModerationDecisionService
 
             return $decision;
         });
+
+        // Observability breadcrumb (logged after commit so a rollback doesn't emit it).
+        Log::info('moderation.decision', [
+            'case_id'       => $case->id,
+            'decision_id'   => $decision->id,
+            'decision_type' => $dto->decisionType,
+            'staff_id'      => $staff->id,
+        ]);
+
+        return $decision;
     }
 
     /**
@@ -86,7 +104,7 @@ class ModerationDecisionService
      */
     public function decideAsSystem(ModerationCase $case, DecisionDto $dto): Decision
     {
-        return DB::transaction(function () use ($case, $dto) {
+        $decision = DB::transaction(function () use ($case, $dto) {
             $decision = Decision::forceCreate([
                 'id'                        => Str::uuid()->toString(),
                 'case_id'                   => $case->id,
@@ -120,6 +138,29 @@ class ModerationDecisionService
 
             return $decision;
         });
+
+        // Observability breadcrumb (logged after commit so a rollback doesn't emit it).
+        Log::warning('moderation.auto_action', [
+            'case_id'       => $case->id,
+            'decision_id'   => $decision->id,
+            'decision_type' => $dto->decisionType,
+        ]);
+
+        return $decision;
+    }
+
+    /**
+     * F8: a csam_match case can only be resolved by overriding the auto-action
+     * (with a second approver). Any other decision_type (dismiss, warn, …) is
+     * invalid for it and must be rejected with INVALID_DECISION_FOR_CASE_TYPE.
+     */
+    private function validateDecisionTypeForCase(ModerationCase $case, DecisionDto $dto): void
+    {
+        if ($case->case_type === 'csam_match' && $dto->decisionType !== 'override_csam_auto_action') {
+            throw new InvalidArgumentException(
+                'INVALID_DECISION_FOR_CASE_TYPE: csam_match cases can only be resolved via override_csam_auto_action'
+            );
+        }
     }
 
     /**

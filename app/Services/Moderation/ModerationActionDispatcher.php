@@ -6,6 +6,7 @@ use App\Jobs\Moderation\NotifyOnCallStaffJob;
 use App\Jobs\Moderation\NotifyReportedUserJob;
 use App\Jobs\Moderation\NotifyReporterJob;
 use App\Jobs\Moderation\PurgeModerationCacheJob;
+use App\Jobs\Moderation\QuarantineMediaJob;
 use App\Jobs\Moderation\SuspendSiteJob;
 use App\Jobs\Moderation\SuspendUserJob;
 use App\Models\Moderation\ActionLogEntry;
@@ -24,11 +25,19 @@ class ModerationActionDispatcher
 {
     private const ACTIONS_BY_DECISION = [
         'dismiss'                   => [],
-        'warn'                      => ['notify_reported_user'],
+        // No auto-notify on warn — spec §4 locked decision (no statement-of-reasons
+        // for warn-level outcomes until there's an internal warnings UI).
+        'warn'                      => [],
         'hide_content'              => ['notify_reported_user', 'purge_cloudflare_cache'],
         'hide_site'                 => ['suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
         'suspend_user'              => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
         'ban_user'                  => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
+        // CSAM auto-action (spec §7.5): quarantine the matched media, suspend the
+        // uploader, hide the site, purge the edge, and page on-call. Deliberately
+        // omits notify_reported_user (never tip off a CSAM uploader). The NCMEC
+        // CyberTip filing is dispatched directly by CsamMatchHandlerService because
+        // FileCyberTipReportJob takes an ncmec_submission id, not an action_log id.
+        'csam_auto_suspend'         => ['quarantine_media', 'suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_oncall_staff'],
         'override_csam_auto_action' => ['notify_oncall_staff'],
         'escalate_law_enforcement'  => ['notify_oncall_staff'],
         'escalate_esafety'          => ['notify_oncall_staff'],
@@ -70,6 +79,7 @@ class ModerationActionDispatcher
     private function dispatchJob(string $actionLogId, string $type, string $caseId): void
     {
         match ($type) {
+            'quarantine_media'       => QuarantineMediaJob::dispatch($actionLogId, $caseId),
             'suspend_user'           => SuspendUserJob::dispatch($actionLogId, $caseId),
             'suspend_site'           => SuspendSiteJob::dispatch($actionLogId, $caseId),
             'sync_subdomain_kv'      => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),

@@ -27,10 +27,12 @@ it('releases an under_review case back to triaged', function () {
     expect($case->fresh()->status)->toBe('triaged');
 });
 
-it('rejects take on already-taken case with 422', function () {
+it('rejects take on already-taken case with 409 conflict', function () {
     $staff = PartnaStaff::factory()->create();
     $case  = ModerationCase::factory()->underReview()->create();
 
+    // Already under_review by another staffer is a concurrency conflict (409),
+    // not an illegal transition (422).
     $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/take");
-    $res->assertStatus(422);
+    $res->assertStatus(409);
 });

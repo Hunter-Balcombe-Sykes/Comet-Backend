@@ -37,6 +37,22 @@ ALTER SCHEMA notifications OWNER TO postgres;
 ALTER SCHEMA analytics OWNER TO postgres;
 
 -- ==========================================================================
+-- 1b. RUNTIME ROLE (existence only — created here so RLS policies below can
+--     reference it). On a fresh DB the role must exist before any
+--     CREATE POLICY ... TO app_backend runs (first such policy is far above
+--     the full grant block near the end of this file). BYPASSRLS + schema/
+--     table grants are applied later, after all tables exist.
+-- ==========================================================================
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_backend') THEN
+        -- NOLOGIN; password + LOGIN set out-of-band post-migration:
+        --   ALTER ROLE app_backend WITH LOGIN PASSWORD '<from-secret-store>';
+        CREATE ROLE app_backend NOLOGIN;
+    END IF;
+END $$;
+
+-- ==========================================================================
 -- 2. SHARED FUNCTIONS
 -- ==========================================================================
 

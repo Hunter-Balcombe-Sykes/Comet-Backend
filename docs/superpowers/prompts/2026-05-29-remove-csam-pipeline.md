@@ -77,6 +77,15 @@ app/Console/Commands/Moderation/ModerationRetryNcmecSubmissionsCommand.php
 docs/moderation/csam-pipeline.md
 ```
 
+Also update the docblock in `app/Services/Moderation/CaseStateMachine.php` line 9 — change:
+```php
+ * Used by ModerationCaseService and CsamMatchHandlerService — the only legal write paths.
+```
+to:
+```php
+ * Used by ModerationCaseService — the only legal write path.
+```
+
 Also delete these test files:
 ```
 tests/Feature/Commands/Moderation/AuditQuarantineBucketCommandTest.php
@@ -235,17 +244,15 @@ Keep all other constants and the model body unchanged.
 
 ## Step 11: Edit `tests/Pest.php`
 
-Remove the three CSAM-specific helper functions and their call sites in `setupAllModerationTables()`.
+Remove the two CSAM-specific helper function definitions.
 
 Functions to remove entirely:
-- `setupCsamQuarantineTable()` — the full function definition (approximately lines 1594–1619)
-- `setupNcmecSubmissionsTable()` — the full function definition (approximately lines 1621–1640)
+- `setupCsamQuarantineTable()` — the full function definition (approximately lines 1610–1637)
+- `setupNcmecSubmissionsTable()` — the full function definition (approximately lines 1638–1665)
 
-In `setupAllModerationTables()`, remove these two lines:
-```php
-    setupCsamQuarantineTable();
-    setupNcmecSubmissionsTable();
-```
+**Note:** Do NOT look for call sites in `setupAllModerationTables()` — these helpers are NOT
+called from there. They are called directly by `CsamModelsTest.php`, which is deleted in Step 3,
+so the call sites are already gone.
 
 ## Step 12: Edit `tests/Feature/Security/PolicyCoverageTest.php`
 

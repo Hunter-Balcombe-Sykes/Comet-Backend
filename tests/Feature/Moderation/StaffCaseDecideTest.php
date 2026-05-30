@@ -63,6 +63,28 @@ it('rejects when second_staff_approval_id equals deciding staff', function () {
     $res->assertStatus(422);
 });
 
+it('rejects a non-override decision on a csam_match case with 422 (F8)', function () {
+    $staff = PartnaStaff::factory()->create();
+    $case  = ModerationCase::factory()->create(['status' => 'auto_actioned', 'case_type' => 'csam_match']);
+
+    $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/decide", [
+        'decision_type' => 'dismiss',
+        'reason'        => 'attempting to dismiss a csam_match case',
+    ]);
+    $res->assertStatus(422);
+});
+
+it('returns 409 when deciding on an already-resolved case (F16)', function () {
+    $staff = PartnaStaff::factory()->create();
+    $case  = ModerationCase::factory()->create(['status' => 'resolved']);
+
+    $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/decide", [
+        'decision_type' => 'hide_site',
+        'reason'        => 'deciding on an already resolved case',
+    ]);
+    $res->assertStatus(409);
+});
+
 it('rejects reason shorter than 10 chars', function () {
     $staff = PartnaStaff::factory()->create();
     $case  = ModerationCase::factory()->underReview()->create();
