@@ -50,6 +50,10 @@ class UserSiteController extends ApiController
 
         if (is_array($designKit)) {
             $this->writeDesignKit($site->id, $designKit);
+            // execute() already fired invalidateSite via $site->save(), but that
+            // ran BEFORE the raw design_kits write above — bust again so the new
+            // kit (and the email-brand bundle that reads it) is reflected.
+            app(\App\Services\Cache\SiteCacheService::class)->invalidateSite($site);
         }
 
         return $this->success(['site' => new SiteResource($site)]);
