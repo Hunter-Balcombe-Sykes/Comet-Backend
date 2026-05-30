@@ -5,9 +5,9 @@ use App\Mail\Branding\ProEmailBrandResolver;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 beforeEach(function () {
     Cache::flush();
@@ -102,5 +102,5 @@ it('forget() clears the cached brand', function () {
 
     $resolver->forget($site->id);
 
-    expect(Cache::get(\App\Services\Cache\CacheKeyGenerator::emailBrand($site->id)))->toBeNull();
+    expect(Cache::get(CacheKeyGenerator::emailBrand($site->id)))->toBeNull();
 });

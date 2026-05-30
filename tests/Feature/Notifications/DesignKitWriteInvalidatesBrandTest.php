@@ -3,6 +3,7 @@
 use App\Mail\Branding\ProEmailBrandResolver;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -34,7 +35,7 @@ it('reflects a design-kit-only update in the next resolved brand', function () {
     // Simulate the controller's design-kit write path + the post-write bust.
     DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $site->id)->update(['color_accent' => '#aa0000']);
-    app(\App\Services\Cache\SiteCacheService::class)->invalidateSite($site->fresh());
+    app(SiteCacheService::class)->invalidateSite($site->fresh());
 
     $second = app(ProEmailBrandResolver::class)->forSite($site->id);
     expect($second->palette->accent)->toBe('#aa0000');

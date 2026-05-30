@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
 
 // Requires the contact inbox schema (which creates site.enquiries with all
 // columns including confirmation_sent_at) plus the design kit / brand tables
@@ -40,9 +39,9 @@ function makeConfirmableBrandEnquiry(array $enquiryOverrides = []): array
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $site->id]);
 
     $enquiryId = seedInboxEnquiry($user->id, $site->id, array_merge([
-        'email'                => 'sam@example.com',
-        'name'                 => 'Sam',
-        'subject'              => 'Hello',
+        'email' => 'sam@example.com',
+        'name' => 'Sam',
+        'subject' => 'Hello',
         'confirmation_sent_at' => null,
     ], $enquiryOverrides));
 

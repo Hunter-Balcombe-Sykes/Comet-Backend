@@ -34,18 +34,18 @@ it('sends a brand-resolved subscription confirmation', function () {
 
     $subId = (string) Str::uuid();
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
-        'id'                   => $subId,
-        'user_id'              => $user->id,
-        'list_key'             => 'marketing',
-        'email'                => 'sam@example.com',
-        'email_lc'             => 'sam@example.com',
-        'full_name'            => 'Sam',
-        'status'               => 'subscribed',
-        'subscribed_at'        => now()->toDateTimeString(),
-        'unsubscribe_token'    => 'tok-'.Str::random(12),
+        'id' => $subId,
+        'user_id' => $user->id,
+        'list_key' => 'marketing',
+        'email' => 'sam@example.com',
+        'email_lc' => 'sam@example.com',
+        'full_name' => 'Sam',
+        'status' => 'subscribed',
+        'subscribed_at' => now()->toDateTimeString(),
+        'unsubscribe_token' => 'tok-'.Str::random(12),
         'confirmation_sent_at' => null,
-        'created_at'           => now()->toDateTimeString(),
-        'updated_at'           => now()->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
     ]);
 
     (new SendSubscriptionConfirmationJob($subId))->handle();

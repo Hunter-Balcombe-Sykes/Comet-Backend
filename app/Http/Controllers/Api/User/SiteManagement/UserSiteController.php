@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Resources\SiteResource;
+use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,9 +22,8 @@ use Illuminate\Validation\ValidationException;
 // (separate table) — the rest goes through UpdateSiteAction.
 class UserSiteController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
-
+    use ResolveCurrentUser;
 
     public function show(Request $request)
     {
@@ -53,7 +53,7 @@ class UserSiteController extends ApiController
             // execute() already fired invalidateSite via $site->save(), but that
             // ran BEFORE the raw design_kits write above — bust again so the new
             // kit (and the email-brand bundle that reads it) is reflected.
-            app(\App\Services\Cache\SiteCacheService::class)->invalidateSite($site);
+            app(SiteCacheService::class)->invalidateSite($site);
         }
 
         return $this->success(['site' => new SiteResource($site)]);

@@ -9,6 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Views\PublicSitePayload;
 use App\Services\Cache\Concerns\JitteredTtl;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -263,7 +264,7 @@ class SiteCacheService
      * Mirrors CacheLockService — the finally block must never throw on top of an
      * earlier exception from the closure.
      */
-    private function releaseLockQuiet(\Illuminate\Contracts\Cache\Lock $lock): void
+    private function releaseLockQuiet(Lock $lock): void
     {
         try {
             $lock->release();
@@ -280,7 +281,7 @@ class SiteCacheService
     {
         try {
             return $this->resolveImageVariantUrlsInSite($site, $siteId);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('Public site payload hydration failed; returning base site payload.', [
                 'subdomain' => $subdomain,
                 'user_id' => $userId,
