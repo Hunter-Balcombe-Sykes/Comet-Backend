@@ -55,7 +55,6 @@ return [
         ],
     ],
 
-
     // Cloudflare DNS + KV — DNS provisions subdomains; KV holds the subdomain
     // routing table read by the Edge Worker to route brands vs affiliate redirects.
     'cloudflare' => [
@@ -77,6 +76,12 @@ return [
     'kick' => [
         'client_id' => env('KICK_CLIENT_ID'),
         'client_secret' => env('KICK_CLIENT_SECRET'),
+    ],
+
+    // Apify — used by the test-mode Instagram platform integration to run the
+    // instagram-profile-scraper actor. One token, server-side only.
+    'apify' => [
+        'token' => env('APIFY_TOKEN'),
     ],
 
 ];
