@@ -3,192 +3,186 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
-// Test-mode endpoints for the Shopify integration. Mirrors FreshaController:
-// single-tenant cache, no auth, no migration. Saves a store URL (+ optional
-// discount code), lists products from /products.json, persists a selection
-// of products that partna-pages reads back.
+// Test-mode endpoints for the Shopify integration — MULTI-BRAND. A user connects
+// up to 5 stores; each brand carries its own profile (name/favicon/logo),
+// discount code, and chosen products. Stored as one cache key (a map keyed by the
+// canonical brand id) via the single-key trait. Scraping lives in
+// App\Services\Platforms\ShopifyScraper.
 //
-// Approach proven and documented in:
-//   ~/Developer/platform link capabilites/shopify.md
+// Product selection is decoupled from connect: adding a brand stores it with zero
+// products; the picker (GET .../products + PUT .../selection) can run any time.
 //
-// Promotion plan: extract scrape logic to App\Services\Platforms\ShopifyScraper,
-// persist per-user via a platform_connections table, wire to /account/platforms.
+// GET /selection returns a COMPAT flat view of the primary brand so partna-pages
+// keeps rendering the Shop card until the skeleton is reworked for multi-brand.
 class ShopifyController extends ApiController
 {
-    private const URL_KEY = 'platforms.shopify.url';
+    use ManagesPlatformSelection;
 
-    private const DISCOUNT_KEY = 'platforms.shopify.discount';
+    private const BRANDS_KEY = 'platforms.shopify.brands';
 
-    // The saved selection blob partna-pages reads to render the shop section.
-    private const SELECTION_KEY = 'platforms.shopify.selection';
+    private const MAX_BRANDS = 5;
 
-    private const CACHE_TTL_DAYS = 30;
+    public function __construct(private readonly ShopifyScraper $scraper) {}
 
-    private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    protected function selectionKey(): string
+    {
+        return self::BRANDS_KEY;
+    }
 
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    // GET /api/platforms/shopify/brands — all connected brands.
+    public function brands(): JsonResponse
+    {
+        return $this->success(['brands' => $this->allBrands()]);
+    }
 
-    // POST /api/platforms/shopify/connect — save store URL + optional discount.
-    public function connect(Request $request): JsonResponse
+    // POST /api/platforms/shopify/brands — add (or refresh) a brand. Resolves the
+    // brand profile, dedups by canonical id, caps at MAX_BRANDS, stores with the
+    // brand's existing products preserved (empty on first add).
+    public function addBrand(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:500', 'url'],
             'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
 
-        $origin = $this->originOf($validated['url']);
+        $origin = $this->scraper->originOf($validated['url']);
         if (! $origin) {
             return $this->error('Could not parse that store URL.', 422);
         }
 
-        $discount = isset($validated['discountCode']) ? trim((string) $validated['discountCode']) : '';
-        Cache::put(self::URL_KEY, $origin, now()->addDays(self::CACHE_TTL_DAYS));
-        Cache::put(self::DISCOUNT_KEY, $discount, now()->addDays(self::CACHE_TTL_DAYS));
+        $brand = $this->scraper->fetchBrand($origin);
+        $id = $brand['id'];
 
-        return $this->success([
-            'url' => $origin,
-            'discountCode' => $discount,
-            'products' => $this->fetchProducts($origin),
-        ]);
-    }
-
-    // GET /api/platforms/shopify/products — products for the saved store.
-    public function products(): JsonResponse
-    {
-        $origin = Cache::get(self::URL_KEY);
-        if (! $origin) {
-            return $this->error('No Shopify URL saved yet. POST one to /connect first.', 404);
+        $map = $this->brandMap();
+        if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
+            return $this->error('You can connect up to '.self::MAX_BRANDS.' brands.', 422);
         }
 
-        return $this->success([
+        $discount = array_key_exists('discountCode', $validated)
+            ? trim((string) $validated['discountCode'])
+            : ($map[$id]['discountCode'] ?? '');
+
+        $map[$id] = [
+            'id' => $id,
             'url' => $origin,
-            'discountCode' => (string) Cache::get(self::DISCOUNT_KEY, ''),
-            'products' => $this->fetchProducts($origin),
-        ]);
+            'name' => $brand['name'],
+            'favicon' => $brand['favicon'],
+            'logo' => $brand['logo'],
+            'discountCode' => $discount,
+            'products' => $map[$id]['products'] ?? [],
+        ];
+        $this->writeSelection($map);
+
+        return $this->success($map[$id]);
     }
 
-    // GET /api/platforms/shopify/url — peek at saved url + discount.
-    public function show(): JsonResponse
-    {
-        return $this->success([
-            'url' => Cache::get(self::URL_KEY),
-            'discountCode' => (string) Cache::get(self::DISCOUNT_KEY, ''),
-        ]);
-    }
-
-    // POST /api/platforms/shopify/selection — save the chosen products. Re-fetches
-    // the saved store so the stored blob is server-authoritative; filters to the
-    // posted productIds (order preserved as posted).
-    public function saveSelection(Request $request): JsonResponse
+    // PATCH /api/platforms/shopify/brands/{id} — update the discount code.
+    public function updateBrand(Request $request, string $id): JsonResponse
     {
         $validated = $request->validate([
-            'productIds' => ['required', 'array', 'min:1'],
+            'discountCode' => ['present', 'nullable', 'string', 'max:100'],
+        ]);
+
+        $map = $this->brandMap();
+        if (! isset($map[$id])) {
+            return $this->error('Brand not found.', 404);
+        }
+
+        $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
+        $this->writeSelection($map);
+
+        return $this->success($map[$id]);
+    }
+
+    // DELETE /api/platforms/shopify/brands/{id} — remove a brand.
+    public function removeBrand(string $id): JsonResponse
+    {
+        $map = $this->brandMap();
+        unset($map[$id]);
+        $this->writeSelection($map);
+
+        return $this->success(['brands' => array_values($map)]);
+    }
+
+    // GET /api/platforms/shopify/brands/{id}/products — live products for the picker.
+    public function brandProducts(string $id): JsonResponse
+    {
+        $map = $this->brandMap();
+        if (! isset($map[$id])) {
+            return $this->error('Brand not found.', 404);
+        }
+
+        return $this->success(['products' => $this->scraper->fetchProducts($map[$id]['url'])]);
+    }
+
+    // PUT /api/platforms/shopify/brands/{id}/selection — snapshot the chosen
+    // products (re-fetched live, order preserved). Callable any time.
+    public function setProducts(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'productIds' => ['present', 'array', 'max:250'],
             'productIds.*' => ['string', 'max:50'],
         ]);
 
-        $origin = Cache::get(self::URL_KEY);
-        if (! $origin) {
-            return $this->error('No Shopify URL saved yet. Save one first.', 404);
+        $map = $this->brandMap();
+        if (! isset($map[$id])) {
+            return $this->error('Brand not found.', 404);
         }
 
-        $all = collect($this->fetchProducts($origin))->keyBy('productId');
-        $chosen = collect($validated['productIds'])
-            ->map(fn (string $id) => $all->get($id))
+        $all = collect($this->scraper->fetchProducts($map[$id]['url']))->keyBy('productId');
+        $map[$id]['products'] = collect($validated['productIds'])
+            ->map(fn (string $pid) => $all->get($pid))
             ->filter()
             ->values()
             ->all();
+        $this->writeSelection($map);
 
-        if (empty($chosen)) {
-            return $this->error('None of those products were found in the saved store.', 404);
-        }
-
-        $selection = [
-            'url' => $origin,
-            'discountCode' => (string) Cache::get(self::DISCOUNT_KEY, ''),
-            'products' => $chosen,
-        ];
-        Cache::put(self::SELECTION_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
-
-        return $this->success($selection);
+        return $this->success($map[$id]);
     }
 
-    // GET /api/platforms/shopify/selection — read the saved selection (partna-pages
-    // reads this; the dashboard reads it to restore its "saved" state on load).
+    // GET /api/platforms/shopify/selection — COMPAT flat view of the primary brand
+    // (first brand that has products) so partna-pages' existing Shop card keeps
+    // rendering. Returns null when no brand has products. Reshaped to multi-brand
+    // when the skeleton is reworked.
     public function selection(): JsonResponse
     {
-        return $this->success(['selection' => Cache::get(self::SELECTION_KEY)]);
+        $primary = collect($this->brandMap())->first(fn ($b) => ! empty($b['products']));
+
+        $selection = $primary ? [
+            'url' => $primary['url'],
+            'discountCode' => $primary['discountCode'] ?? '',
+            'products' => $primary['products'],
+        ] : null;
+
+        return $this->success(['selection' => $selection]);
     }
 
-    // DELETE /api/platforms/shopify — clear url, discount, and selection.
+    // DELETE /api/platforms/shopify — clear all brands.
     public function forget(): JsonResponse
     {
-        Cache::forget(self::URL_KEY);
-        Cache::forget(self::DISCOUNT_KEY);
-        Cache::forget(self::SELECTION_KEY);
+        $this->clearSelection();
 
-        return $this->success(['url' => null, 'discountCode' => '', 'selection' => null]);
+        return $this->success(['brands' => []]);
     }
 
     // ── internals ────────────────────────────────────────────────
 
-    // Reduce any store URL to its scheme://host origin — cart deep links are
-    // built relative to the origin (<origin>/cart/<variant>:1).
-    private function originOf(string $url): ?string
+    /** The stored brand map (id => brand), or empty. */
+    private function brandMap(): array
     {
-        $parts = parse_url($url);
-        if (! isset($parts['scheme'], $parts['host'])) {
-            return null;
-        }
+        $map = $this->readSelection();
 
-        return "{$parts['scheme']}://{$parts['host']}";
+        return is_array($map) ? $map : [];
     }
 
-    /**
-     * Fetch <origin>/products.json and flatten to the fields we use. Only the
-     * first variant of each product is kept (its id powers the cart deep link).
-     *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool}>
-     */
-    private function fetchProducts(string $origin): array
+    /** Brands as a plain ordered list. */
+    private function allBrands(): array
     {
-        $response = $this->fetcher->fetch($origin.'/products.json?limit=250', [
-            'User-Agent' => self::SCRAPE_USER_AGENT,
-        ]);
-
-        if ($response['status'] !== 200) {
-            abort(502, "Shopify returned HTTP {$response['status']} for /products.json — the store may have it disabled.");
-        }
-
-        $data = json_decode($response['body'], true);
-        if (! is_array($data) || ! isset($data['products']) || ! is_array($data['products'])) {
-            abort(502, 'No products.json found — this may not be a Shopify store, or it disabled the endpoint.');
-        }
-
-        $out = [];
-        foreach ($data['products'] as $product) {
-            $variant = $product['variants'][0] ?? null;
-            if (! $variant || ! isset($variant['id'])) {
-                continue;
-            }
-
-            $out[] = [
-                'productId' => (string) ($product['id'] ?? ''),
-                'title' => (string) ($product['title'] ?? ''),
-                'handle' => (string) ($product['handle'] ?? ''),
-                'vendor' => $product['vendor'] ?? null,
-                'image' => data_get($product, 'images.0.src'),
-                'price' => $variant['price'] ?? null,
-                'currency' => data_get($variant, 'presentment_prices.0.price.currency_code'),
-                'variantId' => (string) $variant['id'],
-                'available' => (bool) ($variant['available'] ?? true),
-            ];
-        }
-
-        return $out;
+        return array_values($this->brandMap());
     }
 }
