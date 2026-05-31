@@ -22,6 +22,10 @@ class FreshaController extends ApiController
 {
     private const CACHE_KEY = 'platforms.fresha.url';
 
+    // The saved selection: which team member + their services. This is the blob
+    // partna-pages will read back to render the booking section.
+    private const SELECTION_CACHE_KEY = 'platforms.fresha.selection';
+
     private const CACHE_TTL_DAYS = 30;
 
     // Matches both locale-prefixed and bare slug URLs:
@@ -63,12 +67,50 @@ class FreshaController extends ApiController
         return $this->success(['url' => Cache::get(self::CACHE_KEY)]);
     }
 
-    // DELETE /api/platforms/fresha — clear the saved URL.
+    // POST /api/platforms/fresha/selection — save which team member is "you"
+    // plus the current service menu. Re-scrapes the saved URL so the stored
+    // blob is server-authoritative (not whatever the client happened to hold).
+    public function saveSelection(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'employeeId' => ['required', 'string', 'max:50'],
+        ]);
+
+        $url = Cache::get(self::CACHE_KEY);
+        if (! $url) {
+            return $this->error('No Fresha URL saved yet. Save one first.', 404);
+        }
+
+        $menu = $this->fetchMenu($url);
+        $employee = collect($menu['team'])->firstWhere('employeeId', $validated['employeeId']);
+        if (! $employee) {
+            return $this->error('That team member was not found on the saved Fresha page.', 404);
+        }
+
+        $selection = [
+            'url' => $url,
+            'employee' => $employee,
+            'services' => $menu['services'],
+        ];
+        Cache::put(self::SELECTION_CACHE_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+
+        return $this->success($selection);
+    }
+
+    // GET /api/platforms/fresha/selection — read the saved selection (partna-pages
+    // reads this; the dashboard reads it to restore its "saved" state on load).
+    public function selection(): JsonResponse
+    {
+        return $this->success(['selection' => Cache::get(self::SELECTION_CACHE_KEY)]);
+    }
+
+    // DELETE /api/platforms/fresha — clear the saved URL and selection.
     public function forget(): JsonResponse
     {
         Cache::forget(self::CACHE_KEY);
+        Cache::forget(self::SELECTION_CACHE_KEY);
 
-        return $this->success(['url' => null]);
+        return $this->success(['url' => null, 'selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
