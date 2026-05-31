@@ -28,10 +28,12 @@ Route::prefix('platforms/fresha')
 Route::prefix('platforms/shopify')
     ->middleware('throttle:public-site')
     ->group(function () {
-        Route::post('/connect', [ShopifyController::class, 'connect']);
-        Route::get('/products', [ShopifyController::class, 'products']);
-        Route::get('/url', [ShopifyController::class, 'show']);
-        Route::post('/selection', [ShopifyController::class, 'saveSelection']);
+        Route::get('/brands', [ShopifyController::class, 'brands']);
+        Route::post('/brands', [ShopifyController::class, 'addBrand']);
+        Route::patch('/brands/{id}', [ShopifyController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
+        Route::delete('/brands/{id}', [ShopifyController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
+        Route::get('/brands/{id}/products', [ShopifyController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
+        Route::put('/brands/{id}/selection', [ShopifyController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
         Route::get('/selection', [ShopifyController::class, 'selection']);
         Route::delete('/', [ShopifyController::class, 'forget']);
     });
