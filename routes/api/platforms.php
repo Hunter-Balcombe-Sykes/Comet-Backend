@@ -40,6 +40,8 @@ Route::prefix('platforms/instagram')
     ->middleware('throttle:public-site')
     ->group(function () {
         Route::post('/connect', [InstagramController::class, 'connect']);
+        Route::get('/posts', [InstagramController::class, 'posts']);
+        Route::post('/selection', [InstagramController::class, 'saveSelection']);
         Route::get('/selection', [InstagramController::class, 'selection']);
         Route::delete('/', [InstagramController::class, 'forget']);
     });
