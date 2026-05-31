@@ -20,6 +20,7 @@ class OEmbedExtractor implements SmartLinkExtractor
         'youtube' => ['suffix' => 'youtube.com', 'endpoint' => 'https://www.youtube.com/oembed', 'display' => 'YouTube'],
         'youtube_short' => ['suffix' => 'youtu.be', 'endpoint' => 'https://www.youtube.com/oembed', 'display' => 'YouTube'],
         'bandcamp' => ['suffix' => 'bandcamp.com', 'endpoint' => 'https://bandcamp.com/oembed', 'display' => 'Bandcamp'],
+        'vimeo' => ['suffix' => 'vimeo.com', 'endpoint' => 'https://vimeo.com/api/oembed.json', 'display' => 'Vimeo'],
     ];
 
     public function __construct(

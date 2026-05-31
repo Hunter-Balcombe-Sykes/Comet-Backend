@@ -68,3 +68,29 @@ it('rejects a selection/URL mismatch before fetching', function () {
 
     expect($resolved->valid)->toBeFalse();
 });
+
+it('resolves a Spotify track via OG with artist + album (no oEmbed)', function () {
+    $html = '<html><head>'
+        .'<meta property="og:title" content="Loving Is Easy"/>'
+        .'<meta property="og:image" content="https://i.scdn.co/image/abc"/>'
+        .'<meta property="og:description" content="Rex Orange County · Apricot Princess · Song · 2017"/>'
+        .'<meta name="music:musician_description" content="Rex Orange County"/>'
+        .'</head><body></body></html>';
+
+    $this->app->instance(SafeUrlFetcher::class, fakeFetcher([
+        'open.spotify.com/track/abc' => [
+            'status' => 200,
+            'contentType' => 'text/html',
+            'body' => $html,
+        ],
+    ]));
+
+    $resolved = app(SmartLinkResolver::class)->resolve('https://open.spotify.com/track/abc?si=xyz', 'spotify');
+
+    expect($resolved->valid)->toBeTrue()
+        ->and($resolved->type)->toBe('content.music.track')
+        ->and($resolved->platform)->toBe('spotify')
+        ->and($resolved->data->title)->toBe('Loving Is Easy')
+        ->and($resolved->data->metadata['artist'])->toBe('Rex Orange County')
+        ->and($resolved->data->metadata['album'])->toBe('Apricot Princess');
+});

@@ -49,18 +49,52 @@ class MetadataParser
             }
         }
 
+        // Collect every icon <link>, rank by resolution, keep the largest — the
+        // first-found icon is usually the tiny 16×16 .ico (§1.2). apple-touch-icon
+        // (~180²) and explicit sizes win. Track apple-touch-icon separately for the
+        // brand logo chain (§1.1).
         $favicon = null;
+        $bestScore = -1;
+        $appleTouchIcon = null;
         foreach ($xpath->query('//link[@rel]') as $node) {
             /** @var \DOMElement $node */
-            if (str_contains(strtolower($node->getAttribute('rel')), 'icon')) {
-                $href = trim($node->getAttribute('href'));
-                if ($href !== '') {
-                    $favicon = $href;
-                    break;
-                }
+            $rel = strtolower($node->getAttribute('rel'));
+            if (! str_contains($rel, 'icon')) {
+                continue;
+            }
+            $href = trim($node->getAttribute('href'));
+            if ($href === '') {
+                continue;
+            }
+            $abs = $this->absolutize($href, $baseUrl);
+            $dim = preg_match('/(\d+)x\d+/', strtolower($node->getAttribute('sizes')), $m) ? (int) $m[1] : 0;
+            if (str_contains($rel, 'apple-touch-icon')) {
+                $dim = $dim ?: 180;
+                $appleTouchIcon = $abs;
+            } elseif ($dim === 0) {
+                $dim = str_ends_with(strtolower($href), '.ico') ? 16 : 32;
+            }
+            if ($dim > $bestScore) {
+                $bestScore = $dim;
+                $favicon = $abs;
             }
         }
-        $favicon = $this->absolutize($favicon ?? '/favicon.ico', $baseUrl);
+        $favicon ??= $this->absolutize('/favicon.ico', $baseUrl);
+
+        // Shopify/theme header logo — the real brand mark for the logo chain (§1.1).
+        $headerLogo = null;
+        foreach ($xpath->query('//img[contains(concat(" ", normalize-space(@class), " "), " header__heading-logo ") or contains(concat(" ", normalize-space(@class), " "), " header__logo-image ")]') as $node) {
+            /** @var \DOMElement $node */
+            $src = trim($node->getAttribute('src')) ?: trim($node->getAttribute('data-src'));
+            if ($src !== '') {
+                $headerLogo = $this->absolutize($src, $baseUrl);
+                break;
+            }
+        }
+
+        $isShopify = str_contains($html, 'cdn.shopify.com')
+            || str_contains($html, 'Shopify.theme')
+            || str_contains($html, 'shopify-features');
 
         return new ParsedMetadata(
             og: $og,
@@ -68,6 +102,9 @@ class MetadataParser
             title: ($title !== null && $title !== '') ? $title : null,
             jsonLd: $jsonLd,
             faviconUrl: $favicon,
+            appleTouchIconUrl: $appleTouchIcon,
+            headerLogoUrl: $headerLogo,
+            isShopify: $isShopify,
         );
     }
 

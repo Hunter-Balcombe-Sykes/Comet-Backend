@@ -6,6 +6,7 @@ use App\Services\SmartLinks\Extractors\ITunesExtractor;
 use App\Services\SmartLinks\Extractors\OEmbedExtractor;
 use App\Services\SmartLinks\Extractors\ShopifyExtractor;
 use App\Services\SmartLinks\Extractors\SmartLinkExtractor;
+use App\Services\SmartLinks\Extractors\SpotifyExtractor;
 use App\Services\SmartLinks\Extractors\StructuredDataExtractor;
 
 /**
@@ -17,13 +18,14 @@ class SmartLinkTypeRegistry
 {
     public const COMMERCE_SELECTIONS = ['brand', 'collection', 'product', 'event'];
 
-    public const CONTENT_PLATFORMS = ['spotify', 'apple_music', 'bandcamp', 'apple_podcasts', 'youtube'];
+    public const CONTENT_PLATFORMS = ['spotify', 'apple_music', 'bandcamp', 'apple_podcasts', 'youtube', 'vimeo'];
 
     public function __construct(
         private readonly ShopifyExtractor $shopify,
         private readonly StructuredDataExtractor $structured,
         private readonly OEmbedExtractor $oembed,
         private readonly ITunesExtractor $itunes,
+        private readonly SpotifyExtractor $spotify,
     ) {}
 
     /**
@@ -44,6 +46,7 @@ class SmartLinkTypeRegistry
                 ? 'content.podcast.episode'
                 : null,
             'youtube' => $this->isYoutube($url) ? 'content.video' : null,
+            'vimeo' => $this->isVimeo($url) ? 'content.video' : null,
             default => null,
         };
     }
@@ -60,8 +63,8 @@ class SmartLinkTypeRegistry
             $type === 'commerce.product' => [$this->shopify, $this->structured],
             $type === 'commerce.collection' => [$this->shopify],
             $type === 'commerce.brand', $type === 'commerce.event' => [$this->structured],
-            str_starts_with($type, 'content.music') => [$this->oembed, $this->itunes],
-            $type === 'content.podcast.episode' => [$this->itunes],
+            str_starts_with($type, 'content.music') => [$this->spotify, $this->oembed, $this->itunes],
+            $type === 'content.podcast.episode' => [$this->itunes, $this->spotify],
             $type === 'content.video' => [$this->oembed],
             default => [],
         };
@@ -72,6 +75,9 @@ class SmartLinkTypeRegistry
     private function spotifySub(ParsedUrl $url): ?string
     {
         $seg = $url->segment(0);
+        if ($seg === 'episode') {
+            return 'content.podcast.episode';
+        }
 
         return in_array($seg, ['track', 'album', 'playlist'], true) ? "content.music.{$seg}" : null;
     }
@@ -104,6 +110,11 @@ class SmartLinkTypeRegistry
     private function isYoutube(ParsedUrl $url): bool
     {
         return $this->endsWith($url, 'youtube.com') || $url->host === 'youtu.be';
+    }
+
+    private function isVimeo(ParsedUrl $url): bool
+    {
+        return $url->host === 'vimeo.com' || str_ends_with($url->host, '.vimeo.com');
     }
 
     private function endsWith(ParsedUrl $url, string $suffix): bool

@@ -16,6 +16,9 @@ final class ParsedMetadata
         public ?string $title = null,
         public array $jsonLd = [],
         public ?string $faviconUrl = null,
+        public ?string $appleTouchIconUrl = null,
+        public ?string $headerLogoUrl = null,
+        public bool $isShopify = false,
     ) {}
 
     public function og(string $key): ?string
