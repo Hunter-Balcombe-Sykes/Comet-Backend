@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\FreshaController;
+use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,4 +29,12 @@ Route::prefix('platforms/shopify')
         Route::post('/selection', [ShopifyController::class, 'saveSelection']);
         Route::get('/selection', [ShopifyController::class, 'selection']);
         Route::delete('/', [ShopifyController::class, 'forget']);
+    });
+
+Route::prefix('platforms/instagram')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/connect', [InstagramController::class, 'connect']);
+        Route::get('/selection', [InstagramController::class, 'selection']);
+        Route::delete('/', [InstagramController::class, 'forget']);
     });
