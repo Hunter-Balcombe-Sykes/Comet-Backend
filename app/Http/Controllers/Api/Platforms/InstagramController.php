@@ -117,11 +117,13 @@ class InstagramController extends ApiController
             return null;
         }
 
-        if (! $response->ok()) {
+        // run-sync-get-dataset-items returns 201 Created on success — accept any
+        // 2xx (->ok() would only accept exactly 200).
+        if (! $response->successful()) {
             Log::warning('instagram.apify.not_ok', [
                 'username' => $username,
                 'status' => $response->status(),
-                'body' => mb_substr($response->body(), 0, 800),
+                'body' => mb_substr($response->body(), 0, 500),
             ]);
 
             return null;
@@ -129,21 +131,8 @@ class InstagramController extends ApiController
 
         $items = $response->json();
         if (! is_array($items) || empty($items) || ! is_array($items[0])) {
-            Log::warning('instagram.apify.bad_items', [
-                'username' => $username,
-                'type' => gettype($items),
-                'count' => is_array($items) ? count($items) : 0,
-                'body' => mb_substr($response->body(), 0, 800),
-            ]);
-
             return null;
         }
-
-        Log::info('instagram.apify.ok', [
-            'username' => $username,
-            'topKeys' => array_slice(array_keys($items[0]), 0, 25),
-            'latestPostsCount' => is_array($items[0]['latestPosts'] ?? null) ? count($items[0]['latestPosts']) : 0,
-        ]);
 
         return $items[0];
     }
@@ -184,7 +173,7 @@ class InstagramController extends ApiController
     {
         try {
             $res = Http::timeout(20)->get($url);
-            if (! $res->ok()) {
+            if (! $res->successful()) {
                 return null;
             }
             Storage::disk('media')->put($path, $res->body());
