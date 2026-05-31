@@ -19,6 +19,7 @@ use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\Site\SmartLink;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\Service;
@@ -105,6 +106,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Block::class, SitePolicy::class);
         Gate::policy(SiteMedia::class, SitePolicy::class);
         Gate::policy(SiteSubdomainAlias::class, SitePolicy::class);
+        Gate::policy(SmartLink::class, SitePolicy::class);
         Gate::policy(Enquiry::class, EnquiryPolicy::class);
         Gate::policy(LeadSubmission::class, SitePolicy::class);
         Gate::policy(Service::class, ServicePolicy::class);
@@ -529,7 +531,7 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->ip())
                 ->response(function () {
                     return response()->json([
-                        'error'   => 'RATE_LIMITED',
+                        'error' => 'RATE_LIMITED',
                         'message' => 'Hold on a sec, try again in a minute.',
                     ], 429);
                 });

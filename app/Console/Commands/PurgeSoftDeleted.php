@@ -4,13 +4,14 @@ namespace App\Console\Commands;
 
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\Feedback;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
-use App\Models\Core\Site\Block;
-use App\Models\Core\Site\Enquiry;
-use App\Models\Core\Site\SiteMedia;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -38,6 +39,7 @@ class PurgeSoftDeleted extends Command
         ServiceCategory::class,
         Block::class,
         Feedback::class,
+        SmartLink::class,
     ];
 
     /**
@@ -87,20 +89,29 @@ class PurgeSoftDeleted extends Command
         $count = 0;
         $failed = 0;
 
-        $modelClass::onlyTrashed()
-            ->where('deleted_at', '<', $cutoff)
-            ->orderBy('deleted_at')
-            ->chunk(500, function ($rows) use (&$count, &$failed) {
-                foreach ($rows as $row) {
-                    try {
-                        $row->forceDelete();
-                        $count++;
-                    } catch (\Throwable $e) {
-                        $failed++;
-                        report($e);
+        try {
+            $modelClass::onlyTrashed()
+                ->where('deleted_at', '<', $cutoff)
+                ->orderBy('deleted_at')
+                ->chunk(500, function ($rows) use (&$count, &$failed) {
+                    foreach ($rows as $row) {
+                        try {
+                            $row->forceDelete();
+                            $count++;
+                        } catch (\Throwable $e) {
+                            $failed++;
+                            report($e);
+                        }
                     }
-                }
-            });
+                });
+        } catch (\Throwable $e) {
+            // One model's purge failing (transient DB error, etc.) must not abort
+            // the whole sweep — the customer/professional purges still need to run.
+            report($e);
+            $this->line(class_basename($modelClass).': skipped (query failed).');
+
+            return 0;
+        }
 
         $this->line(class_basename($modelClass).": {$count} purged, {$failed} failed.");
 

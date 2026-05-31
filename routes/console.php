@@ -51,6 +51,18 @@ Schedule::command('partna:analytics:purge-raw-events')
         \Illuminate\Support\Facades\Log::error('Scheduled task failed: purge-raw-events');
     });
 
+// Smart-link snapshot refresh — commerce stales at 6h, content weekly; the
+// command picks the stalest rows each run (capped via --limit). Every 6h is
+// frequent enough for the 6h commerce tier without hammering merchant sites.
+Schedule::command('smartlinks:refresh')
+    ->everySixHours()
+    ->runInBackground()
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->onFailure(function (): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: smartlinks:refresh');
+    });
+
 Schedule::command('queue:prune-failed --hours=72')
     ->daily()
     ->onOneServer()

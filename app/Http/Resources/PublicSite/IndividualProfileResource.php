@@ -97,6 +97,7 @@ class IndividualProfileResource extends ApiResource
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
+                'smartLinks' => $this->sections['smart_links'] ?? [],
             ],
 
             // Per-user design kit. Partial — only contains stored (non-null)

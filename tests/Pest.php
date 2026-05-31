@@ -202,12 +202,12 @@ function actingAsStaff(
     // Staff routes are gated by require.aal2 — default to AAL2 unless the test
     // overrides (e.g. to assert the gate rejects AAL1).
     $defaultClaims = array_merge([
-        'sub'             => $authUserId,
-        'email'           => $staff->primary_email ?? "staff-{$staff->id}@partna.au",
-        'email_verified'  => true,
-        'aal'             => 'aal2',
-        'amr'             => [['method' => 'totp', 'timestamp' => time()]],
-        'session_id'      => (string) \Illuminate\Support\Str::uuid(),
+        'sub' => $authUserId,
+        'email' => $staff->primary_email ?? "staff-{$staff->id}@partna.au",
+        'email_verified' => true,
+        'aal' => 'aal2',
+        'amr' => [['method' => 'totp', 'timestamp' => time()]],
+        'session_id' => (string) \Illuminate\Support\Str::uuid(),
     ], $claims);
 
     // Stub VerifySupabaseJwt — same shape as actingAsUser uses.
@@ -241,6 +241,7 @@ function actingAsStaff(
             public function handle(\Illuminate\Http\Request $request, \Closure $next)
             {
                 $request->attributes->set('partna_staff', $this->s);
+
                 return $next($request);
             }
         };
@@ -248,7 +249,6 @@ function actingAsStaff(
 
     return test();
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -386,6 +386,37 @@ function setupSitesTable(): void
     } catch (Throwable $e) {
         // Column already exists or SQLite doesn't support this syntax — ignore
     }
+
+    // site.smart_links — queried by IndividualProfilePayloadBuilder::buildSmartLinks
+    // on every public-profile build, so any test that sets up a site needs it.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.smart_links (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        site_id TEXT NULL,
+        family TEXT NULL,
+        type TEXT NULL,
+        platform TEXT NULL,
+        canonical_url TEXT NULL,
+        tracking_query TEXT NULL,
+        discount_code TEXT NULL,
+        discount_kind TEXT NULL,
+        discount_value TEXT NULL,
+        title TEXT NULL,
+        image_url TEXT NULL,
+        favicon_url TEXT NULL,
+        brand_name TEXT NULL,
+        brand_logo_url TEXT NULL,
+        metadata TEXT NULL,
+        image_sources TEXT NULL,
+        sort_order INTEGER NULL DEFAULT 0,
+        is_active INTEGER NULL DEFAULT 1,
+        last_refreshed_at TEXT NULL,
+        last_refresh_status TEXT NULL,
+        consecutive_failures INTEGER NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        deleted_at TEXT NULL
+    )');
 }
 
 /**
@@ -1638,4 +1669,3 @@ function setupDesignKitsTable(): void
         updated_at TEXT NULL
     )');
 }
-
