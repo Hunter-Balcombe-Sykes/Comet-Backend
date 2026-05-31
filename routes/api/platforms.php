@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\AppleController;
+use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
@@ -94,4 +95,12 @@ Route::prefix('platforms/facebook')
         Route::post('/connect', [FacebookController::class, 'connect']);
         Route::get('/selection', [FacebookController::class, 'selection']);
         Route::delete('/', [FacebookController::class, 'forget']);
+    });
+
+Route::prefix('platforms/eventbrite')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/connect', [EventbriteController::class, 'connect']);
+        Route::get('/selection', [EventbriteController::class, 'selection']);
+        Route::delete('/', [EventbriteController::class, 'forget']);
     });
