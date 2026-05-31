@@ -1,9 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
 use App\Http\Controllers\Api\Platforms\StanController;
+use App\Http\Controllers\Api\Platforms\TiktokController;
+use App\Http\Controllers\Api\Platforms\YoutubeController;
 use Illuminate\Support\Facades\Route;
 
 // Test-mode platform integration endpoints. Single-tenant cache, no auth.
@@ -46,4 +49,30 @@ Route::prefix('platforms/stan')
         Route::post('/connect', [StanController::class, 'connect']);
         Route::get('/selection', [StanController::class, 'selection']);
         Route::delete('/', [StanController::class, 'forget']);
+    });
+
+Route::prefix('platforms/youtube')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/connect', [YoutubeController::class, 'connect']);
+        Route::get('/selection', [YoutubeController::class, 'selection']);
+        Route::delete('/', [YoutubeController::class, 'forget']);
+    });
+
+Route::prefix('platforms/apple')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/music/connect', [AppleController::class, 'connectMusic']);
+        Route::get('/music/selection', [AppleController::class, 'musicSelection']);
+        Route::post('/podcast/connect', [AppleController::class, 'connectPodcast']);
+        Route::get('/podcast/selection', [AppleController::class, 'podcastSelection']);
+        Route::delete('/', [AppleController::class, 'forget']);
+    });
+
+Route::prefix('platforms/tiktok')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/connect', [TiktokController::class, 'connect']);
+        Route::get('/selection', [TiktokController::class, 'selection']);
+        Route::delete('/', [TiktokController::class, 'forget']);
     });
