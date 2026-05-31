@@ -399,8 +399,6 @@ function setupSitesTable(): void
         canonical_url TEXT NULL,
         tracking_query TEXT NULL,
         discount_code TEXT NULL,
-        discount_kind TEXT NULL,
-        discount_value TEXT NULL,
         title TEXT NULL,
         image_url TEXT NULL,
         favicon_url TEXT NULL,

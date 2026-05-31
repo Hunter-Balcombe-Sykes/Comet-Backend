@@ -15,11 +15,18 @@ class UrlNormalizer
     /** Params we strip + discard entirely. */
     private const DISCARD_KEYS = ['variant'];
 
-    /** Affiliate/referral/analytics keys → moved to trackingQuery. */
+    /** Affiliate/referral/analytics keys → moved to trackingQuery. Matched
+     *  case-insensitively (keys are lowercased before comparison), so all
+     *  entries here must be lowercase. */
     private const TRACKING_KEYS = [
         'sca_ref', 'aff', 'ref', 'affiliate', 'afmc',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'fbclid', 'gclid', 'mc_eid', 'mc_cid', '_branch_match_id',
+        // Major affiliate-network click IDs — Refersion, Impact, ShareASale, CJ,
+        // Awin, Rakuten, Tapfiliate. Captured so they ride trackingQuery (not the
+        // canonical), so we can withhold them on non-Shopify visitor URLs and so
+        // our scrape of the canonical doesn't fire a phantom affiliate click.
+        'rfsn', 'irclickid', 'sscid', 'cjevent', 'awc', 'clickref', 'ranmid', 'tap_a', 'tap_s',
     ];
 
     public function parse(string $rawUrl): ParsedUrl

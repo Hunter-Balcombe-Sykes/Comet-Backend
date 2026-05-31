@@ -126,8 +126,7 @@ class IndividualProfilePayloadBuilder
     /**
      * Smart links engine — list<SmartLink> in camelCase wire shape, active
      * only, ordered family → sort_order. visitorUrl is computed (tracking +
-     * discount baked in); the discount object is derived from the stored
-     * price + creator-entered value.
+     * discount code baked in, where supported).
      *
      * @return list<array<string, mixed>>
      */
@@ -171,7 +170,6 @@ class IndividualProfilePayloadBuilder
             'commerce.product' => $base + [
                 'price' => $this->smartLinkPrice($meta),
                 'stockStatus' => $meta['stockStatus'] ?? 'unknown',
-                'discount' => $this->smartLinkDiscount($l, $meta),
             ],
             'commerce.collection' => $base + ['collectionName' => $meta['collectionName'] ?? $l->title],
             'commerce.brand' => $base + ['heroImageUrl' => $meta['heroImageUrl'] ?? null],
@@ -179,14 +177,17 @@ class IndividualProfilePayloadBuilder
                 'startsAt' => $meta['startsAt'] ?? null,
                 'endsAt' => $meta['endsAt'] ?? null,
                 'location' => $meta['location'] ?? null,
-                'discount' => $this->smartLinkDiscount($l, $meta),
             ],
             'content.podcast.episode' => $base + [
                 'showName' => $meta['showName'] ?? null,
                 'releaseDate' => $meta['releaseDate'] ?? null,
             ],
             'content.video' => $base + ['channelName' => $meta['channelName'] ?? null],
-            default => $base, // content.music.*
+            // content.music.{track,album} — artist/album for the `Artist | Album | Track` line.
+            default => $base + [
+                'artist' => $meta['artist'] ?? null,
+                'album' => $meta['album'] ?? null,
+            ],
         };
     }
 
@@ -198,24 +199,6 @@ class IndividualProfilePayloadBuilder
         }
 
         return ['amount' => (float) $meta['price'], 'currency' => (string) ($meta['currency'] ?? 'USD')];
-    }
-
-    /** @param array<string,mixed> $meta @return array{kind:string,value:float,discountedAmount:float}|null */
-    private function smartLinkDiscount(SmartLink $l, array $meta): ?array
-    {
-        if ($l->discount_kind === null || $l->discount_value === null) {
-            return null;
-        }
-        if (! isset($meta['price']) || ! is_numeric($meta['price'])) {
-            return null; // no price to discount against (e.g. event) → code still auto-applies via visitorUrl
-        }
-        $value = (float) $l->discount_value;
-        $price = (float) $meta['price'];
-        $discounted = $l->discount_kind === 'percent'
-            ? max(0.0, $price * (1 - $value / 100))
-            : max(0.0, $price - $value);
-
-        return ['kind' => $l->discount_kind, 'value' => $value, 'discountedAmount' => round($discounted, 2)];
     }
 
     /**

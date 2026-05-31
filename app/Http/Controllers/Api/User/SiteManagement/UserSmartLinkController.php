@@ -30,9 +30,6 @@ class UserSmartLinkController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    /** Types that accept a discount code. */
-    private const DISCOUNTABLE = ['commerce.product', 'commerce.event'];
-
     public function __construct(
         private readonly SmartLinkResolver $resolver,
         private readonly SmartLinkImageService $imageService,
@@ -94,9 +91,11 @@ class UserSmartLinkController extends ApiController
             $rdata = $this->imageService->ingestCommerce($rdata, (string) $site->id);
         }
 
-        $discountable = in_array($resolved->type, self::DISCOUNTABLE, true);
+        $discountCode = $this->discountSupported($resolved->type, $resolved->platform)
+            ? ($data['discount_code'] ?? null)
+            : null;
 
-        $link = DB::transaction(function () use ($pro, $site, $resolved, $rdata, $data, $discountable) {
+        $link = DB::transaction(function () use ($pro, $site, $resolved, $rdata, $discountCode) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["smart-links:{$site->id}:{$resolved->family}"]);
 
             $maxSort = (int) (SmartLink::query()
@@ -112,9 +111,7 @@ class UserSmartLinkController extends ApiController
                 'platform' => $resolved->platform,
                 'canonical_url' => $resolved->url->canonical,
                 'tracking_query' => $resolved->url->trackingQuery,
-                'discount_code' => $discountable ? ($data['discount_code'] ?? null) : null,
-                'discount_kind' => $discountable ? ($data['discount_kind'] ?? null) : null,
-                'discount_value' => $discountable ? ($data['discount_value'] ?? null) : null,
+                'discount_code' => $discountCode,
                 'title' => $rdata->title,
                 'image_url' => $rdata->imageUrl,
                 'favicon_url' => $rdata->faviconUrl,
@@ -142,14 +139,10 @@ class UserSmartLinkController extends ApiController
         $this->authorizeForUser($pro, 'update', $smartLink);
 
         $data = $request->validated();
-        $discountable = in_array($smartLink->type, self::DISCOUNTABLE, true);
 
-        if ($discountable) {
-            foreach (['discount_code', 'discount_kind', 'discount_value'] as $field) {
-                if (array_key_exists($field, $data)) {
-                    $smartLink->{$field} = $data[$field];
-                }
-            }
+        if (array_key_exists('discount_code', $data)
+            && $this->discountSupported($smartLink->type, $smartLink->platform)) {
+            $smartLink->discount_code = $data['discount_code'];
         }
         if (array_key_exists('is_active', $data)) {
             $smartLink->is_active = (bool) $data['is_active'];
@@ -227,6 +220,21 @@ class UserSmartLinkController extends ApiController
         $site->touch();
 
         return $this->success(['ok' => true]);
+    }
+
+    /**
+     * A discount code is supported only where we can apply it on the visitor
+     * click: Shopify (product/collection/brand → /discount/CODE?redirect=) or
+     * Eventbrite (event → ?discount=). Elsewhere the code is dropped (§1.9).
+     */
+    private function discountSupported(string $type, string $platform): bool
+    {
+        if ($type === 'commerce.event') {
+            return $platform === 'eventbrite';
+        }
+
+        return $platform === 'shopify'
+            && in_array($type, ['commerce.product', 'commerce.collection', 'commerce.brand'], true);
     }
 
     /** @return array<string,mixed> */

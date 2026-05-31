@@ -146,7 +146,8 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/smart-links/{smartLink}', [UserSmartLinkController::class, 'destroy'])
             ->whereUuid('smartLink');
         Route::post('/smart-links/{smartLink}/refresh', [UserSmartLinkController::class, 'refresh'])
-            ->whereUuid('smartLink');
+            ->whereUuid('smartLink')
+            ->middleware('throttle:10,1'); // §1.10 — cap manual force-refresh (10/min/user)
 
         // Sections
         Route::get('/sections', [UserSectionBlockController::class, 'index']);

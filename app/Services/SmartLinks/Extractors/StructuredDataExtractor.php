@@ -123,19 +123,24 @@ class StructuredDataExtractor implements SmartLinkExtractor
     {
         $org = $meta->jsonLdOfType('Organization');
         $name = $this->str($org['name'] ?? null) ?? $meta->og('og:site_name') ?? $meta->title ?? $this->hostBrand($url->host);
-        $logo = $this->str($this->firstImage($org['logo'] ?? null));
-        $hero = $meta->og('og:image');
+
+        // Logo chain (§1.1): JSON-LD Organization.logo → Shopify header theme logo
+        // → apple-touch-icon. We deliberately do NOT fall back to og:image (it's a
+        // cropped social banner, not a logo — §1.3). Null → the frontend thumb
+        // falls to the favicon.
+        $logo = $this->str($this->firstImage($org['logo'] ?? null))
+            ?? $meta->headerLogoUrl
+            ?? $meta->appleTouchIconUrl;
 
         return new ResolvedSmartLinkData(
             title: $name,
-            imageUrl: $hero,
+            imageUrl: null, // brand has no cover — thumb is logo→favicon (§1.3)
             faviconUrl: $meta->faviconUrl,
             brandName: $name,
             brandLogoUrl: $logo,
-            platform: 'generic',
-            metadata: array_filter(['heroImageUrl' => $hero], fn ($v) => $v !== null),
+            platform: $meta->isShopify ? 'shopify' : 'generic',
+            metadata: [],
             imageSources: array_filter([
-                'image_url' => $hero,
                 'brand_logo_url' => $logo,
                 'favicon_url' => $meta->faviconUrl,
             ], fn ($v) => $v !== null),

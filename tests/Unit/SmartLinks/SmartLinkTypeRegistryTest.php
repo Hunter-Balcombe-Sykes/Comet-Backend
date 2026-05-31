@@ -41,6 +41,12 @@ it('detects YouTube video and Apple Podcasts episode', function () {
         ->and(resolveType('https://podcasts.apple.com/us/podcast/x/id123?i=456', 'apple_podcasts'))->toBe('content.podcast.episode');
 });
 
+it('detects Vimeo video and Spotify podcast episode', function () {
+    expect(resolveType('https://vimeo.com/123456789', 'vimeo'))->toBe('content.video')
+        ->and(resolveType('https://player.vimeo.com/video/123456789', 'vimeo'))->toBe('content.video')
+        ->and(resolveType('https://open.spotify.com/episode/abc', 'spotify'))->toBe('content.podcast.episode');
+});
+
 it('rejects an Apple Podcasts show URL with no episode id', function () {
     expect(resolveType('https://podcasts.apple.com/us/podcast/x/id123', 'apple_podcasts'))->toBeNull();
 });

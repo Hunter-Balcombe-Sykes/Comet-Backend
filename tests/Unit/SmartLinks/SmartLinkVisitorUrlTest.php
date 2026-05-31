@@ -55,3 +55,25 @@ it('ignores a discount code on a non-discountable platform (no wrapper)', functi
 
     expect($url)->toBe('https://open.spotify.com/track/abc');
 });
+
+it('withholds tracking on non-Shopify commerce links', function () {
+    $url = (new SmartLinkVisitorUrl)->build(makeLink([
+        'canonical_url' => 'https://brand.com/',
+        'family' => 'commerce',
+        'platform' => 'generic',
+        'tracking_query' => 'ref=tobias',
+    ]));
+
+    expect($url)->toBe('https://brand.com/');
+});
+
+it('still feeds tracking on content links', function () {
+    $url = (new SmartLinkVisitorUrl)->build(makeLink([
+        'canonical_url' => 'https://open.spotify.com/track/abc',
+        'family' => 'content',
+        'platform' => 'spotify',
+        'tracking_query' => 'utm_source=partna',
+    ]));
+
+    expect($url)->toBe('https://open.spotify.com/track/abc?utm_source=partna');
+});

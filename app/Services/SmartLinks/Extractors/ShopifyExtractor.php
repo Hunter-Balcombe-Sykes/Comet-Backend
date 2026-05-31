@@ -64,11 +64,18 @@ class ShopifyExtractor implements SmartLinkExtractor
             }
         }
 
+        // Brand name/favicon/logo come from the store homepage (og:site_name +
+        // favicon + logo chain), NOT product.vendor — vendor defaults to "My Store"
+        // on unconfigured Shopify stores (§1.4). Keeps product brand consistent
+        // with the brand + collection cards.
+        [$brandName, $favicon, $logo] = $this->brandFieldsFromRoot($url);
+
         return new ResolvedSmartLinkData(
             title: $this->str($product['title'] ?? null),
             imageUrl: $image,
-            faviconUrl: "{$url->scheme}://{$url->host}/favicon.ico",
-            brandName: $this->str($product['vendor'] ?? null) ?? $this->hostBrand($url->host),
+            faviconUrl: $favicon,
+            brandName: $brandName,
+            brandLogoUrl: $logo,
             platform: 'shopify',
             metadata: array_filter([
                 'price' => $price,
@@ -77,7 +84,8 @@ class ShopifyExtractor implements SmartLinkExtractor
             ], fn ($v) => $v !== null),
             imageSources: array_filter([
                 'image_url' => $image,
-                'favicon_url' => "{$url->scheme}://{$url->host}/favicon.ico",
+                'favicon_url' => $favicon,
+                'brand_logo_url' => $logo,
             ]),
         );
     }
@@ -148,7 +156,9 @@ class ShopifyExtractor implements SmartLinkExtractor
                 $name = $meta->og('og:site_name') ?? $meta->title ?? $name;
                 $favicon = $meta->faviconUrl ?? $favicon;
                 $org = $meta->jsonLdOfType('Organization');
-                $logo = $this->str($org['logo']['url'] ?? (is_string($org['logo'] ?? null) ? $org['logo'] : null));
+                $logo = $this->str($org['logo']['url'] ?? (is_string($org['logo'] ?? null) ? $org['logo'] : null))
+                    ?? $meta->headerLogoUrl
+                    ?? $meta->appleTouchIconUrl;
             }
         } catch (SafeUrlException) {
             // keep fallbacks

@@ -68,7 +68,11 @@ class ITunesExtractor implements SmartLinkExtractor
             imageUrl: $artwork,
             brandName: 'Apple Music',
             platform: 'apple_music',
-            metadata: array_filter(['subType' => $subType], fn ($v) => $v !== null),
+            metadata: array_filter([
+                'subType' => $subType,
+                'artist' => $this->str($result['artistName'] ?? null),
+                'album' => $this->str($result['collectionName'] ?? null),
+            ], fn ($v) => $v !== null),
         );
     }
 

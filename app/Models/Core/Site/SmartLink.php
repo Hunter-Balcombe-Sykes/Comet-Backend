@@ -33,8 +33,6 @@ class SmartLink extends BaseModel
         'canonical_url',
         'tracking_query',
         'discount_code',
-        'discount_kind',
-        'discount_value',
         'title',
         'image_url',
         'favicon_url',
@@ -52,7 +50,6 @@ class SmartLink extends BaseModel
     protected $casts = [
         'metadata' => 'array',
         'image_sources' => 'array',
-        'discount_value' => 'float',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
         'consecutive_failures' => 'integer',

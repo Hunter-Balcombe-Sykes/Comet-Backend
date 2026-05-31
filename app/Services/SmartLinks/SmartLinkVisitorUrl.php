@@ -45,8 +45,12 @@ class SmartLinkVisitorUrl
             return $this->withQuery($scheme, $host, $path, $query);
         }
 
-        // Default: canonical + tracking.
-        $query = $this->mergeQuery($existingQuery, $tracking);
+        // Default: canonical + tracking — but for commerce links only feed the
+        // referral/tracking params onto the visitor click for Shopify-compatible
+        // platforms (§1.9). Non-Shopify commerce stores tracking but withholds it
+        // until per-platform tracking is wired. Content links always carry theirs.
+        $feedTracking = $link->family !== 'commerce' || $link->platform === 'shopify';
+        $query = $this->mergeQuery($existingQuery, $feedTracking ? $tracking : null);
 
         return $this->withQuery($scheme, $host, $path, $query);
     }

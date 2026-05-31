@@ -28,8 +28,6 @@ class SmartLinkResource extends ApiResource
             'brand_logo_url' => $this->brand_logo_url,
             'metadata' => (object) ($this->metadata ?? []),
             'discount_code' => $this->discount_code,
-            'discount_kind' => $this->discount_kind,
-            'discount_value' => $this->discount_value !== null ? (float) $this->discount_value : null,
             'visitor_url' => app(SmartLinkVisitorUrl::class)->build($this->resource),
             'sort_order' => (int) $this->sort_order,
             'is_active' => (bool) $this->is_active,
