@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\AppleController;
+use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
@@ -75,4 +76,12 @@ Route::prefix('platforms/tiktok')
         Route::post('/connect', [TiktokController::class, 'connect']);
         Route::get('/selection', [TiktokController::class, 'selection']);
         Route::delete('/', [TiktokController::class, 'forget']);
+    });
+
+Route::prefix('platforms/facebook')
+    ->middleware('throttle:public-site')
+    ->group(function () {
+        Route::post('/connect', [FacebookController::class, 'connect']);
+        Route::get('/selection', [FacebookController::class, 'selection']);
+        Route::delete('/', [FacebookController::class, 'forget']);
     });
