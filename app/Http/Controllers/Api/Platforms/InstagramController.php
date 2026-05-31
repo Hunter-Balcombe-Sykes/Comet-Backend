@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -110,18 +111,39 @@ class InstagramController extends ApiController
                     'https://api.apify.com/v2/acts/'.self::ACTOR.'/run-sync-get-dataset-items',
                     ['usernames' => [$username]],
                 );
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::warning('instagram.apify.threw', ['username' => $username, 'error' => $e->getMessage()]);
+
             return null;
         }
 
         if (! $response->ok()) {
+            Log::warning('instagram.apify.not_ok', [
+                'username' => $username,
+                'status' => $response->status(),
+                'body' => mb_substr($response->body(), 0, 800),
+            ]);
+
             return null;
         }
 
         $items = $response->json();
         if (! is_array($items) || empty($items) || ! is_array($items[0])) {
+            Log::warning('instagram.apify.bad_items', [
+                'username' => $username,
+                'type' => gettype($items),
+                'count' => is_array($items) ? count($items) : 0,
+                'body' => mb_substr($response->body(), 0, 800),
+            ]);
+
             return null;
         }
+
+        Log::info('instagram.apify.ok', [
+            'username' => $username,
+            'topKeys' => array_slice(array_keys($items[0]), 0, 25),
+            'latestPostsCount' => is_array($items[0]['latestPosts'] ?? null) ? count($items[0]['latestPosts']) : 0,
+        ]);
 
         return $items[0];
     }
