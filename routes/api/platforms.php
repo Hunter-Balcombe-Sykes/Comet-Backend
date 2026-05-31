@@ -66,8 +66,12 @@ Route::prefix('platforms/apple')
     ->middleware('throttle:public-site')
     ->group(function () {
         Route::post('/music/connect', [AppleController::class, 'connectMusic']);
+        Route::get('/music/recent', [AppleController::class, 'musicRecent']);
+        Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
         Route::get('/music/selection', [AppleController::class, 'musicSelection']);
         Route::post('/podcast/connect', [AppleController::class, 'connectPodcast']);
+        Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
+        Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
         Route::get('/podcast/selection', [AppleController::class, 'podcastSelection']);
         Route::delete('/', [AppleController::class, 'forget']);
     });
