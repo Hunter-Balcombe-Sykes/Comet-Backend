@@ -82,10 +82,19 @@ class YoutubeController extends ApiController
     {
         $headers = ['User-Agent' => self::SCRAPE_USER_AGENT];
 
-        // Stage 1 — channel page → channel ID.
+        // Stage 1 — channel page → the channel's OWN canonical ID. A channel
+        // page lists several "channelId" values (featured/related channels,
+        // video owners) and the first is NOT reliably the channel itself — so
+        // prefer "externalId" / the canonical /channel/<id> URL, both of which
+        // are the page owner's ID. Fall back to the first channelId only if
+        // neither is present.
         $page = $this->fetcher->fetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
-        if ($page['status'] !== 200
-            || ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)) {
+        if ($page['status'] !== 200) {
+            return null;
+        }
+        if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)
+            && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $page['body'], $m)
+            && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)) {
             return null;
         }
         $channelId = $m[1];
