@@ -3,16 +3,17 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Platforms\AppleSearch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for Apple Music + Apple Podcasts. One controller, two
-// independent sections (music = latest album, podcast = latest episode), both
-// on the unauthenticated iTunes Search API. Single-tenant cache, no auth, no
-// migration, no API key. Full spec:
-//   ~/Developer/platform link capabilites/apple-implementation.md
+// independent selections (music = latest album + highlights, podcast = latest
+// episode + highlights), both on the unauthenticated iTunes Search API via
+// App\Services\Platforms\AppleSearch. No auth, no key. Two keys, so this
+// controller keeps its own storage rather than the single-key trait.
+// Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
     private const MUSIC_KEY = 'platforms.apple.music.selection';
@@ -21,9 +22,9 @@ class AppleController extends ApiController
 
     private const CACHE_TTL_DAYS = 30;
 
-    private const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    private const MAX_HIGHLIGHTS = 5;
 
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    public function __construct(private readonly AppleSearch $apple) {}
 
     // ── Music ────────────────────────────────────────────────────
 
@@ -31,13 +32,23 @@ class AppleController extends ApiController
     public function connectMusic(Request $request): JsonResponse
     {
         $validated = $request->validate(['artist' => ['required', 'string', 'max:200']]);
-        $album = $this->fetchLatestAlbum(trim($validated['artist']));
-        if ($album === null) {
+        $input = trim($validated['artist']);
+
+        $albums = $this->apple->fetchAlbums($input);
+        if (empty($albums)) {
             return $this->error('Could not find that Apple Music artist or an album.', 404);
         }
+        $latest = $albums[0];
 
-        $selection = ['input' => trim($validated['artist']), ...$album];
-        Cache::put(self::MUSIC_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $selection = [
+            'input' => $input,
+            'name' => $latest['name'],
+            'thumbnail' => $latest['thumbnail'],
+            'releaseDate' => $latest['releaseDate'],
+            'link' => $latest['link'],
+            'highlights' => $this->keptHighlights(self::MUSIC_KEY, $input),
+        ];
+        $this->put(self::MUSIC_KEY, $selection);
 
         return $this->success($selection);
     }
@@ -48,19 +59,66 @@ class AppleController extends ApiController
         return $this->success(['selection' => Cache::get(self::MUSIC_KEY)]);
     }
 
+    // GET /api/platforms/apple/music/recent — last 15 albums for the picker.
+    public function musicRecent(): JsonResponse
+    {
+        $input = data_get(Cache::get(self::MUSIC_KEY), 'input');
+        if (! $input) {
+            return $this->error('Connect an Apple Music artist first.', 404);
+        }
+        $albums = $this->apple->fetchAlbums($input);
+        if ($albums === null) {
+            return $this->error('Could not load recent albums.', 502);
+        }
+
+        return $this->success(['albums' => $albums]);
+    }
+
+    // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
+    public function musicHighlights(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'albumIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
+            'albumIds.*' => ['string', 'max:30'],
+        ]);
+        $selection = Cache::get(self::MUSIC_KEY);
+        if (! $selection) {
+            return $this->error('Connect an Apple Music artist first.', 404);
+        }
+        $albums = $this->apple->fetchAlbums(data_get($selection, 'input'));
+        if ($albums === null) {
+            return $this->error('Could not load recent albums.', 502);
+        }
+
+        $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
+        $this->put(self::MUSIC_KEY, $selection);
+
+        return $this->success($selection);
+    }
+
     // ── Podcast ───────────────────────────────────────────────────
 
     // POST /api/platforms/apple/podcast/connect
     public function connectPodcast(Request $request): JsonResponse
     {
         $validated = $request->validate(['show' => ['required', 'string', 'max:200']]);
-        $episode = $this->fetchLatestEpisode(trim($validated['show']));
-        if ($episode === null) {
+        $input = trim($validated['show']);
+
+        $episodes = $this->apple->fetchEpisodes($input);
+        if (empty($episodes)) {
             return $this->error('Could not find that Apple Podcast or an episode.', 404);
         }
+        $latest = $episodes[0];
 
-        $selection = ['input' => trim($validated['show']), ...$episode];
-        Cache::put(self::PODCAST_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $selection = [
+            'input' => $input,
+            'name' => $latest['name'],
+            'thumbnail' => $latest['thumbnail'],
+            'description' => $latest['description'],
+            'link' => $latest['link'],
+            'highlights' => $this->keptHighlights(self::PODCAST_KEY, $input),
+        ];
+        $this->put(self::PODCAST_KEY, $selection);
 
         return $this->success($selection);
     }
@@ -69,6 +127,43 @@ class AppleController extends ApiController
     public function podcastSelection(): JsonResponse
     {
         return $this->success(['selection' => Cache::get(self::PODCAST_KEY)]);
+    }
+
+    // GET /api/platforms/apple/podcast/recent — last 15 episodes for the picker.
+    public function podcastRecent(): JsonResponse
+    {
+        $input = data_get(Cache::get(self::PODCAST_KEY), 'input');
+        if (! $input) {
+            return $this->error('Connect an Apple Podcast first.', 404);
+        }
+        $episodes = $this->apple->fetchEpisodes($input);
+        if ($episodes === null) {
+            return $this->error('Could not load recent episodes.', 502);
+        }
+
+        return $this->success(['episodes' => $episodes]);
+    }
+
+    // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
+    public function podcastHighlights(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'episodeIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
+            'episodeIds.*' => ['string', 'max:30'],
+        ]);
+        $selection = Cache::get(self::PODCAST_KEY);
+        if (! $selection) {
+            return $this->error('Connect an Apple Podcast first.', 404);
+        }
+        $episodes = $this->apple->fetchEpisodes(data_get($selection, 'input'));
+        if ($episodes === null) {
+            return $this->error('Could not load recent episodes.', 502);
+        }
+
+        $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
+        $this->put(self::PODCAST_KEY, $selection);
+
+        return $this->success($selection);
     }
 
     // DELETE /api/platforms/apple — clear both.
@@ -82,104 +177,29 @@ class AppleController extends ApiController
 
     // ── internals ────────────────────────────────────────────────
 
-    private function itunes(string $path): ?array
+    private function put(string $key, array $data): void
     {
-        $res = $this->fetcher->fetch('https://itunes.apple.com'.$path, ['User-Agent' => self::UA]);
-        if ($res['status'] !== 200) {
-            return null;
-        }
-        $json = json_decode($res['body'], true);
-
-        return is_array($json) ? $json : null;
+        Cache::put($key, $data, now()->addDays(self::CACHE_TTL_DAYS));
     }
 
-    // Artwork comes back as "...100x100bb.jpg"; swap for HD without a 2nd call.
-    private function hdArtwork(?string $url100, int $size = 600): ?string
+    // Preserve existing highlights only when reconnecting the SAME input.
+    private function keptHighlights(string $key, string $input): array
     {
-        return $url100 ? str_replace('100x100bb.jpg', "{$size}x{$size}bb.jpg", $url100) : null;
+        $existing = Cache::get($key);
+
+        return data_get($existing, 'input') === $input ? data_get($existing, 'highlights', []) : [];
     }
 
-    /**
-     * @return array{name:?string, thumbnail:?string, releaseDate:?string, link:?string}|null
-     */
-    private function fetchLatestAlbum(string $input): ?array
+    // Snapshot the chosen items (by $idField) in the order the user posted them, capped.
+    private function snapshot(array $items, string $idField, array $ids): array
     {
-        $artistId = $this->resolveArtistId($input);
-        if ($artistId === null) {
-            return null;
-        }
+        $byId = collect($items)->keyBy($idField);
 
-        $data = $this->itunes("/lookup?id={$artistId}&entity=album&limit=25");
-        $album = collect(data_get($data, 'results', []))
-            ->filter(fn ($r) => data_get($r, 'wrapperType') === 'collection')
-            ->sortByDesc(fn ($r) => data_get($r, 'releaseDate'))
-            ->first();
-        if (! $album) {
-            return null;
-        }
-
-        return [
-            'name' => data_get($album, 'collectionName'),
-            'thumbnail' => $this->hdArtwork(data_get($album, 'artworkUrl100')),
-            'releaseDate' => data_get($album, 'releaseDate'),
-            'link' => data_get($album, 'collectionViewUrl'),
-        ];
-    }
-
-    private function resolveArtistId(string $input): ?int
-    {
-        if (str_starts_with($input, 'http') && str_contains($input, 'music.apple.com')
-            && preg_match('~/artist/[^/]+/(\d+)~', $input, $m)) {
-            return (int) $m[1];
-        }
-
-        $data = $this->itunes('/search?term='.rawurlencode($input).'&entity=musicArtist&limit=1');
-        $id = data_get($data, 'results.0.artistId');
-
-        return $id ? (int) $id : null;
-    }
-
-    /**
-     * @return array{name:?string, thumbnail:?string, description:string, link:?string}|null
-     */
-    private function fetchLatestEpisode(string $input): ?array
-    {
-        $podcastId = $this->resolvePodcastId($input);
-        if ($podcastId === null) {
-            return null;
-        }
-
-        $data = $this->itunes("/lookup?id={$podcastId}&entity=podcastEpisode&limit=10");
-        $episode = collect(data_get($data, 'results', []))
-            ->filter(fn ($r) => data_get($r, 'wrapperType') === 'podcastEpisode')
-            ->sortByDesc(fn ($r) => data_get($r, 'releaseDate'))
-            ->first();
-        if (! $episode) {
-            return null;
-        }
-
-        $art = data_get($episode, 'artworkUrl600')
-            ?? data_get($episode, 'artworkUrl160')
-            ?? data_get($episode, 'artworkUrl60');
-
-        return [
-            'name' => data_get($episode, 'trackName'),
-            'thumbnail' => $this->hdArtwork($art),
-            'description' => data_get($episode, 'description') ?: (data_get($episode, 'shortDescription') ?: ''),
-            'link' => data_get($episode, 'trackViewUrl'),
-        ];
-    }
-
-    private function resolvePodcastId(string $input): ?int
-    {
-        if (str_starts_with($input, 'http') && str_contains($input, 'podcasts.apple.com')
-            && preg_match('~/id(\d+)~', $input, $m)) {
-            return (int) $m[1];
-        }
-
-        $data = $this->itunes('/search?term='.rawurlencode($input).'&entity=podcast&limit=1');
-        $id = data_get($data, 'results.0.collectionId');
-
-        return $id ? (int) $id : null;
+        return collect($ids)
+            ->map(fn (string $id) => $byId->get($id))
+            ->filter()
+            ->take(self::MAX_HIGHLIGHTS)
+            ->values()
+            ->all();
     }
 }
