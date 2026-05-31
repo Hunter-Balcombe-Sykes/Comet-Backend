@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for the YouTube integration. Single-tenant cache, no
 // auth, no migration. Takes a channel handle (or URL), resolves it to a
@@ -17,13 +17,18 @@ use Illuminate\Support\Facades\Cache;
 // ID) then the RSS feed (for the latest video). No API key.
 class YoutubeController extends ApiController
 {
-    private const SELECTION_KEY = 'platforms.youtube.selection';
+    use ManagesPlatformSelection;
 
-    private const CACHE_TTL_DAYS = 30;
+    private const SELECTION_KEY = 'platforms.youtube.selection';
 
     private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+
+    protected function selectionKey(): string
+    {
+        return self::SELECTION_KEY;
+    }
 
     // POST /api/platforms/youtube/connect — fetch the latest video, store + return.
     public function connect(Request $request): JsonResponse
@@ -43,23 +48,9 @@ class YoutubeController extends ApiController
         }
 
         $selection = ['handle' => $handle, ...$video];
-        Cache::put(self::SELECTION_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $this->writeSelection($selection);
 
         return $this->success($selection);
-    }
-
-    // GET /api/platforms/youtube/selection
-    public function selection(): JsonResponse
-    {
-        return $this->success(['selection' => Cache::get(self::SELECTION_KEY)]);
-    }
-
-    // DELETE /api/platforms/youtube
-    public function forget(): JsonResponse
-    {
-        Cache::forget(self::SELECTION_KEY);
-
-        return $this->success(['selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────

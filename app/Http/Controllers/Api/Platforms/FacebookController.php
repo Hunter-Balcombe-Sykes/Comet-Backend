@@ -3,18 +3,23 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoint for Facebook — link-only (same shape as TikTok). We do NOT
 // scrape; the user gives a username or profile/page URL and we store the
 // canonical link. Single-tenant cache, no auth, no migration.
 class FacebookController extends ApiController
 {
+    use ManagesPlatformSelection;
+
     private const SELECTION_KEY = 'platforms.facebook.selection';
 
-    private const CACHE_TTL_DAYS = 30;
+    protected function selectionKey(): string
+    {
+        return self::SELECTION_KEY;
+    }
 
     // POST /api/platforms/facebook/connect — store the profile link.
     public function connect(Request $request): JsonResponse
@@ -28,23 +33,9 @@ class FacebookController extends ApiController
             return $this->error('Enter your Facebook username or profile URL.', 422);
         }
 
-        Cache::put(self::SELECTION_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $this->writeSelection($selection);
 
         return $this->success($selection);
-    }
-
-    // GET /api/platforms/facebook/selection
-    public function selection(): JsonResponse
-    {
-        return $this->success(['selection' => Cache::get(self::SELECTION_KEY)]);
-    }
-
-    // DELETE /api/platforms/facebook
-    public function forget(): JsonResponse
-    {
-        Cache::forget(self::SELECTION_KEY);
-
-        return $this->success(['selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
