@@ -117,7 +117,9 @@ class InstagramController extends ApiController
             return null;
         }
 
-        if (! $response->ok()) {
+        // run-sync-get-dataset-items returns 201 Created on success — accept any
+        // 2xx (->ok() would only accept exactly 200).
+        if (! $response->successful()) {
             Log::warning('instagram.apify.not_ok', [
                 'username' => $username,
                 'status' => $response->status(),
@@ -184,7 +186,7 @@ class InstagramController extends ApiController
     {
         try {
             $res = Http::timeout(20)->get($url);
-            if (! $res->ok()) {
+            if (! $res->successful()) {
                 return null;
             }
             Storage::disk('media')->put($path, $res->body());
