@@ -17,12 +17,13 @@ use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceContr
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
-use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
+use App\Http\Controllers\Api\User\SiteManagement\UserSmartLinkController;
+use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
@@ -134,6 +135,18 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/links/{linkBlock}', [UserLinkBlockController::class, 'destroy'])
             ->whereUuid('linkBlock');
         Route::post('/links/reorder', [UserLinkBlockController::class, 'reorder']);
+
+        // Smart links (commerce + content)
+        Route::get('/smart-links', [UserSmartLinkController::class, 'index']);
+        Route::post('/smart-links/preview', [UserSmartLinkController::class, 'preview']);
+        Route::post('/smart-links', [UserSmartLinkController::class, 'store']);
+        Route::post('/smart-links/reorder', [UserSmartLinkController::class, 'reorder']);
+        Route::patch('/smart-links/{smartLink}', [UserSmartLinkController::class, 'update'])
+            ->whereUuid('smartLink');
+        Route::delete('/smart-links/{smartLink}', [UserSmartLinkController::class, 'destroy'])
+            ->whereUuid('smartLink');
+        Route::post('/smart-links/{smartLink}/refresh', [UserSmartLinkController::class, 'refresh'])
+            ->whereUuid('smartLink');
 
         // Sections
         Route::get('/sections', [UserSectionBlockController::class, 'index']);
