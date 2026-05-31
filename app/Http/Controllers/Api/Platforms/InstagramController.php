@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -21,14 +21,19 @@ use Throwable;
 // public profile payload.
 class InstagramController extends ApiController
 {
-    private const SELECTION_KEY = 'platforms.instagram.selection';
+    use ManagesPlatformSelection;
 
-    private const CACHE_TTL_DAYS = 30;
+    private const SELECTION_KEY = 'platforms.instagram.selection';
 
     // Apify actor id (tilde-separated owner~name form for the API path).
     private const ACTOR = 'apify~instagram-profile-scraper';
 
     private const TARGET_IMAGE_COUNT = 5;
+
+    protected function selectionKey(): string
+    {
+        return self::SELECTION_KEY;
+    }
 
     // POST /api/platforms/instagram/connect — scrape a username, mirror images,
     // store + return the blob.
@@ -78,24 +83,9 @@ class InstagramController extends ApiController
             'postsCount' => data_get($profile, 'postsCount'),
             'images' => $images,
         ];
-        Cache::put(self::SELECTION_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $this->writeSelection($selection);
 
         return $this->success($selection);
-    }
-
-    // GET /api/platforms/instagram/selection — read the saved blob (partna-pages
-    // reads this; the dashboard restores its state from it).
-    public function selection(): JsonResponse
-    {
-        return $this->success(['selection' => Cache::get(self::SELECTION_KEY)]);
-    }
-
-    // DELETE /api/platforms/instagram — clear the saved selection.
-    public function forget(): JsonResponse
-    {
-        Cache::forget(self::SELECTION_KEY);
-
-        return $this->success(['selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────

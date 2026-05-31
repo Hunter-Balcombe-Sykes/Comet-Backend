@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for the Stan.store integration. Mirrors the other
 // platform tests: single-tenant cache, no auth, no migration. Takes a Stan
@@ -18,9 +18,9 @@ use Illuminate\Support\Facades\Cache;
 // Instagram we store the URLs directly — no R2 mirroring needed.
 class StanController extends ApiController
 {
-    private const SELECTION_KEY = 'platforms.stan.selection';
+    use ManagesPlatformSelection;
 
-    private const CACHE_TTL_DAYS = 30;
+    private const SELECTION_KEY = 'platforms.stan.selection';
 
     private const USERS_API = 'https://api.stanwith.me/api/v1/users/';
 
@@ -29,6 +29,11 @@ class StanController extends ApiController
     private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+
+    protected function selectionKey(): string
+    {
+        return self::SELECTION_KEY;
+    }
 
     // POST /api/platforms/stan/connect — fetch a Stan store, store + return.
     public function connect(Request $request): JsonResponse
@@ -47,24 +52,9 @@ class StanController extends ApiController
             return $this->error('Could not find that Stan store — check the username.', 404);
         }
 
-        Cache::put(self::SELECTION_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $this->writeSelection($selection);
 
         return $this->success($selection);
-    }
-
-    // GET /api/platforms/stan/selection — read the saved blob (partna-pages
-    // reads this; the dashboard restores its state from it).
-    public function selection(): JsonResponse
-    {
-        return $this->success(['selection' => Cache::get(self::SELECTION_KEY)]);
-    }
-
-    // DELETE /api/platforms/stan — clear the saved selection.
-    public function forget(): JsonResponse
-    {
-        Cache::forget(self::SELECTION_KEY);
-
-        return $this->success(['selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
