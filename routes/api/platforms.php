@@ -56,6 +56,8 @@ Route::prefix('platforms/youtube')
     ->middleware('throttle:public-site')
     ->group(function () {
         Route::post('/connect', [YoutubeController::class, 'connect']);
+        Route::get('/recent', [YoutubeController::class, 'recent']);
+        Route::post('/highlights', [YoutubeController::class, 'highlights']);
         Route::get('/selection', [YoutubeController::class, 'selection']);
         Route::delete('/', [YoutubeController::class, 'forget']);
     });
