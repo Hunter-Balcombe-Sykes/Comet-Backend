@@ -43,13 +43,10 @@ class FreshaController extends ApiController
         $url = $this->stripLocale($validated['url']);
         Cache::put(self::CACHE_KEY, $url, now()->addDays(self::CACHE_TTL_DAYS));
 
-        return $this->success([
-            'url' => $url,
-            'team' => $this->fetchTeam($url),
-        ]);
+        return $this->success(['url' => $url, ...$this->fetchMenu($url)]);
     }
 
-    // GET /api/platforms/fresha/team
+    // GET /api/platforms/fresha/team — team + services for the saved URL.
     public function team(): JsonResponse
     {
         $url = Cache::get(self::CACHE_KEY);
@@ -57,10 +54,7 @@ class FreshaController extends ApiController
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
         }
 
-        return $this->success([
-            'url' => $url,
-            'team' => $this->fetchTeam($url),
-        ]);
+        return $this->success(['url' => $url, ...$this->fetchMenu($url)]);
     }
 
     // GET /api/platforms/fresha/url — peek at what's saved without re-scraping.
@@ -86,9 +80,27 @@ class FreshaController extends ApiController
     }
 
     /**
-     * @return list<array{employeeId:string, displayName:string, jobTitle:?string, avatarUrl:?string, rating:?float}>
+     * Fetch + parse the Fresha page once, returning both team and services.
+     *
+     * Services are location-wide (the full menu). For BY-TOPIC salons that
+     * matches Fresha's own per-employee booking page closely enough; for
+     * BY-EMPLOYEE salons every employee sees the full list (acceptable for
+     * test mode — see ~/Developer/platform link capabilites/fresha.md).
+     *
+     * @return array{team:list<array<string,mixed>>, services:list<array<string,mixed>>}
      */
-    private function fetchTeam(string $url): array
+    private function fetchMenu(string $url): array
+    {
+        $location = $this->fetchLocation($url);
+
+        return [
+            'team' => $this->extractTeam($location),
+            'services' => $this->extractServices($location),
+        ];
+    }
+
+    /** Fetch the page and return the decoded `location` object from __NEXT_DATA__. */
+    private function fetchLocation(string $url): array
     {
         $response = $this->fetcher->fetch($url, ['User-Agent' => self::SCRAPE_USER_AGENT]);
 
@@ -105,7 +117,17 @@ class FreshaController extends ApiController
             abort(502, 'Failed to decode __NEXT_DATA__ JSON.');
         }
 
-        $edges = data_get($data, 'props.pageProps.data.location.employeeProfiles.edges', []);
+        $location = data_get($data, 'props.pageProps.data.location', []);
+
+        return is_array($location) ? $location : [];
+    }
+
+    /**
+     * @return list<array{employeeId:string, displayName:string, jobTitle:?string, avatarUrl:?string, rating:?float}>
+     */
+    private function extractTeam(array $location): array
+    {
+        $edges = data_get($location, 'employeeProfiles.edges', []);
         if (! is_array($edges)) {
             return [];
         }
@@ -121,5 +143,47 @@ class FreshaController extends ApiController
                 'rating' => isset($node['rating']) ? (float) $node['rating'] : null,
             ];
         }, $edges));
+    }
+
+    /**
+     * Flatten Fresha's category → items tree into one service list. Only real
+     * services (id prefixed `s:`) are kept; the `s:` id is what the booking
+     * deep link's offerItemId needs.
+     *
+     * @return list<array{serviceId:string, name:string, duration:?string, description:?string, price:?string, priceValue:mixed, currency:mixed, category:?string, hasVariants:bool}>
+     */
+    private function extractServices(array $location): array
+    {
+        $categories = data_get($location, 'services', []);
+        if (! is_array($categories)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($categories as $category) {
+            $categoryName = $category['name'] ?? null;
+            foreach (($category['items'] ?? []) as $item) {
+                $id = (string) ($item['id'] ?? '');
+                if (! str_starts_with($id, 's:')) {
+                    continue;
+                }
+
+                $variants = $item['variants'] ?? null;
+
+                $out[] = [
+                    'serviceId' => $id,
+                    'name' => (string) ($item['name'] ?? ''),
+                    'duration' => $item['caption'] ?? null,
+                    'description' => $item['description'] ?? null,
+                    'price' => $item['formattedRetailPrice'] ?? null,
+                    'priceValue' => data_get($item, 'retailPrice.value'),
+                    'currency' => data_get($item, 'retailPrice.currency'),
+                    'category' => $categoryName,
+                    'hasVariants' => is_array($variants) && count($variants) > 1,
+                ];
+            }
+        }
+
+        return $out;
     }
 }
