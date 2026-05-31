@@ -4,166 +4,160 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Services\Platforms\InstagramScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-// Test-mode endpoints for the Instagram integration. Mirrors Fresha/Shopify:
-// single-tenant cache, no auth, no migration. Takes a username, runs Apify's
-// instagram-profile-scraper, pulls the HD profile pic + business category +
-// the 5 most-recent image posts, mirrors every image to the R2 `media` disk
-// (Instagram CDN URLs expire), and stores the blob partna-pages reads back.
-//
-// Promotion plan: per-user persistence + scheduled refresh; served inside the
-// public profile payload.
+// Test-mode endpoints for the Instagram integration. Two modes, identical output
+// shape (a mirrored images[] + a `mode` tag):
+//   automatic — connect() scrapes and takes the 8 most-recent post covers.
+//   manual    — posts() lists recent posts + their images for the picker;
+//               saveSelection() mirrors the chosen images.
+// Scraping lives in App\Services\Platforms\InstagramScraper; mirroring to the R2
+// `media` disk stays here (IG CDN urls expire, so we re-host the chosen images).
 class InstagramController extends ApiController
 {
     use ManagesPlatformSelection;
 
     private const SELECTION_KEY = 'platforms.instagram.selection';
 
-    // Apify actor id (tilde-separated owner~name form for the API path).
-    private const ACTOR = 'apify~instagram-profile-scraper';
+    private const AUTO_IMAGE_COUNT = 8;
 
-    private const TARGET_IMAGE_COUNT = 5;
+    private const MAX_MANUAL_IMAGES = 8;
+
+    public function __construct(private readonly InstagramScraper $scraper) {}
 
     protected function selectionKey(): string
     {
         return self::SELECTION_KEY;
     }
 
-    // POST /api/platforms/instagram/connect — scrape a username, mirror images,
-    // store + return the blob.
+    // POST /api/platforms/instagram/connect — AUTOMATIC: scrape, mirror 8 covers, store.
     public function connect(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'username' => ['required', 'string', 'max:80'],
-        ]);
-
-        $username = ltrim(trim($validated['username']), '@');
-        if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
-            return $this->error("That doesn't look like a valid Instagram username.", 422);
+        $username = $this->validateUsername($request);
+        if ($username instanceof JsonResponse) {
+            return $username;
         }
 
-        $token = config('services.apify.token');
-        if (! $token) {
-            return $this->error('Apify token not configured on the server.', 500);
-        }
-
-        $profile = $this->runProfileScraper($username, $token);
+        $profile = $this->scraper->fetchProfile($username);
         if (! $profile) {
             return $this->error('Could not fetch that Instagram profile (private, not found, or scraper error).', 502);
         }
 
-        // Unique folder per scrape so mirrored URLs are always fresh (immutable
-        // CDN cache on the bucket means we must not reuse a path for new bytes).
         $folder = 'platforms/instagram/'.now()->timestamp;
+        $images = $this->mirrorAll($this->scraper->recentCoverImages($profile, self::AUTO_IMAGE_COUNT), $folder);
 
-        $imageUrls = $this->collectImageUrls($profile, self::TARGET_IMAGE_COUNT);
-        $images = [];
-        foreach ($imageUrls as $i => $url) {
-            $mirrored = $this->mirror($url, "{$folder}/img-{$i}.jpg");
-            if ($mirrored) {
-                $images[] = $mirrored;
-            }
+        $selection = $this->buildSelection($username, $profile, $folder, 'automatic', $images);
+        $this->writeSelection($selection);
+
+        return $this->success($selection);
+    }
+
+    // GET /api/platforms/instagram/posts?username=X — recent posts + their image
+    // urls (LIVE, un-mirrored) + profile, for the manual picker.
+    public function posts(Request $request): JsonResponse
+    {
+        $username = $this->validateUsername($request);
+        if ($username instanceof JsonResponse) {
+            return $username;
         }
 
-        $profilePicSrc = data_get($profile, 'profilePicUrlHD') ?? data_get($profile, 'profilePicUrl');
-        $profilePic = is_string($profilePicSrc) ? $this->mirror($profilePicSrc, "{$folder}/profile.jpg") : null;
+        $profile = $this->scraper->fetchProfile($username);
+        if (! $profile) {
+            return $this->error('Could not fetch that Instagram profile.', 502);
+        }
 
-        $selection = [
+        return $this->success([
+            'username' => $username,
+            'fullName' => data_get($profile, 'fullName'),
+            'profilePicUrl' => $this->scraper->profilePicUrl($profile),
+            'businessCategory' => data_get($profile, 'businessCategoryName'),
+            'posts' => $this->scraper->recentPosts($profile),
+        ]);
+    }
+
+    // POST /api/platforms/instagram/selection — MANUAL: mirror the chosen images, store.
+    public function saveSelection(Request $request): JsonResponse
+    {
+        $request->validate([
+            'images' => ['present', 'array', 'max:'.self::MAX_MANUAL_IMAGES],
+            'images.*' => ['string', 'url', 'max:2000'],
+        ]);
+        $username = $this->validateUsername($request);
+        if ($username instanceof JsonResponse) {
+            return $username;
+        }
+
+        $profile = $this->scraper->fetchProfile($username);
+        if (! $profile) {
+            return $this->error('Could not fetch that Instagram profile.', 502);
+        }
+
+        $folder = 'platforms/instagram/'.now()->timestamp;
+        $chosen = array_slice($request->input('images', []), 0, self::MAX_MANUAL_IMAGES);
+        $images = $this->mirrorAll($chosen, $folder);
+
+        $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images);
+        $this->writeSelection($selection);
+
+        return $this->success($selection);
+    }
+
+    // selection() + forget() come from ManagesPlatformSelection.
+
+    // ── internals ────────────────────────────────────────────────
+
+    // Validate + normalise the username, or return a 422/500 JsonResponse the
+    // caller forwards. (Apify token must be configured for any scrape.)
+    private function validateUsername(Request $request): JsonResponse|string
+    {
+        $validated = $request->validate(['username' => ['required', 'string', 'max:80']]);
+        $username = ltrim(trim($validated['username']), '@');
+        if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
+            return $this->error("That doesn't look like a valid Instagram username.", 422);
+        }
+        if (! config('services.apify.token')) {
+            return $this->error('Apify token not configured on the server.', 500);
+        }
+
+        return $username;
+    }
+
+    // Shape the stored blob — identical across modes, plus the `mode` tag.
+    private function buildSelection(string $username, array $profile, string $folder, string $mode, array $images): array
+    {
+        $picSrc = $this->scraper->profilePicUrl($profile);
+        $profilePic = $picSrc ? $this->mirror($picSrc, "{$folder}/profile.jpg") : null;
+
+        return [
             'username' => $username,
             'fullName' => data_get($profile, 'fullName'),
             'profilePicUrl' => $profilePic,
             'businessCategory' => data_get($profile, 'businessCategoryName'),
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
+            'mode' => $mode,
             'images' => $images,
         ];
-        $this->writeSelection($selection);
-
-        return $this->success($selection);
-    }
-
-    // ── internals ────────────────────────────────────────────────
-
-    // Run the profile scraper synchronously and return the first dataset item
-    // (the profile), or null on any failure.
-    private function runProfileScraper(string $username, string $token): ?array
-    {
-        try {
-            $response = Http::withToken($token)
-                ->timeout(110)
-                ->post(
-                    'https://api.apify.com/v2/acts/'.self::ACTOR.'/run-sync-get-dataset-items',
-                    ['usernames' => [$username]],
-                );
-        } catch (Throwable $e) {
-            Log::warning('instagram.apify.threw', ['username' => $username, 'error' => $e->getMessage()]);
-
-            return null;
-        }
-
-        // run-sync-get-dataset-items returns 201 Created on success — accept any
-        // 2xx (->ok() would only accept exactly 200).
-        if (! $response->successful()) {
-            Log::warning('instagram.apify.not_ok', [
-                'username' => $username,
-                'status' => $response->status(),
-                'body' => mb_substr($response->body(), 0, 800),
-            ]);
-
-            return null;
-        }
-
-        $items = $response->json();
-        if (! is_array($items) || empty($items) || ! is_array($items[0])) {
-            Log::warning('instagram.apify.bad_items', [
-                'username' => $username,
-                'type' => gettype($items),
-                'count' => is_array($items) ? count($items) : 0,
-                'body' => mb_substr($response->body(), 0, 800),
-            ]);
-
-            return null;
-        }
-
-        Log::info('instagram.apify.ok', [
-            'username' => $username,
-            'topKeys' => array_slice(array_keys($items[0]), 0, 25),
-            'latestPostsCount' => is_array($items[0]['latestPosts'] ?? null) ? count($items[0]['latestPosts']) : 0,
-        ]);
-
-        return $items[0];
     }
 
     /**
-     * Walk latestPosts newest-first, collecting image URLs until we have $count.
-     * Skips videos; for carousels (Sidecar) takes the first image.
+     * Mirror each url to a fresh R2 path under $folder; drop any that fail.
      *
+     * @param  list<string>  $urls
      * @return list<string>
      */
-    private function collectImageUrls(array $profile, int $count): array
+    private function mirrorAll(array $urls, string $folder): array
     {
-        $posts = data_get($profile, 'latestPosts', []);
-        if (! is_array($posts)) {
-            return [];
-        }
-
         $out = [];
-        foreach ($posts as $post) {
-            if (data_get($post, 'type') === 'Video') {
-                continue;
-            }
-            $url = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
-            if (is_string($url) && $url !== '') {
-                $out[] = $url;
-            }
-            if (count($out) >= $count) {
-                break;
+        foreach (array_values($urls) as $i => $url) {
+            $mirrored = $this->mirror($url, "{$folder}/img-{$i}.jpg");
+            if ($mirrored) {
+                $out[] = $mirrored;
             }
         }
 
