@@ -13,6 +13,7 @@ Route::prefix('platforms/fresha')
         Route::post('/connect', [FreshaController::class, 'connect']);
         Route::get('/team', [FreshaController::class, 'team']);
         Route::get('/url', [FreshaController::class, 'show']);
+        Route::get('/employee-services', [FreshaController::class, 'employeeServices']);
         Route::post('/selection', [FreshaController::class, 'saveSelection']);
         Route::get('/selection', [FreshaController::class, 'selection']);
         Route::delete('/', [FreshaController::class, 'forget']);

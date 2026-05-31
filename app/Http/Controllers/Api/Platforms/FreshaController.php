@@ -7,6 +7,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Throwable;
 
 // Test-mode endpoints for the Fresha integration. Saves a Fresha store URL
 // globally (single-tenant test cache, no auth) and returns the staff list
@@ -34,6 +36,19 @@ class FreshaController extends ApiController
     private const URL_PATTERN = '#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i';
 
     private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+    // Fresha's internal booking GraphQL — same call the booking page fires to
+    // load a single employee's filtered service menu.
+    private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
+
+    // Persisted-query hash + client version are pinned to a Fresha frontend
+    // build and rotate when they redeploy. When they do, fetchEmployeeServices
+    // returns null and callers fall back to the whole-location menu until these
+    // are re-captured. (Test-mode tradeoff; the real version uses Fresha's
+    // partner API.)
+    private const BOOKING_INIT_HASH = '4ea9d1b31075d62f789fcec884c45d76aaeb42e56ffb1b78cc1b7f7c557ad7cb';
+
+    private const FRESHA_CLIENT_VERSION = 'd135e4b3a3be51f9dd24f5cc2af6dd6a647f85dd';
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -81,20 +96,46 @@ class FreshaController extends ApiController
             return $this->error('No Fresha URL saved yet. Save one first.', 404);
         }
 
-        $menu = $this->fetchMenu($url);
-        $employee = collect($menu['team'])->firstWhere('employeeId', $validated['employeeId']);
+        $location = $this->fetchLocation($url);
+        $employee = collect($this->extractTeam($location))->firstWhere('employeeId', $validated['employeeId']);
         if (! $employee) {
             return $this->error('That team member was not found on the saved Fresha page.', 404);
         }
 
+        // Per-employee services via the booking GraphQL; fall back to the whole
+        // location menu if that call fails (hash/version rotated).
+        $slug = $this->slugFromUrl($url);
+        $services = ($slug ? $this->fetchEmployeeServices($slug, $validated['employeeId']) : null)
+            ?? $this->extractServices($location);
+
         $selection = [
             'url' => $url,
             'employee' => $employee,
-            'services' => $menu['services'],
+            'services' => $services,
         ];
         Cache::put(self::SELECTION_CACHE_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
 
         return $this->success($selection);
+    }
+
+    // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee
+    // menu for the dashboard preview (before saving). Same fallback as above.
+    public function employeeServices(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'employeeId' => ['required', 'string', 'max:50'],
+        ]);
+
+        $url = Cache::get(self::CACHE_KEY);
+        if (! $url) {
+            return $this->error('No Fresha URL saved yet. Save one first.', 404);
+        }
+
+        $slug = $this->slugFromUrl($url);
+        $services = ($slug ? $this->fetchEmployeeServices($slug, $validated['employeeId']) : null)
+            ?? $this->extractServices($this->fetchLocation($url));
+
+        return $this->success(['services' => $services]);
     }
 
     // GET /api/platforms/fresha/selection — read the saved selection (partna-pages
@@ -119,6 +160,103 @@ class FreshaController extends ApiController
     private function stripLocale(string $url): string
     {
         return preg_replace('#fresha\.com/[a-z]{2,3}(-[a-z]{2})?/a/#i', 'fresha.com/a/', $url) ?? $url;
+    }
+
+    /** Extract the `<slug>` from a Fresha `.../a/<slug>` URL. */
+    private function slugFromUrl(string $url): ?string
+    {
+        return preg_match('#/a/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
+    }
+
+    /**
+     * Fetch one employee's bookable services via Fresha's booking-flow GraphQL
+     * (the same call the booking page fires). Returns null if the call fails so
+     * callers fall back to the whole-location menu.
+     *
+     * The service id we extract is the `catalogId` embedded in each item's
+     * action — verified equal to the location-page service id, i.e. the
+     * `offerItemId` the booking deep link needs.
+     *
+     * @return list<array<string,mixed>>|null
+     */
+    private function fetchEmployeeServices(string $slug, string $employeeId): ?array
+    {
+        $payload = [
+            'operationName' => 'BookingFlow_Initialize_Mutation',
+            'variables' => [
+                'fullUpfrontPaymentEnabled' => true,
+                'discountsAndBenefitsEnabled' => false,
+                'input' => [
+                    'locationSlug' => $slug,
+                    'referer' => '',
+                    'options' => [
+                        'employeeId' => $employeeId,
+                        'shouldShowAllEmployees' => false,
+                        'isGroupBooking' => false,
+                        'isRebook' => false,
+                        'isFromLinkBuilder' => false,
+                        'clientChannelType' => 'MARKETPLACE',
+                        'cartId' => null,
+                        'offerItemId' => null,
+                        'offerItems' => null,
+                    ],
+                    'shouldAutoContinue' => true,
+                    'capabilities' => ['SERVICE_ADDONS', 'CONFIRMATION', 'FULL_UPFRONT_PAYMENT', 'MARKETPLACE_REFRESH'],
+                ],
+            ],
+            'extensions' => [
+                'persistedQuery' => ['version' => 1, 'sha256Hash' => self::BOOKING_INIT_HASH],
+                'platform' => 'web',
+                'version' => self::FRESHA_CLIENT_VERSION,
+            ],
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'content-type' => 'application/json',
+                'x-client-platform' => 'web',
+                'x-client-version' => self::FRESHA_CLIENT_VERSION,
+                'x-graphql-operation-name' => 'mutation BookingFlow_Initialize_Mutation',
+                'origin' => 'https://www.fresha.com',
+                'User-Agent' => self::SCRAPE_USER_AGENT,
+            ])->timeout(12)->post(self::GRAPHQL_URL, $payload);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $response->ok()) {
+            return null;
+        }
+
+        $categories = data_get($response->json(), 'data.bookingFlowInitialize.screenServices.categories');
+        if (! is_array($categories)) {
+            return null;
+        }
+
+        $out = [];
+        foreach ($categories as $category) {
+            $categoryName = $category['name'] ?? null;
+            foreach (($category['items'] ?? []) as $item) {
+                $actionId = (string) (data_get($item, 'primaryAction.id') ?? data_get($item, 'secondaryAction.id') ?? '');
+                if (! preg_match('/"catalogId":"(s:\d+)"/', $actionId, $m)) {
+                    continue;
+                }
+
+                $out[] = [
+                    'serviceId' => $m[1],
+                    'name' => trim((string) ($item['name'] ?? '')),
+                    'duration' => $item['caption'] ?? null,
+                    'description' => $item['description'] ?? null,
+                    'price' => data_get($item, 'price.formatted'),
+                    'priceValue' => null,
+                    'currency' => null,
+                    'category' => $categoryName,
+                    'hasVariants' => preg_match_all('/"id":"sv:\d+"/', $actionId) > 1,
+                ];
+            }
+        }
+
+        return $out;
     }
 
     /**
