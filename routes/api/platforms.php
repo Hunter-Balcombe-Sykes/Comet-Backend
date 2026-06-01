@@ -78,6 +78,8 @@ Route::prefix('platforms/apple')
         Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
         Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
         Route::get('/podcast/selection', [AppleController::class, 'podcastSelection']);
+        Route::delete('/music', [AppleController::class, 'forgetMusic']);
+        Route::delete('/podcast', [AppleController::class, 'forgetPodcast']);
         Route::delete('/', [AppleController::class, 'forget']);
     });
 

@@ -166,13 +166,31 @@ class AppleController extends ApiController
         return $this->success($selection);
     }
 
-    // DELETE /api/platforms/apple — clear both.
+    // DELETE /api/platforms/apple — clear both. Retained for back-compat;
+    // new dashboard surfaces target the per-platform routes below.
     public function forget(): JsonResponse
     {
         Cache::forget(self::MUSIC_KEY);
         Cache::forget(self::PODCAST_KEY);
 
         return $this->success(['music' => null, 'podcast' => null]);
+    }
+
+    // DELETE /api/platforms/apple/music — clear just Music. Lets the dashboard
+    // disconnect one platform without touching the other.
+    public function forgetMusic(): JsonResponse
+    {
+        Cache::forget(self::MUSIC_KEY);
+
+        return $this->success(['music' => null]);
+    }
+
+    // DELETE /api/platforms/apple/podcast — clear just Podcasts.
+    public function forgetPodcast(): JsonResponse
+    {
+        Cache::forget(self::PODCAST_KEY);
+
+        return $this->success(['podcast' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
