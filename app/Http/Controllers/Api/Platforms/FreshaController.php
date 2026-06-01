@@ -110,6 +110,7 @@ class FreshaController extends ApiController
 
         $selection = [
             'url' => $url,
+            'storeName' => $this->extractStoreName($location),
             'employee' => $employee,
             'services' => $services,
         ];
@@ -267,16 +268,25 @@ class FreshaController extends ApiController
      * BY-EMPLOYEE salons every employee sees the full list (acceptable for
      * test mode — see ~/Developer/platform link capabilites/fresha.md).
      *
-     * @return array{team:list<array<string,mixed>>, services:list<array<string,mixed>>}
+     * @return array{storeName:?string, team:list<array<string,mixed>>, services:list<array<string,mixed>>}
      */
     private function fetchMenu(string $url): array
     {
         $location = $this->fetchLocation($url);
 
         return [
+            'storeName' => $this->extractStoreName($location),
             'team' => $this->extractTeam($location),
             'services' => $this->extractServices($location),
         ];
+    }
+
+    /** The salon's display name from the Fresha location blob. */
+    private function extractStoreName(array $location): ?string
+    {
+        $name = $location['name'] ?? null;
+
+        return is_string($name) && $name !== '' ? $name : null;
     }
 
     /** Fetch the page and return the decoded `location` object from __NEXT_DATA__. */
