@@ -106,8 +106,21 @@ class EventbriteScraper extends PlatformScraper
             'price' => $this->formatPrice(is_array($offers) ? $offers : []),
             'availability' => $this->normalizeAvailability(data_get($offers, 'availability')),
             'image' => is_string($image) ? $image : null,
-            'link' => $event['url'] ?? $url,
+            'link' => $this->normalizeLink($event['url'] ?? $url),
         ];
+    }
+
+    /**
+     * Rewrite any regional Eventbrite host (eventbrite.com.au, .co.uk, etc.)
+     * to www.eventbrite.com so iOS Universal Link interception — which
+     * matches per-domain — doesn't always route shared links into the
+     * Eventbrite app. Eventbrite 301s .com to the regional URL anyway, so
+     * the public event still resolves; the difference is the redirect runs
+     * server-side instead of through the app.
+     */
+    private function normalizeLink(string $url): string
+    {
+        return preg_replace('~^(https?://)www\.eventbrite\.[a-z.]+(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
     }
 
     // Flatten every <script type="application/ld+json"> block (expanding @graph)
