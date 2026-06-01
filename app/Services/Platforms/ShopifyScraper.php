@@ -26,9 +26,11 @@ class ShopifyScraper extends PlatformScraper
 
     /**
      * Brand profile for the store. `id` is the canonical dedup key — the
-     * /meta.json shop id when available, else a slug of the host.
+     * /meta.json shop id when available, else a slug of the host. `currency`
+     * is the shop's default currency (ISO 4217 code), used as a per-product
+     * fallback when /products.json doesn't expose presentment_prices.
      *
-     * @return array{id:string, name:?string, favicon:?string, logo:?string}
+     * @return array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}
      */
     public function fetchBrand(string $origin): array
     {
@@ -44,9 +46,13 @@ class ShopifyScraper extends PlatformScraper
         $name = data_get($meta, 'name');
         $name = is_string($name) && trim($name) !== '' ? trim($name) : $this->metaContent($html, 'og:site_name');
 
+        $currency = data_get($meta, 'currency');
+        $currency = is_string($currency) && trim($currency) !== '' ? strtoupper(trim($currency)) : null;
+
         return [
             'id' => $id,
             'name' => $name,
+            'currency' => $currency,
             'favicon' => $this->favicon($html, $origin),
             'logo' => $this->logo($html, $origin),
         ];
@@ -55,10 +61,12 @@ class ShopifyScraper extends PlatformScraper
     /**
      * Fetch <origin>/products.json and flatten to the fields we use. Only the
      * first variant of each product is kept (its id powers the cart deep link).
+     * `$defaultCurrency` is the shop-level currency used as a fallback when a
+     * variant lacks presentment_prices (most single-currency stores).
      *
      * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool}>
      */
-    public function fetchProducts(string $origin): array
+    public function fetchProducts(string $origin, ?string $defaultCurrency = null): array
     {
         $response = $this->fetcher->fetch($origin.'/products.json?limit=250', ['User-Agent' => self::USER_AGENT]);
 
@@ -85,7 +93,7 @@ class ShopifyScraper extends PlatformScraper
                 'vendor' => $product['vendor'] ?? null,
                 'image' => data_get($product, 'images.0.src'),
                 'price' => $variant['price'] ?? null,
-                'currency' => data_get($variant, 'presentment_prices.0.price.currency_code'),
+                'currency' => data_get($variant, 'presentment_prices.0.price.currency_code') ?? $defaultCurrency,
                 'variantId' => (string) $variant['id'],
                 'available' => (bool) ($variant['available'] ?? true),
             ];

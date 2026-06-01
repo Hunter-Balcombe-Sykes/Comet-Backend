@@ -71,6 +71,7 @@ class ShopifyController extends ApiController
             'id' => $id,
             'url' => $origin,
             'name' => $brand['name'],
+            'currency' => $brand['currency'] ?? null,
             'favicon' => $brand['favicon'],
             'logo' => $brand['logo'],
             'discountCode' => $discount,
@@ -117,7 +118,7 @@ class ShopifyController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
-        return $this->success(['products' => $this->scraper->fetchProducts($map[$id]['url'])]);
+        return $this->success(['products' => $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null)]);
     }
 
     // PUT /api/platforms/shopify/brands/{id}/selection — snapshot the chosen
@@ -134,7 +135,7 @@ class ShopifyController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
-        $all = collect($this->scraper->fetchProducts($map[$id]['url']))->keyBy('productId');
+        $all = collect($this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null))->keyBy('productId');
         $map[$id]['products'] = collect($validated['productIds'])
             ->map(fn (string $pid) => $all->get($pid))
             ->filter()
