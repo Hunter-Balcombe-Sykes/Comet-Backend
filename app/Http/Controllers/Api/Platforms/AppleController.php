@@ -42,10 +42,14 @@ class AppleController extends ApiController
 
         $selection = [
             'input' => $input,
+            // Flat fields retained for partna-pages + back-compat. The nested
+            // `latest` is the canonical shape (same as a highlight item) and
+            // is what the dashboard now reads to render the "Most recent" tile.
             'name' => $latest['name'],
             'thumbnail' => $latest['thumbnail'],
             'releaseDate' => $latest['releaseDate'],
             'link' => $latest['link'],
+            'latest' => $latest,
             'highlights' => $this->keptHighlights(self::MUSIC_KEY, $input),
         ];
         $this->put(self::MUSIC_KEY, $selection);
@@ -112,10 +116,14 @@ class AppleController extends ApiController
 
         $selection = [
             'input' => $input,
+            // Flat fields retained for partna-pages + back-compat. The nested
+            // `latest` is the canonical shape (same as a highlight item) and
+            // is what the dashboard now reads to render the "Most recent" tile.
             'name' => $latest['name'],
             'thumbnail' => $latest['thumbnail'],
             'description' => $latest['description'],
             'link' => $latest['link'],
+            'latest' => $latest,
             'highlights' => $this->keptHighlights(self::PODCAST_KEY, $input),
         ];
         $this->put(self::PODCAST_KEY, $selection);
