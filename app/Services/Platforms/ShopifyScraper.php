@@ -48,7 +48,7 @@ class ShopifyScraper extends PlatformScraper
             'id' => $id,
             'name' => $name,
             'favicon' => $this->favicon($html, $origin),
-            'logo' => $this->logo($html),
+            'logo' => $this->logo($html, $origin),
         ];
     }
 
@@ -119,36 +119,117 @@ class ShopifyScraper extends PlatformScraper
         return null;
     }
 
-    // <link rel="...icon..."> href → absolute https; fallback /favicon.ico.
+    // Pick the best favicon from the page's <link rel="...icon..."> tags.
+    //
+    // Strategy: collect every non-apple-touch-icon link, score by (clamped
+    // size + format bonus), return the winner. Apple-touch icons are
+    // excluded — they're 180×180+ iOS chrome images, oversized and often
+    // visually different from the real brand favicon. PNG/SVG beat ICO
+    // since the result renders at ~32px in the dashboard.
     private function favicon(string $html, string $origin): ?string
     {
+        $candidates = [];
         foreach ($this->linkTags($html) as $link) {
-            if (preg_match('~rel=["\'][^"\']*icon[^"\']*["\']~i', $link)
-                && preg_match('~href=["\']([^"\']+)["\']~i', $link, $h)) {
-                return $this->absoluteUrl(html_entity_decode(trim($h[1]), ENT_QUOTES | ENT_HTML5), $origin);
+            if (preg_match('~rel=["\'][^"\']*apple-touch-icon[^"\']*["\']~i', $link)) {
+                continue;
             }
+            if (! preg_match('~rel=["\'][^"\']*icon[^"\']*["\']~i', $link)) {
+                continue;
+            }
+            if (! preg_match('~href=["\']([^"\']+)["\']~i', $link, $h)) {
+                continue;
+            }
+
+            $size = 0;
+            if (preg_match('~sizes=["\'](\d+)x\d+["\']~i', $link, $s)) {
+                $size = (int) $s[1];
+            }
+            $type = '';
+            if (preg_match('~type=["\']image/([a-z0-9+.\-]+)["\']~i', $link, $t)) {
+                $type = strtolower($t[1]);
+            }
+
+            $candidates[] = [
+                'href' => html_entity_decode(trim($h[1]), ENT_QUOTES | ENT_HTML5),
+                'size' => $size,
+                'type' => $type,
+            ];
+        }
+
+        if (! empty($candidates)) {
+            usort($candidates, function (array $a, array $b): int {
+                // Bigger is better up to 192px; past that the icon is
+                // wasted bandwidth for the dashboard's ~32px slot.
+                $sizeA = min($a['size'] !== 0 ? $a['size'] : 16, 192);
+                $sizeB = min($b['size'] !== 0 ? $b['size'] : 16, 192);
+                $typeA = in_array($a['type'], ['png', 'svg+xml'], true) ? 16 : 0;
+                $typeB = in_array($b['type'], ['png', 'svg+xml'], true) ? 16 : 0;
+
+                return ($sizeB + $typeB) <=> ($sizeA + $typeA);
+            });
+
+            return $this->absoluteUrl($candidates[0]['href'], $origin);
         }
 
         return $origin.'/favicon.ico';
     }
 
-    // JSON-LD Organization "logo" → og:logo → apple-touch-icon → null.
-    private function logo(string $html): ?string
+    // Pick the best brand logo from the page.
+    //
+    // Source priority (high → low):
+    //   1. JSON-LD Organization.logo as a plain string.
+    //   2. JSON-LD Organization.logo as an ImageObject ({ "url": "…" }).
+    //   3. og:logo meta tag.
+    //   4. <img> whose class contains a known logo class (header__logo,
+    //      site-logo, brand-logo, plain "logo"). Covers Dawn + most
+    //      Shopify themes.
+    //   5. <img src> on the Shopify CDN whose filename contains "logo".
+    //   6. apple-touch-icon (180×180+ — last-resort brand identity).
+    //   7. null.
+    private function logo(string $html, string $origin): ?string
     {
         if (preg_match('~"logo"\s*:\s*"(https?:[^"]+)"~i', $html, $m)) {
-            return stripslashes($m[1]);
+            return $this->absoluteUrl($this->cleanJsonString($m[1]), $origin);
         }
+
+        if (preg_match('~"logo"\s*:\s*\{[^}]*?"url"\s*:\s*"(https?:[^"]+)"~i', $html, $m)) {
+            return $this->absoluteUrl($this->cleanJsonString($m[1]), $origin);
+        }
+
         if ($og = $this->metaContent($html, 'og:logo')) {
-            return $og;
+            return $this->absoluteUrl($og, $origin);
         }
+
+        // Class-name signal — most Shopify themes (Dawn, Impulse, Streamline,
+        // Prestige, etc.) wrap the header logo in an <img> whose class
+        // contains "header__logo", "site-logo", "brand-logo", or just "logo".
+        // Match the attribute in either order (class before src or vice versa).
+        $logoClassRegex = '(?:header__logo|header-logo|site-logo|brand-logo|\blogo\b)';
+        if (preg_match('~<img[^>]+class=["\'][^"\']*'.$logoClassRegex.'[^"\']*["\'][^>]*src=["\']([^"\']+)["\']~i', $html, $m)
+            || preg_match('~<img[^>]+src=["\']([^"\']+)["\'][^>]*class=["\'][^"\']*'.$logoClassRegex.'[^"\']*["\']~i', $html, $m)) {
+            return $this->absoluteUrl(html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5), $origin);
+        }
+
+        // Filename signal — Shopify CDN paths often embed "logo" in the
+        // uploaded asset name (`logo.png`, `brand_logo.svg`, etc.).
+        if (preg_match('~<img[^>]+src=["\']([^"\']+/cdn/shop/files/[^"\']*logo[^"\']*\.(?:png|svg|jpg|jpeg|webp))["\']~i', $html, $m)) {
+            return $this->absoluteUrl(html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5), $origin);
+        }
+
         foreach ($this->linkTags($html) as $link) {
-            if (preg_match('~rel=["\']apple-touch-icon["\']~i', $link)
+            if (preg_match('~rel=["\'][^"\']*apple-touch-icon[^"\']*["\']~i', $link)
                 && preg_match('~href=["\']([^"\']+)["\']~i', $link, $h)) {
-                return html_entity_decode(trim($h[1]), ENT_QUOTES | ENT_HTML5);
+                return $this->absoluteUrl(html_entity_decode(trim($h[1]), ENT_QUOTES | ENT_HTML5), $origin);
             }
         }
 
         return null;
+    }
+
+    /** Strip JSON escapes and HTML entities from a scraped URL string. */
+    private function cleanJsonString(string $value): string
+    {
+        return stripslashes(html_entity_decode($value, ENT_QUOTES | ENT_HTML5));
     }
 
     /** @return list<string> all <link ...> tags in the html */
