@@ -224,31 +224,31 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — GDPR & Deletion
 
-- [ ] **#P2-08** Export ZIP files not deleted when account is purged — Lens: `gdpr-deletion`
+- [x] **#P2-08** Export ZIP files not deleted when account is purged — Lens: `gdpr-deletion`
     - Where: `app/Services/User/AccountDeletionService.php:purge()` · `app/Jobs/Gdpr/ExportUserDataJob.php`
     - What: `ExportUserDataJob` writes to `exports/{user_id}/{audit_id}.zip`. The `DataExportAudit` FK is `ON DELETE SET NULL`, so after `User::forceDelete()` the `file_path` column retains the full R2 key but `user_id` becomes null. `purge()` has no step reading `file_path` or calling `Storage::disk(…)->delete(…)`. The ZIP — containing every piece of personal data the system holds — remains in R2 indefinitely, contradicting Art. 17 erasure.
     - Fix: In `purge()`, before `forceDelete()`, query `audit.data_export_audit WHERE user_id = $professional->id AND file_path IS NOT NULL` and delete each `file_path`. Also run `Storage::disk(…)->deleteDirectory("exports/{$professional->id}")` as a catch-all.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-09** Waitlist signup entries not deleted when the associated account is purged — Lens: `gdpr-deletion`
+- [x] **#P2-09** Waitlist signup entries not deleted when the associated account is purged — Lens: `gdpr-deletion`
     - Where: `app/Services/User/AccountDeletionService.php:purge()` · `supabase/migrations/20260526000000_baseline_standalone_user.sql` (`core.waitlist_signups`)
     - What: `core.waitlist_signups` has no `user_id` column and no FK back to `core.users`; rows are linked only by `email_lc`. `purge()` has no step targeting this table. At purge time `primary_email` is already pseudonymised (`deleted+{id}@partna.au`); the original email must be recovered from `audit.user_deletion_audit.professional_email_snapshot`, using the same pattern `DataExportPayloadBuilder::resolveLookupEmail()` already implements.
     - Fix: In `purge()`, resolve the original email from the audit snapshot. Then: `DB::connection('pgsql')->table('core.waitlist_signups')->where('email_lc', mb_strtolower(trim($originalEmail)))->delete()`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-10** Feedback submissions retain message content and reply email after account deletion — Lens: `gdpr-deletion`
+- [x] **#P2-10** Feedback submissions retain message content and reply email after account deletion — Lens: `gdpr-deletion`
     - Where: `supabase/migrations/20260526210001_create_feedback_table.sql` (FK: `ON DELETE SET NULL`) · `app/Services/User/AccountDeletionService.php:purge()`
     - What: `core.feedback(user_id)` is `ON DELETE SET NULL`. After `User::forceDelete()`, `message`, `reply_email`, `page_url`, `user_agent`, and `ip_hash` remain permanently. `purge()` has no step targeting `core.feedback`. `app_backend` has full CRUD on `core`, so no permission change is needed.
     - Fix: Simplest: change the FK to `ON DELETE CASCADE`. Alternative: add `Feedback::where('user_id', $professional->id)->forceDelete()` to `purge()`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-11** Moderation case signal PII not redacted when the reporter deletes their account — Lens: `gdpr-deletion`
+- [x] **#P2-11** Moderation case signal PII not redacted when the reporter deletes their account — Lens: `gdpr-deletion`
     - Where: `supabase/migrations/20260528000000_create_moderation_schema.sql` (FK: `ON DELETE SET NULL`) · `app/Services/User/AccountDeletionService.php:purge()`
     - What: The FK cascade nulls `reporter_user_id` but leaves `reporter_email`, `reason_details` (up to 4 000 chars freetext), and `signal_data` JSONB intact. The erasure command `moderation:redact-reporter-pii` already acknowledges these as PII and nulls them for Art. 17; the deletion path never calls it. `purge()` has no step touching the `moderation` schema at all.
     - Fix: In `purge()`, query `moderation.case_signals WHERE reporter_user_id = $professional->id` and null out `reporter_email`, `reason_details`, and identifying `signal_data` keys. Retain `reason_code`, `signal_source`, `dedup_hash`, and `case_id` for Trust & Safety analytics.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-12** Global `sidest_updates` email subscription not removed when account is purged — Lens: `gdpr-deletion`
+- [x] **#P2-12** Global `sidest_updates` email subscription not removed when account is purged — Lens: `gdpr-deletion`
     - Where: `app/Services/User/UserBootstrapService.php:ensureSidestUpdatesSubscription()` · `app/Services/User/AccountDeletionService.php:purge()`
     - What: Bootstrap inserts `EmailSubscription` rows with `user_id = null`, keyed by `email_lc`. The FK `ON DELETE CASCADE` only fires for rows where `user_id = $professional->id`; `NULL`-keyed rows survive the cascade and retain the professional's real email. Marketing emails may continue to be dispatched to the deleted user's address.
     - Fix: In `purge()`, after resolving the original email (same pattern as #P2-09), add: `EmailSubscription::query()->whereNull('user_id')->where('list_key', 'sidest_updates')->where('email_lc', $originalEmailLc)->delete()`.
@@ -934,7 +934,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B4: GDPR deletion completeness (5 items — #P2-08, #P2-09, #P2-10, #P2-11, #P2-12) — Effort: L
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-08`, `#P2-09`, `#P2-10`, `#P2-11`, `#P2-12`
 - Models: impl=sonnet · review=opus
 - Rationale: All five are additions to `AccountDeletionService::purge()`. Doing them together ensures a single DB transaction covers all PII erasure steps, the original-email resolution is computed once, and the test suite can validate the full erasure surface in one integration test.
