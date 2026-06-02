@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Platforms\AppleSearch;
 use Illuminate\Support\Facades\Cache;
 
 // Facebook link normalisation (connect does no external fetch — pure parsing).
@@ -73,4 +74,55 @@ it('keeps an in-progress event (started, not yet ended) in the Eventbrite select
     $res->assertOk();
     expect($res->json('selection.upcoming'))->toHaveCount(1);
     expect($res->json('selection.next.name'))->toBe('Live now');
+});
+
+// Apple "most recent" tile refreshes when highlights are updated (mock the
+// iTunes Search fetch so no live call is made).
+
+it('refreshes the Apple Music "most recent" tile when highlights are updated', function () {
+    $this->mock(AppleSearch::class, function ($m) {
+        $m->shouldReceive('fetchAlbums')->andReturn([
+            ['collectionId' => '111', 'name' => 'New Album', 'thumbnail' => 't1', 'releaseDate' => '2026-06-01', 'link' => 'l1'],
+            ['collectionId' => '222', 'name' => 'Old Album', 'thumbnail' => 't2', 'releaseDate' => '2025-01-01', 'link' => 'l2'],
+        ]);
+    });
+
+    Cache::put('platforms.apple.music.selection', [
+        'input' => 'someartist',
+        'name' => 'Stale Album',
+        'latest' => ['collectionId' => '999', 'name' => 'Stale Album'],
+        'highlights' => [],
+    ], now()->addDay());
+
+    $res = $this->postJson('/api/platforms/apple/music/highlights', ['albumIds' => ['222']]);
+
+    $res->assertOk();
+    expect($res->json('latest.name'))->toBe('New Album');   // refreshed from the newest re-fetch
+    expect($res->json('name'))->toBe('New Album');          // flat back-compat field too
+    expect($res->json('highlights'))->toHaveCount(1);       // chosen highlight still snapshotted
+    expect($res->json('highlights.0.collectionId'))->toBe('222');
+});
+
+it('refreshes the Apple Podcast "most recent" tile when highlights are updated', function () {
+    $this->mock(AppleSearch::class, function ($m) {
+        $m->shouldReceive('fetchEpisodes')->andReturn([
+            ['trackId' => '111', 'name' => 'New Episode', 'thumbnail' => 't1', 'description' => 'd1', 'link' => 'l1'],
+            ['trackId' => '222', 'name' => 'Old Episode', 'thumbnail' => 't2', 'description' => 'd2', 'link' => 'l2'],
+        ]);
+    });
+
+    Cache::put('platforms.apple.podcast.selection', [
+        'input' => 'someshow',
+        'name' => 'Stale Episode',
+        'latest' => ['trackId' => '999', 'name' => 'Stale Episode'],
+        'highlights' => [],
+    ], now()->addDay());
+
+    $res = $this->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => ['222']]);
+
+    $res->assertOk();
+    expect($res->json('latest.name'))->toBe('New Episode');
+    expect($res->json('name'))->toBe('New Episode');
+    expect($res->json('highlights'))->toHaveCount(1);
+    expect($res->json('highlights.0.trackId'))->toBe('222');
 });

@@ -94,6 +94,18 @@ class AppleController extends ApiController
             return $this->error('Could not load recent albums.', 502);
         }
 
+        // Refresh the "Most recent" tile too. This re-fetch is newest-first, so
+        // a release that landed since connect would otherwise leave `latest`
+        // (and the flat back-compat fields) stale while only highlights updated.
+        if (isset($albums[0])) {
+            $latest = $albums[0];
+            $selection['latest'] = $latest;
+            $selection['name'] = $latest['name'];
+            $selection['thumbnail'] = $latest['thumbnail'];
+            $selection['releaseDate'] = $latest['releaseDate'];
+            $selection['link'] = $latest['link'];
+        }
+
         $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
         $this->put(self::MUSIC_KEY, $selection);
 
@@ -166,6 +178,17 @@ class AppleController extends ApiController
         $episodes = $this->apple->fetchEpisodes(data_get($selection, 'input'));
         if ($episodes === null) {
             return $this->error('Could not load recent episodes.', 502);
+        }
+
+        // Refresh the "Most recent" tile too (see musicHighlights) — a newer
+        // episode published since connect would otherwise leave `latest` stale.
+        if (isset($episodes[0])) {
+            $latest = $episodes[0];
+            $selection['latest'] = $latest;
+            $selection['name'] = $latest['name'];
+            $selection['thumbnail'] = $latest['thumbnail'];
+            $selection['description'] = $latest['description'];
+            $selection['link'] = $latest['link'];
         }
 
         $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
