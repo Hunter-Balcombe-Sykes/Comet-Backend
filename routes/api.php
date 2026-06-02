@@ -38,7 +38,7 @@ Route::middleware('throttle:webhooks')->group(function () {
     Route::post(
         '/webhooks/supabase/auth/mfa-verification',
         [SupabaseAuthHookController::class, 'mfaVerification'],
-    )->name('webhooks.supabase.auth.mfa-verification');
+    )->middleware('supabase.auth-hook')->name('webhooks.supabase.auth.mfa-verification');
 });
 
 // bootstrap uses ONLY JWT middleware
