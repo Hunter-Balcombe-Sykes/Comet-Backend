@@ -889,7 +889,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B2: Horizon supervisor + queue lane assignments (5 items — #P1-03, #P1-04, #P2-16, #P2-23, #P2-24) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-03`, `#P1-04`, `#P2-16`, `#P2-23`, `#P2-24`
 - Models: impl=haiku · review=sonnet
 - Rationale: All five are pure `config/horizon.php` or job-constructor edits with no logic changes. One focused session touching a single config file and five job constructors eliminates all Horizon lane misconfigurations in one go.
