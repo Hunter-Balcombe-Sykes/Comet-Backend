@@ -3,7 +3,8 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,18 +14,19 @@ use Illuminate\Http\Request;
 // profile link. Single-tenant cache, no auth, no migration.
 class TiktokController extends ApiController
 {
-    use ManagesPlatformSelection;
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
-    private const SELECTION_KEY = 'platforms.tiktok.selection';
-
-    protected function selectionKey(): string
+    protected function platform(): string
     {
-        return self::SELECTION_KEY;
+        return 'tiktok';
     }
 
-    // POST /api/platforms/tiktok/connect — store the profile link.
+    // POST /api/platforms/tiktok/connect — store the profile link for the user.
     public function connect(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
 
         $username = $this->normalizeUsername($validated['username']);
@@ -36,9 +38,23 @@ class TiktokController extends ApiController
             'username' => $username,
             'url' => 'https://www.tiktok.com/@'.$username,
         ];
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
+    }
+
+    // GET /api/platforms/tiktok/selection — the authenticated user's saved link.
+    public function selection(Request $request): JsonResponse
+    {
+        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+    }
+
+    // DELETE /api/platforms/tiktok — clear the authenticated user's connection.
+    public function forget(Request $request): JsonResponse
+    {
+        $this->forgetConnection($this->currentUser($request));
+
+        return $this->success(['selection' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────

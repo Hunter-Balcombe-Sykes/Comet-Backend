@@ -75,7 +75,7 @@ Route::prefix('platforms/apple')
     });
 
 Route::prefix('platforms/tiktok')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [TiktokController::class, 'connect']);
         Route::get('/selection', [TiktokController::class, 'selection']);
@@ -83,7 +83,7 @@ Route::prefix('platforms/tiktok')
     });
 
 Route::prefix('platforms/facebook')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [FacebookController::class, 'connect']);
         Route::get('/selection', [FacebookController::class, 'selection']);

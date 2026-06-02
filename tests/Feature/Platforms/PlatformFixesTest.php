@@ -1,15 +1,34 @@
 <?php
 
+use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
-// Facebook link normalisation (connect does no external fetch — pure parsing).
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+});
+
+// Facebook is per-user + authenticated now — connect stores under the logged-in
+// user (no external fetch; pure link parsing). actingAsUser supplies the session.
+function fbActingUser(): User
+{
+    return User::create([
+        'handle' => 'fbtester',
+        'handle_lc' => 'fbtester',
+        'display_name' => 'FB Tester',
+        'account_type' => 'individual',
+        'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'fb@example.com',
+    ]);
+}
 
 it('stores a legacy /pages/Name/ID Facebook link without mangling the username', function () {
-    $res = $this->postJson('/api/platforms/facebook/connect', [
+    $res = actingAsUser(fbActingUser())->postJson('/api/platforms/facebook/connect', [
         'username' => 'https://www.facebook.com/pages/Some-Cafe/123456789',
     ]);
 
@@ -19,7 +38,7 @@ it('stores a legacy /pages/Name/ID Facebook link without mangling the username',
 });
 
 it('strips a query string from a /pages/ Facebook link', function () {
-    $res = $this->postJson('/api/platforms/facebook/connect', [
+    $res = actingAsUser(fbActingUser())->postJson('/api/platforms/facebook/connect', [
         'username' => 'https://www.facebook.com/pages/Some-Cafe/123456789?ref=bookmarks',
     ]);
 
@@ -28,7 +47,7 @@ it('strips a query string from a /pages/ Facebook link', function () {
 });
 
 it('still stores a vanity Facebook handle', function () {
-    $res = $this->postJson('/api/platforms/facebook/connect', ['username' => '@nike']);
+    $res = actingAsUser(fbActingUser())->postJson('/api/platforms/facebook/connect', ['username' => '@nike']);
 
     $res->assertOk();
     expect($res->json('username'))->toBe('nike');
