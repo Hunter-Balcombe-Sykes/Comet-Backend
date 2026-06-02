@@ -334,25 +334,25 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Media Pipeline
 
-- [ ] **#P2-25** Video pipeline leaks file handles when S3 `put()` throws — three sites — Lens: `media`
+- [x] **#P2-25** Video pipeline leaks file handles when S3 `put()` throws — three sites — Lens: `media`
     - Where: `app/Services/Media/MediaUploadService.php:212–217` · `app/Services/Media/VideoVariantService.php:196–199` (MP4 upload) · `:222–225` (poster upload)
     - What: All three video-path call sites open a stream with `fopen`, pass it to Flysystem, then close it with a post-`put` `if (is_resource($stream)) { fclose($stream); }` guard. If `put()` throws, the guard is never reached. Horizon video-processing workers are long-lived; leaked handles accumulate across jobs until the worker exhausts the OS descriptor limit. The image path (`ImageVariantService::storeOriginal`) already uses `try/finally` for this exact reason.
     - Fix: Wrap all three `fopen` / `Storage::put` call sites in `try/finally` blocks closing the stream unconditionally. Add `if ($stream === false) throw new \RuntimeException(…)` before each `put()` call, matching the image path guard.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-26** Image variant re-processing orphans old variant files when output content hash differs — Lens: `media`
+- [x] **#P2-26** Image variant re-processing orphans old variant files when output content hash differs — Lens: `media`
     - Where: `app/Services/Media/ImageVariantService.php` — `processVariants()` (`updateOrCreate` path)
     - What: `processVariants` derives a storage path from a content hash and calls `MediaVariant::updateOrCreate` which updates the DB row to point at the new path. The old file at the previous hash-derived path is never deleted. Under current usage the hash is deterministic (same bytes → same hash → overwrite). The hash changes whenever variant encode parameters change — a quality or dimension config update followed by a re-process run would produce new paths for all affected images, silently accumulating old WebP objects on R2.
     - Fix: Before each `MediaVariant::updateOrCreate`, fetch the existing row's `path` for the `(media_id, variant_key, artifact_type)` tuple. If the stored path differs from the new path, delete the old file from the disk after confirming the new one is stored.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-27** Video variant re-processing orphans old MP4 and poster files when output hash differs — Lens: `media`
+- [x] **#P2-27** Video variant re-processing orphans old MP4 and poster files when output hash differs — Lens: `media`
     - Where: `app/Services/Media/VideoVariantService.php:192–231` — MP4 loop and poster upload
     - What: Structurally identical to #P2-26 but for videos. A bitrate or resolution config change followed by a re-process run produces new content-hashed paths while old files remain on R2. At 50–200 MB per video, even a small re-processing run over a few dozen users can orphan gigabytes.
     - Fix: Same pattern as #P2-26: query the existing `MediaVariant` row before each `updateOrCreate`, compare stored `path` with new path, delete the old remote file after confirming the new one is stored. Apply to both the MP4 loop and the poster upload within the same method.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-28** `ImageVariantService::deleteVariants` silently swallows per-file storage failures, orphaning files on R2 — Lens: `media`
+- [x] **#P2-28** `ImageVariantService::deleteVariants` silently swallows per-file storage failures, orphaning files on R2 — Lens: `media`
     - Where: `app/Services/Media/ImageVariantService.php:263–275`
     - What: The `foreach` loop calls `$disk->delete($variant->path)` without inspecting the return value or wrapping in try/catch, then unconditionally calls `$variant->delete()`. Files accumulate on the bucket with no application-level reference and no Nightwatch alert. `VideoVariantService::deleteVariants` already handles this correctly: it collects `$failures`, logs at `error` level, and still clears DB rows unconditionally.
     - Fix: Mirror the video pattern: collect per-file failures, log at `error` level with path and error detail, keep the unconditional DB-row delete. Do NOT gate the DB delete on storage success — the codebase's explicit design philosophy is "best-effort on storage, unconditional on DB."
@@ -979,7 +979,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B6: Media pipeline reliability (4 items — #P2-25, #P2-26, #P2-27, #P2-28) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-25`, `#P2-26`, `#P2-27`, `#P2-28`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All four are in the media service layer. #P2-25 (file handle leaks) and #P2-28 (silent delete failures) are one-function fixes. #P2-26 and #P2-27 (orphaned re-process files) share the same `old-path-before-upsert` pattern for image and video variants respectively — implementing both together avoids a gap where only one variant type is protected.
