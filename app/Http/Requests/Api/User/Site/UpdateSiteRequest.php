@@ -136,12 +136,11 @@ class UpdateSiteRequest extends BaseFormRequest
             // Skeleton — one of skeleton-1..4. Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
-            // Per-user design kit. An object whose keys are individual
-            // site.design_kits column names (snake_case, matching the DB).
-            // The controller's writeDesignKit() filters against
-            // information_schema.columns so unknown keys are silently dropped
-            // — but we still allowlist the known shapes here for clear
-            // 422s on typos and to document the contract.
+            // Per-user design kit. Must stay in sync with StaffUpdateSiteRequest — see TEST-5.
+            // An object whose keys are individual site.design_kits column names
+            // (snake_case, matching the DB). The controller's writeDesignKit() filters against
+            // information_schema.columns so unknown keys are silently dropped — but we still
+            // allowlist the known shapes here for clear 422s on typos and to document the contract.
             'design_kit' => ['sometimes', 'array'],
             // Colors group
             'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],

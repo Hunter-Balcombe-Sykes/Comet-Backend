@@ -32,11 +32,11 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // Skeleton — one of skeleton-1..4. Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_SKELETONS)],
 
-            // Per-user design kit. Object keyed by site.design_kits column
-            // names (snake_case, matching the DB). The controller's
-            // writeDesignKit() filters against information_schema.columns so
-            // unknown keys are silently dropped, but we allowlist the known
-            // shapes here for clear 422s on typos.
+            // Per-user design kit. Must stay in sync with UpdateSiteRequest — see TEST-5.
+            // Object keyed by site.design_kits column names (snake_case, matching the DB).
+            // The controller's writeDesignKit() filters against information_schema.columns so
+            // unknown keys are silently dropped, but we allowlist the known shapes here for
+            // clear 422s on typos.
             'design_kit' => ['sometimes', 'array'],
             // Colors group
             'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
@@ -44,8 +44,12 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32'],
-            // Typography group — body + title font + size + weight; fontFamily
-            // is a slug resolved by @partnaau/design-system/design-assets.
+            'design_kit.color_placeholder' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Typography group — body + heading scale (h1 / h2; h3 reuses
+            // body fontSize). fontFamily is a slug resolved by
+            // @partnaau/design-system/design-assets.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
@@ -64,16 +68,13 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.border_radius' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.border_focus_color' => ['sometimes', 'nullable', 'string', 'max:32'],
-            // Spacing
-            'design_kit.spacing_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            // Padding
-            'design_kit.padding_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_large' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Space — single scale used for both CSS padding props AND
+            // flex/grid gap props. Replaces the prior padding + spacing pair.
+            'design_kit.space_xs' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_s' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_regular' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_medium' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_large' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Icons
             'design_kit.icon_size' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32'],
@@ -88,32 +89,17 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.sizing_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            // Responsive companion groups — per-breakpoint partial overrides
-            // (tablet = @media min-width 640px, desktop = min-width 1024px).
-            // Empty values cascade from the next-smaller breakpoint.
-            'design_kit.padding_tablet_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_tablet_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.padding_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_tablet_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_extra_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_small' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_general' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.spacing_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.sizing_tablet_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
+            // Responsive companion groups — single desktop breakpoint
+            // (@media min-width 550px). Empty values cascade from the
+            // mobile base via the CSS cascade.
+            'design_kit.space_desktop_xs' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_s' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_regular' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_medium' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'design_kit.space_desktop_large' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_button_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_input_height' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.sizing_desktop_header_height' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.typography_tablet_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_h1_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_desktop_h2_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
