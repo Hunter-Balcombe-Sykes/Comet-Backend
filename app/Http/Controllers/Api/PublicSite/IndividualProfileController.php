@@ -73,7 +73,7 @@ class IndividualProfileController extends ApiController
         // queries on every cache-hit request. Sentinel-style not-found
         // caching means enumeration spikes don't repeatedly query for
         // non-existent handles.
-        $resolved = Cache::remember(
+        $resolved = $this->cache->rememberLocked(
             "handle.resolve:{$handleLc}",
             self::RESOLVE_CACHE_TTL,
             function () use ($handleLc) {
