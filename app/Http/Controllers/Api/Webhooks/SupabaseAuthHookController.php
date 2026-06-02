@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Webhooks;
 
 use App\Http\Controllers\Controller;
 use App\Services\Auth\AuthFactorEventRepository;
-use App\Services\Auth\SupabaseAuthHookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -28,20 +27,12 @@ use Illuminate\Support\Facades\Cache;
 class SupabaseAuthHookController extends Controller
 {
     public function __construct(
-        private readonly SupabaseAuthHookService $hookService,
         private readonly AuthFactorEventRepository $repo,
     ) {}
 
     public function mfaVerification(Request $request): JsonResponse
     {
         $id = (string) $request->header('webhook-id', '');
-        $timestamp = (string) $request->header('webhook-timestamp', '');
-        $signature = (string) $request->header('webhook-signature', '');
-        $rawBody = $request->getContent();
-
-        if (! $this->hookService->verifySignature($id, $timestamp, $signature, $rawBody)) {
-            return response()->json(['message' => 'Invalid signature'], 401);
-        }
 
         // WEBHOOK-3: dedup retried hook deliveries. Without this, a redelivered
         // verification announcement double-records the auth-factor event —

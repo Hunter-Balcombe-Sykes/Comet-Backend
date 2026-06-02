@@ -165,6 +165,13 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('SUPABASE_EMAIL_HOOK_SECRET must be configured in production (auth email hook fails closed without it).');
         }
 
+        // Supabase auth hook secret must be set in production. An empty value
+        // causes VerifySupabaseAuthHookSignature to 503 every MFA verify attempt,
+        // blocking all AAL2 promotion.
+        if (app()->isProduction() && empty(config('supabase.auth_hook_secret'))) {
+            throw new \RuntimeException('SUPABASE_AUTH_HOOK_SECRET must be configured in production (MFA verification hook fails closed without it).');
+        }
+
         // F6 CFG-4 — Nightwatch enabled without a token attempts an unauthenticated
         // ingest connection on every request/command, generating silent error noise.
         // If telemetry is on in production, the token must be present.
