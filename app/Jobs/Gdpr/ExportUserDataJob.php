@@ -137,6 +137,7 @@ class ExportUserDataJob implements ShouldQueue
      */
     public function failed(Throwable $e): void
     {
+        report($e);
         $audit = DataExportAudit::find($this->auditId);
         if ($audit && $audit->status !== DataExportAudit::STATUS_COMPLETED) {
             $audit->markFailed('Job failed after retries: '.$e->getMessage());
