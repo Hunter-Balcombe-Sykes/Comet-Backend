@@ -10,6 +10,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Run the whole job in the testing environment. `composer install` runs
+    # `artisan package:discover` (a full app boot) BEFORE the `.env` is copied,
+    # so without this the app boots in the default `production` environment and
+    # the AppServiceProvider boot-guards (JWT issuer/aud must be set, throttle
+    # must be on, etc.) throw — failing CI at the install step before a single
+    # test runs. `testing` skips those production-only guards and is the env the
+    # suite runs under anyway.
+    env:
+      APP_ENV: testing
+
     services:
       redis:
         image: redis:7-alpine
