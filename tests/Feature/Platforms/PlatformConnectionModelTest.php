@@ -1,7 +1,11 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\PlatformConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -59,4 +63,26 @@ it('scopes to active connections', function () {
     PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
 
     expect(PlatformConnection::active()->count())->toBe(1);
+});
+
+it('purges the sitepage edge cache when a connection is written', function () {
+    $user = makePlatformUser('obs');
+    // Raw-insert the site (no SiteObserver fire) so we assert OUR observer's
+    // purge, not SiteObserver's. The observer resolves user → site → subdomain.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => 'obs-handle',
+    ]);
+
+    Queue::fake();
+
+    PlatformConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'shopify',
+        'resource_id' => 'b1',
+        'payload' => [],
+    ]);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
