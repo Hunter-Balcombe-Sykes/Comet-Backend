@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for the Shopify integration — MULTI-BRAND. A user connects
 // up to 5 stores; each brand carries its own profile (name/favicon/logo),
@@ -26,6 +27,10 @@ class ShopifyController extends ApiController
     private const BRANDS_KEY = 'platforms.shopify.brands';
 
     private const MAX_BRANDS = 5;
+
+    // How long the picker-warmed product catalog stays cached, so a PUT
+    // /selection right after the picker opened reuses it instead of re-scraping.
+    private const CATALOG_TTL_MINUTES = 10;
 
     public function __construct(private readonly ShopifyScraper $scraper) {}
 
@@ -118,7 +123,12 @@ class ShopifyController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
-        return $this->success(['products' => $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null)]);
+        $products = $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);
+        // Warm a short-lived catalog cache so the immediately-following PUT
+        // /selection reuses these products instead of re-scraping the whole store.
+        Cache::put($this->catalogKey($id), $products, now()->addMinutes(self::CATALOG_TTL_MINUTES));
+
+        return $this->success(['products' => $products]);
     }
 
     // PUT /api/platforms/shopify/brands/{id}/selection — snapshot the chosen
@@ -135,7 +145,11 @@ class ShopifyController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
-        $all = collect($this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null))->keyBy('productId');
+        // Prefer the catalog the picker just warmed; only re-scrape if it has
+        // gone cold (a save long after the picker was opened).
+        $catalog = Cache::get($this->catalogKey($id))
+            ?? $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);
+        $all = collect($catalog)->keyBy('productId');
         $map[$id]['products'] = collect($validated['productIds'])
             ->map(fn (string $pid) => $all->get($pid))
             ->filter()
@@ -185,5 +199,11 @@ class ShopifyController extends ApiController
     private function allBrands(): array
     {
         return array_values($this->brandMap());
+    }
+
+    /** Per-brand picker-catalog cache key. */
+    private function catalogKey(string $id): string
+    {
+        return self::BRANDS_KEY.'.catalog.'.$id;
     }
 }
