@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS site.platform_connections (
 
     platform              text NOT NULL CHECK (platform IN (
                               'shopify', 'eventbrite', 'apple-music', 'apple-podcast',
-                              'youtube', 'instagram', 'stan', 'fresha', 'tiktok', 'facebook'
+                              'youtube', 'instagram', 'fresha', 'tiktok', 'facebook'
                           )),
 
     -- Opaque per-platform resource key: brand id, organiser slug, artist id,

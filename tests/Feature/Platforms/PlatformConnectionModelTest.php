@@ -46,7 +46,7 @@ it('soft deletes a connection', function () {
     $user = makePlatformUser('sam');
     $conn = PlatformConnection::create([
         'user_id' => $user->id,
-        'platform' => 'stan',
+        'platform' => 'tiktok',
         'resource_id' => 'sam-store',
         'payload' => [],
     ]);

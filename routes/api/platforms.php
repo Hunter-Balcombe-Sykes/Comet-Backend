@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
-use App\Http\Controllers\Api\Platforms\StanController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
 use Illuminate\Support\Facades\Route;
@@ -47,14 +46,6 @@ Route::prefix('platforms/instagram')
         Route::post('/selection', [InstagramController::class, 'saveSelection']);
         Route::get('/selection', [InstagramController::class, 'selection']);
         Route::delete('/', [InstagramController::class, 'forget']);
-    });
-
-Route::prefix('platforms/stan')
-    ->middleware('throttle:public-site')
-    ->group(function () {
-        Route::post('/connect', [StanController::class, 'connect']);
-        Route::get('/selection', [StanController::class, 'selection']);
-        Route::delete('/', [StanController::class, 'forget']);
     });
 
 Route::prefix('platforms/youtube')

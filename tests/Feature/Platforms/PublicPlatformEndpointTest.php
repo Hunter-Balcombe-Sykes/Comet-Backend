@@ -40,12 +40,12 @@ it('excludes inactive and soft-deleted connections', function () {
     $user = makePublicUser('sam');
     PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'a', 'payload' => [], 'is_active' => true]);
     PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
-    $deleted = PlatformConnection::create(['user_id' => $user->id, 'platform' => 'stan', 'resource_id' => 'c', 'payload' => []]);
+    $deleted = PlatformConnection::create(['user_id' => $user->id, 'platform' => 'tiktok', 'resource_id' => 'c', 'payload' => []]);
     $deleted->delete();
 
     $res = $this->getJson('/api/public/profiles/sam/platforms');
 
     $res->assertOk();
     expect($res->json('data.platforms.youtube'))->toHaveCount(1);
-    expect($res->json('data.platforms'))->not->toHaveKey('stan');
+    expect($res->json('data.platforms'))->not->toHaveKey('tiktok');
 });
