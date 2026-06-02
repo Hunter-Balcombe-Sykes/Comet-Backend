@@ -155,12 +155,33 @@ class ImageVariantService
                     // Content-hashed filename: optimized_abc123def456.webp
                     $storagePath = "{$basePath}/{$variantName}_{$hash}.webp";
 
+                    // Capture old path before upload for orphan cleanup on re-process.
+                    $existingPath = MediaVariant::where([
+                        'media_id' => $imageId,
+                        'variant_key' => $variantName,
+                        'artifact_type' => 'webp',
+                    ])->value('path');
+
                     // --- Upload to bucket ---
                     $payload = file_get_contents($tmpFile);
                     if ($payload === false) {
                         throw new \RuntimeException('Failed to read encoded WebP for upload.');
                     }
                     $disk->put($storagePath, $payload, 'public');
+
+                    // Delete old file when re-processing produces a different content-hashed path.
+                    if ($existingPath && $existingPath !== $storagePath) {
+                        try {
+                            $disk->delete($existingPath);
+                        } catch (\Throwable $e) {
+                            Log::warning('ImageVariantService: failed to delete orphaned variant file.', [
+                                'image_id' => $imageId,
+                                'variant' => $variantName,
+                                'old_path' => $existingPath,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
 
                     // --- Upsert DB row ---
                     $variant = MediaVariant::updateOrCreate(
@@ -267,14 +288,47 @@ class ImageVariantService
             ->get();
         $disk = $this->disk();
 
+        $failures = [];
         foreach ($variants as $variant) {
-            $disk->delete($variant->path);
+            try {
+                $deleted = $disk->delete($variant->path);
+                if ($deleted === false) {
+                    $failures[] = ['path' => $variant->path, 'error' => 'delete returned false'];
+                }
+            } catch (\Throwable $e) {
+                $failures[] = [
+                    'path' => $variant->path,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ];
+            }
             $variant->delete();
         }
 
         // Also remove the original if a path was provided
-        if ($originalPath && $disk->exists($originalPath)) {
-            $disk->delete($originalPath);
+        if ($originalPath) {
+            try {
+                if ($disk->exists($originalPath)) {
+                    $deleted = $disk->delete($originalPath);
+                    if ($deleted === false) {
+                        $failures[] = ['path' => $originalPath, 'error' => 'delete returned false'];
+                    }
+                }
+            } catch (\Throwable $e) {
+                $failures[] = [
+                    'path' => $originalPath,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ];
+            }
+        }
+
+        if ($failures !== []) {
+            Log::error('ImageVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
+                'image_id' => $imageId,
+                'failure_count' => count($failures),
+                'failures' => array_slice($failures, 0, 20),
+            ]);
         }
     }
 

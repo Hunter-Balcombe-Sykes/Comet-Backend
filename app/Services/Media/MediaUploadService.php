@@ -210,12 +210,18 @@ class MediaUploadService
             $hash = substr(hash_file('sha256', $file->getRealPath()), 0, 16);
             $path = "{$basePath}/original_{$hash}.{$ext}";
             $stream = fopen($file->getRealPath(), 'rb');
-            // 'private' — original is a re-processing source only; the public
-            // deliverable is the HLS/MP4/poster variants. Matches the image
-            // path in ImageVariantService::storeOriginal().
-            Storage::disk($mediaDisk)->put($path, $stream, 'private');
-            if (is_resource($stream)) {
-                fclose($stream);
+            if ($stream === false) {
+                throw new \RuntimeException('Failed to open video file for streaming.');
+            }
+            try {
+                // 'private' — original is a re-processing source only; the public
+                // deliverable is the HLS/MP4/poster variants. Matches the image
+                // path in ImageVariantService::storeOriginal().
+                Storage::disk($mediaDisk)->put($path, $stream, 'private');
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
             }
             $originalPath = $path;
         } else {

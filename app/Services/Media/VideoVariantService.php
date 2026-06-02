@@ -193,10 +193,38 @@ class VideoVariantService
                 $hash = substr((string) hash_file('sha256', $mp4), 0, 16);
 
                 $remotePath = "{$basePath}/{$variantKey}_{$hash}.mp4";
+
+                // Capture old path before upload so we can delete orphaned files after a re-process.
+                $existingMp4Path = MediaVariant::where([
+                    'media_id' => $mediaId,
+                    'variant_key' => $variantKey,
+                    'artifact_type' => 'mp4',
+                ])->value('path');
+
                 $stream = fopen($mp4, 'rb');
-                $disk->put($remotePath, $stream, 'public');
-                if (is_resource($stream)) {
-                    fclose($stream);
+                if ($stream === false) {
+                    throw new \RuntimeException("Failed to open MP4 temp file for streaming: {$mp4}");
+                }
+                try {
+                    $disk->put($remotePath, $stream, 'public');
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+
+                // Delete old file when re-processing produces a different content-hashed path.
+                if ($existingMp4Path && $existingMp4Path !== $remotePath) {
+                    try {
+                        $disk->delete($existingMp4Path);
+                    } catch (\Throwable $e) {
+                        Log::warning('VideoVariantService: failed to delete orphaned MP4 variant file.', [
+                            'media_id' => $mediaId,
+                            'variant_key' => $variantKey,
+                            'old_path' => $existingMp4Path,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
 
                 $def = $variantDefs[$variantKey] ?? [];
@@ -219,10 +247,36 @@ class VideoVariantService
             // Upload poster
             $posterHash = substr((string) hash_file('sha256', $tmpPoster), 0, 16);
             $posterRemotePath = "{$basePath}/poster_{$posterHash}.jpg";
+
+            // Capture old poster path before upload for orphan cleanup.
+            $existingPosterPath = MediaVariant::where([
+                'media_id' => $mediaId,
+                'variant_key' => 'poster',
+                'artifact_type' => 'poster',
+            ])->value('path');
+
             $stream = fopen($tmpPoster, 'rb');
-            $disk->put($posterRemotePath, $stream, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
-            if (is_resource($stream)) {
-                fclose($stream);
+            if ($stream === false) {
+                throw new \RuntimeException('Failed to open poster temp file for streaming.');
+            }
+            try {
+                $disk->put($posterRemotePath, $stream, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+
+            if ($existingPosterPath && $existingPosterPath !== $posterRemotePath) {
+                try {
+                    $disk->delete($existingPosterPath);
+                } catch (\Throwable $e) {
+                    Log::warning('VideoVariantService: failed to delete orphaned poster file.', [
+                        'media_id' => $mediaId,
+                        'old_path' => $existingPosterPath,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
 
             MediaVariant::updateOrCreate(
