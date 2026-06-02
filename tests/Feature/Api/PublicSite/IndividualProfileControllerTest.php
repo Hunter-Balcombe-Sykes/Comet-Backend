@@ -35,7 +35,11 @@ beforeEach(function () {
         color_bg TEXT NULL,
         color_text TEXT NULL,
         typography_font_heading TEXT NULL,
-        typography_font_body TEXT NULL
+        typography_font_body TEXT NULL,
+        icons_xl_size TEXT NULL,
+        icons_xxl_size TEXT NULL,
+        icons_stroke_width TEXT NULL,
+        icons_large_stroke_width TEXT NULL
     )');
 
     Cache::flush();
@@ -189,6 +193,23 @@ it('groups stored design_kit columns into nested camelCase wire shape', function
         'colors' => ['accent' => '#ff0080'],
         'typography' => ['fontHeading' => 'inter'],
     ]);
+});
+
+it('maps icons_xl_size column to icons.xlSize in the wire shape', function () {
+    // Regression: icons_* columns were silently dropped because the prefix map
+    // had 'icon' (singular) but not 'icons' (plural). KIT-1.
+    $pro = seedIndividualProfile('solo-dk-icons');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'icons_xl_size' => '32px',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk-icons')->assertOk()->json('data');
+
+    expect($data['designKit'])->toHaveKey('icons');
+    expect($data['designKit']['icons']['xlSize'])->toBe('32px');
 });
 
 it('excludes brand-only and commerce fields', function () {
