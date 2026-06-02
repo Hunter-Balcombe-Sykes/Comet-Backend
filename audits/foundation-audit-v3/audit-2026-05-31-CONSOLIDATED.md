@@ -496,13 +496,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Scheduler
 
-- [ ] **#P2-46** Five daily `Schedule::command()` tasks missing `->runInBackground()` — block co-scheduled tasks in the same tick — Lens: `scheduler`
+- [x] **#P2-46** Five daily `Schedule::command()` tasks missing `->runInBackground()` — block co-scheduled tasks in the same tick — Lens: `scheduler`
     - Where: `routes/console.php:27` (`partna:purge-soft-deletes`) · `:46` (`partna:analytics:purge-raw-events`) · `:54` (`queue:prune-failed`) · `:35` (`partna:prune-notifications`) · `:114` (`feature-flags:prune-expired`)
     - What: Without `->runInBackground()`, `Schedule::command()` runs the child process synchronously inside the per-minute `schedule:run` invocation. The 03:20 `purge-soft-deletes` (with a 600-minute overlap lock) shares a tick with `keep-alive-ping` — a delayed keep-alive could allow a pod park on Laravel Cloud. The project's own scheduler conventions header explicitly requires `->runInBackground()` for daily tasks.
     - Fix: Add `->runInBackground()` to all five entries. Note: `Schedule::job()` entries (`AggregateCacheMetricsJob`, `CheckStreamingLiveStatusJob`) are already exempt — they dispatch to Horizon immediately.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-47** Two daily tasks use bare `withoutOverlapping()` — risk of missed run after a crash — Lens: `scheduler`
+- [x] **#P2-47** Two daily tasks use bare `withoutOverlapping()` — risk of missed run after a crash — Lens: `scheduler`
     - Where: `routes/console.php:98` (`handles:prune-expired-aliases`) · `:116` (`feature-flags:prune-expired`)
     - What: `withoutOverlapping()` with no argument defaults to 1440-minute TTL in Laravel's `CacheEventMutex`. For a `dailyAt` task, if the job is SIGKILL'd the mutex persists for exactly 24 hours — clock skew of a few seconds or a slightly extended runtime on the following day is enough to find the mutex still held and silently skip the run.
     - Fix: Replace bare `->withoutOverlapping()` with `->withoutOverlapping(120)` on `handles:prune-expired-aliases` (2× expected runtime) and `->withoutOverlapping(30)` on `feature-flags:prune-expired` (the command completes in seconds; 30 min is ample).
@@ -790,13 +790,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — Scheduler
 
-- [ ] **#P3-25** Weekly KV backfill uses bare `withoutOverlapping()` — convention inconsistency — Lens: `scheduler`
+- [x] **#P3-25** Weekly KV backfill uses bare `withoutOverlapping()` — convention inconsistency — Lens: `scheduler`
     - Where: `routes/console.php:148` (`partna:backfill-subdomain-kv`)
     - What: With a 10080-minute weekly cadence the 1440-minute default TTL clears 6 days before the next run — zero practical risk. Purely conventions alignment: every other task uses an explicit TTL; copying this entry as a template for new tasks would silently inherit the bare default.
     - Fix: Replace `->withoutOverlapping()` with `->withoutOverlapping(120)`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-26** Twelve of thirteen `onFailure` callbacks discard the `\Throwable` instance — Lens: `scheduler`
+- [x] **#P3-26** Twelve of thirteen `onFailure` callbacks discard the `\Throwable` instance — Lens: `scheduler`
     - Where: `routes/console.php` — all `onFailure` closures except `partna:prune-notifications`
     - What: Twelve closures use `function (): void` and log only a bare string ("Scheduled task failed: X") with no exception class or message. `partna:prune-notifications` already captures `\Throwable $e` and logs `get_class($e)` and `$e->getMessage()`. Without the exception detail, every overnight failure requires a manual second step to identify the root cause.
     - Fix: Update all twelve signatures to `function (?\Throwable $e = null): void`. Include `'exception' => $e ? get_class($e) : null, 'message' => $e?->getMessage()` in the `Log::error()` context array.
@@ -1049,7 +1049,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B9: Scheduler safety (4 items — #P2-46, #P2-47, #P3-25, #P3-26) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-46`, `#P2-47`, `#P3-25`, `#P3-26`
 - Models: impl=haiku · review=sonnet
 - Rationale: All four are single-line or two-line changes to `routes/console.php`. One focused session, zero logic changes.
