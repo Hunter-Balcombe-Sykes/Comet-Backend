@@ -5,7 +5,9 @@ namespace App\Http\Requests\Api\Staff\UserSite;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\Site\Site;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 // Validates staff update of a site — skeleton selection, subdomain (with
@@ -16,10 +18,25 @@ class StaffUpdateSiteRequest extends BaseFormRequest
 {
     protected function prepareForValidation(): void
     {
+        $merge = [];
+
         if (is_string($this->subdomain ?? null)) {
-            $this->merge([
-                'subdomain' => strtolower(trim($this->subdomain)),
-            ]);
+            $merge['subdomain'] = strtolower(trim($this->subdomain));
+        }
+
+        $settings = $this->input('settings');
+        if (is_array($settings)) {
+            foreach (['hero_title', 'hero_subtitle', 'primary_button_text', 'bio_text'] as $field) {
+                if (! array_key_exists($field, $settings) || ! is_string($settings[$field])) {
+                    continue;
+                }
+                $settings[$field] = static::cleanString($settings[$field]);
+            }
+            $merge['settings'] = $settings;
+        }
+
+        if ($merge !== []) {
+            $this->merge($merge);
         }
     }
 
@@ -127,7 +144,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
                 'min:3',
                 'max:63',
                 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/',
-                function ($attribute, $value, $fail) use ($currentSiteId) {
+                function ($attribute, $value, $fail) use ($currentSiteId, $professional) {
                     $reserved = array_map('strtolower', config('partna.reserved_subdomains', []));
                     if (in_array(strtolower($value), $reserved, true)) {
                         $fail('The subdomain "'.$value.'" is reserved and cannot be used.');
@@ -152,6 +169,28 @@ class StaffUpdateSiteRequest extends BaseFormRequest
                         ->exists();
 
                     if ($aliasExists) {
+                        $fail('This subdomain is already taken.');
+
+                        return;
+                    }
+
+                    // Also block handles claimed by another professional's old handle alias.
+                    // These are preserved for redirect/SEO purposes and must not be re-used.
+                    $currentUserId = $professional?->id;
+
+                    try {
+                        $existsInUserAliases = DB::connection('pgsql')
+                            ->table('core.user_handle_aliases')
+                            ->whereRaw('LOWER(handle) = LOWER(?)', [$value])
+                            ->where('user_id', '!=', $currentUserId)
+                            ->exists();
+                    } catch (QueryException $e) {
+                        report($e);
+                        Log::warning('Professional alias check failed in StaffUpdateSiteRequest', ['error' => $e->getMessage()]);
+                        $existsInUserAliases = false;
+                    }
+
+                    if ($existsInUserAliases) {
                         $fail('This subdomain is already taken.');
                     }
                 },
