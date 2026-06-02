@@ -35,7 +35,9 @@ class ServiceObserver
 
         try {
             if ($pro) {
-                $this->userCache->invalidateUser($pro);
+                // bustSite: false — touchParentSite() always follows in runHooks(), which fires
+                // SiteObserver → invalidateSite(). Passing true would double-bust ~29 Redis keys.
+                $this->userCache->invalidateUser($pro, bustSite: false);
             }
         } catch (\Throwable $e) {
             Log::warning('Professional cache invalidation failed on service change', [

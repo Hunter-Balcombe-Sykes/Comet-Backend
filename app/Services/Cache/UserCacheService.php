@@ -251,7 +251,7 @@ class UserCacheService
         );
     }
 
-    public function invalidateUser(User $professional): void
+    public function invalidateUser(User $professional, bool $bustSite = true): void
     {
         $handleLc = strtolower($professional->handle);
 
@@ -298,11 +298,13 @@ class UserCacheService
         Cache::deleteMultiple(array_values(array_unique($keys)));
 
         // Conservative catch-all: bust the site payload for ANY professional change.
-        // Kept deliberately (not redundant with UserObserver's touch, which only
-        // fires for PUBLIC_PROFILE_USER_FIELDS). Removing this risks under-invalidation
-        // if a non-listed column ever leaks into the public payload — invalidate-only
-        // here is cheaper than that staleness class of bug.
-        if ($professional->site) {
+        //
+        // $bustSite is false when the caller guarantees a separate site bust will follow
+        // (e.g. UserObserver::updated when a public field changed — touchParentSiteIfPublicFieldChanged
+        // fires SiteObserver → invalidateSite; or ServiceObserver::bust() which is always
+        // followed by touchParentSite()). Default true preserves the catch-all for all
+        // other callers (deleted, restored, LoadCurrentUser, UserBootstrapService).
+        if ($bustSite && $professional->site) {
             app(SiteCacheService::class)->invalidateSite($professional->site);
         }
     }

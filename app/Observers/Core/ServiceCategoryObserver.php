@@ -2,9 +2,11 @@
 
 namespace App\Observers\Core;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -62,14 +64,19 @@ class ServiceCategoryObserver
 
         // Category titles are embedded in the public site payload's services array
         // (SitepageDataResolverService::buildServicesData), so a rename also stales
-        // the cached page. Touch the site to fire SiteObserver (Redis invalidation +
-        // Cloudflare edge purge + cache warm) — invalidateSite alone never purged
-        // the edge, so renames lagged ~s-maxage at <handle>.partna.au.
+        // the cached page. Call invalidateSitePayload() directly (not invalidateSite)
+        // because no media rows changed — the 18 image-view variant keys are still valid.
+        // Dispatch CloudflareCachePurgeJob directly rather than routing through touch() +
+        // SiteObserver, which would also bust professionalModel + emailBrand as collateral.
         try {
             $pro = User::query()->with('site')->find($userId);
-            $pro?->site?->touch();
+            $site = $pro?->site;
+            if ($site) {
+                app(SiteCacheService::class)->invalidateSitePayload($site);
+                CloudflareCachePurgeJob::dispatch($site->subdomain);
+            }
         } catch (\Throwable $e) {
-            Log::warning('Site touch failed on ServiceCategory change', [
+            Log::warning('Site cache bust failed on ServiceCategory change', [
                 'category_id' => $category->id,
                 'user_id' => $userId,
                 'message' => $e->getMessage(),

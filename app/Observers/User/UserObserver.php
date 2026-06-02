@@ -49,8 +49,13 @@ class UserObserver
 
     public function updated(User $professional): void
     {
+        // When a public profile field changed, touchParentSiteIfPublicFieldChanged will
+        // fire SiteObserver → invalidateSite immediately after. Skip the site bust here
+        // to avoid the same ~29 Redis DELs running twice for those fields.
+        $publicFieldChanged = $professional->wasChanged(self::PUBLIC_PROFILE_USER_FIELDS);
+
         try {
-            $this->userCache->invalidateUser($professional);
+            $this->userCache->invalidateUser($professional, bustSite: ! $publicFieldChanged);
         } catch (\Throwable $e) {
             Log::warning('Professional cache invalidation failed on update', $this->logContext(__METHOD__, [
                 'user_id' => $professional->id,

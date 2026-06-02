@@ -106,7 +106,7 @@ it('busts only the services cache keys when a ServiceCategory is deleted', funct
         ->and(Cache::get($svcKey.':stale'))->toBeNull();
 });
 
-it('touches the site so a ServiceCategory change purges the Cloudflare edge', function () {
+it('purges the Cloudflare edge directly when a ServiceCategory changes', function () {
     $pro = seedCategoryTestPro();
 
     DB::connection('pgsql')->table('site.sites')->insert([

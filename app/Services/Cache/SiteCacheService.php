@@ -495,9 +495,11 @@ class SiteCacheService
     }
 
     /**
-     * Invalidate all cache keys for a site
+     * Invalidate payload-related cache keys for a site (excludes image-gallery variants).
+     * Use when a mutation affects site content but not media rows — service edits,
+     * category renames, profile updates, block reorders.
      */
-    public function invalidateSite(Site $site): void
+    public function invalidateSitePayload(Site $site): void
     {
         $userId = (string) ($site->user_id ?? '');
 
@@ -507,20 +509,10 @@ class SiteCacheService
             ...self::bustWithStale(CacheKeyGenerator::publicSitePayload($site->subdomain)),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'links')),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'sections')),
-            CacheKeyGenerator::siteImages($site->id),
             // White-label email branding bundle (logo, palette, reply-to). Same SWR
             // contract as the payload keys — bust both primary and :stale.
             ...self::bustWithStale(CacheKeyGenerator::emailBrand($site->id)),
         ];
-
-        // CACHE-1: every (pool, media_type) variant of /api/images. The polling
-        // path (?ids[]) uses unbounded fingerprint keys and relies on its own 5s
-        // TTL — not enumerated here.
-        foreach (CacheKeyGenerator::siteImagesViewVariants() as [$pool, $mediaType]) {
-            $variantKey = CacheKeyGenerator::siteImagesView($site->id, $pool, $mediaType);
-            $keys[] = $variantKey;
-            $keys[] = $variantKey.':stale';
-        }
 
         // The auth-path Professional model cache (AUTH-1) holds the site relation
         // preloaded — site writes must bust it or the next 60s of authenticated
@@ -557,6 +549,37 @@ class SiteCacheService
         }
 
         Cache::deleteMultiple(array_values(array_unique($keys)));
+    }
+
+    /**
+     * Invalidate image-gallery cache keys for a site.
+     * Use when a mutation affects media rows (SiteMediaObserver, image uploads).
+     */
+    public function invalidateSiteImages(Site $site): void
+    {
+        $keys = [CacheKeyGenerator::siteImages($site->id)];
+
+        // CACHE-1: every (pool, media_type) variant of /api/images. The polling
+        // path (?ids[]) uses unbounded fingerprint keys and relies on its own 5s
+        // TTL — not enumerated here.
+        foreach (CacheKeyGenerator::siteImagesViewVariants() as [$pool, $mediaType]) {
+            $variantKey = CacheKeyGenerator::siteImagesView($site->id, $pool, $mediaType);
+            $keys[] = $variantKey;
+            $keys[] = $variantKey.':stale';
+        }
+
+        Cache::deleteMultiple(array_values(array_unique($keys)));
+    }
+
+    /**
+     * Invalidate all cache keys for a site (payload + images).
+     * Called by SiteObserver on any site save — full site mutations always bust everything.
+     * Callers that know images are unaffected should call invalidateSitePayload() directly.
+     */
+    public function invalidateSite(Site $site): void
+    {
+        $this->invalidateSitePayload($site);
+        $this->invalidateSiteImages($site);
     }
 
     public function getSiteLinkBlocks(string $siteId): array
