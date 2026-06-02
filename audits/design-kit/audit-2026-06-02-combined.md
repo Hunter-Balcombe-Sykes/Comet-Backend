@@ -238,7 +238,7 @@
         $$ LANGUAGE plpgsql;
         ```
 
-- [ ] **#SCHEMA-3** · P2 · M — `site.design_kits` is the only `site.*` table without Row Level Security enabled
+- [x] **#SCHEMA-3** · P2 · M — `site.design_kits` is the only `site.*` table without Row Level Security enabled
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (CREATE TABLE site.design_kits, ~line 94)
     - **Affects:** All per-professional design configuration (colours, typography, spacing, button styles). Without RLS, any connection using the `app_backend` role can read and write every professional's design kit without restriction — application-layer authorization is the only guard.
     - **Effort:** M (~2–4h)
