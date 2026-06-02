@@ -59,12 +59,14 @@ class ModerationCaseService
      */
     public function take(ModerationCase $case, PartnaStaff $staff): ModerationCase
     {
-        // Concurrency guard: already-claimed is a 409 conflict, not a 422.
-        if ($case->status === 'under_review') {
-            throw new CaseAlreadyTaken($case->id);
-        }
-
         return DB::transaction(function () use ($case, $staff) {
+            $case = ModerationCase::lockForUpdate()->findOrFail($case->id);
+
+            // Concurrency guard inside the lock: already-claimed is a 409 conflict, not a 422.
+            if ($case->status === 'under_review') {
+                throw new CaseAlreadyTaken($case->id);
+            }
+
             $this->sm->transition($case, 'under_review');
             $case->save();
 

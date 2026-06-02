@@ -42,13 +42,14 @@ class ModerationDecisionService
         $this->validateDecisionTypeForCase($case, $dto);
         $this->validateCsamOverride($dto, $staff);
 
-        // Concurrency guard: a case another staffer already resolved is a conflict
-        // (HTTP 409), not an illegal transition (422).
-        if ($case->status === 'resolved') {
-            throw new CaseAlreadyResolved($case->id);
-        }
-
         $decision = DB::transaction(function () use ($case, $staff, $dto) {
+            $case = ModerationCase::lockForUpdate()->findOrFail($case->id);
+
+            // Concurrency guard inside the lock: a case another staffer already resolved
+            // is a conflict (HTTP 409), not an illegal transition (422).
+            if ($case->status === 'resolved') {
+                throw new CaseAlreadyResolved($case->id);
+            }
             // forceCreate() is required because Decision guards 'id' via $guarded = ['id'].
             $decision = Decision::forceCreate([
                 'id'                        => Str::uuid()->toString(),

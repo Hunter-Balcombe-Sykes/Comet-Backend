@@ -9,6 +9,7 @@ use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Services\Cache\UserCacheService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 // Bootstrap a new or existing professional from a validated request. Runs the
@@ -127,29 +128,21 @@ class UserBootstrapService
             return;
         }
 
-        $listKey = 'sidest_updates';
+        $now = now();
 
-        $existing = EmailSubscription::query()
-            ->whereNull('user_id')
-            ->where('list_key', $listKey)
-            ->where('email_lc', $email)
-            ->first();
-
-        if ($existing) {
-            return;
-        }
-
-        $sub = new EmailSubscription([
-            'user_id' => null,
-            'list_key' => $listKey,
-            'email' => $email,
-            'email_lc' => $email,
-            'full_name' => null,
+        EmailSubscription::insertOrIgnore([
+            'id'               => (string) Str::uuid(),
+            'user_id'          => null,
+            'list_key'         => 'sidest_updates',
+            'email'            => $email,
+            'email_lc'         => $email,
+            'status'           => 'subscribed',
+            'subscribed_at'    => $now,
+            'consent_source'   => 'bootstrap',
             'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
+            'created_at'       => $now,
+            'updated_at'       => $now,
         ]);
-
-        $sub->markSubscribed(['source' => 'bootstrap']);
-        $sub->save();
     }
 
     private function createWelcomeNotification(User $professional): void
