@@ -512,25 +512,25 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Write Amplification `[@10k]`
 
-- [ ] **#P2-48** [@10k] `ServiceCategoryObserver` touch cascade defeats its own fine-grained key optimization — Lens: `write-amp`
+- [x] **#P2-48** [@10k] `ServiceCategoryObserver` touch cascade defeats its own fine-grained key optimization — Lens: `write-amp`
     - Where: `app/Observers/Core/ServiceCategoryObserver.php:bust()`
     - What: `bust()` deliberately deletes only 4 keys (professionalDashboardServices, professionalServices, primary+stale) to avoid the full 29-key `invalidateUser()` sweep. It then calls `$pro?->site?->touch()` to fire `SiteObserver::saved` → `invalidateSite()`. Since commit `a0a35444`, `invalidateSite()` also busts `emailBrand + :stale` and `professionalModel + :stale` — neither stale after a category rename. The optimization is partially undone on every category change.
     - Fix: Replace `$pro?->site?->touch()` with a direct call to `SiteCacheService::invalidateSite($pro->site)` plus `CloudflareCachePurgeJob::dispatch($pro->site->subdomain)`. This gives precise control and prevents future additions to `invalidateSite()` from silently expanding the blast radius.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-49** [@10k] `UserObserver` double-invalidates site cache when public profile fields change — Lens: `write-amp`
+- [x] **#P2-49** [@10k] `UserObserver` double-invalidates site cache when public profile fields change — Lens: `write-amp`
     - Where: `app/Observers/User/UserObserver.php:updated()` · `app/Services/Cache/UserCacheService.php:invalidateUser()`
     - What: `UserObserver::updated` calls `invalidateUser($professional)` unconditionally. At `invalidateUser()`'s tail, a "conservative catch-all" calls `invalidateSite($professional->site)` (~29 Redis DELs). When any `PUBLIC_PROFILE_USER_FIELDS` column changed, `touchParentSiteIfPublicFieldChanged` fires → `site?->touch()` → `SiteObserver::saved` → `invalidateSite()` again. The same ~29 keys are deleted twice in sequence. `ShouldBeUnique` on `CloudflareCachePurgeJob` prevents CF API duplication; the Redis DEL amplification is unmitigated.
     - Fix: Add `bool $bustSite = true` parameter to `invalidateUser()`. In `UserObserver::updated`, pass `bustSite: false` when `wasChanged(PUBLIC_PROFILE_USER_FIELDS)` is true (because `touchParentSite` will handle the site bust), and the default `bustSite: true` otherwise.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-50** [@10k] `ServiceObserver` always double-invalidates site cache on every service mutation — Lens: `write-amp`
+- [x] **#P2-50** [@10k] `ServiceObserver` always double-invalidates site cache on every service mutation — Lens: `write-amp`
     - Where: `app/Observers/Core/ServiceObserver.php:runHooks()`
     - What: `runHooks` calls `bust($service)` → `invalidateUser($pro)` (including `invalidateSite()` tail, ~29 DELs), then calls `touchParentSite($service, $pro)` → `site?->touch()` → `SiteObserver::saved` → `invalidateSite()` again. This happens on every `saved`, `deleted`, and `restored` event with no conditional gate — toggling `is_active`, updating a price, or changing a title all produce the same double sweep. Service edits are the most frequent mutation in the app.
     - Fix: Using the `bustSite` flag from #P2-49: in `ServiceObserver::bust()`, call `$this->userCache->invalidateUser($pro, bustSite: false)`. The `touchParentSite()` call that always follows handles the single correct site bust. Add an integration test asserting `invalidateSite()` fires exactly once per service save.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-51** [@10k] All 18 image-view cache variants busted on every `invalidateSite()` regardless of mutation type — Lens: `write-amp`
+- [x] **#P2-51** [@10k] All 18 image-view cache variants busted on every `invalidateSite()` regardless of mutation type — Lens: `write-amp`
     - Where: `app/Services/Cache/SiteCacheService.php:invalidateSite()` · `app/Services/Cache/CacheKeyGenerator.php:siteImagesViewVariants()`
     - What: `invalidateSite()` iterates `siteImagesViewVariants()` — 3 pools × 3 media types = 9 combinations × 2 (primary + `:stale`) = 18 Redis DELs. A service title edit, block reorder, bio change, or category rename does not mutate any `site_media` row. Combined with #P2-49 and #P2-50, a single service edit can incur 36 wasted image-view DELs. `SiteMediaObserver`'s path correctly busts image keys (images changed); all other observer paths should not.
     - Fix: Split `invalidateSite()` into `invalidateSitePayload(Site $site)` (payload+stale, blocks+stale, emailBrand+stale, professionalModel+stale) and `invalidateSiteImages(Site $site)` (the 18 image-view keys). Keep `invalidateSite()` as a wrapper calling both. Callers that know images are unaffected call `invalidateSitePayload()` directly.
@@ -1001,7 +1001,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B7: Write amplification [@10k] (4 items — #P2-48, #P2-49, #P2-50, #P2-51) — Effort: L
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-48`, `#P2-49`, `#P2-50`, `#P2-51`
 - Models: impl=sonnet · review=sonnet
 - Rationale: The four findings share a single root fix: adding a `bustSite: bool = true` parameter to `UserCacheService::invalidateUser()` and splitting `SiteCacheService::invalidateSite()` into payload and image variants. These changes must be implemented together to avoid a partial state where the flag exists but the image-split does not, or vice versa.

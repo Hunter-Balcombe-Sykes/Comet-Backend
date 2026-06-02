@@ -33,14 +33,14 @@ Good — I now have the full picture:
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WAMP-1** · P2 — ServiceCategoryObserver's touch() cascade defeats its own fine-grained key optimization
+- [x] **#WAMP-1** · P2 — ServiceCategoryObserver's touch() cascade defeats its own fine-grained key optimization
     - **Where:** app/Observers/Core/ServiceCategoryObserver.php:bust()
     - **Affects:** Category renames, reorders, and deletes — the explicit optimization to spare 13+ keys is partially undone, with `professionalModel` + `:stale` and `emailBrand` + `:stale` evicted as collateral damage even though neither is stale after a category change.
     - **Effort:** S (~0.5–1h)
@@ -86,7 +86,7 @@ Good — I now have the full picture:
 
 ---
 
-- [ ] **#WAMP-2** · P2 — UserObserver double-invalidates site cache when public profile fields change
+- [x] **#WAMP-2** · P2 — UserObserver double-invalidates site cache when public profile fields change
     - **Where:** app/Observers/User/UserObserver.php:updated(), app/Services/Cache/UserCacheService.php:invalidateUser()
     - **Affects:** Every professional updating display name, bio, about, handle, first name, or last name — approximately 29 Redis DELs fire twice in sequence against the same keys.
     - **Effort:** M (~2–4h)
@@ -139,7 +139,7 @@ Good — I now have the full picture:
 
 ---
 
-- [ ] **#WAMP-3** · P2 — ServiceObserver always double-invalidates site cache on every service mutation
+- [x] **#WAMP-3** · P2 — ServiceObserver always double-invalidates site cache on every service mutation
     - **Where:** app/Observers/Core/ServiceObserver.php:runHooks(), app/Services/Cache/UserCacheService.php:invalidateUser()
     - **Affects:** Every service save, delete, and restore — the most common mutation path in the app. Approximately 29 Redis DELs fire twice, unconditionally, on every operation. Combined with WAMP-4, each service edit incurs at least 36 wasted DELs.
     - **Effort:** M (~2–4h)
@@ -192,7 +192,7 @@ Good — I now have the full picture:
 
 ---
 
-- [ ] **#WAMP-4** · P2 — All 18 image-view cache variants busted on every invalidateSite() regardless of mutation type
+- [x] **#WAMP-4** · P2 — All 18 image-view cache variants busted on every invalidateSite() regardless of mutation type
     - **Where:** app/Services/Cache/SiteCacheService.php:invalidateSite(), app/Services/Cache/CacheKeyGenerator.php:siteImagesViewVariants()
     - **Affects:** Every block reorder, service edit, profile update, category rename, design-kit change, and any other mutation routed through `invalidateSite()`. Each call issues 18 Redis DELs for image-gallery view variants that are unaffected by non-image mutations. Combined with the double-invalidation in WAMP-2 and WAMP-3, a single service edit can incur 36 wasted image-view DELs.
     - **Effort:** M (~2–4h)
