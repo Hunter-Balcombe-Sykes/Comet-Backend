@@ -167,7 +167,7 @@ class SiteCacheService
         // immediately while one worker (lock winner) recomputes silently.
         $stale = Cache::get($staleKey);
         if ($stale !== null) {
-            $fillLock = Cache::lock('site:fill:'.$subdomain, 10);
+            $fillLock = Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10);
             // Non-blocking attempt: if another worker is already recomputing, fall
             // through and return the stale value — that's the whole point of SWR.
             if ($fillLock->get()) {
@@ -222,7 +222,7 @@ class SiteCacheService
         // Cold miss (no primary, no stale) — acquire a per-subdomain fill lock so
         // only one process rebuilds the payload from the DB view while concurrent
         // requests wait (single-flight).
-        $fillLock = Cache::lock('site:fill:'.$subdomain, 10);
+        $fillLock = Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10);
 
         try {
             // Block up to 5 s for the lock; raises LockTimeoutException if it can't.
