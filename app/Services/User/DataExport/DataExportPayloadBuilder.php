@@ -77,12 +77,16 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, waitlist: array, media: array, integrations: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, waitlist: array, media: array, design_kit: array, integrations: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
         $professional = $this->loadUser($userId);
         $lookupEmail = $this->resolveLookupEmail($professional);
+        $siteId = DB::connection('pgsql')
+            ->table('site.sites')
+            ->where('user_id', $userId)
+            ->value('id');
 
         return [
             'metadata' => $this->metadata($professional),
@@ -91,12 +95,18 @@ class DataExportPayloadBuilder
             // Pre-account history — joined by email_lc, persists even if the user never finished signup.
             'waitlist' => $this->collect($this->streamWaitlistSignups($lookupEmail)),
             'media' => ['site_media' => $this->collect($this->streamMedia($userId))],
+            // Per-site design variables (column-per-var, all nullable).
+            'design_kit' => $this->collect($this->streamDesignKit($siteId)),
             'integrations' => $this->collect($this->streamIntegrations($userId)),
             'customers' => $this->collect($this->streamCustomers($userId)),
             'services' => $this->collect($this->streamServices($userId)),
             'service_categories' => $this->collect($this->streamServiceCategories($userId)),
             'enquiries' => $this->collect($this->streamEnquiries($userId)),
             'lead_submissions' => $this->collect($this->streamLeadSubmissions($userId)),
+            // In-app feedback submissions filed by the user.
+            'feedback' => $this->collect($this->streamFeedback($userId)),
+            // Moderation cases involving the user (reported against them or filed by them).
+            'content_reports' => $this->collect($this->streamContentReports($userId, $lookupEmail)),
             // Lookup email is the pre-pseudonymisation original; covers owned, global, and cross-pro rows.
             'email_subscriptions' => $this->collect($this->streamEmailSubscriptions($userId, $lookupEmail)),
             // Dashboard messages sent specifically to this user — body text is user-specific personal data.
@@ -138,6 +148,10 @@ class DataExportPayloadBuilder
     {
         $professional = $this->loadUser($userId);
         $lookupEmail = $this->resolveLookupEmail($professional);
+        $siteId = DB::connection('pgsql')
+            ->table('site.sites')
+            ->where('user_id', $userId)
+            ->value('id');
 
         yield ['name' => 'metadata', 'kind' => 'value', 'value' => $this->metadata($professional)];
         yield ['name' => 'profile', 'kind' => 'value', 'value' => $this->profile($professional)];
@@ -148,13 +162,21 @@ class DataExportPayloadBuilder
             'name' => 'waitlist',
             'kind' => 'rows',
             'rows' => $this->streamWaitlistSignups($lookupEmail),
-            'csv_columns' => null,
+            'csv_columns' => ['id', 'name', 'email', 'phone', 'applicant_type', 'applicant_type_other', 'industry', 'industry_other', 'pilot_program_opt_in', 'number_of_team_members', 'consent_source', 'last_submitted_at', 'created_at', 'updated_at'],
         ];
 
         yield [
             'name' => 'media.site_media',
             'kind' => 'rows',
             'rows' => $this->streamMedia($userId),
+            'csv_columns' => null,
+        ];
+
+        // Per-site design variables (all nullable; null means the code-side default applies).
+        yield [
+            'name' => 'design_kit',
+            'kind' => 'rows',
+            'rows' => $this->streamDesignKit($siteId),
             'csv_columns' => null,
         ];
 
@@ -197,6 +219,22 @@ class DataExportPayloadBuilder
             'name' => 'lead_submissions',
             'kind' => 'rows',
             'rows' => $this->streamLeadSubmissions($userId),
+            'csv_columns' => null,
+        ];
+
+        // In-app feedback submissions. ip_hash and user_agent are technical fingerprints — excluded.
+        yield [
+            'name' => 'feedback',
+            'kind' => 'rows',
+            'rows' => $this->streamFeedback($userId),
+            'csv_columns' => null,
+        ];
+
+        // Moderation cases where the user is the reported party, and signals they filed as reporter.
+        yield [
+            'name' => 'content_reports',
+            'kind' => 'rows',
+            'rows' => $this->streamContentReports($userId, $lookupEmail),
             'csv_columns' => null,
         ];
 
@@ -394,6 +432,84 @@ class DataExportPayloadBuilder
                 ->table('site.enquiries')
                 ->select(['id', 'name', 'email', 'phone', 'subject', 'message', 'created_at'])
                 ->where('user_id', $userId)
+        );
+    }
+
+    /**
+     * In-app feedback submissions filed by this user. ip_hash and user_agent
+     * are technical fingerprints excluded per the enquiries/lead_submissions
+     * redaction pattern. internal_notes (staff triage) are included because
+     * Article 15 covers all data Partna holds about the subject.
+     * Soft-deleted rows are included — during the 30-day grace window the user
+     * can still request a DSAR and all held data must surface.
+     */
+    private function streamFeedback(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('core.feedback')
+                ->select(['id', 'user_id', 'reply_email', 'kind', 'severity', 'message', 'page_url', 'viewport', 'app_version', 'request_id', 'status', 'source', 'tags', 'internal_notes', 'created_at', 'updated_at'])
+                ->where('user_id', $userId)
+        );
+    }
+
+    /**
+     * Content moderation records involving this user in either direction:
+     *   1. Cases where the user's content was reported — basic case metadata only;
+     *      signal-level detail (including who reported them) is withheld to protect
+     *      third-party reporter identity.
+     *   2. Signals filed by the user as reporter — their own reason/details, but
+     *      reporter_ip_hash and dedup_hash are excluded as technical fingerprints.
+     * Each row carries a `record_type` discriminator ('reported_against_me' or
+     * 'filed_by_me') so the export consumer can split the sections.
+     */
+    private function streamContentReports(string $userId, ?string $lookupEmail): Generator
+    {
+        // Cases about the user's content — omit signal-level rows to avoid leaking reporter identity.
+        foreach ($this->lazyRows(
+            DB::connection('pgsql')
+                ->table('moderation.cases')
+                ->select(['id', 'case_type', 'reportable_type', 'reportable_id', 'severity', 'status', 'signal_count', 'auto_actioned', 'resolved_at', 'created_at', 'updated_at'])
+                ->where('reportable_owner_user_id', $userId)
+        ) as $row) {
+            yield array_merge(['record_type' => 'reported_against_me'], $row);
+        }
+
+        // Signals this user filed as reporter — joined by user_id or email (email survives ON DELETE SET NULL).
+        // reporter_ip_hash is a technical fingerprint; dedup_hash is an internal deduplication key.
+        $query = DB::connection('pgsql')
+            ->table('moderation.case_signals')
+            ->select(['id', 'case_id', 'signal_source', 'reason_code', 'reason_details', 'created_at'])
+            ->where('reporter_user_id', $userId);
+
+        $emailLc = $this->normaliseEmail($lookupEmail);
+        if ($emailLc !== null) {
+            $query = $query->orWhere('reporter_email', $emailLc);
+        }
+
+        foreach ($this->lazyRows($query) as $row) {
+            yield array_merge(['record_type' => 'filed_by_me'], $row);
+        }
+    }
+
+    /**
+     * Per-site design kit variables. All columns are NULLABLE; a null value
+     * means the code-side default from the @partnaau/design-system package
+     * applies. Only the stored (non-default) overrides appear as non-null.
+     * Returns at most one row (design_kits has a 1:1 FK to site.sites).
+     */
+    private function streamDesignKit(?string $siteId): Generator
+    {
+        if ($siteId === null) {
+            yield from [];
+
+            return;
+        }
+
+        yield from $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $siteId)
         );
     }
 

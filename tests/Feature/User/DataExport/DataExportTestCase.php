@@ -26,7 +26,7 @@ class DataExportTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'commerce', 'notifications', 'billing', 'site', 'analytics', 'brand', 'audit'] as $schema) {
+        foreach (['core', 'commerce', 'notifications', 'billing', 'site', 'analytics', 'brand', 'audit', 'moderation'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -365,6 +365,74 @@ class DataExportTestCase
             site_id TEXT,
             referrer TEXT,
             created_at TEXT
+        )');
+
+        // In-app feedback submissions. ip_hash and user_agent stored separately — excluded from DSAR.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.feedback (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            reply_email TEXT,
+            kind TEXT,
+            severity TEXT,
+            message TEXT,
+            page_url TEXT,
+            user_agent TEXT,
+            viewport TEXT,
+            app_version TEXT,
+            request_id TEXT,
+            status TEXT DEFAULT "new",
+            internal_notes TEXT DEFAULT "[]",
+            tags TEXT DEFAULT "[]",
+            source TEXT DEFAULT "dashboard",
+            ip_hash TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT
+        )');
+
+        // Moderation cases — reportable_owner_user_id links a case to the user whose content was reported.
+        $conn->statement('CREATE TABLE IF NOT EXISTS moderation.cases (
+            id TEXT PRIMARY KEY,
+            case_type TEXT,
+            reportable_type TEXT,
+            reportable_id TEXT,
+            reportable_owner_user_id TEXT,
+            severity INTEGER DEFAULT 2,
+            status TEXT DEFAULT "open",
+            signal_count INTEGER DEFAULT 1,
+            auto_actioned INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 5,
+            sla_due_at TEXT,
+            triaged_at TEXT,
+            triaged_by_staff_id TEXT,
+            resolved_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
+        // Moderation case signals — reporter_ip_hash and dedup_hash are technical fingerprints excluded from DSAR.
+        $conn->statement('CREATE TABLE IF NOT EXISTS moderation.case_signals (
+            id TEXT PRIMARY KEY,
+            case_id TEXT,
+            signal_source TEXT,
+            signal_data TEXT DEFAULT "{}",
+            reporter_user_id TEXT,
+            reporter_email TEXT,
+            reporter_ip_hash TEXT,
+            reason_code TEXT,
+            reason_details TEXT,
+            dedup_hash TEXT,
+            created_at TEXT
+        )');
+
+        // Per-site design kit (1:1 with site.sites). All var columns NULLABLE.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
+            site_id TEXT PRIMARY KEY,
+            color_accent TEXT,
+            color_bg TEXT,
+            color_text TEXT,
+            typography_font_heading TEXT,
+            typography_font_body TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS billing.subscriptions (

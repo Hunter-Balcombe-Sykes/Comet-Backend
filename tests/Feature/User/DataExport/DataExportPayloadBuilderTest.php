@@ -585,3 +585,157 @@ it('exports user_confirmation_preferences for the user', function () {
     expect($payload['ui_preferences']['confirmation_preferences'])->toHaveCount(1);
     expect($payload['ui_preferences']['confirmation_preferences'][0]['action_key'])->toBe('delete_customer');
 });
+
+it('exports feedback submissions excluding ip_hash and user_agent fingerprints (#P1-06)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('core.feedback')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'kind' => 'bug',
+            'severity' => 'high',
+            'message' => 'The save button is broken.',
+            'page_url' => 'https://dashboard.partna.au/site',
+            'user_agent' => 'Mozilla/5.0',
+            'ip_hash' => 'sha256-deadbeef',
+            'status' => 'new',
+            'source' => 'dashboard',
+            'internal_notes' => '[]',
+            'tags' => '[]',
+            'created_at' => '2026-04-01T00:00:00Z',
+            'updated_at' => '2026-04-01T00:00:00Z',
+        ],
+        // Different user — must not appear. All columns present to match SQLite multi-row insert requirements.
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => (string) Str::uuid(),
+            'kind' => 'idea',
+            'severity' => null,
+            'message' => 'Not Jane\'s feedback.',
+            'page_url' => null,
+            'user_agent' => null,
+            'ip_hash' => null,
+            'status' => 'new',
+            'source' => 'dashboard',
+            'internal_notes' => '[]',
+            'tags' => '[]',
+            'created_at' => '2026-04-02T00:00:00Z',
+            'updated_at' => '2026-04-02T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('feedback');
+    expect($payload['feedback'])->toHaveCount(1);
+    expect($payload['feedback'][0]['kind'])->toBe('bug');
+    expect($payload['feedback'][0]['message'])->toBe('The save button is broken.');
+
+    // Technical fingerprints must be redacted.
+    expect($payload['feedback'][0])->not->toHaveKey('ip_hash');
+    expect($payload['feedback'][0])->not->toHaveKey('user_agent');
+});
+
+it('exports content_reports (cases against user and signals filed by user) excluding reporter_ip_hash (#P1-07)', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+    $caseId = (string) Str::uuid();
+    $otherCaseId = (string) Str::uuid();
+
+    // A case where the user's content was reported.
+    DB::connection('pgsql')->table('moderation.cases')->insert([
+        [
+            'id' => $caseId,
+            'case_type' => 'content_report',
+            'reportable_type' => 'Site',
+            'reportable_id' => (string) Str::uuid(),
+            'reportable_owner_user_id' => $pro->id,
+            'severity' => 2,
+            'status' => 'open',
+            'signal_count' => 1,
+            'auto_actioned' => 0,
+            'created_at' => '2026-05-01T00:00:00Z',
+            'updated_at' => '2026-05-01T00:00:00Z',
+        ],
+        // Case for a different user — must not appear.
+        [
+            'id' => $otherCaseId,
+            'case_type' => 'content_report',
+            'reportable_type' => 'Site',
+            'reportable_id' => (string) Str::uuid(),
+            'reportable_owner_user_id' => (string) Str::uuid(),
+            'severity' => 1,
+            'status' => 'resolved',
+            'signal_count' => 1,
+            'auto_actioned' => 0,
+            'created_at' => '2026-05-02T00:00:00Z',
+            'updated_at' => '2026-05-02T00:00:00Z',
+        ],
+    ]);
+
+    // A signal filed by the user (by user_id).
+    DB::connection('pgsql')->table('moderation.case_signals')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'case_id' => $otherCaseId,
+            'signal_source' => 'content_report',
+            'reporter_user_id' => $pro->id,
+            'reporter_email' => 'jane@example.com',
+            'reporter_ip_hash' => 'sha256-reporterip',
+            'reason_code' => 'spam',
+            'reason_details' => 'This is spam content.',
+            'dedup_hash' => 'abc123',
+            'created_at' => '2026-05-02T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('content_reports');
+    expect($payload['content_reports'])->toHaveCount(2);
+
+    $types = collect($payload['content_reports'])->pluck('record_type')->sort()->values()->all();
+    expect($types)->toBe(['filed_by_me', 'reported_against_me']);
+
+    $caseRow = collect($payload['content_reports'])->firstWhere('record_type', 'reported_against_me');
+    expect($caseRow['case_type'])->toBe('content_report');
+    expect($caseRow['status'])->toBe('open');
+
+    $signalRow = collect($payload['content_reports'])->firstWhere('record_type', 'filed_by_me');
+    expect($signalRow['reason_code'])->toBe('spam');
+    // Technical fingerprints must be redacted.
+    expect($signalRow)->not->toHaveKey('reporter_ip_hash');
+    expect($signalRow)->not->toHaveKey('dedup_hash');
+});
+
+it('exports design_kit for the user\'s site, yielding an empty result when no site exists (#P3-20)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'color_accent' => '#FF5733',
+        'color_bg' => null,
+        'typography_font_heading' => 'Playfair Display',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('design_kit');
+    expect($payload['design_kit'])->toHaveCount(1);
+    expect($payload['design_kit'][0]['site_id'])->toBe($siteId);
+    expect($payload['design_kit'][0]['color_accent'])->toBe('#FF5733');
+    expect($payload['design_kit'][0]['typography_font_heading'])->toBe('Playfair Display');
+
+    // User with no site — design_kit should be empty, not an error.
+    $pro2 = seedProForPayload((string) Str::uuid(), 'other@example.com');
+    $payload2 = app(DataExportPayloadBuilder::class)->build($pro2->id);
+    expect($payload2['design_kit'])->toBeEmpty();
+});
