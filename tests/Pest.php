@@ -415,6 +415,28 @@ function setupSitesTable(): void
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )');
+
+    // site.platform_connections — per-user platform integration selections
+    // (Shopify/Apple/Instagram/...). Read by the public platforms endpoint +
+    // dashboard; any test that sets up a site may touch it. Mirrors the
+    // production migration 20260602020000 (jsonb→TEXT, bool→INTEGER).
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        platform TEXT NULL,
+        resource_id TEXT NULL,
+        payload TEXT NULL,
+        sort_order INTEGER NULL DEFAULT 0,
+        is_active INTEGER NULL DEFAULT 1,
+        last_visited_at TEXT NULL,
+        last_refreshed_at TEXT NULL,
+        last_refresh_status TEXT NULL,
+        last_refresh_error TEXT NULL,
+        consecutive_failures INTEGER NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        deleted_at TEXT NULL
+    )');
 }
 
 /**
