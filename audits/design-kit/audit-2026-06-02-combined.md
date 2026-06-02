@@ -106,7 +106,7 @@
         'design_kit.icons_large_stroke_width'=> ['sometimes', 'nullable', 'string', 'max:16'],
         ```
 
-- [ ] **#API-1** · P1 · M — StaffSiteController returns a raw PHP array, bypassing the Resource layer entirely
+- [x] **#API-1** · P1 · M — StaffSiteController returns a raw PHP array, bypassing the Resource layer entirely
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffSiteController.php:46–73
     - **Affects:** All staff viewing a professional's site record. The `buildPayload()` method assembles a plain PHP array directly from the `AllSiteData` database view. Any column added to that view in future automatically leaks to the staff API with no review step.
     - **Effort:** M (~2–4h)
