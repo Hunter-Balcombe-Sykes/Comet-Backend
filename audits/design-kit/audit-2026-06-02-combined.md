@@ -296,7 +296,7 @@
         );
         ```
 
-- [ ] **#CCH-3** · P2 · S — SiteCacheService fill lock uses the default Redis store, not a dedicated lock store
+- [x] **#CCH-3** · P2 · S — SiteCacheService fill lock uses the default Redis store, not a dedicated lock store
     - **Where:** app/Services/Cache/SiteCacheService.php (SWR fill-lock acquisition in `getPublicSitePayload`)
     - **Affects:** The stale-while-revalidate single-flight guarantee on the public site payload cache. A `Cache::flush()` on the main store would delete active fill locks, allowing simultaneous recompute by all waiting workers.
     - **Effort:** S (~0.5–1h)
