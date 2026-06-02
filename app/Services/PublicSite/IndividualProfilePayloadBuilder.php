@@ -325,7 +325,8 @@ class IndividualProfilePayloadBuilder
             'spacing' => 'spacing',
             'padding' => 'padding',
             'motion' => 'motion',
-            'icon' => 'icons',
+            'icon' => 'icons',   // singular prefix: icon_size, icon_color (reserved)
+            'icons' => 'icons',  // plural prefix:   icons_xl_size, icons_stroke_width, etc.
             'effect' => 'effects',
         ];
 
