@@ -26,7 +26,7 @@ class AccountDeletionTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'brand', 'commerce', 'notifications', 'billing', 'site', 'audit'] as $schema) {
+        foreach (['core', 'brand', 'commerce', 'notifications', 'billing', 'site', 'audit', 'moderation'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -245,6 +245,75 @@ class AccountDeletionTestCase
             created_at TEXT NULL,
             updated_at TEXT NULL,
             deleted_at TEXT NULL
+        )");
+
+        // audit.data_export_audit — purge() deletes R2 ZIPs before forceDelete sets user_id NULL.
+        $conn->statement("CREATE TABLE IF NOT EXISTS audit.data_export_audit (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            professional_handle_snapshot TEXT NOT NULL DEFAULT '',
+            professional_email_snapshot TEXT NULL,
+            triggered_by TEXT NOT NULL DEFAULT 'self',
+            triggered_by_staff_id TEXT NULL,
+            recipient_email TEXT NOT NULL DEFAULT '',
+            send_to TEXT NULL,
+            status TEXT NOT NULL DEFAULT 'completed',
+            file_path TEXT NULL,
+            file_size_bytes INTEGER NULL,
+            file_sha256 TEXT NULL,
+            record_counts TEXT NULL,
+            error_message TEXT NULL,
+            email_sent_at TEXT NULL,
+            created_at TEXT NULL,
+            completed_at TEXT NULL
+        )");
+
+        // core.waitlist_signups — purge() deletes by email_lc.
+        $conn->statement("CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+            id TEXT PRIMARY KEY,
+            name TEXT NULL,
+            email TEXT NULL,
+            email_lc TEXT NULL,
+            phone TEXT NULL,
+            applicant_type TEXT NULL,
+            pilot_program_opt_in INTEGER NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )");
+
+        // moderation.case_signals — purge() nulls out reporter PII.
+        // SQLite does not enforce FKs by default, so the cases table is omitted here.
+        $conn->statement("CREATE TABLE IF NOT EXISTS moderation.case_signals (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL,
+            signal_source TEXT NOT NULL DEFAULT 'content_report',
+            signal_data TEXT NOT NULL DEFAULT '{}',
+            reporter_user_id TEXT NULL,
+            reporter_email TEXT NULL,
+            reporter_ip_hash TEXT NULL,
+            reason_code TEXT NOT NULL DEFAULT 'spam',
+            reason_details TEXT NULL,
+            created_at TEXT NULL
+        )");
+
+        // notifications.email_subscriptions — purge() deletes global (user_id IS NULL) rows by email_lc.
+        $conn->statement("CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            list_key TEXT NOT NULL DEFAULT 'marketing',
+            email TEXT NOT NULL DEFAULT '',
+            full_name TEXT NULL,
+            status TEXT NOT NULL DEFAULT 'subscribed',
+            subscribed_at TEXT NULL,
+            unsubscribed_at TEXT NULL,
+            unsubscribe_token TEXT NOT NULL DEFAULT '',
+            consent_source TEXT NULL,
+            consent_ip_hash TEXT NULL,
+            consent_user_agent TEXT NULL,
+            email_lc TEXT NOT NULL DEFAULT '',
+            qr_slug TEXT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
         )");
     }
 }

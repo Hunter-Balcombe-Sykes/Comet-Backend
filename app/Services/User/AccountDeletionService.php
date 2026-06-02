@@ -503,6 +503,19 @@ class AccountDeletionService
             }
         }
 
+        // Step 3b: resolve pre-pseudonymisation email for email-keyed erasure.
+        // executeConfirmation() pseudonymises primary_email before purge runs —
+        // the original is preserved in the deletion audit snapshot.
+        $lookupEmail = $this->resolvePurgeEmail($professional);
+
+        // Step 3c–3g: erase PII from surfaces the DB cascade won't reach.
+        // Each step is independently fault-tolerant — a failure must not block forceDelete.
+        $this->purgeExportZips($professional);           // #P2-08: R2 export ZIPs
+        $this->purgeWaitlistSignup($lookupEmail);        // #P2-09: waitlist signup row
+        $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
+        $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
+        $this->purgeGlobalEmailSubscriptions($lookupEmail); // #P2-12: global (user_id IS NULL) subscriptions
+
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
         // 3 previously-RESTRICT FKs now SET NULL). forceDelete triggers model events.
         try {
@@ -535,6 +548,170 @@ class AccountDeletionService
         ]);
 
         return true;
+    }
+
+    /**
+     * Resolve the pre-pseudonymisation email from the deletion audit snapshot.
+     *
+     * executeConfirmation() pseudonymises primary_email before purge() runs —
+     * the original is captured in EVENT_CONFIRMED/REQUESTED audit rows written
+     * before the pseudonymise step. Mirrors DataExportPayloadBuilder::resolveLookupEmail().
+     */
+    private function resolvePurgeEmail(User $professional): ?string
+    {
+        $email = $professional->primary_email;
+        if ($email !== null && str_starts_with($email, 'deleted+')) {
+            $snapshot = DB::connection('pgsql')
+                ->table('audit.user_deletion_audit')
+                ->where('user_id', $professional->id)
+                ->whereIn('event', [
+                    UserDeletionAuditEntry::EVENT_REQUESTED,
+                    UserDeletionAuditEntry::EVENT_CONFIRMED,
+                    UserDeletionAuditEntry::EVENT_ADMIN_INITIATED,
+                ])
+                ->orderByDesc('created_at')
+                ->value('professional_email_snapshot');
+            if (is_string($snapshot) && $snapshot !== '') {
+                return $snapshot;
+            }
+        }
+
+        return $email;
+    }
+
+    /**
+     * #P2-08: Delete GDPR export ZIPs from R2.
+     *
+     * audit.data_export_audit.user_id is SET NULL after forceDelete, so this
+     * must run before the hard delete. Failures are logged and skipped —
+     * a storage outage must not block account erasure.
+     */
+    private function purgeExportZips(User $professional): void
+    {
+        try {
+            $disk = Storage::disk((string) config('partna.media_disk'));
+
+            $paths = DB::connection('pgsql')
+                ->table('audit.data_export_audit')
+                ->where('user_id', $professional->id)
+                ->whereNotNull('file_path')
+                ->pluck('file_path');
+
+            foreach ($paths as $path) {
+                try {
+                    if ($disk->exists($path)) {
+                        $disk->delete($path);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Export ZIP deletion failed during account purge', [
+                        'user_id' => $professional->id,
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('Export ZIP erasure step failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * #P2-09: Delete core.waitlist_signups row matched by email_lc.
+     *
+     * Waitlist rows are keyed on email, not user_id — no DB cascade reaches them.
+     */
+    private function purgeWaitlistSignup(?string $lookupEmail): void
+    {
+        if ($lookupEmail === null || trim($lookupEmail) === '') {
+            return;
+        }
+
+        try {
+            DB::connection('pgsql')
+                ->table('core.waitlist_signups')
+                ->where('email_lc', mb_strtolower(trim($lookupEmail)))
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Waitlist signup erasure failed during account purge', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * #P2-10: Force-delete feedback rows (bypass soft-delete).
+     *
+     * The FK is ON DELETE SET NULL — rows survive forceDelete with PII intact
+     * (message, reply_email). Explicit deletion required for full erasure.
+     */
+    private function purgeFeedbackRows(User $professional): void
+    {
+        try {
+            DB::connection('pgsql')
+                ->table('core.feedback')
+                ->where('user_id', $professional->id)
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Feedback erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * #P2-11: Null out reporter PII on moderation.case_signals.
+     *
+     * The signal itself is moderation evidence and must not be deleted.
+     * reporter_ip_hash is a one-way hash and not personally identifiable — kept.
+     * reason_details is up to 4000 chars of freetext that may identify the reporter — erased.
+     */
+    private function purgeCaseSignalPii(User $professional): void
+    {
+        try {
+            DB::connection('pgsql')
+                ->table('moderation.case_signals')
+                ->where('reporter_user_id', $professional->id)
+                ->update([
+                    'reporter_user_id' => null,
+                    'reporter_email'   => null,
+                    'reason_details'   => null,
+                ]);
+        } catch (\Throwable $e) {
+            Log::error('Case signal PII erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * #P2-12: Delete global (user_id IS NULL) email_subscriptions matched by email_lc.
+     *
+     * user_id-linked rows are cascade-deleted by forceDelete via FK ON DELETE CASCADE.
+     * Global rows (platform marketing list signups) are keyed only on email_lc and
+     * require explicit deletion.
+     */
+    private function purgeGlobalEmailSubscriptions(?string $lookupEmail): void
+    {
+        if ($lookupEmail === null || trim($lookupEmail) === '') {
+            return;
+        }
+
+        try {
+            DB::connection('pgsql')
+                ->table('notifications.email_subscriptions')
+                ->whereNull('user_id')
+                ->where('email_lc', mb_strtolower(trim($lookupEmail)))
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Global email subscription erasure failed during account purge', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
