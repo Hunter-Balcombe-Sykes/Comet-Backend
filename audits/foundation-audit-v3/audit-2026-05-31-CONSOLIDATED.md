@@ -118,13 +118,13 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Change to `(bool) env('PARTNA_MODERATION_ENABLED', true)`. Add a unit test asserting `config('partna.moderation.enabled')` is `false` when the env var is `'false'`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-06** Feedback submissions missing from DSAR export — Lens: `gdpr-export`
+- [x] **#P1-06** Feedback submissions missing from DSAR export — Lens: `gdpr-export`
     - Where: `app/Services/User/DataExport/DataExportPayloadBuilder.php` — `stream()` method (no `feedback` section) · `app/Models/Core/Feedback.php`
     - What: `DataExportPayloadBuilder::stream()` yields 22 sections but never queries `core.feedback`. The table stores `reply_email` (user's own contact email), `message` (verbatim text), `kind`, `severity`, `page_url`, and `status` — all GDPR Art. 15 personal data of the data subject. The erasure command `mcp__laravel-boost` already acknowledges these as PII; the disclosure path is missing.
     - Fix: Add `streamFeedback(string $userId)` generator querying `core.feedback WHERE user_id = $userId`. Select user-visible columns only; drop `ip_hash` and `user_agent` following the `streamEnquiries()` redaction pattern. Yield from `stream()` with `'csv_columns' => null`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-07** Content-report submissions missing from DSAR export — Lens: `gdpr-export`
+- [x] **#P1-07** Content-report submissions missing from DSAR export — Lens: `gdpr-export`
     - Where: `app/Services/User/DataExport/DataExportPayloadBuilder.php` — no moderation section · `app/Services/Moderation/ContentReportService.php`
     - What: `moderation.case_signals` stores `reporter_email`, `reason_details` (up to 4 000 chars of freetext), and `signal_data` JSONB per report. The erasure command `moderation:redact-reporter-pii` confirms these as PII (it nulls them on Art. 17 requests) — yet the Art. 15 disclosure path is absent. Reports submitted while logged in set `reporter_user_id`; anonymous reports link via `reporter_email`.
     - Fix: Add `streamContentReports(string $userId, ?string $lookupEmail)` generator querying `moderation.case_signals WHERE reporter_user_id = $userId OR (reporter_user_id IS NULL AND reporter_email = $lookupEmail)`. Drop `reporter_ip_hash`. Yield from `stream()` and `build()`.
@@ -742,13 +742,13 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add `email_delivery_status TEXT NULL CHECK (email_delivery_status IN ('sent','delivered','bounced','complaint'))` to `audit.data_export_audit`. Default to `'sent'` when `markEmailSent()` is called. Wire a Resend webhook handler to update the column for future plumbing.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P3-19** Waitlist entry has no CSV companion in the export zip — Lens: `gdpr-export`
+- [x] **#P3-19** Waitlist entry has no CSV companion in the export zip — Lens: `gdpr-export`
     - Where: `app/Services/User/DataExport/DataExportPayloadBuilder.php:142–147`
     - What: The waitlist section yield sets `'csv_columns' => null`, opting out of CSV output despite `streamWaitlistSignups()` already selecting a well-defined column set. Customers and enquiries both have CSV companions. `DataExportZipWriter::streamRowsArray()` auto-generates CSV when `csv_columns` is non-null — this is a one-line change.
     - Fix: Set `csv_columns` on the waitlist section descriptor to match `streamWaitlistSignups()`: `['id', 'name', 'email', 'phone', 'applicant_type', …, 'created_at', 'updated_at']`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-20** Design kit preferences not included in DSAR export — Lens: `gdpr-export`
+- [x] **#P3-20** Design kit preferences not included in DSAR export — Lens: `gdpr-export`
     - Where: `app/Services/User/DataExport/DataExportPayloadBuilder.php` — `site()` method
     - What: `site()` queries `site.sites` and `site.blocks` only. `site.design_kits` (introduced in the skeleton-system cleanup) stores color palettes, typography, spacing, and button styles — user-generated personalisation choices stored specifically about the identified professional. GDPR Art. 15 disclosure obligation applies.
     - Fix: Add `streamDesignKit(string $siteId)` generator fetching the single `design_kits` row by `site_id`. Yield from `stream()` as `'name' => 'site.design_kit'`. Resolve `site_id` from the site already loaded in `stream()`.
@@ -957,7 +957,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B5: DSAR export section completeness (4 items — #P1-06, #P1-07, #P3-19, #P3-20) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-06`, `#P1-07`, `#P3-19`, `#P3-20`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All four are additions to `DataExportPayloadBuilder`: new generator methods + new `yield` entries in `stream()`. One session, one file, no interaction effects.
