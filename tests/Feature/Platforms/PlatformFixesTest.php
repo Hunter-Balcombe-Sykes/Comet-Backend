@@ -1,7 +1,10 @@
 <?php
 
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 // Facebook link normalisation (connect does no external fetch — pure parsing).
 
@@ -125,4 +128,72 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
     expect($res->json('name'))->toBe('New Episode');
     expect($res->json('highlights'))->toHaveCount(1);
     expect($res->json('highlights.0.trackId'))->toBe('222');
+});
+
+// Shopify: PUT /selection reuses the picker-warmed catalog instead of
+// re-scraping the whole store on every save.
+
+function seedShopifyBrand(): void
+{
+    Cache::put('platforms.shopify.brands', [
+        'b1' => [
+            'id' => 'b1', 'url' => 'https://shop.example.com', 'name' => 'Shop',
+            'currency' => 'USD', 'favicon' => null, 'logo' => null,
+            'discountCode' => '', 'products' => [],
+        ],
+    ], now()->addDay());
+}
+
+it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function () {
+    seedShopifyBrand();
+    Cache::put('platforms.shopify.brands.catalog.b1', [
+        ['productId' => 'p1', 'title' => 'A'],
+        ['productId' => 'p2', 'title' => 'B'],
+    ], now()->addMinutes(10));
+
+    // Catalog is warm — the controller must NOT hit the scraper.
+    $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldNotReceive('fetchProducts'));
+
+    $res = $this->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p2']]);
+
+    $res->assertOk();
+    expect($res->json('products'))->toHaveCount(1);
+    expect($res->json('products.0.productId'))->toBe('p2');
+});
+
+it('re-scrapes on Shopify setProducts only when the catalog cache is cold', function () {
+    seedShopifyBrand(); // no catalog cache seeded
+
+    $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldReceive('fetchProducts')->once()->andReturn([
+        ['productId' => 'p1', 'title' => 'A'],
+        ['productId' => 'p2', 'title' => 'B'],
+    ]));
+
+    $res = $this->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p1']]);
+
+    $res->assertOk();
+    expect($res->json('products'))->toHaveCount(1);
+    expect($res->json('products.0.productId'))->toBe('p1');
+});
+
+// Instagram: failed image mirrors are surfaced (imagesDropped) instead of
+// silently saving fewer images than the user picked.
+
+it('surfaces dropped Instagram images when mirroring fails', function () {
+    config(['services.apify.token' => 'test-token']); // pass the validateUsername guard
+    Http::fake(['*' => Http::response('', 500)]);      // every image mirror fails
+
+    $this->mock(InstagramScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Jane', 'businessCategoryName' => null]);
+        $m->shouldReceive('recentCoverImages')->andReturn([
+            'https://cdn.ig/1.jpg', 'https://cdn.ig/2.jpg', 'https://cdn.ig/3.jpg',
+        ]);
+        $m->shouldReceive('profilePicUrl')->andReturn('https://cdn.ig/pic.jpg');
+    });
+
+    $res = $this->postJson('/api/platforms/instagram/connect', ['username' => 'jane']);
+
+    $res->assertOk();
+    expect($res->json('images'))->toHaveCount(0);   // all mirrors failed
+    expect($res->json('imagesDropped'))->toBe(3);   // ...and that's surfaced, not hidden
 });
