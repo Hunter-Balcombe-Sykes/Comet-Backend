@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\FeatureFlag;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\FeatureFlag\CreateFeatureFlagRequest;
 use App\Http\Requests\Api\Staff\FeatureFlag\UpdateFeatureFlagRequest;
 use App\Http\Resources\FeatureFlagResource;
@@ -15,6 +16,8 @@ use Illuminate\Http\Request;
 // the in-process cache reflects changes immediately.
 class StaffFeatureFlagController extends ApiController
 {
+    use ReturnsPaginatedResponse;
+
     public function __construct(private FeatureFlagService $service) {}
 
     /** GET /staff/feature-flags — list all flags with override counts. */
@@ -23,8 +26,9 @@ class StaffFeatureFlagController extends ApiController
         abort_if($request->attributes->get('partna_staff') === null, 401, 'Unauthenticated');
 
         $flags = FeatureFlag::withCount('overrides')->orderBy('key')->paginate(50);
+        $flags->through(fn (FeatureFlag $flag) => FeatureFlagResource::make($flag)->resolve());
 
-        return FeatureFlagResource::collection($flags)->response();
+        return $this->success($this->paginatedResponse($flags, 'flags'));
     }
 
     /** POST /staff/feature-flags — create a new flag. */

@@ -2,19 +2,19 @@
 
 namespace App\Http\Resources\Moderation;
 
-use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\ApiResource;
 
 /**
  * Serializes a moderation decision for staff review endpoints.
  * Exposes the decision type, reason, actor (staff id or system flag),
  * and audit metadata. No reporter PII is present on this model.
  */
-class DecisionResource extends JsonResource
+class DecisionResource extends ApiResource
 {
     public function toArray($request): array
     {
         return [
-            'id'                     => $this->id,
+            'id'                     => (string) $this->id,
             'decision_type'          => $this->decision_type,
             'reason'                 => $this->reason,
             'decided_by_staff_id'    => $this->decided_by_staff_id,

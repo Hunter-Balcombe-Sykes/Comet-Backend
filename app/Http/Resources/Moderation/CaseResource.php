@@ -2,19 +2,19 @@
 
 namespace App\Http\Resources\Moderation;
 
-use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\ApiResource;
 
 /**
  * List-view serialization of a moderation case — no nested relations.
  * PII fields (reporter_email, reporter_ip_hash) live on case_signals, not
  * here, so this resource is safe to return to any staff endpoint.
  */
-class CaseResource extends JsonResource
+class CaseResource extends ApiResource
 {
     public function toArray($request): array
     {
         return [
-            'id'                       => $this->id,
+            'id'                       => (string) $this->id,
             'case_type'                => $this->case_type,
             'reportable_type'          => $this->reportable_type,
             'reportable_id'            => $this->reportable_id,

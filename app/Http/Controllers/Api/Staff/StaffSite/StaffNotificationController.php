@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
+use App\Http\Resources\NotificationListingResource;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
@@ -82,7 +83,7 @@ class StaffNotificationController extends ApiController
             // dispatch path). Could log a warning but it's a niche case — leave silent.
         }
 
-        return $this->success(['notification' => $notification], 201);
+        return $this->success(['notification' => (new NotificationListingResource($notification))->resolve()], 201);
     }
 
     /**

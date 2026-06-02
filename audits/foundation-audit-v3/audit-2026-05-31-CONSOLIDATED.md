@@ -540,25 +540,25 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — API Resources
 
-- [ ] **#P2-52** Moderation resources extend `JsonResource` instead of `ApiResource` — `id` not cast to string — Lens: `resources`
+- [x] **#P2-52** Moderation resources extend `JsonResource` instead of `ApiResource` — `id` not cast to string — Lens: `resources`
     - Where: `app/Http/Resources/Moderation/CaseResource.php` · `CaseSignalResource.php` · `DecisionResource.php` · `EvidenceResource.php` · `CaseDetailResource.php`
     - What: All five moderation resources bypass the project's Resource contract: `ApiResource` mandates `id` be cast to string and participates in any future base-class enhancements. UUIDs happen to serialise as strings today, but strict-typed TS consumers (Zod discriminated-union assertions) and any future int-keyed table would break silently.
     - Fix: Change `extends JsonResource` to `extends ApiResource` in all five. Cast `id` to `(string) $this->id` in each `toArray()`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-53** Raw Carbon instances returned from controller-side payload builders — Lens: `resources`
+- [x] **#P2-53** Raw Carbon instances returned from controller-side payload builders — Lens: `resources`
     - Where: `app/Http/Controllers/Api/User/Account/UserDocumentController.php` (`buildDocumentPayload`) · `app/Http/Controllers/Api/User/Uploads/UserUploadController.php` (`buildMediaPayload`)
     - What: Both controllers return `$media->created_at` and `$media->updated_at` as Carbon instances rather than ISO-8601 strings. Every `ApiResource` subclass calls `->toIso8601String()` to pin the wire format. A future `$dateFormat` model-cast or `date_serialization_format` config change would silently shift the timestamp format for these two endpoints.
     - Fix: Replace `$media->created_at` / `$media->updated_at` with `$media->created_at?->toIso8601String()` / `$media->updated_at?->toIso8601String()` in both payload builders.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-54** Staff endpoints return raw Eloquent models — Lens: `resources`
+- [x] **#P2-54** Staff endpoints return raw Eloquent models — Lens: `resources`
     - Where: `app/Http/Controllers/Api/Staff/StaffSite/StaffMeController.php:15` · `app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationController.php:182`
     - What: `StaffMeController::show()` returns `$request->attributes->get('partna_staff')` — the `PartnaStaff` Eloquent model — directly. `StaffNotificationController::store()` returns the created `Notification` model unfiltered. Any new column added to either model automatically ships to every staff browser session without review. `NotificationListingResource` already exists and is used for every other notification response.
     - Fix: Create `PartnaStaffResource extends ApiResource` with an explicit `id/name/primary_email` allowlist. Use it in `StaffMeController`. Wrap the `store()` response in `NotificationListingResource`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-55** Feature flag list endpoints return non-standard pagination envelope — Lens: `resources`
+- [x] **#P2-55** Feature flag list endpoints return non-standard pagination envelope — Lens: `resources`
     - Where: `app/Http/Controllers/Api/Staff/FeatureFlag/StaffFeatureFlagController.php:25` · `StaffFeatureFlagOverrideController.php:24`
     - What: Both use `Resource::collection($paginator)->response()` which produces Laravel's default envelope (`data`, `links`, `meta.from/to/path/links`). Every other paginated staff endpoint uses `ReturnsPaginatedResponse::paginatedResponse()` producing `{ "<named_key>": [...], "meta": { "current_page", "per_page", "total", "next_page_url", "prev_page_url" } }`. Frontend consumers written against the project standard will misread or fail silently.
     - Fix: Add `use ReturnsPaginatedResponse;` to both controllers. Replace `Resource::collection($paginator)->response()` with `$this->success($this->paginatedResponse($paginator, 'flags'))` / `'overrides'`.
@@ -1025,7 +1025,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B8: Resource contract alignment (4 items — #P2-52, #P2-53, #P2-54, #P2-55) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-52`, `#P2-53`, `#P2-54`, `#P2-55`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All four are mechanical Resource contract fixes in the staff and moderation response layer. No logic changes. One session, ~10 file edits.

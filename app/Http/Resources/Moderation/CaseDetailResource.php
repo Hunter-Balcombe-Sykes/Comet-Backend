@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Moderation;
 
-use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\ApiResource;
 
 /**
  * Detail-view serialization of a moderation case — includes nested relations.
@@ -14,7 +14,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Typical usage:
  *   new CaseDetailResource($case->load(['signals', 'evidence', 'decisions']))
  */
-class CaseDetailResource extends JsonResource
+class CaseDetailResource extends ApiResource
 {
     public function toArray($request): array
     {

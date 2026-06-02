@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Moderation;
 
-use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\ApiResource;
 
 /**
  * Serializes a case signal for staff endpoints.
@@ -11,12 +11,12 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * are PII fields that must never appear in API responses. Only non-identifying
  * fields (source, reason codes, timestamps) are exposed here.
  */
-class CaseSignalResource extends JsonResource
+class CaseSignalResource extends ApiResource
 {
     public function toArray($request): array
     {
         return [
-            'id'             => $this->id,
+            'id'             => (string) $this->id,
             'signal_source'  => $this->signal_source,
             'reason_code'    => $this->reason_code,
             'reason_details' => $this->reason_details,

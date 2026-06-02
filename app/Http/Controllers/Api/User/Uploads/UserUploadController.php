@@ -363,8 +363,8 @@ class UserUploadController extends ApiController
             'processing_state' => $media->processing_state,
             'processing' => $isProcessing, // backward-compat boolean
             'processing_error' => $media->processing_error,
-            'created_at' => $media->created_at,
-            'updated_at' => $media->updated_at,
+            'created_at' => $media->created_at?->toIso8601String(),
+            'updated_at' => $media->updated_at?->toIso8601String(),
         ];
 
         if ($isVideo) {

@@ -292,8 +292,8 @@ class UserDocumentController extends ApiController
             'original_filename' => $media->original_filename,
             'preview_url' => $previewUrl,
             'download_url' => '/api/public/documents/'.$media->id.'/download',
-            'created_at' => $media->created_at,
-            'updated_at' => $media->updated_at,
+            'created_at' => $media->created_at?->toIso8601String(),
+            'updated_at' => $media->updated_at?->toIso8601String(),
         ];
     }
 

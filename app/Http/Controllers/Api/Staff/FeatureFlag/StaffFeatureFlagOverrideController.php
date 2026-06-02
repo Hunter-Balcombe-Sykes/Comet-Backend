@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\FeatureFlag;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\FeatureFlag\CreateOverrideRequest;
 use App\Http\Resources\FeatureFlagOverrideResource;
 use App\Models\Core\FeatureFlag;
@@ -17,6 +18,8 @@ use Throwable;
 // Staff admin endpoints to set / clear per-professional or per-brand flag overrides.
 class StaffFeatureFlagOverrideController extends ApiController
 {
+    use ReturnsPaginatedResponse;
+
     public function __construct(private FeatureFlagService $service) {}
 
     /** GET /staff/feature-flags/{key}/overrides — list overrides for a flag (paginated, newest first). */
@@ -26,8 +29,9 @@ class StaffFeatureFlagOverrideController extends ApiController
 
         $flag = FeatureFlag::findOrFail($key);
         $overrides = $flag->overrides()->orderBy('created_at', 'desc')->paginate(50);
+        $overrides->through(fn ($override) => FeatureFlagOverrideResource::make($override)->resolve());
 
-        return FeatureFlagOverrideResource::collection($overrides)->response();
+        return $this->success($this->paginatedResponse($overrides, 'overrides'));
     }
 
     /** POST /staff/feature-flags/{key}/overrides — upsert an override for a brand or professional. */
