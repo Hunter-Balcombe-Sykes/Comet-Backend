@@ -218,7 +218,7 @@
           FOR EACH ROW EXECUTE FUNCTION site.create_empty_design_kit();
         ```
 
-- [ ] **#SCHEMA-4** · P2 · S — `site.create_empty_design_kit()` trigger has no `ON CONFLICT` guard
+- [x] **#SCHEMA-4** · P2 · S — `site.create_empty_design_kit()` trigger has no `ON CONFLICT` guard
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (trigger function, lines ~107–115)
     - **Affects:** Site creation — if a `design_kits` row already exists for the same `site_id` (backfill race, re-insert, or test fixture), the trigger's bare `INSERT` hits a PK violation and rolls back the entire `INSERT INTO site.sites`, failing site creation silently.
     - **Effort:** S (~0.5–1h)
