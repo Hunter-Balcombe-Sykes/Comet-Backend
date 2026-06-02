@@ -74,6 +74,8 @@ class UserSiteController extends ApiController
             return;
         }
 
+        // information_schema is read-only metadata — fetch it outside the
+        // transaction so we don't hold the row lock any longer than necessary.
         $columns = DB::connection('pgsql')
             ->table('information_schema.columns')
             ->where('table_schema', 'site')
@@ -88,10 +90,23 @@ class UserSiteController extends ApiController
             return;
         }
 
-        DB::connection('pgsql')
-            ->table('site.design_kits')
-            ->where('site_id', $siteId)
-            ->update($valid);
+        // Wrap the read-then-write in a transaction with a row-level lock so
+        // concurrent requests are serialised. Without this, two requests can
+        // each read the same row and then each overwrite a disjoint subset of
+        // columns, producing a torn state (e.g. colours from one request,
+        // typography from another).
+        DB::connection('pgsql')->transaction(function () use ($siteId, $valid): void {
+            DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $siteId)
+                ->lockForUpdate()
+                ->get(); // acquire the lock before writing
+
+            DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $siteId)
+                ->update($valid);
+        });
     }
 
     /**
