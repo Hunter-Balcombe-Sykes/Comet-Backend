@@ -1,0 +1,128 @@
+<?php
+
+use App\Services\Platforms\AppleSearch;
+use Illuminate\Support\Facades\Cache;
+
+// Facebook link normalisation (connect does no external fetch — pure parsing).
+
+it('stores a legacy /pages/Name/ID Facebook link without mangling the username', function () {
+    $res = $this->postJson('/api/platforms/facebook/connect', [
+        'username' => 'https://www.facebook.com/pages/Some-Cafe/123456789',
+    ]);
+
+    $res->assertOk();
+    expect($res->json('username'))->toBe('');
+    expect($res->json('url'))->toBe('https://www.facebook.com/pages/Some-Cafe/123456789');
+});
+
+it('strips a query string from a /pages/ Facebook link', function () {
+    $res = $this->postJson('/api/platforms/facebook/connect', [
+        'username' => 'https://www.facebook.com/pages/Some-Cafe/123456789?ref=bookmarks',
+    ]);
+
+    $res->assertOk();
+    expect($res->json('url'))->toBe('https://www.facebook.com/pages/Some-Cafe/123456789');
+});
+
+it('still stores a vanity Facebook handle', function () {
+    $res = $this->postJson('/api/platforms/facebook/connect', ['username' => '@nike']);
+
+    $res->assertOk();
+    expect($res->json('username'))->toBe('nike');
+    expect($res->json('url'))->toBe('https://www.facebook.com/nike');
+});
+
+// Eventbrite read-time past-event filtering (seed the cache, read it back).
+
+it('drops elapsed events from the Eventbrite selection at read time', function () {
+    $past = now()->subDays(2)->toIso8601String();
+    $future = now()->addDays(5)->toIso8601String();
+
+    Cache::put('platforms.eventbrite.selection', [
+        'url' => 'https://www.eventbrite.com/o/acme-1',
+        'organiser' => 'Acme',
+        'next' => ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
+        'upcoming' => [
+            ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
+            ['name' => 'Future gig', 'startDate' => $future, 'endDate' => $future],
+        ],
+    ], now()->addDay());
+
+    $res = $this->getJson('/api/platforms/eventbrite/selection');
+
+    $res->assertOk();
+    expect($res->json('selection.upcoming'))->toHaveCount(1);
+    expect($res->json('selection.upcoming.0.name'))->toBe('Future gig');
+    expect($res->json('selection.next.name'))->toBe('Future gig');
+});
+
+it('keeps an in-progress event (started, not yet ended) in the Eventbrite selection', function () {
+    $started = now()->subHour()->toIso8601String();
+    $endsLater = now()->addHours(3)->toIso8601String();
+
+    Cache::put('platforms.eventbrite.selection', [
+        'url' => 'https://www.eventbrite.com/o/acme-1',
+        'organiser' => 'Acme',
+        'next' => null,
+        'upcoming' => [
+            ['name' => 'Live now', 'startDate' => $started, 'endDate' => $endsLater],
+        ],
+    ], now()->addDay());
+
+    $res = $this->getJson('/api/platforms/eventbrite/selection');
+
+    $res->assertOk();
+    expect($res->json('selection.upcoming'))->toHaveCount(1);
+    expect($res->json('selection.next.name'))->toBe('Live now');
+});
+
+// Apple "most recent" tile refreshes when highlights are updated (mock the
+// iTunes Search fetch so no live call is made).
+
+it('refreshes the Apple Music "most recent" tile when highlights are updated', function () {
+    $this->mock(AppleSearch::class, function ($m) {
+        $m->shouldReceive('fetchAlbums')->andReturn([
+            ['collectionId' => '111', 'name' => 'New Album', 'thumbnail' => 't1', 'releaseDate' => '2026-06-01', 'link' => 'l1'],
+            ['collectionId' => '222', 'name' => 'Old Album', 'thumbnail' => 't2', 'releaseDate' => '2025-01-01', 'link' => 'l2'],
+        ]);
+    });
+
+    Cache::put('platforms.apple.music.selection', [
+        'input' => 'someartist',
+        'name' => 'Stale Album',
+        'latest' => ['collectionId' => '999', 'name' => 'Stale Album'],
+        'highlights' => [],
+    ], now()->addDay());
+
+    $res = $this->postJson('/api/platforms/apple/music/highlights', ['albumIds' => ['222']]);
+
+    $res->assertOk();
+    expect($res->json('latest.name'))->toBe('New Album');   // refreshed from the newest re-fetch
+    expect($res->json('name'))->toBe('New Album');          // flat back-compat field too
+    expect($res->json('highlights'))->toHaveCount(1);       // chosen highlight still snapshotted
+    expect($res->json('highlights.0.collectionId'))->toBe('222');
+});
+
+it('refreshes the Apple Podcast "most recent" tile when highlights are updated', function () {
+    $this->mock(AppleSearch::class, function ($m) {
+        $m->shouldReceive('fetchEpisodes')->andReturn([
+            ['trackId' => '111', 'name' => 'New Episode', 'thumbnail' => 't1', 'description' => 'd1', 'link' => 'l1'],
+            ['trackId' => '222', 'name' => 'Old Episode', 'thumbnail' => 't2', 'description' => 'd2', 'link' => 'l2'],
+        ]);
+    });
+
+    Cache::put('platforms.apple.podcast.selection', [
+        'input' => 'someshow',
+        'name' => 'Stale Episode',
+        'latest' => ['trackId' => '999', 'name' => 'Stale Episode'],
+        'highlights' => [],
+    ], now()->addDay());
+
+    $res = $this->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => ['222']]);
+
+    $res->assertOk();
+    expect($res->json('latest.name'))->toBe('New Episode');
+    expect($res->json('name'))->toBe('New Episode');
+    expect($res->json('highlights'))->toHaveCount(1);
+    expect($res->json('highlights.0.trackId'))->toBe('222');
+});

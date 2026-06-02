@@ -53,5 +53,42 @@ class EventbriteController extends ApiController
         return $this->success($selection);
     }
 
-    // selection() + forget() come from ManagesPlatformSelection.
+    // GET /api/platforms/eventbrite/selection — overrides the trait default to
+    // drop events that have since elapsed, at READ time. The organiser blob is
+    // scraped once and lives for the cache TTL; without this, events that were
+    // upcoming at scrape time keep showing after they're over. Filtering on read
+    // (rather than re-scraping) means a stale-but-present blob self-cleans on
+    // every read. forget() still comes from ManagesPlatformSelection.
+    public function selection(): JsonResponse
+    {
+        $selection = $this->readSelection();
+        if (! is_array($selection)) {
+            return $this->success(['selection' => null]);
+        }
+
+        return $this->success(['selection' => $this->filterPastEvents($selection)]);
+    }
+
+    // Keep only events whose end (or start, when no end is known) is still in
+    // the future, and recompute `next` from what remains. Using endDate means an
+    // in-progress event (started, not yet ended) still shows. ISO-8601 string
+    // compare matches the scrape-time filter in EventbriteScraper::fetchEvents.
+    private function filterPastEvents(array $selection): array
+    {
+        $now = now()->toIso8601String();
+
+        $upcoming = array_values(array_filter(
+            $selection['upcoming'] ?? [],
+            function (array $e) use ($now) {
+                $end = $e['endDate'] ?? $e['startDate'] ?? null;
+
+                return $end === null || $end >= $now;
+            },
+        ));
+
+        $selection['upcoming'] = $upcoming;
+        $selection['next'] = $upcoming[0] ?? null;
+
+        return $selection;
+    }
 }
