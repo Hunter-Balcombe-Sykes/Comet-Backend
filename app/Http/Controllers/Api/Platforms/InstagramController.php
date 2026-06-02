@@ -49,9 +49,10 @@ class InstagramController extends ApiController
         }
 
         $folder = 'platforms/instagram/'.now()->timestamp;
-        $images = $this->mirrorAll($this->scraper->recentCoverImages($profile, self::AUTO_IMAGE_COUNT), $folder);
+        $coverUrls = $this->scraper->recentCoverImages($profile, self::AUTO_IMAGE_COUNT);
+        $images = $this->mirrorAll($coverUrls, $folder);
 
-        $selection = $this->buildSelection($username, $profile, $folder, 'automatic', $images);
+        $selection = $this->buildSelection($username, $profile, $folder, 'automatic', $images, count($coverUrls) - count($images));
         $this->writeSelection($selection);
 
         return $this->success($selection);
@@ -101,7 +102,7 @@ class InstagramController extends ApiController
         $chosen = array_slice($request->input('images', []), 0, self::MAX_MANUAL_IMAGES);
         $images = $this->mirrorAll($chosen, $folder);
 
-        $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images);
+        $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images, count($chosen) - count($images));
         $this->writeSelection($selection);
 
         return $this->success($selection);
@@ -128,7 +129,7 @@ class InstagramController extends ApiController
     }
 
     // Shape the stored blob — identical across modes, plus the `mode` tag.
-    private function buildSelection(string $username, array $profile, string $folder, string $mode, array $images): array
+    private function buildSelection(string $username, array $profile, string $folder, string $mode, array $images, int $imagesDropped = 0): array
     {
         $picSrc = $this->scraper->profilePicUrl($profile);
         $profilePic = $picSrc ? $this->mirror($picSrc, "{$folder}/profile.jpg") : null;
@@ -142,6 +143,10 @@ class InstagramController extends ApiController
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => $mode,
             'images' => $images,
+            // How many chosen/cover images failed to mirror (IG CDN hiccup or
+            // expired URL). Surfaced so the dashboard can warn "N couldn't load"
+            // instead of silently saving fewer images than the user picked.
+            'imagesDropped' => $imagesDropped,
         ];
     }
 

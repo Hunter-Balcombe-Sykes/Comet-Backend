@@ -1,8 +1,10 @@
 <?php
 
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 // Facebook link normalisation (connect does no external fetch — pure parsing).
 
@@ -172,4 +174,26 @@ it('re-scrapes on Shopify setProducts only when the catalog cache is cold', func
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
     expect($res->json('products.0.productId'))->toBe('p1');
+});
+
+// Instagram: failed image mirrors are surfaced (imagesDropped) instead of
+// silently saving fewer images than the user picked.
+
+it('surfaces dropped Instagram images when mirroring fails', function () {
+    config(['services.apify.token' => 'test-token']); // pass the validateUsername guard
+    Http::fake(['*' => Http::response('', 500)]);      // every image mirror fails
+
+    $this->mock(InstagramScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Jane', 'businessCategoryName' => null]);
+        $m->shouldReceive('recentCoverImages')->andReturn([
+            'https://cdn.ig/1.jpg', 'https://cdn.ig/2.jpg', 'https://cdn.ig/3.jpg',
+        ]);
+        $m->shouldReceive('profilePicUrl')->andReturn('https://cdn.ig/pic.jpg');
+    });
+
+    $res = $this->postJson('/api/platforms/instagram/connect', ['username' => 'jane']);
+
+    $res->assertOk();
+    expect($res->json('images'))->toHaveCount(0);   // all mirrors failed
+    expect($res->json('imagesDropped'))->toBe(3);   // ...and that's surfaced, not hidden
 });
