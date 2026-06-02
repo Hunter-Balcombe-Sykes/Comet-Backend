@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Models\Core\User\User;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -22,13 +24,8 @@ use Throwable;
 // table per user, and wire to /account/platforms in Partna-Frontend.
 class FreshaController extends ApiController
 {
-    private const CACHE_KEY = 'platforms.fresha.url';
-
-    // The saved selection: which team member + their services. This is the blob
-    // partna-pages will read back to render the booking section.
-    private const SELECTION_CACHE_KEY = 'platforms.fresha.selection';
-
-    private const CACHE_TTL_DAYS = 30;
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
     // Matches both locale-prefixed and bare slug URLs:
     //   https://www.fresha.com/a/<slug>
@@ -52,23 +49,43 @@ class FreshaController extends ApiController
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
+    protected function platform(): string
+    {
+        return 'fresha';
+    }
+
+    // The per-user Fresha connection payload is { url, selection } — the connected
+    // store URL plus the saved { storeName, employee, services } blob (or null).
+    private function freshaUrl(User $user): ?string
+    {
+        return data_get($this->readConnection($user), 'url');
+    }
+
     // POST /api/platforms/fresha/connect
     public function connect(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:500', 'regex:'.self::URL_PATTERN],
         ]);
 
         $url = $this->stripLocale($validated['url']);
-        Cache::put(self::CACHE_KEY, $url, now()->addDays(self::CACHE_TTL_DAYS));
+        // Preserve any existing selection (re-connecting the same store keeps the
+        // saved team member); the dashboard re-picks via saveSelection.
+        $existing = $this->readConnection($user);
+        $this->writeConnection($user, [
+            'url' => $url,
+            'selection' => data_get($existing, 'selection'),
+        ]);
 
         return $this->success(['url' => $url, ...$this->fetchMenu($url)]);
     }
 
     // GET /api/platforms/fresha/team — team + services for the saved URL.
-    public function team(): JsonResponse
+    public function team(Request $request): JsonResponse
     {
-        $url = Cache::get(self::CACHE_KEY);
+        $url = $this->freshaUrl($this->currentUser($request));
         if (! $url) {
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
         }
@@ -77,9 +94,9 @@ class FreshaController extends ApiController
     }
 
     // GET /api/platforms/fresha/url — peek at what's saved without re-scraping.
-    public function show(): JsonResponse
+    public function show(Request $request): JsonResponse
     {
-        return $this->success(['url' => Cache::get(self::CACHE_KEY)]);
+        return $this->success(['url' => $this->freshaUrl($this->currentUser($request))]);
     }
 
     // POST /api/platforms/fresha/selection — save which team member is "you"
@@ -87,11 +104,13 @@ class FreshaController extends ApiController
     // blob is server-authoritative (not whatever the client happened to hold).
     public function saveSelection(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $validated = $request->validate([
             'employeeId' => ['required', 'string', 'max:50'],
         ]);
 
-        $url = Cache::get(self::CACHE_KEY);
+        $url = $this->freshaUrl($user);
         if (! $url) {
             return $this->error('No Fresha URL saved yet. Save one first.', 404);
         }
@@ -114,7 +133,7 @@ class FreshaController extends ApiController
             'employee' => $employee,
             'services' => $services,
         ];
-        Cache::put(self::SELECTION_CACHE_KEY, $selection, now()->addDays(self::CACHE_TTL_DAYS));
+        $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
 
         return $this->success($selection);
     }
@@ -127,7 +146,7 @@ class FreshaController extends ApiController
             'employeeId' => ['required', 'string', 'max:50'],
         ]);
 
-        $url = Cache::get(self::CACHE_KEY);
+        $url = $this->freshaUrl($this->currentUser($request));
         if (! $url) {
             return $this->error('No Fresha URL saved yet. Save one first.', 404);
         }
@@ -141,16 +160,15 @@ class FreshaController extends ApiController
 
     // GET /api/platforms/fresha/selection — read the saved selection (partna-pages
     // reads this; the dashboard reads it to restore its "saved" state on load).
-    public function selection(): JsonResponse
+    public function selection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => Cache::get(self::SELECTION_CACHE_KEY)]);
+        return $this->success(['selection' => data_get($this->readConnection($this->currentUser($request)), 'selection')]);
     }
 
     // DELETE /api/platforms/fresha — clear the saved URL and selection.
-    public function forget(): JsonResponse
+    public function forget(Request $request): JsonResponse
     {
-        Cache::forget(self::CACHE_KEY);
-        Cache::forget(self::SELECTION_CACHE_KEY);
+        $this->forgetConnection($this->currentUser($request));
 
         return $this->success(['url' => null, 'selection' => null]);
     }

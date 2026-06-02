@@ -90,3 +90,33 @@ it('requires auth, connects per-user, and rate-limits re-connect on Instagram', 
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'iguser'])
         ->assertStatus(429);
 });
+
+it('requires auth on the fresha dashboard routes', function () {
+    $this->getJson('/api/platforms/fresha/selection')->assertUnauthorized();
+    $this->getJson('/api/platforms/fresha/team')->assertUnauthorized();
+});
+
+it('reads back a per-user Fresha selection + url from the connection payload', function () {
+    $user = scraperUser('fresh');
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => [
+            'url' => 'https://www.fresha.com/a/acme-salon',
+            'selection' => [
+                'url' => 'https://www.fresha.com/a/acme-salon',
+                'storeName' => 'Acme',
+                'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo'],
+                'services' => [],
+            ],
+        ],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.storeName', 'Acme')
+        ->assertJsonPath('selection.employee.employeeId', 'e1');
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/url')
+        ->assertOk()
+        ->assertJsonPath('url', 'https://www.fresha.com/a/acme-salon');
+});

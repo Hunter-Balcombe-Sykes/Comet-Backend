@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 // Promotion plan documented in App\Http\Controllers\Api\Platforms\FreshaController.
 
 Route::prefix('platforms/fresha')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [FreshaController::class, 'connect']);
         Route::get('/team', [FreshaController::class, 'team']);
