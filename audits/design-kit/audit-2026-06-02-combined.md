@@ -193,7 +193,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#MIG-1** · P2 · S — `CREATE TRIGGER` in skeleton cleanup migration is not idempotent
+- [x] **#MIG-1** · P2 · S — `CREATE TRIGGER` in skeleton cleanup migration is not idempotent
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (near the end, after the `CREATE OR REPLACE FUNCTION` block)
     - **Affects:** Deploy reliability on any environment where the migration runner is re-applied after a partial failure — specifically relevant given the "Fresh-DB Provisioning Broken" situation. A second run will hit `ERROR: trigger "trg_create_empty_design_kit" already exists`.
     - **Effort:** S (~0.5–1h)
