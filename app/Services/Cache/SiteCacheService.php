@@ -548,6 +548,15 @@ class SiteCacheService
             }
         }
 
+        // Bust handle.resolve so the timestamp-keyed public.profile:* key rotates
+        // on the next request — without this, the 30s resolve cache continues
+        // serving the old updated_at_ts and the new key is never constructed.
+        $handle = strtolower((string) ($site->subdomain ?? ''));
+        if ($handle !== '') {
+            $keys[] = "handle.resolve:{$handle}";
+            $keys[] = "handle.resolve:{$handle}:stale";
+        }
+
         Cache::deleteMultiple(array_values(array_unique($keys)));
     }
 

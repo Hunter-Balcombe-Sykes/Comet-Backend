@@ -50,6 +50,12 @@ class UserSiteController extends ApiController
 
         if (is_array($designKit)) {
             $this->writeDesignKit($site->id, $designKit);
+            // When $data was empty (design-kit-only request), UpdateSiteAction::execute()
+            // is a no-op — sites.updated_at is unchanged, SiteObserver never fires.
+            // Touch explicitly so the timestamp rotates and the public.profile:* cache key orphans.
+            if (!$site->wasChanged()) {
+                $site->touch();
+            }
             // execute() already fired invalidateSite via $site->save(), but that
             // ran BEFORE the raw design_kits write above — bust again so the new
             // kit (and the email-brand bundle that reads it) is reflected.
