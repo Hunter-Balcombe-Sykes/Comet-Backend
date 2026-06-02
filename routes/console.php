@@ -75,6 +75,22 @@ Schedule::command('smartlinks:refresh')
         ]);
     });
 
+// Pilot platform refresh — re-fetch the auto-content platforms (YouTube latest,
+// Eventbrite events, Apple latest release) daily so sitepages show fresh data
+// without the user re-connecting. Static links + costly/multi-step platforms are
+// excluded by the command (see PlatformRefresher).
+Schedule::command('platforms:refresh')
+    ->dailyAt('03:40')
+    ->runInBackground()
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->onFailure(function (?\Throwable $e = null): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: platforms:refresh', [
+            'exception' => $e ? get_class($e) : null,
+            'message' => $e?->getMessage(),
+        ]);
+    });
+
 Schedule::command('queue:prune-failed --hours=72')
     ->daily()
     ->onOneServer()
