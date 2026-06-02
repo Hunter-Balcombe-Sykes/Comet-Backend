@@ -5,6 +5,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -151,4 +152,31 @@ it('stores Apple Music + Podcast as independent per-user connections', function 
     actingAsUser($user)->deleteJson('/api/platforms/apple/music')->assertOk();
     expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeFalse();
     expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
+});
+
+it('requires auth on the shopify dashboard routes', function () {
+    $this->getJson('/api/platforms/shopify/brands')->assertUnauthorized();
+    $this->getJson('/api/platforms/shopify/selection')->assertUnauthorized();
+});
+
+it('adds Shopify brands per-user (one row, brand map) and caps at 5', function () {
+    $user = scraperUser('shop');
+
+    $this->mock(ShopifyScraper::class, function ($m) {
+        $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
+        $m->shouldReceive('fetchBrand')->andReturnUsing(fn ($origin) => [
+            'id' => md5($origin), 'name' => 'Brand', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
+        ]);
+    });
+
+    foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
+        actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => "https://{$s}.example.com"])->assertOk();
+    }
+    // A 6th distinct brand exceeds the cap.
+    actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://f.example.com'])
+        ->assertStatus(422);
+
+    $conn = PlatformConnection::where('user_id', $user->id)->where('platform', 'shopify')->first();
+    expect($conn)->not->toBeNull();
+    expect(count($conn->payload))->toBe(5);
 });

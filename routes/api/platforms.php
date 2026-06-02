@@ -26,7 +26,7 @@ Route::prefix('platforms/fresha')
     });
 
 Route::prefix('platforms/shopify')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::get('/brands', [ShopifyController::class, 'brands']);
         Route::post('/brands', [ShopifyController::class, 'addBrand']);

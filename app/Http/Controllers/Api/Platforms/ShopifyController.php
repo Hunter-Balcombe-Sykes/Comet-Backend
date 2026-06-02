@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Models\Core\User\User;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,9 +24,12 @@ use Illuminate\Support\Facades\Cache;
 // keeps rendering the Shop card until the skeleton is reworked for multi-brand.
 class ShopifyController extends ApiController
 {
-    use ManagesPlatformSelection;
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
-    private const BRANDS_KEY = 'platforms.shopify.brands';
+    // Picker-catalog cache key prefix (transient, per-brand, shared across users —
+    // same store = same public catalog). Distinct from the stored connection.
+    private const CATALOG_KEY = 'platforms.shopify.brands';
 
     private const MAX_BRANDS = 5;
 
@@ -34,15 +39,15 @@ class ShopifyController extends ApiController
 
     public function __construct(private readonly ShopifyScraper $scraper) {}
 
-    protected function selectionKey(): string
+    protected function platform(): string
     {
-        return self::BRANDS_KEY;
+        return 'shopify';
     }
 
     // GET /api/platforms/shopify/brands — all connected brands.
-    public function brands(): JsonResponse
+    public function brands(Request $request): JsonResponse
     {
-        return $this->success(['brands' => $this->allBrands()]);
+        return $this->success(['brands' => $this->allBrands($this->currentUser($request))]);
     }
 
     // POST /api/platforms/shopify/brands — add (or refresh) a brand. Resolves the
@@ -50,6 +55,7 @@ class ShopifyController extends ApiController
     // brand's existing products preserved (empty on first add).
     public function addBrand(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:500', 'url'],
             'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
@@ -63,7 +69,7 @@ class ShopifyController extends ApiController
         $brand = $this->scraper->fetchBrand($origin);
         $id = $brand['id'];
 
-        $map = $this->brandMap();
+        $map = $this->brandMap($user);
         if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
             return $this->error('You can connect up to '.self::MAX_BRANDS.' brands.', 422);
         }
@@ -82,7 +88,7 @@ class ShopifyController extends ApiController
             'discountCode' => $discount,
             'products' => $map[$id]['products'] ?? [],
         ];
-        $this->writeSelection($map);
+        $this->writeConnection($user, $map);
 
         return $this->success($map[$id]);
     }
@@ -90,35 +96,37 @@ class ShopifyController extends ApiController
     // PATCH /api/platforms/shopify/brands/{id} — update the discount code.
     public function updateBrand(Request $request, string $id): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate([
             'discountCode' => ['present', 'nullable', 'string', 'max:100'],
         ]);
 
-        $map = $this->brandMap();
+        $map = $this->brandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
 
         $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
-        $this->writeSelection($map);
+        $this->writeConnection($user, $map);
 
         return $this->success($map[$id]);
     }
 
     // DELETE /api/platforms/shopify/brands/{id} — remove a brand.
-    public function removeBrand(string $id): JsonResponse
+    public function removeBrand(Request $request, string $id): JsonResponse
     {
-        $map = $this->brandMap();
+        $user = $this->currentUser($request);
+        $map = $this->brandMap($user);
         unset($map[$id]);
-        $this->writeSelection($map);
+        $this->writeConnection($user, $map);
 
         return $this->success(['brands' => array_values($map)]);
     }
 
     // GET /api/platforms/shopify/brands/{id}/products — live products for the picker.
-    public function brandProducts(string $id): JsonResponse
+    public function brandProducts(Request $request, string $id): JsonResponse
     {
-        $map = $this->brandMap();
+        $map = $this->brandMap($this->currentUser($request));
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
@@ -135,12 +143,13 @@ class ShopifyController extends ApiController
     // products (re-fetched live, order preserved). Callable any time.
     public function setProducts(Request $request, string $id): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate([
             'productIds' => ['present', 'array', 'max:250'],
             'productIds.*' => ['string', 'max:50'],
         ]);
 
-        $map = $this->brandMap();
+        $map = $this->brandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
@@ -155,7 +164,7 @@ class ShopifyController extends ApiController
             ->filter()
             ->values()
             ->all();
-        $this->writeSelection($map);
+        $this->writeConnection($user, $map);
 
         return $this->success($map[$id]);
     }
@@ -164,9 +173,9 @@ class ShopifyController extends ApiController
     // (first brand that has products) so partna-pages' existing Shop card keeps
     // rendering. Returns null when no brand has products. Reshaped to multi-brand
     // when the skeleton is reworked.
-    public function selection(): JsonResponse
+    public function selection(Request $request): JsonResponse
     {
-        $primary = collect($this->brandMap())->first(fn ($b) => ! empty($b['products']));
+        $primary = collect($this->brandMap($this->currentUser($request)))->first(fn ($b) => ! empty($b['products']));
 
         $selection = $primary ? [
             'url' => $primary['url'],
@@ -178,9 +187,9 @@ class ShopifyController extends ApiController
     }
 
     // DELETE /api/platforms/shopify — clear all brands.
-    public function forget(): JsonResponse
+    public function forget(Request $request): JsonResponse
     {
-        $this->clearSelection();
+        $this->forgetConnection($this->currentUser($request));
 
         return $this->success(['brands' => []]);
     }
@@ -188,22 +197,22 @@ class ShopifyController extends ApiController
     // ── internals ────────────────────────────────────────────────
 
     /** The stored brand map (id => brand), or empty. */
-    private function brandMap(): array
+    private function brandMap(User $user): array
     {
-        $map = $this->readSelection();
+        $map = $this->readConnection($user);
 
         return is_array($map) ? $map : [];
     }
 
     /** Brands as a plain ordered list. */
-    private function allBrands(): array
+    private function allBrands(User $user): array
     {
-        return array_values($this->brandMap());
+        return array_values($this->brandMap($user));
     }
 
     /** Per-brand picker-catalog cache key. */
     private function catalogKey(string $id): string
     {
-        return self::BRANDS_KEY.'.catalog.'.$id;
+        return self::CATALOG_KEY.'.catalog.'.$id;
     }
 }

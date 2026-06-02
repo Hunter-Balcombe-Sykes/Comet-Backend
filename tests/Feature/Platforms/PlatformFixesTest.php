@@ -169,19 +169,25 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
 // Shopify: PUT /selection reuses the picker-warmed catalog instead of
 // re-scraping the whole store on every save.
 
-function seedShopifyBrand(): void
+function seedShopifyBrand(): User
 {
-    Cache::put('platforms.shopify.brands', [
-        'b1' => [
-            'id' => 'b1', 'url' => 'https://shop.example.com', 'name' => 'Shop',
-            'currency' => 'USD', 'favicon' => null, 'logo' => null,
-            'discountCode' => '', 'products' => [],
+    $user = fbActingUser();
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'shopify',
+        'payload' => [
+            'b1' => [
+                'id' => 'b1', 'url' => 'https://shop.example.com', 'name' => 'Shop',
+                'currency' => 'USD', 'favicon' => null, 'logo' => null,
+                'discountCode' => '', 'products' => [],
+            ],
         ],
-    ], now()->addDay());
+    ]);
+
+    return $user;
 }
 
 it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function () {
-    seedShopifyBrand();
+    $user = seedShopifyBrand();
     Cache::put('platforms.shopify.brands.catalog.b1', [
         ['productId' => 'p1', 'title' => 'A'],
         ['productId' => 'p2', 'title' => 'B'],
@@ -190,7 +196,7 @@ it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function (
     // Catalog is warm — the controller must NOT hit the scraper.
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldNotReceive('fetchProducts'));
 
-    $res = $this->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p2']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p2']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
@@ -198,14 +204,14 @@ it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function (
 });
 
 it('re-scrapes on Shopify setProducts only when the catalog cache is cold', function () {
-    seedShopifyBrand(); // no catalog cache seeded
+    $user = seedShopifyBrand(); // no catalog cache seeded
 
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldReceive('fetchProducts')->once()->andReturn([
         ['productId' => 'p1', 'title' => 'A'],
         ['productId' => 'p2', 'title' => 'B'],
     ]));
 
-    $res = $this->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p1']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p1']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
