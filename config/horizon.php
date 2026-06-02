@@ -56,6 +56,7 @@ return [
         'redis:default' => 60,
         'redis:analytics' => 300,
         'redis:images' => 300,
+        'redis:streaming' => 120,
         'redis:mail' => 120,
         'redis_gdpr:gdpr' => 600,
         'redis_video:videos' => 300,
@@ -109,7 +110,7 @@ return [
             'maxJobs' => 0,
             'memory' => 128,
             'tries' => 1,
-            'timeout' => 60,
+            'timeout' => 130,
             'nice' => 0,
         ],
         'supervisor-default' => [
@@ -125,13 +126,42 @@ return [
             'timeout' => 60,
             'nice' => 0,
         ],
-        // Capped to prevent analytics/image backlogs from starving critical queues.
+        'supervisor-streaming' => [
+            'connection' => 'redis',
+            'queue' => ['streaming'],
+            'balance' => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 120,
+            'nice' => 0,
+        ],
+        // Capped to prevent analytics backlogs from starving critical queues.
         // nice=10 also deprioritises these at the OS scheduler level.
-        // memory=512: raised from 256 — images queue can spike PHP heap during
-        // transformation and rebuild aggregates scan large date windows at Stage 2.
+        // memory=256: images queue split into its own supervisor, so heap spikes
+        // from image transformation no longer affect analytics workers.
         'supervisor-analytics' => [
             'connection' => 'redis',
-            'queue' => ['analytics', 'images'],
+            'queue' => ['analytics'],
+            'balance' => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 300,
+            'nice' => 10,
+        ],
+        // Images queue is split from analytics to prevent slow image jobs from
+        // blocking analytics ingest. Memory stays high (512) for PHP heap spikes
+        // during image transformation.
+        'supervisor-images' => [
+            'connection' => 'redis',
+            'queue' => ['images'],
             'balance' => 'auto',
             'minProcesses' => 1,
             'maxProcesses' => 2,
@@ -182,6 +212,8 @@ return [
             'supervisor-notifications' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-default' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-analytics' => ['minProcesses' => 1, 'maxProcesses' => 2],
+            'supervisor-streaming' => ['minProcesses' => 1, 'maxProcesses' => 2],
+            'supervisor-images' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-gdpr' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 2],
         ],
@@ -189,7 +221,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images', 'streaming'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -218,7 +250,7 @@ return [
             // redis_gdpr connection (see supervisor-gdpr note above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'analytics', 'images', 'streaming'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,

@@ -26,7 +26,10 @@ class NotifyReporterJob implements ShouldQueue
     public function __construct(
         public readonly string $actionLogId,
         public readonly string $caseId,
-    ) {}
+    ) {
+        // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
+        $this->queue = 'notifications';
+    }
 
     public function handle(): void
     {

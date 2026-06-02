@@ -33,7 +33,11 @@ class NotifyStaffOfCaseUpdateJob implements ShouldQueue, ShouldQueueAfterCommit
 
     public int $timeout = 30;
 
-    public function __construct(public readonly string $caseId) {}
+    public function __construct(public readonly string $caseId)
+    {
+        // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
+        $this->queue = 'notifications';
+    }
 
     public function handle(): void
     {
