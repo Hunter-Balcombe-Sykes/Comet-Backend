@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\Site\PlatformConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramScraper;
@@ -60,17 +61,21 @@ it('drops elapsed events from the Eventbrite selection at read time', function (
     $past = now()->subDays(2)->toIso8601String();
     $future = now()->addDays(5)->toIso8601String();
 
-    Cache::put('platforms.eventbrite.selection', [
-        'url' => 'https://www.eventbrite.com/o/acme-1',
-        'organiser' => 'Acme',
-        'next' => ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
-        'upcoming' => [
-            ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
-            ['name' => 'Future gig', 'startDate' => $future, 'endDate' => $future],
+    $user = fbActingUser();
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'eventbrite',
+        'payload' => [
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
+            'upcoming' => [
+                ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
+                ['name' => 'Future gig', 'startDate' => $future, 'endDate' => $future],
+            ],
         ],
-    ], now()->addDay());
+    ]);
 
-    $res = $this->getJson('/api/platforms/eventbrite/selection');
+    $res = actingAsUser($user)->getJson('/api/platforms/eventbrite/selection');
 
     $res->assertOk();
     expect($res->json('selection.upcoming'))->toHaveCount(1);
@@ -82,16 +87,20 @@ it('keeps an in-progress event (started, not yet ended) in the Eventbrite select
     $started = now()->subHour()->toIso8601String();
     $endsLater = now()->addHours(3)->toIso8601String();
 
-    Cache::put('platforms.eventbrite.selection', [
-        'url' => 'https://www.eventbrite.com/o/acme-1',
-        'organiser' => 'Acme',
-        'next' => null,
-        'upcoming' => [
-            ['name' => 'Live now', 'startDate' => $started, 'endDate' => $endsLater],
+    $user = fbActingUser();
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'eventbrite',
+        'payload' => [
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => null,
+            'upcoming' => [
+                ['name' => 'Live now', 'startDate' => $started, 'endDate' => $endsLater],
+            ],
         ],
-    ], now()->addDay());
+    ]);
 
-    $res = $this->getJson('/api/platforms/eventbrite/selection');
+    $res = actingAsUser($user)->getJson('/api/platforms/eventbrite/selection');
 
     $res->assertOk();
     expect($res->json('selection.upcoming'))->toHaveCount(1);

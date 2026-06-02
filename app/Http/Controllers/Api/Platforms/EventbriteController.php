@@ -3,7 +3,8 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,20 +16,21 @@ use Illuminate\Http\Request;
 // Spec: ~/Developer/platform link capabilites/eventbrite.md
 class EventbriteController extends ApiController
 {
-    use ManagesPlatformSelection;
-
-    private const SELECTION_KEY = 'platforms.eventbrite.selection';
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
     public function __construct(private readonly EventbriteScraper $scraper) {}
 
-    protected function selectionKey(): string
+    protected function platform(): string
     {
-        return self::SELECTION_KEY;
+        return 'eventbrite';
     }
 
-    // POST /api/platforms/eventbrite/connect — store the next + upcoming events.
+    // POST /api/platforms/eventbrite/connect — store the next + upcoming events for the user.
     public function connect(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $validated = $request->validate(['url' => ['required', 'string', 'max:500']]);
 
         $orgUrl = $this->scraper->normalizeOrgUrl($validated['url']);
@@ -48,25 +50,31 @@ class EventbriteController extends ApiController
             'next' => $events[0] ?? null,
             'upcoming' => $events,
         ];
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
     }
 
-    // GET /api/platforms/eventbrite/selection — overrides the trait default to
-    // drop events that have since elapsed, at READ time. The organiser blob is
-    // scraped once and lives for the cache TTL; without this, events that were
-    // upcoming at scrape time keep showing after they're over. Filtering on read
-    // (rather than re-scraping) means a stale-but-present blob self-cleans on
-    // every read. forget() still comes from ManagesPlatformSelection.
-    public function selection(): JsonResponse
+    // GET /api/platforms/eventbrite/selection — the authenticated user's saved
+    // organiser, with elapsed events dropped at READ time so a stale-but-present
+    // blob self-cleans without a re-scrape (endDate keeps in-progress events).
+    // ISO-8601 string compare matches EventbriteScraper::fetchEvents.
+    public function selection(Request $request): JsonResponse
     {
-        $selection = $this->readSelection();
+        $selection = $this->readConnection($this->currentUser($request));
         if (! is_array($selection)) {
             return $this->success(['selection' => null]);
         }
 
         return $this->success(['selection' => $this->filterPastEvents($selection)]);
+    }
+
+    // DELETE /api/platforms/eventbrite — clear the authenticated user's connection.
+    public function forget(Request $request): JsonResponse
+    {
+        $this->forgetConnection($this->currentUser($request));
+
+        return $this->success(['selection' => null]);
     }
 
     // Keep only events whose end (or start, when no end is known) is still in

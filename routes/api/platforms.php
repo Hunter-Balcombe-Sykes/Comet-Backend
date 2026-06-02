@@ -49,7 +49,7 @@ Route::prefix('platforms/instagram')
     });
 
 Route::prefix('platforms/youtube')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [YoutubeController::class, 'connect']);
         Route::get('/recent', [YoutubeController::class, 'recent']);
@@ -91,7 +91,7 @@ Route::prefix('platforms/facebook')
     });
 
 Route::prefix('platforms/eventbrite')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [EventbriteController::class, 'connect']);
         Route::get('/selection', [EventbriteController::class, 'selection']);

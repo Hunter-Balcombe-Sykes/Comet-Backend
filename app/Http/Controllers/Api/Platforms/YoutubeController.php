@@ -3,7 +3,8 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,22 +16,23 @@ use Illuminate\Http\Request;
 //   ~/Developer/platform link capabilites/youtube-implementation.md
 class YoutubeController extends ApiController
 {
-    use ManagesPlatformSelection;
-
-    private const SELECTION_KEY = 'platforms.youtube.selection';
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
     private const MAX_HIGHLIGHTS = 5;
 
     public function __construct(private readonly YoutubeScraper $scraper) {}
 
-    protected function selectionKey(): string
+    protected function platform(): string
     {
-        return self::SELECTION_KEY;
+        return 'youtube';
     }
 
-    // POST /api/platforms/youtube/connect — store the auto-latest video.
+    // POST /api/platforms/youtube/connect — store the auto-latest video for the user.
     public function connect(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $validated = $request->validate([
             'channel' => ['required', 'string', 'max:200'],
         ]);
@@ -48,7 +50,7 @@ class YoutubeController extends ApiController
 
         // Reconnecting the SAME channel keeps the chosen highlights; switching to
         // a different channel resets them (they belonged to the old channel).
-        $existing = $this->readSelection();
+        $existing = $this->readConnection($user);
         $highlights = data_get($existing, 'handle') === $handle ? data_get($existing, 'highlights', []) : [];
 
         $selection = [
@@ -59,15 +61,15 @@ class YoutubeController extends ApiController
             'thumbnail' => $latest['thumbnail'],
             'highlights' => $highlights,
         ];
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
     }
 
     // GET /api/platforms/youtube/recent — the last 15 videos for the highlights picker.
-    public function recent(): JsonResponse
+    public function recent(Request $request): JsonResponse
     {
-        $handle = data_get($this->readSelection(), 'handle');
+        $handle = data_get($this->readConnection($this->currentUser($request)), 'handle');
         if (! $handle) {
             return $this->error('Connect a YouTube channel first.', 404);
         }
@@ -89,7 +91,8 @@ class YoutubeController extends ApiController
             'videoIds.*' => ['string', 'max:30'],
         ]);
 
-        $selection = $this->readSelection();
+        $user = $this->currentUser($request);
+        $selection = $this->readConnection($user);
         if (! $selection) {
             return $this->error('Connect a YouTube channel first.', 404);
         }
@@ -108,8 +111,22 @@ class YoutubeController extends ApiController
             ->values()
             ->all();
 
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
+    }
+
+    // GET /api/platforms/youtube/selection — the authenticated user's saved channel.
+    public function selection(Request $request): JsonResponse
+    {
+        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+    }
+
+    // DELETE /api/platforms/youtube — clear the authenticated user's connection.
+    public function forget(Request $request): JsonResponse
+    {
+        $this->forgetConnection($this->currentUser($request));
+
+        return $this->success(['selection' => null]);
     }
 }
