@@ -208,13 +208,13 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Short-term: revoke `DELETE` from analytics append tables (`analytics.site_visits`, `analytics.link_clicks`, etc.) and from `notifications.broadcast_email_receipts` — `app_backend` has no delete code paths there. Revoke `UPDATE, DELETE` from `moderation.decisions` and `moderation.action_log`. Long-term: revoke `BYPASSRLS` and replace with explicit TO-app_backend policies per table. Note the long-term fix is L-effort and requires auditing every background job query.
     - Models: impl=opus · review=opus
 
-- [ ] **#P2-06** Auth hook signature verification lives in the controller, not middleware — Lens: `webhook`
+- [x] **#P2-06** Auth hook signature verification lives in the controller, not middleware — Lens: `webhook`
     - Where: `routes/api.php:24–27` · `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:42–44`
     - What: `SupabaseAuthHookController::mfaVerification()` calls `verifySignature()` as its first statement — the current route is secure. The email hook equivalent uses `->middleware('supabase.email-hook')` enforced at the route level, making verification automatic for any new action methods. Any developer adding a second method to `SupabaseAuthHookController` (e.g. `enrollmentAuditHook`) won't automatically get signature verification.
     - Fix: Create a `VerifySupabaseAuthHookSignature` middleware (or register `supabase.auth-hook` alias) mirroring `VerifySupabaseEmailHookSignature`. Attach `->middleware('supabase.auth-hook')` to the MFA verification route. Remove the inline `$this->hookService->verifySignature()` call from the controller (it becomes redundant).
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-07** Auth hook signature failures produce no log output — Lens: `webhook`
+- [x] **#P2-07** Auth hook signature failures produce no log output — Lens: `webhook`
     - Where: `app/Services/Auth/SupabaseAuthHookService.php:24–44` · `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:42–44`
     - What: `verifySignature()` returns `false` from three distinct branches (missing secret, timestamp out of tolerance, signature mismatch) with no log on any of them. The controller returns 401 silently. `VerifySupabaseEmailHookSignature` logs `supabase.email_hook.signature_failed` with `webhook_id` and `webhook_timestamp` on every mismatch. During an incident (failed secret rotation, active probe), the auth hook path is invisible to Nightwatch.
     - Fix: Add `Log::warning('supabase.auth_hook.misconfigured', ['reason' => 'secret_missing'])` when the secret is empty (return 503, matching email hook), and `Log::warning('supabase.auth_hook.signature_failed', ['webhook_id' => $id, 'webhook_timestamp' => $timestamp])` on mismatch (return 401). Deliver alongside #P2-06 in B12.
@@ -836,7 +836,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — Webhook
 
-- [ ] **#P3-30** Two Standard Webhooks implementations diverge in edge-case handling and secret format support — Lens: `webhook`
+- [x] **#P3-30** Two Standard Webhooks implementations diverge in edge-case handling and secret format support — Lens: `webhook`
     - Where: `app/Services/Email/SupabaseEmailHookSignatureVerifier.php:36–56` · `app/Services/Auth/SupabaseAuthHookService.php:24–52`
     - What: Three divergences: (1) email verifier rejects empty `$webhookId`/`$webhookTimestamp`/`$webhookSignatureHeader`; auth hook does not. (2) Email verifier validates timestamp with `ctype_digit()`; auth hook casts to `(int)` and checks `<= 0`. (3) Most critically: email verifier's `decodeSecret()` handles the `v1,whsec_<base64>` format; auth hook uses the config value verbatim. If `SUPABASE_AUTH_HOOK_SECRET` is ever set in the `v1,whsec_<base64>` format, all legitimate deliveries fail signature verification silently.
     - Fix: Extract a `StandardWebhookVerifier` service with unified secret-format handling, empty-header rejection, and timestamp validation. Have both `VerifySupabaseEmailHookSignature` and the future middleware from #P2-06 delegate to it.
@@ -1116,7 +1116,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B12: Webhook hardening (3 items — #P2-06, #P2-07, #P3-30) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-06`, `#P2-07`, `#P3-30`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All three are in the `SupabaseAuthHook*` and `SupabaseEmailHook*` service classes. Creating the shared `StandardWebhookVerifier` (#P3-30) provides the infrastructure for the middleware (#P2-06) and logging (#P2-07) to delegate to, making the three fixes mutually reinforcing.
