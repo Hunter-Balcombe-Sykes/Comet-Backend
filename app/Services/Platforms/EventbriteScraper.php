@@ -51,12 +51,14 @@ class EventbriteScraper extends PlatformScraper
             }
         }
 
-        // Soonest first; prefer upcoming (>= now), fall back to whatever we have.
+        // Soonest first; prefer still-upcoming (end — or start when no end — >=
+        // now), fall back to whatever we have. Using endDate keeps an in-progress
+        // event (started, not yet ended) in the list.
         usort($events, fn ($a, $b) => strcmp((string) ($a['startDate'] ?? ''), (string) ($b['startDate'] ?? '')));
         $now = now()->toIso8601String();
         $upcoming = array_values(array_filter(
             $events,
-            fn ($e) => empty($e['startDate']) || $e['startDate'] >= $now,
+            fn ($e) => empty($e['endDate'] ?? $e['startDate'] ?? null) || ($e['endDate'] ?? $e['startDate']) >= $now,
         ));
 
         return [
@@ -103,6 +105,7 @@ class EventbriteScraper extends PlatformScraper
             'venue' => data_get($loc, 'name'),
             'location' => data_get($loc, 'address.addressLocality') ?? data_get($loc, 'address.addressRegion'),
             'startDate' => $event['startDate'] ?? null,
+            'endDate' => $event['endDate'] ?? null,
             'price' => $this->formatPrice(is_array($offers) ? $offers : []),
             'availability' => $this->normalizeAvailability(data_get($offers, 'availability')),
             'image' => is_string($image) ? $image : null,

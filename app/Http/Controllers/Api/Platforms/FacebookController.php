@@ -27,9 +27,11 @@ class FacebookController extends ApiController
         $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
 
         $selection = $this->normalize($validated['username']);
-        // Empty username is only valid for numeric profile.php links; anything
-        // else with no handle is junk input.
-        if ($selection['username'] === '' && ! str_contains($selection['url'], 'profile.php')) {
+        // Empty username is only valid for numeric profile.php links and legacy
+        // /pages/<Name>/<id> Page links; anything else with no handle is junk input.
+        if ($selection['username'] === ''
+            && ! str_contains($selection['url'], 'profile.php')
+            && ! str_contains($selection['url'], '/pages/')) {
             return $this->error('Enter your Facebook username or profile URL.', 422);
         }
 
@@ -57,6 +59,15 @@ class FacebookController extends ApiController
             if (str_starts_with(strtolower($path), 'profile.php')) {
                 // Numeric profile link — no vanity username; keep the full path.
                 return ['username' => '', 'url' => 'https://www.facebook.com/'.$path];
+            }
+
+            if (str_starts_with(strtolower($path), 'pages/')) {
+                // Legacy Page link /pages/<Name>/<id> — the username is NOT the
+                // first segment ("pages"); there's no vanity handle. Keep the
+                // path (minus any query) and leave username empty.
+                $clean = explode('?', $path)[0];
+
+                return ['username' => '', 'url' => 'https://www.facebook.com/'.$clean];
             }
 
             // Vanity URL — first path segment is the username; drop query/trailing path.

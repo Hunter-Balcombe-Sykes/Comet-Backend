@@ -40,7 +40,13 @@ class YoutubeScraper extends PlatformScraper
             return null;
         }
 
-        $rss = $this->fetcher->fetch('https://www.youtube.com/feeds/videos.xml?channel_id='.$channelId, $headers);
+        // Use the channel's uploads-playlist feed (UU…) rather than the channel
+        // feed (UC…). On a fresh upload the channel_id feed can lag hours — or
+        // never populate at all for new / low-volume channels — whereas the
+        // uploads-playlist feed updates within minutes. The uploads playlist id
+        // is the channel id with its "UC" prefix swapped to "UU".
+        $uploadsPlaylistId = 'UU'.substr($channelId, 2);
+        $rss = $this->fetcher->fetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
         if ($rss['status'] !== 200) {
             return null;
         }
