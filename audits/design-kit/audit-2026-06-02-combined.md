@@ -66,7 +66,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 3 complete
-- P2 Medium: 0 of 14 complete
+- P2 Medium: 1 of 14 complete
 - P3 Low: 0 of 16 complete
 
 ---
@@ -447,7 +447,7 @@
         // No core.user_handle_aliases check follows.
         ```
 
-- [ ] **#TEST-3** · P2 · M — No test verifies the CHECK constraint, cascading FK, or auto-create trigger from the skeleton cleanup migration
+- [x] **#TEST-3** · P2 · M — No test verifies the CHECK constraint, cascading FK, or auto-create trigger from the skeleton cleanup migration
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (skeleton_id CHECK, design_kits FK, trg_create_empty_design_kit trigger)
     - **Affects:** Fresh database provisioning — if the migration applies incorrectly, the system would accept invalid skeleton IDs, allow orphan design_kits rows, or silently fail to create a kit on site creation. All three scenarios are currently invisible until a user reports a broken site. Especially relevant given the "Fresh-DB Provisioning Broken" issue.
     - **Effort:** M (~2–4h)
