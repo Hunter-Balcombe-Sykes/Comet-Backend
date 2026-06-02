@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\PlatformConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\YoutubeScraper;
@@ -119,4 +120,35 @@ it('reads back a per-user Fresha selection + url from the connection payload', f
     actingAsUser($user)->getJson('/api/platforms/fresha/url')
         ->assertOk()
         ->assertJsonPath('url', 'https://www.fresha.com/a/acme-salon');
+});
+
+it('requires auth on the apple dashboard routes', function () {
+    $this->getJson('/api/platforms/apple/music/selection')->assertUnauthorized();
+    $this->getJson('/api/platforms/apple/podcast/selection')->assertUnauthorized();
+});
+
+it('stores Apple Music + Podcast as independent per-user connections', function () {
+    $user = scraperUser('apl');
+
+    $this->mock(AppleSearch::class, function ($m) {
+        $m->shouldReceive('fetchAlbums')->andReturn([
+            ['collectionId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l'],
+        ]);
+        $m->shouldReceive('fetchEpisodes')->andReturn([
+            ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
+        ]);
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/apple/music/connect', ['artist' => 'Artist'])
+        ->assertOk()->assertJsonPath('name', 'Album');
+    actingAsUser($user)->postJson('/api/platforms/apple/podcast/connect', ['show' => 'Show'])
+        ->assertOk()->assertJsonPath('name', 'Ep');
+
+    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeTrue();
+    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
+
+    // Disconnecting Music leaves Podcast intact (independent rows).
+    actingAsUser($user)->deleteJson('/api/platforms/apple/music')->assertOk();
+    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeFalse();
+    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
 });

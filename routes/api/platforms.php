@@ -59,7 +59,7 @@ Route::prefix('platforms/youtube')
     });
 
 Route::prefix('platforms/apple')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/music/connect', [AppleController::class, 'connectMusic']);
         Route::get('/music/recent', [AppleController::class, 'musicRecent']);

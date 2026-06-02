@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for Apple Music + Apple Podcasts. One controller, two
 // independent selections (music = latest album + highlights, podcast = latest
@@ -16,11 +18,14 @@ use Illuminate\Support\Facades\Cache;
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
-    private const MUSIC_KEY = 'platforms.apple.music.selection';
+    use ResolveCurrentUser;
 
-    private const PODCAST_KEY = 'platforms.apple.podcast.selection';
+    // Apple Music + Podcasts are independent platform values (own CHECK enum
+    // entries), so this controller stores two per-user rows rather than the
+    // single-key trait. resource_id mirrors the platform value (one per user).
+    private const MUSIC = 'apple-music';
 
-    private const CACHE_TTL_DAYS = 30;
+    private const PODCAST = 'apple-podcast';
 
     private const MAX_HIGHLIGHTS = 5;
 
@@ -31,6 +36,7 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/music/connect
     public function connectMusic(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate(['artist' => ['required', 'string', 'max:200']]);
         $input = trim($validated['artist']);
 
@@ -50,23 +56,23 @@ class AppleController extends ApiController
             'releaseDate' => $latest['releaseDate'],
             'link' => $latest['link'],
             'latest' => $latest,
-            'highlights' => $this->keptHighlights(self::MUSIC_KEY, $input),
+            'highlights' => $this->keptHighlights($user, self::MUSIC, $input),
         ];
-        $this->put(self::MUSIC_KEY, $selection);
+        $this->put($user, self::MUSIC, $selection);
 
         return $this->success($selection);
     }
 
     // GET /api/platforms/apple/music/selection
-    public function musicSelection(): JsonResponse
+    public function musicSelection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => Cache::get(self::MUSIC_KEY)]);
+        return $this->success(['selection' => $this->read($this->currentUser($request), self::MUSIC)]);
     }
 
     // GET /api/platforms/apple/music/recent — last 15 albums for the picker.
-    public function musicRecent(): JsonResponse
+    public function musicRecent(Request $request): JsonResponse
     {
-        $input = data_get(Cache::get(self::MUSIC_KEY), 'input');
+        $input = data_get($this->read($this->currentUser($request), self::MUSIC), 'input');
         if (! $input) {
             return $this->error('Connect an Apple Music artist first.', 404);
         }
@@ -81,11 +87,12 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
     public function musicHighlights(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate([
             'albumIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
             'albumIds.*' => ['string', 'max:30'],
         ]);
-        $selection = Cache::get(self::MUSIC_KEY);
+        $selection = $this->read($user, self::MUSIC);
         if (! $selection) {
             return $this->error('Connect an Apple Music artist first.', 404);
         }
@@ -107,7 +114,7 @@ class AppleController extends ApiController
         }
 
         $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
-        $this->put(self::MUSIC_KEY, $selection);
+        $this->put($user, self::MUSIC, $selection);
 
         return $this->success($selection);
     }
@@ -117,6 +124,7 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/podcast/connect
     public function connectPodcast(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate(['show' => ['required', 'string', 'max:200']]);
         $input = trim($validated['show']);
 
@@ -136,23 +144,23 @@ class AppleController extends ApiController
             'description' => $latest['description'],
             'link' => $latest['link'],
             'latest' => $latest,
-            'highlights' => $this->keptHighlights(self::PODCAST_KEY, $input),
+            'highlights' => $this->keptHighlights($user, self::PODCAST, $input),
         ];
-        $this->put(self::PODCAST_KEY, $selection);
+        $this->put($user, self::PODCAST, $selection);
 
         return $this->success($selection);
     }
 
     // GET /api/platforms/apple/podcast/selection
-    public function podcastSelection(): JsonResponse
+    public function podcastSelection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => Cache::get(self::PODCAST_KEY)]);
+        return $this->success(['selection' => $this->read($this->currentUser($request), self::PODCAST)]);
     }
 
     // GET /api/platforms/apple/podcast/recent — last 15 episodes for the picker.
-    public function podcastRecent(): JsonResponse
+    public function podcastRecent(Request $request): JsonResponse
     {
-        $input = data_get(Cache::get(self::PODCAST_KEY), 'input');
+        $input = data_get($this->read($this->currentUser($request), self::PODCAST), 'input');
         if (! $input) {
             return $this->error('Connect an Apple Podcast first.', 404);
         }
@@ -167,11 +175,12 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
     public function podcastHighlights(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $validated = $request->validate([
             'episodeIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
             'episodeIds.*' => ['string', 'max:30'],
         ]);
-        $selection = Cache::get(self::PODCAST_KEY);
+        $selection = $this->read($user, self::PODCAST);
         if (! $selection) {
             return $this->error('Connect an Apple Podcast first.', 404);
         }
@@ -192,49 +201,79 @@ class AppleController extends ApiController
         }
 
         $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
-        $this->put(self::PODCAST_KEY, $selection);
+        $this->put($user, self::PODCAST, $selection);
 
         return $this->success($selection);
     }
 
     // DELETE /api/platforms/apple — clear both. Retained for back-compat;
     // new dashboard surfaces target the per-platform routes below.
-    public function forget(): JsonResponse
+    public function forget(Request $request): JsonResponse
     {
-        Cache::forget(self::MUSIC_KEY);
-        Cache::forget(self::PODCAST_KEY);
+        $user = $this->currentUser($request);
+        $this->forgetOne($user, self::MUSIC);
+        $this->forgetOne($user, self::PODCAST);
 
         return $this->success(['music' => null, 'podcast' => null]);
     }
 
     // DELETE /api/platforms/apple/music — clear just Music. Lets the dashboard
     // disconnect one platform without touching the other.
-    public function forgetMusic(): JsonResponse
+    public function forgetMusic(Request $request): JsonResponse
     {
-        Cache::forget(self::MUSIC_KEY);
+        $this->forgetOne($this->currentUser($request), self::MUSIC);
 
         return $this->success(['music' => null]);
     }
 
     // DELETE /api/platforms/apple/podcast — clear just Podcasts.
-    public function forgetPodcast(): JsonResponse
+    public function forgetPodcast(Request $request): JsonResponse
     {
-        Cache::forget(self::PODCAST_KEY);
+        $this->forgetOne($this->currentUser($request), self::PODCAST);
 
         return $this->success(['podcast' => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
 
-    private function put(string $key, array $data): void
+    // Read one Apple platform's per-user selection payload (null when none).
+    private function read(User $user, string $platform): ?array
     {
-        Cache::put($key, $data, now()->addDays(self::CACHE_TTL_DAYS));
+        return $user->platformConnections()
+            ->where('platform', $platform)
+            ->where('resource_id', $platform)
+            ->first()?->payload;
+    }
+
+    // Upsert one Apple platform's per-user selection. Goes through the model so
+    // PlatformConnectionObserver fires and purges the sitepage edge cache.
+    private function put(User $user, string $platform, array $data): void
+    {
+        PlatformConnection::updateOrCreate(
+            ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $platform],
+            [
+                'payload' => $data,
+                'is_active' => true,
+                'last_refreshed_at' => now(),
+                'last_refresh_status' => 'ok',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+    }
+
+    private function forgetOne(User $user, string $platform): void
+    {
+        $user->platformConnections()
+            ->where('platform', $platform)
+            ->where('resource_id', $platform)
+            ->first()?->delete();
     }
 
     // Preserve existing highlights only when reconnecting the SAME input.
-    private function keptHighlights(string $key, string $input): array
+    private function keptHighlights(User $user, string $platform, string $input): array
     {
-        $existing = Cache::get($key);
+        $existing = $this->read($user, $platform);
 
         return data_get($existing, 'input') === $input ? data_get($existing, 'highlights', []) : [];
     }

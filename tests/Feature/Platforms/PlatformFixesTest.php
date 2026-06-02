@@ -118,14 +118,18 @@ it('refreshes the Apple Music "most recent" tile when highlights are updated', f
         ]);
     });
 
-    Cache::put('platforms.apple.music.selection', [
-        'input' => 'someartist',
-        'name' => 'Stale Album',
-        'latest' => ['collectionId' => '999', 'name' => 'Stale Album'],
-        'highlights' => [],
-    ], now()->addDay());
+    $user = fbActingUser();
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'apple-music', 'resource_id' => 'apple-music',
+        'payload' => [
+            'input' => 'someartist',
+            'name' => 'Stale Album',
+            'latest' => ['collectionId' => '999', 'name' => 'Stale Album'],
+            'highlights' => [],
+        ],
+    ]);
 
-    $res = $this->postJson('/api/platforms/apple/music/highlights', ['albumIds' => ['222']]);
+    $res = actingAsUser($user)->postJson('/api/platforms/apple/music/highlights', ['albumIds' => ['222']]);
 
     $res->assertOk();
     expect($res->json('latest.name'))->toBe('New Album');   // refreshed from the newest re-fetch
@@ -142,14 +146,18 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
         ]);
     });
 
-    Cache::put('platforms.apple.podcast.selection', [
-        'input' => 'someshow',
-        'name' => 'Stale Episode',
-        'latest' => ['trackId' => '999', 'name' => 'Stale Episode'],
-        'highlights' => [],
-    ], now()->addDay());
+    $user = fbActingUser();
+    PlatformConnection::create([
+        'user_id' => $user->id, 'platform' => 'apple-podcast', 'resource_id' => 'apple-podcast',
+        'payload' => [
+            'input' => 'someshow',
+            'name' => 'Stale Episode',
+            'latest' => ['trackId' => '999', 'name' => 'Stale Episode'],
+            'highlights' => [],
+        ],
+    ]);
 
-    $res = $this->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => ['222']]);
+    $res = actingAsUser($user)->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => ['222']]);
 
     $res->assertOk();
     expect($res->json('latest.name'))->toBe('New Episode');
