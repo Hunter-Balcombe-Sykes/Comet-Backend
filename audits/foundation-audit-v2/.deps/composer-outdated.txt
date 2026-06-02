@@ -1,0 +1,12 @@
+Legend:
+! patch or minor release available - update recommended
+~ major release available - update possible
+endroid/qr-code     5.1.0   ~ 6.1.3   Endroid QR Code
+laravel/boost       1.8.13  ~ 2.4.8   Laravel Boost accelerates AI-assisted ...
+laravel/framework   12.60.2 ~ 13.11.2 The Laravel Framework.
+laravel/tinker      2.11.1  ~ 3.0.2   Powerful REPL for the Laravel framework.
+symfony/http-kernel 7.4.12  ~ 8.0.12  Provides a structured process for conv...
+symfony/mailer      7.4.12  ~ 8.0.12  Helps sending emails
+symfony/mime        7.4.12  ~ 8.0.12  Allows manipulating MIME messages
+symfony/routing     7.4.12  ~ 8.0.12  Maps an HTTP request to a set of confi...
+symfony/yaml        7.4.12  ~ 8.0.12  Loads and dumps YAML files

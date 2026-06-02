@@ -37,7 +37,7 @@ JOBS-1 is invalidated by `CleanupStuckMediaProcessingCommand` — a fully-implem
 
 ## P2 — Should fix
 
-- [ ] **#JOBS-1** · P2 — `DeleteMediaArtifactsJob.failed()` silently discards permanent failures — no Nightwatch alert
+- [x] **#JOBS-1** · P2 — `DeleteMediaArtifactsJob.failed()` silently discards permanent failures — no Nightwatch alert
     - **Where:** app/Jobs/DeleteMediaArtifactsJob.php:93–100
     - **Affects:** On-call engineers. When video artifact cleanup exhausts all 3 retries, Nightwatch receives no exception event. Orphaned HLS segments on R2 go undetected until a manual audit.
     - **Effort:** S (~15 min)

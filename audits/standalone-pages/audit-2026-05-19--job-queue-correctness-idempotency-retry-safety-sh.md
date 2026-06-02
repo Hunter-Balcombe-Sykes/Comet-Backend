@@ -39,7 +39,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#JOB-1** · P2 — Five jobs silently fail: `report($e)` missing in `failed()`
+- [x] **#JOB-1** · P2 — Five jobs silently fail: `report($e)` missing in `failed()`
     - **Where:** app/Jobs/Notifications/FanOutBrandStatusNotificationJob.php:122, app/Jobs/Notifications/SendBrandStatusNotificationJob.php:77, app/Jobs/Notifications/NudgeStuckOnboardingJob.php:137, app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php:117, app/Jobs/Shopify/CreateShopifyAffiliateDiscountJob.php:194
     - **Affects:** All five jobs exhaust their `$tries` without forwarding the exception to Nightwatch. Failures increment the failed-jobs Redis counter (Horizon UI shows them as failed) but produce no Nightwatch alert and no exception trace — an ops team only discovers the failure by actively checking Horizon or Laravel Cloud logs. For `SendTransactionalNotificationEmailJob` this means a dropped payout or commission email is completely invisible unless someone goes looking.
     - **Effort:** S (~0.5–1h)
@@ -79,7 +79,7 @@
         }
         ```
 
-- [ ] **#JOB-2** · P2 — `SyncSubdomainToKvJob` missing `ShouldBeUnique` — stale KV write possible under rapid re-dispatch
+- [x] **#JOB-2** · P2 — `SyncSubdomainToKvJob` missing `ShouldBeUnique` — stale KV write possible under rapid re-dispatch
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:23
     - **Affects:** Edge routing for `*.partna.au` is driven by Cloudflare KV. If two concurrent job instances race, the one that reads a stale DB snapshot last wins the KV write — visitor traffic for a handle could be sent to the wrong destination (e.g., a stale `{type:"affiliate", redirect:...}` after the professional disconnects from a brand) until the next dispatch overwrites it. The window is narrow but the consequence is misdirected traffic with no error visible to ops.
     - **Effort:** S (~0.5–1h)
@@ -106,7 +106,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#JOB-3** · P3 — `SyncCustomerMarketingOptInJob` has no `failed()` method — completely silent on exhaustion
+- [x] **#JOB-3** · P3 — `SyncCustomerMarketingOptInJob` has no `failed()` method — completely silent on exhaustion
     - **Where:** app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php:17
     - **Affects:** When this job exhausts its 3 tries, Horizon's failed-jobs counter increments but there is no log entry, no Nightwatch signal, and no breadcrumb. The failure is only visible by manually inspecting the failed-jobs list in Horizon. Functionally, the consequence is low: the job comment documents that `isMarketingOptedIn()` falls back to a live DB lookup when the cached column is null, so the absence of the cache update doesn't corrupt state. The gap is purely observability.
     - **Effort:** S (~0.5–1h)

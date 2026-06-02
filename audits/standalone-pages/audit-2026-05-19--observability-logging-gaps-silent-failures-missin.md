@@ -66,7 +66,7 @@ The key observability invariant in this codebase: `report($e)` routes exceptions
 
 ## P2 — Should fix
 
-- [ ] **#OBS-2** · P2 — Four notification job `failed()` methods log only, never call `report($e)` — Nightwatch misses named exception events
+- [x] **#OBS-2** · P2 — Four notification job `failed()` methods log only, never call `report($e)` — Nightwatch misses named exception events
     - **Where:** `app/Jobs/Notifications/SendBrandStatusNotificationJob.php:77`, `app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php:117`, `app/Jobs/Notifications/FanOutBrandStatusNotificationJob.php:122`, `app/Jobs/Notifications/NudgeStuckOnboardingJob.php:137`
     - **Affects:** Nightwatch alerting for notification delivery failures. Horizon's failed-job counter increments correctly, but no named exception reaches Nightwatch, so there is no stack trace, no alert rule to wire, and no exception grouping across incidents.
     - **Effort:** S (~0.5–1h)

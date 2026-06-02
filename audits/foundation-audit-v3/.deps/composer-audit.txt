@@ -1,0 +1,38 @@
+Found 3 security vulnerability advisories affecting 3 packages:
++-------------------+----------------------------------------------------------------------------------+
+| Package           | symfony/http-foundation                                                          |
+| Severity          |                                                                                  |
+| Advisory ID       | PKSA-y6py-qpv1-h52p                                                              |
+| CVE               | CVE-2026-48736                                                                   |
+| Title             | CVE-2026-48736: IpUtils::PRIVATE_SUBNETS Omits IPv6 Transition Forms (6to4,      |
+|                   | NAT64, Teredo, IPv4-compatible): SSRF Bypass in NoPrivateNetworkHttpClient       |
+| URL               | https://symfony.com/cve-2026-48736                                               |
+| Affected versions | >=6.4.0,<6.4.41|>=7.0.0,<7.1.0|>=7.1.0,<7.2.0|>=7.2.0,<7.3.0|>=7.3.0,<7.4.0|>=7. |
+|                   | 4.0,<7.4.13|>=8.0.0,<8.0.13                                                      |
+| Reported at       | 2026-05-26T08:00:00+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
++-------------------+----------------------------------------------------------------------------------+
+| Package           | symfony/polyfill-intl-idn                                                        |
+| Severity          | low                                                                              |
+| Advisory ID       | PKSA-dwsq-ppd2-mb1x                                                              |
+| CVE               | CVE-2026-46644                                                                   |
+| Title             | CVE-2026-46644: symfony/polyfill-intl-idn accepts xn-- labels whose Punycode     |
+|                   | payload decodes to ASCII-only: insecure equivalence                              |
+| URL               | https://symfony.com/cve-2026-46644                                               |
+| Affected versions | >=1.17.1,<1.38.1                                                                 |
+| Reported at       | 2026-05-26T08:00:00+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
++-------------------+----------------------------------------------------------------------------------+
+| Package           | symfony/routing                                                                  |
+| Severity          |                                                                                  |
+| Advisory ID       | PKSA-bf7t-jnpz-492k                                                              |
+| CVE               | CVE-2026-48784                                                                   |
+| Title             | CVE-2026-48784: UrlGenerator Dot-Segment Encoding Skips Every Other Chained      |
+|                   | `../` or `./` → Generated URL Collapses Off-Route Under RFC 3986 Normalization   |
+| URL               | https://symfony.com/cve-2026-48784                                               |
+| Affected versions | >=2.0.0,<3.0.0|>=3.0.0,<4.0.0|>=4.0.0,<5.0.0|>=5.0.0,<5.1.0|>=5.1.0,<5.2.0|>=5.2 |
+|                   | .0,<5.3.0|>=5.3.0,<5.4.0|>=5.4.0,<5.4.53|>=6.0.0,<6.1.0|>=6.1.0,<6.2.0|>=6.2.0,< |
+|                   | 6.3.0|>=6.3.0,<6.4.0|>=6.4.0,<6.4.41|>=7.0.0,<7.1.0|>=7.1.0,<7.2.0|>=7.2.0,<7.3. |
+|                   | 0|>=7.3.0,<7.4.0|>=7.4.0,<7.4.13|>=8.0.0,<8.0.13                                 |
+| Reported at       | 2026-05-26T08:00:00+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
