@@ -115,6 +115,12 @@ Route::get('/public/profiles/{handle}', [\App\Http\Controllers\Api\PublicSite\In
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
+// Public per-user platform connections (sitepage reads this to render platform
+// sections). Separate from the profile payload — additive, self-contained.
+Route::get('/public/profiles/{handle}/platforms', [\App\Http\Controllers\Api\PublicSite\PublicPlatformController::class, 'show'])
+    ->where('handle', '[A-Za-z0-9-]+')
+    ->middleware('throttle:public-profile');
+
 Route::post('/public/customers', [PublicCustomerLeadController::class, 'store'])
     ->middleware(['lead.log', 'throttle:leads', 'bot.token:lead']);
 
