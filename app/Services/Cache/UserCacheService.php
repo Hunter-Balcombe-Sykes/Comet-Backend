@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // V2: Multi-lookup professional caching (by ID, handle, auth_user_id). Defensive validation prevents returning stale data after handle/auth changes.
 class UserCacheService
@@ -166,6 +167,7 @@ class UserCacheService
         if ((string) $professional->auth_user_id !== $authUserId) {
             $authIdKey = CacheKeyGenerator::userIdByAuthId($authUserId);
             $modelKey = CacheKeyGenerator::professionalModel($id);
+            Log::warning('cache.auth_id_mismatch', ['cached_user_id' => $id, 'auth_user_id' => $authUserId]);
             Cache::forget($authIdKey);
             Cache::forget($modelKey);
             Cache::forget($modelKey.':stale');

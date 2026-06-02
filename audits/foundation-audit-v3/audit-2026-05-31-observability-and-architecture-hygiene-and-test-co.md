@@ -22,14 +22,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
+- P3 Low: 2 of 3 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **OBS-1** · P2 — AnalyticsQueryService silently swallows click-table QueryExceptions across four sites
+- [x] **OBS-1** · P2 — AnalyticsQueryService silently swallows click-table QueryExceptions across four sites
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:88, 118, 223, 257
     - **Affects:** Observability — every user's analytics dashboard silently shows zero clicks when `analytics.link_clicks` is missing or a query fails. There is no Nightwatch signal to distinguish "no clicks today" from "click pipeline broken."
     - **Effort:** S (~0.5–1h)
@@ -47,7 +47,7 @@
         }
         ```
 
-- [ ] **OBS-2** · P2 — StaffAnalyticsController silently swallows the same click-table failures as OBS-1 — same root cause, same tier
+- [x] **OBS-2** · P2 — StaffAnalyticsController silently swallows the same click-table failures as OBS-1 — same root cause, same tier
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php:106, 134, 151
     - **Affects:** Observability — staff members investigating zero-click analytics for a user cannot tell whether clicks are genuinely zero or whether the `analytics.link_clicks` query itself failed. DeepSeek originally tiered this P3, but it is structurally identical to OBS-1 (same table, same zero-return pattern, same absent logging) and must carry the same tier. Note: OBS-6 (P3) proposes delegating to `AnalyticsQueryService`, which would fix this automatically once OBS-1 is resolved; if OBS-6 is done first, this fix becomes redundant.
     - **Effort:** S (~0.5h)
@@ -68,7 +68,7 @@
         }
         ```
 
-- [ ] **OBS-3** · P2 — UserCacheService::getByAuthId silently repairs a stale auth mapping without logging the event
+- [x] **OBS-3** · P2 — UserCacheService::getByAuthId silently repairs a stale auth mapping without logging the event
     - **Where:** app/Services/Cache/UserCacheService.php:166
     - **Affects:** Observability (security-adjacent) — a mismatch between the cached `auth_user_id` and the JWT `sub` claim indicates a stale or corrupted cache entry. The code correctly self-heals but emits no signal. If mismatches accumulate — for example due to a cache invalidation bug or a key collision — there is no Nightwatch breadcrumb to trigger an investigation.
     - **Effort:** S (~0.5h)
@@ -93,7 +93,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **OBS-4** · P3 — CacheLockService::recordLockReleaseFailure inner catch is completely silent when Redis is unreachable
+- [x] **OBS-4** · P3 — CacheLockService::recordLockReleaseFailure inner catch is completely silent when Redis is unreachable
     - **Where:** app/Services/Cache/CacheLockService.php:278
     - **Affects:** Observability — if the `Redis::incr` call that counts lock-release failures itself throws (Redis unreachable), the failure is entirely swallowed. The counter silently stops incrementing with no operator signal that lock-release failures are occurring at all.
     - **Effort:** S (~0.5h)
@@ -115,7 +115,7 @@
         }
         ```
 
-- [ ] **OBS-5** · P3 — RUM beacon catch block is completely empty — a broken log driver goes undetected
+- [x] **OBS-5** · P3 — RUM beacon catch block is completely empty — a broken log driver goes undetected
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:241
     - **Affects:** Observability — if `Log::info('rum', ...)` throws (e.g., a misconfigured log channel, a write-permission issue on the log file), every RUM beacon request silently fails. Performance timing data stops flowing with no operator signal.
     - **Effort:** S (~0.5h)

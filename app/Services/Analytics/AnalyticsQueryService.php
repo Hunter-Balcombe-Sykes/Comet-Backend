@@ -6,6 +6,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use stdClass;
 
 /**
@@ -85,7 +86,9 @@ class AnalyticsQueryService
                 ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
                 ->selectRaw('MAX(occurred_at) as last_click_at')
                 ->first() ?? (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
             return (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
         }
     }
@@ -115,7 +118,9 @@ class AnalyticsQueryService
                 ->groupByRaw($bucketGroup)
                 ->orderBy('day')
                 ->get();
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
             return collect();
         }
     }
@@ -220,7 +225,9 @@ class AnalyticsQueryService
                 ->orderByDesc('clicks')
                 ->limit(10)
                 ->get();
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
             return collect();
         }
     }
@@ -254,7 +261,9 @@ class AnalyticsQueryService
                     ];
                 })
                 ->values();
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
             return collect();
         }
     }

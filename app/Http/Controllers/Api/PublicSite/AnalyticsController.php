@@ -239,7 +239,7 @@ class AnalyticsController extends ApiController
                 'country' => $request->header('cf-ipcountry'),
             ]);
         } catch (\Throwable $e) {
-            // RUM is best-effort; never bubble logging errors back to the visitor.
+            Log::warning('analytics.rum_logging_failed', ['error' => $e->getMessage()]);
         }
 
         return $this->success(['message' => 'ok'], 200);

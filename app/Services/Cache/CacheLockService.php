@@ -7,6 +7,7 @@ use Closure;
 use DateTimeInterface;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Throwable;
 
@@ -275,8 +276,8 @@ class CacheLockService
     {
         try {
             Redis::incr('cache:lock_release_failures');
-        } catch (\Throwable) {
-            // Swallow — a failure to count a failure must not cascade.
+        } catch (\Throwable $e) {
+            Log::warning('cache.lock_release_failure_counter_failed', ['error' => $e->getMessage()]);
         }
     }
 }

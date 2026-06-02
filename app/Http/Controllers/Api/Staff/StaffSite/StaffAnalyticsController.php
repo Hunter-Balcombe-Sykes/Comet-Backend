@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // V2: Staff-accessible analytics view for a professional's site (visits, clicks, device breakdown).
@@ -103,7 +104,8 @@ class StaffAnalyticsController extends ApiController
                     ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
                     ->selectRaw('MAX(occurred_at) as last_click_at')
                     ->first();
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                Log::warning('staff.analytics.click_query_failed', ['professional_id' => $professional->id, 'error' => $e->getMessage()]);
                 $clicksAgg = (object) [
                     'total_clicks' => 0,
                     'unique_clickers' => 0,
@@ -131,7 +133,8 @@ class StaffAnalyticsController extends ApiController
                     ->groupByRaw('DATE(occurred_at)')
                     ->orderBy('day')
                     ->get();
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                Log::warning('staff.analytics.click_query_failed', ['professional_id' => $professional->id, 'error' => $e->getMessage()]);
                 $clicksByDay = collect();
             }
 
@@ -148,7 +151,8 @@ class StaffAnalyticsController extends ApiController
                     ->orderByDesc('clicks')
                     ->limit(10)
                     ->get();
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                Log::warning('staff.analytics.click_query_failed', ['professional_id' => $professional->id, 'error' => $e->getMessage()]);
                 $topLinks = collect();
             }
 
