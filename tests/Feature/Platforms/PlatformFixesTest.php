@@ -219,7 +219,7 @@ it('surfaces dropped Instagram images when mirroring fails', function () {
         $m->shouldReceive('profilePicUrl')->andReturn('https://cdn.ig/pic.jpg');
     });
 
-    $res = $this->postJson('/api/platforms/instagram/connect', ['username' => 'jane']);
+    $res = actingAsUser(fbActingUser())->postJson('/api/platforms/instagram/connect', ['username' => 'jane']);
 
     $res->assertOk();
     expect($res->json('images'))->toHaveCount(0);   // all mirrors failed

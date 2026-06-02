@@ -39,7 +39,7 @@ Route::prefix('platforms/shopify')
     });
 
 Route::prefix('platforms/instagram')
-    ->middleware('throttle:public-site')
+    ->middleware(['user.api', 'throttle:authenticated'])
     ->group(function () {
         Route::post('/connect', [InstagramController::class, 'connect']);
         Route::get('/posts', [InstagramController::class, 'posts']);

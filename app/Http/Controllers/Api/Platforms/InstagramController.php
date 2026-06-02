@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformSelection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -20,27 +23,39 @@ use Throwable;
 // `media` disk stays here (IG CDN urls expire, so we re-host the chosen images).
 class InstagramController extends ApiController
 {
-    use ManagesPlatformSelection;
-
-    private const SELECTION_KEY = 'platforms.instagram.selection';
+    use ManagesPlatformConnection;
+    use ResolveCurrentUser;
 
     private const AUTO_IMAGE_COUNT = 8;
 
     private const MAX_MANUAL_IMAGES = 8;
 
+    // Pilot cost controls for the paid Apify scraper. Minimal — backend dev to
+    // tune/extend (cover posts/saveSelection, telemetry). A re-connect is
+    // rate-limited per user; total daily runs are globally capped.
+    private const APIFY_COOLDOWN_SECONDS = 600;
+
+    private const APIFY_DAILY_CAP = 200;
+
     public function __construct(private readonly InstagramScraper $scraper) {}
 
-    protected function selectionKey(): string
+    protected function platform(): string
     {
-        return self::SELECTION_KEY;
+        return 'instagram';
     }
 
     // POST /api/platforms/instagram/connect — AUTOMATIC: scrape, mirror 8 covers, store.
     public function connect(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $username = $this->validateUsername($request);
         if ($username instanceof JsonResponse) {
             return $username;
+        }
+
+        if ($budgetError = $this->guardApifyBudget($user)) {
+            return $budgetError;
         }
 
         $profile = $this->scraper->fetchProfile($username);
@@ -53,7 +68,7 @@ class InstagramController extends ApiController
         $images = $this->mirrorAll($coverUrls, $folder);
 
         $selection = $this->buildSelection($username, $profile, $folder, 'automatic', $images, count($coverUrls) - count($images));
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
     }
@@ -84,6 +99,8 @@ class InstagramController extends ApiController
     // POST /api/platforms/instagram/selection — MANUAL: mirror the chosen images, store.
     public function saveSelection(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $request->validate([
             'images' => ['present', 'array', 'max:'.self::MAX_MANUAL_IMAGES],
             'images.*' => ['string', 'url', 'max:2000'],
@@ -103,14 +120,47 @@ class InstagramController extends ApiController
         $images = $this->mirrorAll($chosen, $folder);
 
         $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images, count($chosen) - count($images));
-        $this->writeSelection($selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
     }
 
-    // selection() + forget() come from ManagesPlatformSelection.
+    // GET /api/platforms/instagram/selection — the authenticated user's saved selection.
+    public function selection(Request $request): JsonResponse
+    {
+        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+    }
+
+    // DELETE /api/platforms/instagram — clear the authenticated user's connection.
+    public function forget(Request $request): JsonResponse
+    {
+        $this->forgetConnection($this->currentUser($request));
+
+        return $this->success(['selection' => null]);
+    }
 
     // ── internals ────────────────────────────────────────────────
+
+    // Pilot cost guard: 429 when the user is within their re-scrape cooldown or
+    // the global daily Apify cap is hit; otherwise records the run and returns
+    // null. Atomic per-user cooldown via Cache::add; the daily counter is a
+    // read-modify-write (good enough for a pilot — backend dev to harden).
+    private function guardApifyBudget(User $user): ?JsonResponse
+    {
+        $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
+        if (! Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)) {
+            return $this->error('You refreshed Instagram recently — please wait a few minutes.', 429);
+        }
+
+        $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+        $count = (int) Cache::get($dayKey, 0);
+        if ($count >= self::APIFY_DAILY_CAP) {
+            return $this->error('Instagram is busy right now — please try again later.', 429);
+        }
+        Cache::put($dayKey, $count + 1, now()->addDay());
+
+        return null;
+    }
 
     // Validate + normalise the username, or return a 422/500 JsonResponse the
     // caller forwards. (Apify token must be configured for any scrape.)
