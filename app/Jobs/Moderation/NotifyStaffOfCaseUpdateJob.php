@@ -11,7 +11,9 @@ use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Throwable;
 
 /**
  * Dispatched whenever a case is created or its signal_count grows.
@@ -62,5 +64,15 @@ class NotifyStaffOfCaseUpdateJob implements ShouldQueue, ShouldQueueAfterCommit
         }
 
         Notification::send($oncall, new CaseCreatedStaffNotification($case));
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('Moderation staff notification job permanently failed', [
+            'job'     => static::class,
+            'case_id' => $this->caseId,
+            'error'   => $e->getMessage(),
+        ]);
     }
 }

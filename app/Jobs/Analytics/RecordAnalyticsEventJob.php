@@ -12,6 +12,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Writes one analytics event to its raw table, then bumps the per-user analytics
 // summary cache version (debounced). Dispatched onto the 'analytics' queue (default
@@ -47,5 +49,15 @@ class RecordAnalyticsEventJob implements ShouldQueue
         // already committed. SyncIngestor performs the same bump inline, keeping the two
         // ingest paths' side effects identical.
         $cache->bumpVersion($event->userId);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('Analytics event permanently dropped', [
+            'job'        => static::class,
+            'event_type' => $this->payload['event_type'] ?? 'unknown',
+            'error'      => $e->getMessage(),
+        ]);
     }
 }

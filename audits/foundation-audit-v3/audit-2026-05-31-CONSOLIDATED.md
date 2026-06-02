@@ -282,31 +282,31 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add a `supervisor-images` definition (`connection: redis`, `queue: ['images']`, `timeout: 300`, `maxProcesses: 1`, `nice: 15`). Remove `images` from `supervisor-analytics` and reduce its `maxProcesses` to 1. Update both `production` and `development` environment blocks.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-17** 4 moderation enforcement jobs missing `failed()` handlers — Lens: `queue-jobs`
+- [x] **#P2-17** 4 moderation enforcement jobs missing `failed()` handlers — Lens: `queue-jobs`
     - Where: `app/Jobs/Moderation/SuspendSiteJob.php` · `SuspendUserJob.php` · `QuarantineMediaJob.php` · `PurgeModerationCacheJob.php`
     - What: All four jobs mark `ActionLogEntry.status = 'dispatched'` at the start of `handle()` but have no terminal-failure write. On retry exhaustion the audit row stays at `dispatched` forever — active enforcement may have never completed, and no Nightwatch exception fires. A banned user could remain `active` with no alert.
     - Fix: Add `failed(Throwable $e): void` to each job. Call `report($e)` first. Stamp `ActionLogEntry` to `failed`: `ActionLogEntry::query()->where('id', $this->actionLogId)->update(['status' => 'failed', 'failed_at' => now()])`. Include structured `Log::error()` with `action_log_id`, `case_id`, `$e->getMessage()`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-18** 4 moderation notification jobs missing `failed()` handlers — Lens: `queue-jobs`
+- [x] **#P2-18** 4 moderation notification jobs missing `failed()` handlers — Lens: `queue-jobs`
     - Where: `app/Jobs/Moderation/NotifyOnCallStaffJob.php` · `NotifyReportedUserJob.php` · `NotifyReporterJob.php` · `NotifyStaffOfCaseUpdateJob.php`
     - What: Same `ActionLogEntry` stuck-at-`dispatched` gap as #P2-17, but for notification jobs. Reporter outcome emails and staff case-update alerts may never be delivered with no Nightwatch signal and no audit trail update. `NotifyStaffOfCaseUpdateJob` has no `actionLogId` (it's case-level) but still needs `report($e)`.
     - Fix: Add `failed(Throwable $e): void` to all four. Call `report($e)` first. Stamp the `ActionLogEntry` to `failed` in the three jobs that carry `$actionLogId`. Add structured `Log::error()` with `case_id`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-19** `RecordAnalyticsEventJob` and `DispatchEnquiryNotificationsJob` missing `failed()` handlers — Lens: `queue-jobs`
+- [x] **#P2-19** `RecordAnalyticsEventJob` and `DispatchEnquiryNotificationsJob` missing `failed()` handlers — Lens: `queue-jobs`
     - Where: `app/Jobs/Analytics/RecordAnalyticsEventJob.php` · `app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php`
     - What: A permanently failed `RecordAnalyticsEventJob` silently drops a page-view event with no Nightwatch alert. A permanently failed `DispatchEnquiryNotificationsJob` means no enquiry notification is dispatched for that submission — the professional never receives the email and nobody is paged.
     - Fix: Add `failed(Throwable $e): void` to both jobs with `report($e)` and structured `Log::error()`. Include `$this->payload['event_type']` / `$this->enquiryId` as context.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-20** `ExportUserDataJob::failed()` does not call `report($e)` — Lens: `queue-jobs`
+- [x] **#P2-20** `ExportUserDataJob::failed()` does not call `report($e)` — Lens: `queue-jobs`
     - Where: `app/Jobs/Gdpr/ExportUserDataJob.php:103–111`
     - What: The `failed()` handler correctly transitions the audit row to `STATUS_FAILED`. However without `report($e)` a permanent export failure creates no Nightwatch exception event — only discoverable by manually querying `DataExportAudit` or checking Horizon's failed-jobs list. Every peer job with a `failed()` method calls `report($e)` first.
     - Fix: Add `report($e);` as the first line of `failed()`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-21** `ProcessImageVariantsJob::failed()` and `ProcessVideoVariantsJob::failed()` do not call `report($e)` — Lens: `queue-jobs`
+- [x] **#P2-21** `ProcessImageVariantsJob::failed()` and `ProcessVideoVariantsJob::failed()` do not call `report($e)` — Lens: `queue-jobs`
     - Where: `app/Jobs/ProcessImageVariantsJob.php` · `app/Jobs/ProcessVideoVariantsJob.php`
     - What: Both `failed()` handlers perform correct local recovery (`markFailed()` + `cleanupR2Artifacts()`) but generate no Nightwatch exception event. A class-wide failure mode (codec issue, storage disk outage) won't surface as an aggregated exception trend until users start complaining.
     - Fix: Add `report($e);` as the first line of `failed()` in both jobs.
@@ -912,7 +912,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B3: Job `failed()` and `report()` hygiene (5 items — #P2-17, #P2-18, #P2-19, #P2-20, #P2-21) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-17`, `#P2-18`, `#P2-19`, `#P2-20`, `#P2-21`
 - Models: impl=sonnet · review=sonnet
 - Rationale: Same pattern across 13 job classes: add `failed()` with `report($e)` and audit-trail updates. One session, one pattern, no interaction effects.

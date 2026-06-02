@@ -10,6 +10,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Dispatched after an enquiry is saved — keeps the public POST response off the hot path.
 class DispatchEnquiryNotificationsJob implements ShouldQueue
@@ -48,5 +50,15 @@ class DispatchEnquiryNotificationsJob implements ShouldQueue
         }
 
         $dispatcher->dispatch($enquiry, $block);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('Enquiry notification dispatch permanently failed', [
+            'job'        => static::class,
+            'enquiry_id' => $this->enquiryId,
+            'error'      => $e->getMessage(),
+        ]);
     }
 }

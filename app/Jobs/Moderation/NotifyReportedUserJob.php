@@ -14,6 +14,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class NotifyReportedUserJob implements ShouldQueue
 {
@@ -72,5 +74,20 @@ class NotifyReportedUserJob implements ShouldQueue
         }
 
         $entry->update(['status' => 'completed', 'completed_at' => now()]);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        ActionLogEntry::query()->where('id', $this->actionLogId)->update([
+            'status'    => 'failed',
+            'failed_at' => now(),
+        ]);
+        Log::error('Moderation notification job permanently failed', [
+            'job'           => static::class,
+            'action_log_id' => $this->actionLogId,
+            'case_id'       => $this->caseId,
+            'error'         => $e->getMessage(),
+        ]);
     }
 }
