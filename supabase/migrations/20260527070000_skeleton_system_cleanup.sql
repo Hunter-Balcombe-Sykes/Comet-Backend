@@ -70,6 +70,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_create_empty_design_kit ON site.sites;
 CREATE TRIGGER trg_create_empty_design_kit
   AFTER INSERT ON site.sites
   FOR EACH ROW EXECUTE FUNCTION site.create_empty_design_kit();
