@@ -264,7 +264,7 @@
         -- No ALTER TABLE site.design_kits ENABLE ROW LEVEL SECURITY follows.
         ```
 
-- [ ] **#CCH-1** · P2 · S — Plain `Cache::remember` on the `handle.resolve` hot path has no single-flight lock
+- [x] **#CCH-1** · P2 · S — Plain `Cache::remember` on the `handle.resolve` hot path has no single-flight lock
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:76–96 (`Cache::remember` block)
     - **Affects:** All public profile requests on a cold or just-evicted resolve cache. Concurrent misses (e.g., a social-media spike) trigger parallel User + Site DB lookups for the same handle.
     - **Effort:** S (~0.5–1h)
