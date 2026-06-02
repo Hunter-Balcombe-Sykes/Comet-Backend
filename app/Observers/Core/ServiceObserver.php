@@ -2,8 +2,8 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;

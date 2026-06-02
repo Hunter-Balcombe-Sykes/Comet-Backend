@@ -42,23 +42,23 @@ class SuspendUserJob implements ShouldQueue
     public function handle(): void
     {
         DB::connection('pgsql')->transaction(function () {
-            $case  = ModerationCase::query()->findOrFail($this->caseId);
+            $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the user update throws, the action log reflects the attempt.
             $entry->update([
-                'status'        => 'dispatched',
+                'status' => 'dispatched',
                 'dispatched_at' => now(),
-                'attempts'      => $entry->attempts + 1,
+                'attempts' => $entry->attempts + 1,
             ]);
 
             if ($case->reportable_owner_user_id !== null) {
                 // Most recent decision on the case determines the target status.
-                $decision  = $case->decisions()->latest('decided_at')->first();
+                $decision = $case->decisions()->latest('decided_at')->first();
                 $newStatus = match ($decision?->decision_type) {
                     'ban_user' => 'disabled',
-                    default    => 'suspended',
+                    default => 'suspended',
                 };
 
                 User::query()
@@ -67,7 +67,7 @@ class SuspendUserJob implements ShouldQueue
             }
 
             $entry->update([
-                'status'       => 'completed',
+                'status' => 'completed',
                 'completed_at' => now(),
             ]);
         });

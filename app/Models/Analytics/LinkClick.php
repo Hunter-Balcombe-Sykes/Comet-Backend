@@ -3,9 +3,9 @@
 namespace App\Models\Analytics;
 
 use App\Models\BaseModel;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 

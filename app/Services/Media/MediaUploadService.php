@@ -4,9 +4,9 @@ namespace App\Services\Media;
 
 use App\Jobs\ProcessImageVariantsJob;
 use App\Jobs\ProcessVideoVariantsJob;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;

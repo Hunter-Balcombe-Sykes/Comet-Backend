@@ -44,15 +44,15 @@ class SuspendSiteJob implements ShouldQueue
     public function handle(): void
     {
         DB::connection('pgsql')->transaction(function () {
-            $case  = ModerationCase::query()->findOrFail($this->caseId);
+            $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the site update throws, the action log reflects the attempt.
             $entry->update([
-                'status'        => 'dispatched',
+                'status' => 'dispatched',
                 'dispatched_at' => now(),
-                'attempts'      => $entry->attempts + 1,
+                'attempts' => $entry->attempts + 1,
             ]);
 
             $siteId = $this->resolveSiteId($case);
@@ -63,7 +63,7 @@ class SuspendSiteJob implements ShouldQueue
             }
 
             $entry->update([
-                'status'       => 'completed',
+                'status' => 'completed',
                 'completed_at' => now(),
             ]);
         });

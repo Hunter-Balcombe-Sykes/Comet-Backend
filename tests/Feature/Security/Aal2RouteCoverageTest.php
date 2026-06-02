@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Route;
  * "request MFA enrollment" route used pre-enrollment), add it to the
  * AAL2_EXEMPT_PATHS list with a one-line justification comment.
  */
-
 const AAL2_EXEMPT_PATHS = [
     // path => justification
     // 'api/staff/mfa/setup' => 'pre-enrollment endpoint; called from aal1 sessions',

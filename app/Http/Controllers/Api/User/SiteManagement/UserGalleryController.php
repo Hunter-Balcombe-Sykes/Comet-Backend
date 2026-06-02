@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\ImageGallery\ReorderGalleryImageRequest;
 use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
 use App\Http\Resources\GalleryImageResource;
@@ -18,8 +18,8 @@ use Illuminate\Support\Facades\DB;
 // V2: Gallery image management — listing, reordering, and deletion with variant cleanup.
 class UserGalleryController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(
         private readonly ImageVariantService $mediaService,

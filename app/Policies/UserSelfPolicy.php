@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 

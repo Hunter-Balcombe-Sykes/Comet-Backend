@@ -21,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // from that value. Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel
 {
-    use HasUuids, HasFactory;
+    use HasFactory, HasUuids;
 
     protected $table = 'site.sites';
 

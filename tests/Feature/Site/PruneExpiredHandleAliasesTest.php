@@ -18,15 +18,16 @@ function makePrunePro(string $handle): string
     $proId = (string) Str::uuid();
     $now = now()->toDateTimeString();
     DB::connection('pgsql')->table('core.users')->insert([
-        'id'               => $proId,
-        'handle'           => $handle,
-        'handle_lc'        => $handle,
-        'status'           => 'active',
-        'primary_email'    => $handle.'@example.test',
-        
-        'created_at'       => $now,
-        'updated_at'       => $now,
+        'id' => $proId,
+        'handle' => $handle,
+        'handle_lc' => $handle,
+        'status' => 'active',
+        'primary_email' => $handle.'@example.test',
+
+        'created_at' => $now,
+        'updated_at' => $now,
     ]);
+
     return $proId;
 }
 
@@ -38,55 +39,55 @@ it('deletes expired aliases and re-dispatches KV sync, leaving active ones and l
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('site.sites')->insert([
-        'id'              => $siteId,
+        'id' => $siteId,
         'user_id' => $proId,
-        'subdomain'       => 'prunetest',
-        'is_published'    => 0,
-        'created_at'      => $now,
-        'updated_at'      => $now,
+        'subdomain' => 'prunetest',
+        'is_published' => 0,
+        'created_at' => $now,
+        'updated_at' => $now,
     ]);
 
     // Expired handle alias
     DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
-        'id'              => (string) Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $proId,
-        'handle'          => 'gone-handle',
-        'reclaim_until'   => now()->subDays(91)->toDateTimeString(),
-        'expires_at'      => now()->subDay()->toDateTimeString(),
-        'created_at'      => now()->subDays(91)->toDateTimeString(),
-        'updated_at'      => now()->subDays(91)->toDateTimeString(),
+        'handle' => 'gone-handle',
+        'reclaim_until' => now()->subDays(91)->toDateTimeString(),
+        'expires_at' => now()->subDay()->toDateTimeString(),
+        'created_at' => now()->subDays(91)->toDateTimeString(),
+        'updated_at' => now()->subDays(91)->toDateTimeString(),
     ]);
 
     // Active handle alias
     DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
-        'id'              => (string) Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $proId,
-        'handle'          => 'alive-handle',
-        'reclaim_until'   => now()->addDays(5)->toDateTimeString(),
-        'expires_at'      => now()->addDays(60)->toDateTimeString(),
-        'created_at'      => now()->subDays(30)->toDateTimeString(),
-        'updated_at'      => now()->subDays(30)->toDateTimeString(),
+        'handle' => 'alive-handle',
+        'reclaim_until' => now()->addDays(5)->toDateTimeString(),
+        'expires_at' => now()->addDays(60)->toDateTimeString(),
+        'created_at' => now()->subDays(30)->toDateTimeString(),
+        'updated_at' => now()->subDays(30)->toDateTimeString(),
     ]);
 
     // Legacy NULL-expires_at alias
     DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
-        'id'              => (string) Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $proId,
-        'handle'          => 'legacy-handle',
-        'reclaim_until'   => null,
-        'expires_at'      => null,
-        'created_at'      => now()->subYears(2)->toDateTimeString(),
-        'updated_at'      => now()->subYears(2)->toDateTimeString(),
+        'handle' => 'legacy-handle',
+        'reclaim_until' => null,
+        'expires_at' => null,
+        'created_at' => now()->subYears(2)->toDateTimeString(),
+        'updated_at' => now()->subYears(2)->toDateTimeString(),
     ]);
 
     // Expired subdomain alias
     DB::connection('pgsql')->table('site.site_subdomain_aliases')->insert([
-        'id'          => (string) Str::uuid(),
-        'site_id'     => $siteId,
-        'subdomain'   => 'gone-sub',
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'subdomain' => 'gone-sub',
         'reclaim_until' => now()->subDays(91)->toDateTimeString(),
-        'expires_at'  => now()->subDay()->toDateTimeString(),
-        'created_at'  => now()->subDays(91)->toDateTimeString(),
+        'expires_at' => now()->subDay()->toDateTimeString(),
+        'created_at' => now()->subDays(91)->toDateTimeString(),
     ]);
 
     $this->artisan(PruneExpiredHandleAliases::class)->assertSuccessful();

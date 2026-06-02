@@ -9,7 +9,7 @@ beforeEach(fn () => Redis::flushdb());
 it('allows up to the configured cap per (ip, target) per window', function () {
     $mw = new PerTargetReportThrottle;
     $req = Request::create('/v1/public/report', 'POST', [
-        'target_type'   => 'Site',
+        'target_type' => 'Site',
         'target_handle' => 'joeplumber',
     ]);
     $req->server->set('REMOTE_ADDR', '203.0.113.50');
@@ -23,7 +23,7 @@ it('allows up to the configured cap per (ip, target) per window', function () {
 it('blocks the 4th request from same (ip, target) in window', function () {
     $mw = new PerTargetReportThrottle;
     $req = Request::create('/v1/public/report', 'POST', [
-        'target_type'   => 'Site',
+        'target_type' => 'Site',
         'target_handle' => 'joeplumber',
     ]);
     $req->server->set('REMOTE_ADDR', '203.0.113.50');

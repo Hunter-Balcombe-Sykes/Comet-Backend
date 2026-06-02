@@ -14,23 +14,23 @@ class AuditEventFactory extends Factory
     public function definition(): array
     {
         return [
-            'id'             => Str::uuid()->toString(),
-            'actor_kind'     => 'staff',
+            'id' => Str::uuid()->toString(),
+            'actor_kind' => 'staff',
             'actor_staff_id' => PartnaStaff::factory(),
-            'action'         => 'case.viewed',
-            'target_type'    => null,
-            'target_id'      => null,
-            'payload'        => [],
+            'action' => 'case.viewed',
+            'target_type' => null,
+            'target_id' => null,
+            'payload' => [],
         ];
     }
 
     public function systemAction(string $action, array $payload = []): self
     {
         return $this->state(fn () => [
-            'actor_kind'     => 'system',
+            'actor_kind' => 'system',
             'actor_staff_id' => null,
-            'action'         => $action,
-            'payload'        => $payload,
+            'action' => $action,
+            'payload' => $payload,
         ]);
     }
 }

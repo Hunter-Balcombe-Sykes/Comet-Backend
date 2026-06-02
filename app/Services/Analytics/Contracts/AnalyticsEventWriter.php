@@ -1,5 +1,7 @@
 <?php
+
 // app/Services/Analytics/Contracts/AnalyticsEventWriter.php
+
 namespace App\Services\Analytics\Contracts;
 
 use App\Services\Analytics\AnalyticsEvent;

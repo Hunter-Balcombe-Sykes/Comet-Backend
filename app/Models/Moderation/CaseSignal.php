@@ -13,14 +13,18 @@ class CaseSignal extends BaseModel
     use HasFactory;
 
     protected $table = 'moderation.case_signals';
+
     public $timestamps = false;     // only created_at exists, no updated_at
+
     protected $keyType = 'string';
+
     public $incrementing = false;
+
     protected $guarded = ['id'];
 
     protected $casts = [
         'signal_data' => 'array',
-        'created_at'  => 'datetime',
+        'created_at' => 'datetime',
     ];
 
     public function case(): BelongsTo

@@ -130,10 +130,7 @@ it('sets ETag on all cacheable path prefixes', function () {
     $middleware = new AddETagHeaders;
     $paths = [
         'api/public/site-by-slug/test',
-        
-        
-        
-        
+
     ];
 
     foreach ($paths as $path) {

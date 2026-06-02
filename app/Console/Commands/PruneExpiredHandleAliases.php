@@ -30,7 +30,7 @@ class PruneExpiredHandleAliases extends Command
             ->where('expires_at', '<', now())
             ->pluck('id');
 
-        $handleCount   = $expiredHandleIds->count();
+        $handleCount = $expiredHandleIds->count();
         $subdomainCount = $expiredSubdomainIds->count();
 
         $this->info("Expired handle aliases: {$handleCount}");
@@ -68,9 +68,9 @@ class PruneExpiredHandleAliases extends Command
         }
 
         Log::info('handles.prune.completed', [
-            'handle_aliases_deleted'    => $handleCount,
+            'handle_aliases_deleted' => $handleCount,
             'subdomain_aliases_deleted' => $subdomainCount,
-            'pros_resynced'             => $affectedProIds->count(),
+            'pros_resynced' => $affectedProIds->count(),
         ]);
 
         return self::SUCCESS;

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Concerns;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\User\User;
 
 // V2: Resolves a Site by ID or subdomain (with subdomain alias fallback) from incoming request data.
 trait ResolvesSiteFromRequest

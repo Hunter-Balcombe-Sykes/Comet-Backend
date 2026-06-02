@@ -39,8 +39,8 @@ it('redacts PII keys from payload when configured', function () {
     app(ModerationAuditService::class)
         ->recordStaffAction($staff, 'reporter.contacted', null, null, [
             'safe_field' => 'ok',
-            'email'      => 'leak@example.com',
-            'raw_ip'     => '203.0.113.1',
+            'email' => 'leak@example.com',
+            'raw_ip' => '203.0.113.1',
         ]);
 
     $row = AuditEvent::query()->latest('created_at')->first();
@@ -53,9 +53,9 @@ it('scrubs PII keys regardless of case (Email, EMAIL, reporter_IP)', function ()
     $staff = PartnaStaff::factory()->create();
     app(ModerationAuditService::class)
         ->recordStaffAction($staff, 'case.viewed', null, null, [
-            'safe'        => 'keep',
-            'Email'       => 'mixed@case.com',
-            'EMAIL'       => 'upper@case.com',
+            'safe' => 'keep',
+            'Email' => 'mixed@case.com',
+            'EMAIL' => 'upper@case.com',
             'reporter_IP' => '10.0.0.1',
         ]);
 
@@ -70,13 +70,13 @@ it('scrubs PII keys in nested arrays (recursive)', function () {
     $staff = PartnaStaff::factory()->create();
     app(ModerationAuditService::class)
         ->recordStaffAction($staff, 'case.viewed', null, null, [
-            'safe'    => 'keep',
+            'safe' => 'keep',
             'context' => [
                 'safe_nested' => 'also keep',
-                'email'       => 'nested-leak@example.com',
-                'deep'        => [
+                'email' => 'nested-leak@example.com',
+                'deep' => [
                     'raw_ip' => '192.168.0.1',
-                    'note'   => 'keep this',
+                    'note' => 'keep this',
                 ],
             ],
         ]);
@@ -93,10 +93,10 @@ it('scrubs expanded synonym keys (email_address, ip_address, access_token)', fun
     $staff = PartnaStaff::factory()->create();
     app(ModerationAuditService::class)
         ->recordStaffAction($staff, 'case.viewed', null, null, [
-            'safe'          => 'keep',
+            'safe' => 'keep',
             'email_address' => 'test@example.com',
-            'ip_address'    => '203.0.113.5',
-            'access_token'  => 'tok_123abc',
+            'ip_address' => '203.0.113.5',
+            'access_token' => 'tok_123abc',
         ]);
 
     $row = AuditEvent::query()->latest('created_at')->first();

@@ -11,7 +11,7 @@ beforeEach(function () {
 });
 
 it('writes a new decision with supersedes_decision_id pointing at the original', function () {
-    $case     = ModerationCase::factory()->resolved()->create();
+    $case = ModerationCase::factory()->resolved()->create();
     $original = Decision::factory()->forCase($case)->create(['decision_type' => 'hide_site']);
 
     $this->artisan("moderation:reverse-decision {$original->id} --reason=false-positive-confirmed")
@@ -28,7 +28,7 @@ it('writes a new decision with supersedes_decision_id pointing at the original',
 });
 
 it('does not mutate the original decision', function () {
-    $case     = ModerationCase::factory()->resolved()->create();
+    $case = ModerationCase::factory()->resolved()->create();
     $original = Decision::factory()->forCase($case)->create(['decision_type' => 'suspend_user']);
 
     $this->artisan("moderation:reverse-decision {$original->id} --reason=false-positive")

@@ -1,4 +1,5 @@
 <?php
+
 // tests/Feature/Analytics/AsyncIngestContractTest.php
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;

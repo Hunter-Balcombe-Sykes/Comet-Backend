@@ -30,7 +30,7 @@ it('rejects illegal site moderation_state values via CHECK constraint', function
     $site = (new \App\Models\Core\Site\Site)->forceFill([
         'id' => (string) \Illuminate\Support\Str::uuid(),
         'user_id' => $user->id,
-        'subdomain' => 'check-' . uniqid(),
+        'subdomain' => 'check-'.uniqid(),
         'skeleton_id' => 'skeleton-1',
         'settings' => [],
         'is_published' => true,

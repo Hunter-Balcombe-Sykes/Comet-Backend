@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\UserDeletionAuditEntry;
 
 // DataExportAudit — server-controlled timestamps must not be mass-assignable
 it('does not allow created_at to be mass-assigned on DataExportAudit', function () {

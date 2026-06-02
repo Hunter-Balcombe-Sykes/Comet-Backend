@@ -14,16 +14,20 @@ class Decision extends BaseModel
     use HasFactory;
 
     protected $table = 'moderation.decisions';
+
     public $timestamps = false;
+
     protected $keyType = 'string';
+
     public $incrementing = false;
+
     protected $guarded = ['id'];
 
     protected $casts = [
-        'decided_by_system'         => 'boolean',
-        'auto_actioned'             => 'boolean',
-        'decided_at'                => 'datetime',
-        'second_staff_approved_at'  => 'datetime',
+        'decided_by_system' => 'boolean',
+        'auto_actioned' => 'boolean',
+        'decided_at' => 'datetime',
+        'second_staff_approved_at' => 'datetime',
     ];
 
     public function case(): BelongsTo

@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
 use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Requests\Api\User\UpdateUserRequest;
-use App\Services\User\AccountDeletionService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

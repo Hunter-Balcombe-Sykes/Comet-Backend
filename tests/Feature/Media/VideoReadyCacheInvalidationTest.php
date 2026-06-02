@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\VideoVariantService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;

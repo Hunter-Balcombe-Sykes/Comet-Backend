@@ -91,7 +91,7 @@ class CloudflareKvService
     {
         if (app()->environment('production', 'staging')) {
             throw new \RuntimeException(
-                "CloudflareKvService is not configured (account_id, kv_namespace_id, api_token required). "
+                'CloudflareKvService is not configured (account_id, kv_namespace_id, api_token required). '
                 ."Refusing to silently no-op {$op} in ".app()->environment().'.'
             );
         }

@@ -18,14 +18,14 @@ if (! function_exists('createBackfillFixtureIds')) {
         $siteId = (string) Str::uuid();
 
         DB::connection('pgsql')->table('core.users')->insert([
-            'id'         => $userId,
+            'id' => $userId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
         DB::connection('pgsql')->table('site.sites')->insert([
-            'id'         => $siteId,
-            'user_id'    => $userId,
+            'id' => $siteId,
+            'user_id' => $userId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

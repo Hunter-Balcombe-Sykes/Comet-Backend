@@ -3,21 +3,21 @@
 namespace App\Http\Controllers\Api\Staff\UserSiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
 // V2: Staff manages section block visibility (gallery, services, shop, booking, bio) with full control.
 class StaffSectionManagementController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function index(User $professional): JsonResponse
     {

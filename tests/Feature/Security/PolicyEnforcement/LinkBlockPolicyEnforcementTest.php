@@ -126,7 +126,7 @@ it('blocks pending-deletion professional from creating a link block (423)', func
 
     $req = tenantRequestAs($pro, [
         'title' => 'My Link',
-        'url'   => 'https://example.com',
+        'url' => 'https://example.com',
     ], 'POST');
 
     try {
@@ -142,8 +142,8 @@ it('allows active professional to create a link block (no 423 thrown)', function
     $pro = createTenant('lb-store-active');
 
     $req = tenantRequestAs($pro, [
-        'title'    => 'My Link',
-        'url'      => 'https://example.com',
+        'title' => 'My Link',
+        'url' => 'https://example.com',
         'category' => 'other',
     ], 'POST');
     $req->headers->set('Accept', 'application/json');

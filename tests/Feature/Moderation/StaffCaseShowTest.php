@@ -14,7 +14,7 @@ beforeEach(function () {
 
 it('returns case detail with eager-loaded signals + evidence + decisions', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create();
     Evidence::factory()->forCase($case)->create();
 
@@ -27,7 +27,7 @@ it('returns case detail with eager-loaded signals + evidence + decisions', funct
 
 it('never exposes reporter_email in the response', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => 'secret@example.com']);
 
     $res = actingAsStaff($staff)->getJson("/api/staff/cases/{$case->id}");

@@ -190,6 +190,7 @@ it('truncates oversized CSP report string fields before logging', function () {
         ->once()
         ->with('csp.violation', \Mockery::on(function ($ctx) use (&$logged) {
             $logged = $ctx;
+
             return true;
         }));
 

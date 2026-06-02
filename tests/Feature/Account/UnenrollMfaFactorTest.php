@@ -1,6 +1,5 @@
 <?php
 
-use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 

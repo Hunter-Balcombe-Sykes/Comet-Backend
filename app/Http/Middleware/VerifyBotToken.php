@@ -170,7 +170,7 @@ final class VerifyBotToken
     {
         $ip = (string) $request->ip();
 
-        return substr(hash('sha256', $ip . '|' . config('app.key')), 0, 16);
+        return substr(hash('sha256', $ip.'|'.config('app.key')), 0, 16);
     }
 
     private function logFailOpenOnce(string $driver, string $action, Request $request, string $reason): void

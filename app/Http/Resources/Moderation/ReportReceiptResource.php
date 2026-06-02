@@ -13,7 +13,7 @@ class ReportReceiptResource extends JsonResource
     {
         return [
             'receipt_id' => $this->receiptId,
-            'message'    => 'Report received. Thank you.',
+            'message' => 'Report received. Thank you.',
         ];
     }
 }

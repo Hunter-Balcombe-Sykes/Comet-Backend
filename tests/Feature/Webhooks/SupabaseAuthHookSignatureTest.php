@@ -10,6 +10,7 @@ function signStandardWebhookPayload(string $secret, string $id, int $timestamp, 
 {
     $signedContent = "{$id}.{$timestamp}.{$body}";
     $signature = base64_encode(hash_hmac('sha256', $signedContent, $secret, true));
+
     return "v1,{$signature}";
 }
 

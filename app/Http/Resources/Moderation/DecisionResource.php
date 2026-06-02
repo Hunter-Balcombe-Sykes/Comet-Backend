@@ -14,14 +14,14 @@ class DecisionResource extends JsonResource
     public function toArray($request): array
     {
         return [
-            'id'                     => $this->id,
-            'decision_type'          => $this->decision_type,
-            'reason'                 => $this->reason,
-            'decided_by_staff_id'    => $this->decided_by_staff_id,
-            'decided_by_system'      => $this->decided_by_system,
-            'auto_actioned'          => $this->auto_actioned,
+            'id' => $this->id,
+            'decision_type' => $this->decision_type,
+            'reason' => $this->reason,
+            'decided_by_staff_id' => $this->decided_by_staff_id,
+            'decided_by_system' => $this->decided_by_system,
+            'auto_actioned' => $this->auto_actioned,
             'supersedes_decision_id' => $this->supersedes_decision_id,
-            'decided_at'             => $this->decided_at?->toIso8601String(),
+            'decided_at' => $this->decided_at?->toIso8601String(),
         ];
     }
 }

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Staff;
 
 use App\DTOs\Moderation\DecisionDto;
-use App\DTOs\Moderation\EscalationDto;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Staff\DecideOnCaseRequest;
 use App\Http\Requests\Staff\EscalateCaseRequest;
@@ -55,7 +54,7 @@ class StaffCaseController extends Controller
      */
     public function show(Request $request, string $caseId): CaseDetailResource
     {
-        $case  = ModerationCase::query()
+        $case = ModerationCase::query()
             ->with(['signals', 'evidence', 'decisions'])
             ->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
@@ -70,7 +69,7 @@ class StaffCaseController extends Controller
      */
     public function triage(TriageCaseRequest $request, string $caseId): CaseResource
     {
-        $case  = ModerationCase::query()->findOrFail($caseId);
+        $case = ModerationCase::query()->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'triage', $case);
 
@@ -89,7 +88,7 @@ class StaffCaseController extends Controller
      */
     public function take(Request $request, string $caseId): CaseResource
     {
-        $case  = ModerationCase::query()->findOrFail($caseId);
+        $case = ModerationCase::query()->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'take', $case);
 
@@ -109,7 +108,7 @@ class StaffCaseController extends Controller
      */
     public function release(Request $request, string $caseId): CaseResource
     {
-        $case  = ModerationCase::query()->findOrFail($caseId);
+        $case = ModerationCase::query()->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'release', $case);
 
@@ -129,7 +128,7 @@ class StaffCaseController extends Controller
      */
     public function decide(DecideOnCaseRequest $request, string $caseId): DecisionResource
     {
-        $case  = ModerationCase::query()->findOrFail($caseId);
+        $case = ModerationCase::query()->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'decide', $case);
 
@@ -151,14 +150,14 @@ class StaffCaseController extends Controller
      */
     public function escalate(EscalateCaseRequest $request, string $caseId): DecisionResource
     {
-        $case  = ModerationCase::query()->findOrFail($caseId);
+        $case = ModerationCase::query()->findOrFail($caseId);
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'escalate', $case);
 
         $esc = $request->toDto();
         $dto = new DecisionDto(
-            decisionType:          $esc->toDecisionType(),
-            reason:                $esc->notes,
+            decisionType: $esc->toDecisionType(),
+            reason: $esc->notes,
             secondStaffApprovalId: null,
         );
 

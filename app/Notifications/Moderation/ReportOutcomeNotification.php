@@ -22,11 +22,11 @@ class ReportOutcomeNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $outcome = match ($this->decision->decision_type) {
-            'dismiss'                   => 'We reviewed your report and determined no action was needed.',
-            'warn'                      => 'We reviewed your report and warned the user.',
+            'dismiss' => 'We reviewed your report and determined no action was needed.',
+            'warn' => 'We reviewed your report and warned the user.',
             'hide_content', 'hide_site' => 'We reviewed your report and removed the content.',
-            'suspend_user', 'ban_user'  => 'We reviewed your report and took action against the account.',
-            default                     => 'We reviewed your report.',
+            'suspend_user', 'ban_user' => 'We reviewed your report and took action against the account.',
+            default => 'We reviewed your report.',
         };
 
         return (new MailMessage)

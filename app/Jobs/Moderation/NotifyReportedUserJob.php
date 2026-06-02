@@ -32,25 +32,28 @@ class NotifyReportedUserJob implements ShouldQueue
 
     public function handle(): void
     {
-        $case  = ModerationCase::query()->findOrFail($this->caseId);
+        $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
         $entry->update(['status' => 'dispatched', 'dispatched_at' => now(), 'attempts' => $entry->attempts + 1]);
 
         // No owner on record — nothing to notify, still mark complete.
         if ($case->reportable_owner_user_id === null) {
             $entry->update(['status' => 'completed', 'completed_at' => now()]);
+
             return;
         }
 
         $user = User::query()->find($case->reportable_owner_user_id);
         if ($user === null) {
             $entry->update(['status' => 'completed', 'completed_at' => now()]);
+
             return;
         }
 
         // Fail-closed: don't notify users who've been suspended/banned (capability gate).
         if (! AccountCapabilities::for($user)->receive_moderation_notifications) {
             $entry->update(['status' => 'completed', 'completed_at' => now()]);
+
             return;
         }
 
@@ -59,9 +62,9 @@ class NotifyReportedUserJob implements ShouldQueue
 
         $notification = match ($decision->decision_type) {
             'hide_content', 'hide_site' => new ContentHiddenNotification($decision),
-            'suspend_user'              => new AccountSuspendedNotification($decision),
-            'ban_user'                  => new AccountBannedNotification($decision),
-            default                     => null,
+            'suspend_user' => new AccountSuspendedNotification($decision),
+            'ban_user' => new AccountBannedNotification($decision),
+            default => null,
         };
 
         if ($notification !== null) {

@@ -2,8 +2,8 @@
 
 namespace App\Jobs\Cache;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;

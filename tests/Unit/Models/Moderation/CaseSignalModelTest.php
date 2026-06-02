@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Moderation\ModerationCase;
 use App\Models\Moderation\CaseSignal;
+use App\Models\Moderation\ModerationCase;
 use Tests\TestCase;
 
 // Opt in to the full Laravel bootstrap — the Pest.php default only binds
@@ -15,7 +15,7 @@ beforeEach(function () {
 });
 
 it('belongs to a case', function () {
-    $case   = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     $signal = CaseSignal::factory()->forCase($case)->create();
 
     expect($signal->case->id)->toBe($case->id);

@@ -37,7 +37,7 @@ class PurgeModerationCacheJob implements ShouldQueue
 
     public function handle(): void
     {
-        $case  = ModerationCase::query()->findOrFail($this->caseId);
+        $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
         $entry->update(['status' => 'dispatched', 'dispatched_at' => now(), 'attempts' => $entry->attempts + 1]);

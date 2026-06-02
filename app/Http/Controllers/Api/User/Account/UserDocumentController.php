@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\Account;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
 use App\Models\Core\Site\SiteMedia;
@@ -19,8 +19,8 @@ use Illuminate\Support\Facades\Storage;
 // its R2 bytes synchronously before creating the new row.
 class UserDocumentController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function index(Request $request): JsonResponse
     {

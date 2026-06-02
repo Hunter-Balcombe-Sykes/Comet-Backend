@@ -32,7 +32,7 @@ class NotifyOnCallStaffJob implements ShouldQueue
 
     public function handle(): void
     {
-        $case  = ModerationCase::query()->findOrFail($this->caseId);
+        $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
         $entry->update(['status' => 'dispatched', 'dispatched_at' => now(), 'attempts' => $entry->attempts + 1]);
 
@@ -41,6 +41,7 @@ class NotifyOnCallStaffJob implements ShouldQueue
         $oncall = PartnaStaff::query()->where('role', 'admin')->get();
         if ($oncall->isEmpty()) {
             $entry->update(['status' => 'completed', 'completed_at' => now()]);
+
             return;
         }
 
@@ -48,8 +49,7 @@ class NotifyOnCallStaffJob implements ShouldQueue
 
         $notification = match (true) {
             $case->case_type === 'csam_match' => new CsamAutoActionStaffNotification($case),
-            $latestDecision !== null && str_starts_with($latestDecision->decision_type, 'escalate_')
-                => new CaseEscalatedStaffNotification($latestDecision),
+            $latestDecision !== null && str_starts_with($latestDecision->decision_type, 'escalate_') => new CaseEscalatedStaffNotification($latestDecision),
             default => new CsamAutoActionStaffNotification($case),
         };
 

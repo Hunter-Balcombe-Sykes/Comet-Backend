@@ -64,7 +64,6 @@ it('returns no-store for tokenized unsubscribe endpoint', function () {
     expect($cacheControl)->not->toContain('public');
 });
 
-
 it('does not add public cache headers to non-allow-listed public paths', function () {
     $nonCacheablePaths = [
         '/api/public/subscribe',

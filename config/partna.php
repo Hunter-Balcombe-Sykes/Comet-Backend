@@ -1186,16 +1186,16 @@ return [
         // Default true; flip to false only during an incident.
         'auto_actions_enabled' => (bool) env('PARTNA_MODERATION_AUTO_ACTIONS_ENABLED', true),
         'reporting' => [
-            'public_throttle'         => [
+            'public_throttle' => [
                 'requests' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_REQUESTS', 5),
-                'minutes'  => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_MINUTES', 1),
+                'minutes' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_MINUTES', 1),
             ],
-            'per_target_throttle'     => [
-                'requests'        => (int) env('PARTNA_REPORT_TARGET_THROTTLE_REQUESTS', 3),
-                'window_minutes'  => (int) env('PARTNA_REPORT_TARGET_THROTTLE_WINDOW_MIN', 60),
+            'per_target_throttle' => [
+                'requests' => (int) env('PARTNA_REPORT_TARGET_THROTTLE_REQUESTS', 3),
+                'window_minutes' => (int) env('PARTNA_REPORT_TARGET_THROTTLE_WINDOW_MIN', 60),
             ],
-            'details_max_chars'       => 4000,
-            'merge_window_minutes'    => 60 * 24 * 7,
+            'details_max_chars' => 4000,
+            'merge_window_minutes' => 60 * 24 * 7,
             'staff_notify_thresholds' => [1, 3, 5, 10],
         ],
         // Dedicated Horizon queue lane for high-priority moderation jobs (suspend, notify on-call).
@@ -1206,11 +1206,11 @@ return [
         // SLA breach thresholds per severity level (hours). severity_5 = most urgent.
         // breach_warning_min: minutes before the SLA deadline at which to emit an early warning.
         'sla' => [
-            'severity_5_hours'   => 1,
-            'severity_4_hours'   => 4,
-            'severity_3_hours'   => 24,
-            'severity_2_hours'   => 72,
-            'severity_1_hours'   => 168,
+            'severity_5_hours' => 1,
+            'severity_4_hours' => 4,
+            'severity_3_hours' => 24,
+            'severity_2_hours' => 72,
+            'severity_1_hours' => 168,
             'breach_warning_min' => 120,
         ],
     ],

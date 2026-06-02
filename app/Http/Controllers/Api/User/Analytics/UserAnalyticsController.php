@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\Analytics;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Analytics\AnalyticsCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,8 +16,8 @@ use Throwable;
 // All query, cache, and composition logic lives in AnalyticsCacheService.
 class UserAnalyticsController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(private readonly AnalyticsCacheService $analytics) {}
 

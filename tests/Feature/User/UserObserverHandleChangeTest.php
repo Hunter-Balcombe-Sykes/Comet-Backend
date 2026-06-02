@@ -2,8 +2,8 @@
 
 use App\Jobs\Cloudflare\RetireSubdomainFromKvJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Observers\User\UserObserver;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;

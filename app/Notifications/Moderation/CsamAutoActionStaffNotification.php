@@ -25,7 +25,7 @@ class CsamAutoActionStaffNotification extends Notification
             ->line("Case ID: {$this->case->id}")
             ->line('A CSAM hash match was detected. The user has been auto-suspended and the upload quarantined.')
             ->line('Please review the case and confirm the auto-action.')
-            ->action('Review case', config('app.url') . "/staff/cases/{$this->case->id}");
+            ->action('Review case', config('app.url')."/staff/cases/{$this->case->id}");
     }
 
     public function toArray(object $notifiable): array

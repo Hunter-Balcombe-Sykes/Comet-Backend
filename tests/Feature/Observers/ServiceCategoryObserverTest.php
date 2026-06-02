@@ -7,8 +7,8 @@
 // including the hydrated User model — forcing unnecessary Postgres round-trips.
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -42,7 +42,7 @@ it('busts only the services cache keys when a ServiceCategory is created', funct
 
     // Seed stale values so we can assert they were cleared.
     $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
-    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    $svcKey = CacheKeyGenerator::professionalServices($pro->id);
     Cache::put($dashKey, ['old'], 60);
     Cache::put($dashKey.':stale', ['old-stale'], 60);
     Cache::put($svcKey, ['old'], 60);
@@ -69,7 +69,7 @@ it('busts only the services cache keys when a ServiceCategory is updated', funct
     ]);
 
     $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
-    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    $svcKey = CacheKeyGenerator::professionalServices($pro->id);
     Cache::put($dashKey, ['old'], 60);
     Cache::put($dashKey.':stale', ['old-stale'], 60);
     Cache::put($svcKey, ['old'], 60);
@@ -92,7 +92,7 @@ it('busts only the services cache keys when a ServiceCategory is deleted', funct
     ]);
 
     $dashKey = CacheKeyGenerator::professionalDashboardServices($pro->id);
-    $svcKey  = CacheKeyGenerator::professionalServices($pro->id);
+    $svcKey = CacheKeyGenerator::professionalServices($pro->id);
     Cache::put($dashKey, ['old'], 60);
     Cache::put($dashKey.':stale', ['old-stale'], 60);
     Cache::put($svcKey, ['old'], 60);

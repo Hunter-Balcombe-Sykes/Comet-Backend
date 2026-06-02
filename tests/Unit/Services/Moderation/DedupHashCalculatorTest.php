@@ -11,7 +11,7 @@ it('produces the same hash for the same inputs', function () {
 
 it('produces different hashes for different reasons', function () {
     $calc = new DedupHashCalculator;
-    $spam      = $calc->forReport('Site', '123', 'spam',       'r@e.com', null);
+    $spam = $calc->forReport('Site', '123', 'spam', 'r@e.com', null);
     $harassmnt = $calc->forReport('Site', '123', 'harassment', 'r@e.com', null);
     expect($spam)->not->toBe($harassmnt);
 });

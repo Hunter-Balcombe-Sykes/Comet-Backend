@@ -2,10 +2,10 @@
 
 namespace App\Policies;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 

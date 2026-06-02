@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 class ModerationRedactReporterPiiCommand extends Command
 {
     protected $signature = 'moderation:redact-reporter-pii {case_id} {--reason=}';
+
     protected $description = 'Clear reporter_email + reporter_ip_hash from case_signals for a case (GDPR erasure).';
 
     public function handle(ModerationAuditService $audit): int
@@ -28,6 +29,7 @@ class ModerationRedactReporterPiiCommand extends Command
         $case = ModerationCase::query()->find($caseId);
         if ($case === null) {
             $this->error("Case {$caseId} not found.");
+
             return self::FAILURE;
         }
 
@@ -35,7 +37,7 @@ class ModerationRedactReporterPiiCommand extends Command
             CaseSignal::query()
                 ->where('case_id', $case->id)
                 ->update([
-                    'reporter_email'   => null,
+                    'reporter_email' => null,
                     'reporter_ip_hash' => null,
                 ]);
 
@@ -48,6 +50,7 @@ class ModerationRedactReporterPiiCommand extends Command
         });
 
         $this->info("Reporter PII redacted for case {$case->id}.");
+
         return self::SUCCESS;
     }
 }

@@ -19,9 +19,9 @@ class CaseDetailResource extends JsonResource
     public function toArray($request): array
     {
         return [
-            'case'      => (new CaseResource($this->resource))->toArray($request),
-            'signals'   => CaseSignalResource::collection($this->whenLoaded('signals')),
-            'evidence'  => EvidenceResource::collection($this->whenLoaded('evidence')),
+            'case' => (new CaseResource($this->resource))->toArray($request),
+            'signals' => CaseSignalResource::collection($this->whenLoaded('signals')),
+            'evidence' => EvidenceResource::collection($this->whenLoaded('evidence')),
             'decisions' => DecisionResource::collection($this->whenLoaded('decisions')),
         ];
     }

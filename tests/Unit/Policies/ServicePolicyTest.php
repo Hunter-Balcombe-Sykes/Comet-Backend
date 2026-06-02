@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Policies\ServicePolicy;
 
 beforeEach(function () {

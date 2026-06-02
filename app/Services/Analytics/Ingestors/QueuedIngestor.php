@@ -1,5 +1,7 @@
 <?php
+
 // app/Services/Analytics/Ingestors/QueuedIngestor.php
+
 namespace App\Services\Analytics\Ingestors;
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;

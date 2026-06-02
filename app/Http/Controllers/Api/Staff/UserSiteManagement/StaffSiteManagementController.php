@@ -12,7 +12,6 @@ use Illuminate\Http\JsonResponse;
 // V2: Staff updates site settings with force-publish override capability.
 class StaffSiteManagementController extends ApiController
 {
-
     public function update(StaffUpdateSiteRequest $request, User $professional, UpdateSiteAction $action): JsonResponse
     {
         $site = $action->execute(

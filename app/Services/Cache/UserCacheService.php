@@ -3,8 +3,8 @@
 namespace App\Services\Cache;
 
 use App\Http\Resources\ServiceResource;
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 

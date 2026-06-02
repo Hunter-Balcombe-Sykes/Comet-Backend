@@ -24,23 +24,23 @@ use Illuminate\Support\Str;
 class ModerationActionDispatcher
 {
     private const ACTIONS_BY_DECISION = [
-        'dismiss'                   => [],
+        'dismiss' => [],
         // No auto-notify on warn — spec §4 locked decision (no statement-of-reasons
         // for warn-level outcomes until there's an internal warnings UI).
-        'warn'                      => [],
-        'hide_content'              => ['notify_reported_user', 'purge_cloudflare_cache'],
-        'hide_site'                 => ['suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
-        'suspend_user'              => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
-        'ban_user'                  => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
+        'warn' => [],
+        'hide_content' => ['notify_reported_user', 'purge_cloudflare_cache'],
+        'hide_site' => ['suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
+        'suspend_user' => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
+        'ban_user' => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
         // CSAM auto-action (spec §7.5): quarantine the matched media, suspend the
         // uploader, hide the site, purge the edge, and page on-call. Deliberately
         // omits notify_reported_user (never tip off a CSAM uploader). The NCMEC
         // CyberTip filing is dispatched directly by CsamMatchHandlerService because
         // FileCyberTipReportJob takes an ncmec_submission id, not an action_log id.
-        'csam_auto_suspend'         => ['quarantine_media', 'suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_oncall_staff'],
+        'csam_auto_suspend' => ['quarantine_media', 'suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_oncall_staff'],
         'override_csam_auto_action' => ['notify_oncall_staff'],
-        'escalate_law_enforcement'  => ['notify_oncall_staff'],
-        'escalate_esafety'          => ['notify_oncall_staff'],
+        'escalate_law_enforcement' => ['notify_oncall_staff'],
+        'escalate_esafety' => ['notify_oncall_staff'],
     ];
 
     public function dispatchFor(Decision $decision): void
@@ -60,11 +60,11 @@ class ModerationActionDispatcher
         // Write action_log rows immediately (inside the caller's transaction).
         // forceCreate() is required because these models guard 'id' via $guarded.
         $rows = collect($actionTypes)->map(fn (string $type) => ActionLogEntry::forceCreate([
-            'id'            => Str::uuid()->toString(),
-            'decision_id'   => $decision->id,
-            'action_type'   => $type,
+            'id' => Str::uuid()->toString(),
+            'decision_id' => $decision->id,
+            'action_type' => $type,
             'action_target' => ['case_id' => $decision->case_id],
-            'status'        => 'pending',
+            'status' => 'pending',
         ]));
 
         // Dispatch Horizon jobs only after the outer transaction commits so a rollback
@@ -79,15 +79,15 @@ class ModerationActionDispatcher
     private function dispatchJob(string $actionLogId, string $type, string $caseId): void
     {
         match ($type) {
-            'quarantine_media'       => QuarantineMediaJob::dispatch($actionLogId, $caseId),
-            'suspend_user'           => SuspendUserJob::dispatch($actionLogId, $caseId),
-            'suspend_site'           => SuspendSiteJob::dispatch($actionLogId, $caseId),
-            'sync_subdomain_kv'      => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),
+            'quarantine_media' => QuarantineMediaJob::dispatch($actionLogId, $caseId),
+            'suspend_user' => SuspendUserJob::dispatch($actionLogId, $caseId),
+            'suspend_site' => SuspendSiteJob::dispatch($actionLogId, $caseId),
+            'sync_subdomain_kv' => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),
             'purge_cloudflare_cache' => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),
-            'notify_reported_user'   => NotifyReportedUserJob::dispatch($actionLogId, $caseId),
-            'notify_reporter'        => NotifyReporterJob::dispatch($actionLogId, $caseId),
-            'notify_oncall_staff'    => NotifyOnCallStaffJob::dispatch($actionLogId, $caseId),
-            default                  => null,
+            'notify_reported_user' => NotifyReportedUserJob::dispatch($actionLogId, $caseId),
+            'notify_reporter' => NotifyReporterJob::dispatch($actionLogId, $caseId),
+            'notify_oncall_staff' => NotifyOnCallStaffJob::dispatch($actionLogId, $caseId),
+            default => null,
         };
     }
 }

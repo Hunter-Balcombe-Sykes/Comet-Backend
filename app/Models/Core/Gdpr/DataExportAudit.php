@@ -3,8 +3,8 @@
 namespace App\Models\Core\Gdpr;
 
 use App\Models\BaseModel;
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 

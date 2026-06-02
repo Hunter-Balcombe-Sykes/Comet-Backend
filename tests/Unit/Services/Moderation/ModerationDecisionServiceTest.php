@@ -25,8 +25,8 @@ beforeEach(function () {
 it('writes a decision + dispatches actions + transitions case to resolved', function () {
     Queue::fake();
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->underReview()->create();
-    $dto   = new DecisionDto('hide_site', 'repeated spam', null);
+    $case = ModerationCase::factory()->underReview()->create();
+    $dto = new DecisionDto('hide_site', 'repeated spam', null);
 
     $decision = app(ModerationDecisionService::class)->decide($case, $staff, $dto);
 
@@ -44,8 +44,8 @@ it('writes a decision + dispatches actions + transitions case to resolved', func
 
 it('rejects a CSAM override without second_staff_approval_id', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create(['status' => 'auto_actioned']);
-    $dto   = new DecisionDto('override_csam_auto_action', 'false positive', null);
+    $case = ModerationCase::factory()->create(['status' => 'auto_actioned']);
+    $dto = new DecisionDto('override_csam_auto_action', 'false positive', null);
 
     expect(fn () => app(ModerationDecisionService::class)->decide($case, $staff, $dto))
         ->toThrow(\InvalidArgumentException::class, 'requires second_staff_approval_id');
@@ -53,8 +53,8 @@ it('rejects a CSAM override without second_staff_approval_id', function () {
 
 it('rejects a CSAM override where second_staff equals deciding staff', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create(['status' => 'auto_actioned']);
-    $dto   = new DecisionDto('override_csam_auto_action', 'fp', $staff->id);
+    $case = ModerationCase::factory()->create(['status' => 'auto_actioned']);
+    $dto = new DecisionDto('override_csam_auto_action', 'fp', $staff->id);
 
     expect(fn () => app(ModerationDecisionService::class)->decide($case, $staff, $dto))
         ->toThrow(\InvalidArgumentException::class, 'second staff must differ');
@@ -64,8 +64,8 @@ it('records CSAM override with second_staff_approved_at timestamp', function () 
     Queue::fake();
     $staff1 = PartnaStaff::factory()->create();
     $staff2 = PartnaStaff::factory()->create();
-    $case   = ModerationCase::factory()->create(['status' => 'auto_actioned']);
-    $dto    = new DecisionDto('override_csam_auto_action', 'fp', $staff2->id);
+    $case = ModerationCase::factory()->create(['status' => 'auto_actioned']);
+    $dto = new DecisionDto('override_csam_auto_action', 'fp', $staff2->id);
 
     $decision = app(ModerationDecisionService::class)->decide($case, $staff1, $dto);
 
@@ -75,7 +75,7 @@ it('records CSAM override with second_staff_approved_at timestamp', function () 
 
 it('decideAsSystem writes a decision with decided_by_system=true and auto_actioned=true', function () {
     $case = ModerationCase::factory()->csamMatch()->create();
-    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+    $dto = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
 
     $decision = app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
 
@@ -86,7 +86,7 @@ it('decideAsSystem writes a decision with decided_by_system=true and auto_action
 
 it('decideAsSystem transitions auto_actioned cases', function () {
     $case = ModerationCase::factory()->create(['status' => 'open']);
-    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+    $dto = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
 
     app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
 
@@ -96,7 +96,7 @@ it('decideAsSystem transitions auto_actioned cases', function () {
 it('decideAsSystem dispatches the appropriate action set', function () {
     \Illuminate\Support\Facades\Queue::fake();
     $case = ModerationCase::factory()->csamMatch()->create();
-    $dto  = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
+    $dto = new \App\DTOs\Moderation\DecisionDto('suspend_user', 'auto_csam_match', null);
 
     $decision = app(ModerationDecisionService::class)->decideAsSystem($case, $dto);
 

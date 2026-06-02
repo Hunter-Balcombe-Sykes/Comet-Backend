@@ -12,11 +12,11 @@ beforeEach(function () {
 it('clears reporter_email and reporter_ip_hash on signals for the case', function () {
     $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create([
-        'reporter_email'   => 'leak@example.com',
+        'reporter_email' => 'leak@example.com',
         'reporter_ip_hash' => 'somehash',
     ]);
     CaseSignal::factory()->forCase($case)->create([
-        'reporter_email'   => 'leak2@example.com',
+        'reporter_email' => 'leak2@example.com',
         'reporter_ip_hash' => 'somehash2',
     ]);
 
@@ -42,7 +42,7 @@ it('fails when case does not exist', function () {
 it('is idempotent (running twice on same case does not error)', function () {
     $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create([
-        'reporter_email'   => 'leak@example.com',
+        'reporter_email' => 'leak@example.com',
         'reporter_ip_hash' => 'somehash',
     ]);
 

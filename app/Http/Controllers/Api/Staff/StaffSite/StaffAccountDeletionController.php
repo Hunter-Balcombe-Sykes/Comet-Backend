@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\Staff\PartnaStaff;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

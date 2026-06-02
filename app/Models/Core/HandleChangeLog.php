@@ -14,10 +14,13 @@ class HandleChangeLog extends BaseModel
 {
     use HasUuids;
 
-    public const REASON_RENAME       = 'rename';
-    public const REASON_RECLAIM      = 'reclaim';
+    public const REASON_RENAME = 'rename';
+
+    public const REASON_RECLAIM = 'reclaim';
+
     public const REASON_STAFF_RENAME = 'staff_rename';
-    public const REASON_SYSTEM       = 'system';
+
+    public const REASON_SYSTEM = 'system';
 
     protected $table = 'audit.handle_change_log';
 

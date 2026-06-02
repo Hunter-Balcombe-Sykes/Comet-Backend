@@ -8,8 +8,8 @@ use App\Http\Requests\Api\Staff\UserSite\Links\StaffReorderLinkRequest;
 use App\Http\Requests\Api\Staff\UserSite\Links\StaffStoreLinkRequest;
 use App\Http\Requests\Api\Staff\UserSite\Links\StaffUpdateLinkRequest;
 use App\Http\Resources\LinkBlockResource;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 

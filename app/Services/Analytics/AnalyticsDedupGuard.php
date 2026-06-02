@@ -1,5 +1,7 @@
 <?php
+
 // app/Services/Analytics/AnalyticsDedupGuard.php
+
 namespace App\Services\Analytics;
 
 use Illuminate\Support\Facades\Cache;

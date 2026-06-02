@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\JsonResponse;

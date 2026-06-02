@@ -15,12 +15,13 @@ use Illuminate\Support\Facades\Mail;
 class NotifyHandleAliasExpiry extends Command
 {
     protected $signature = 'handles:notify-expiry';
+
     protected $description = 'Email pros when their old handle aliases are about to be released.';
 
     public function handle(): int
     {
         $this->dispatchBucket('notified_t3_at', now()->addDays(3), 't3');
-        $this->dispatchBucket('notified_t1_at', now()->addDay(),   't1');
+        $this->dispatchBucket('notified_t1_at', now()->addDay(), 't1');
 
         return self::SUCCESS;
     }

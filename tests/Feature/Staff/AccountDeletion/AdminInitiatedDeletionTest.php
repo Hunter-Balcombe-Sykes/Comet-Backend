@@ -3,9 +3,9 @@
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\Staff\PartnaStaff;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -253,4 +253,3 @@ it('GET show returns deletion state and non-PII audit entries', function () {
         ->and($entry)->not->toHaveKey('ip_address')
         ->and($entry)->not->toHaveKey('user_agent');
 });
-

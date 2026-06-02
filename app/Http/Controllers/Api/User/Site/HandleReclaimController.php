@@ -19,7 +19,7 @@ class HandleReclaimController extends ApiController
         $pro = $this->currentUser($request);
 
         $this->action->execute($pro, $request->string('handle'), [
-            'ip'         => $request->ip(),
+            'ip' => $request->ip(),
             'user_agent' => substr((string) $request->userAgent(), 0, 1024),
         ]);
 

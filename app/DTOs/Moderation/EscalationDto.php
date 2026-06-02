@@ -18,7 +18,7 @@ final class EscalationDto
     {
         return match ($this->target) {
             'law_enforcement' => 'escalate_law_enforcement',
-            'esafety'         => 'escalate_esafety',
+            'esafety' => 'escalate_esafety',
         };
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Analytics/PostgresEventWriterTest.php
 
 use App\Services\Analytics\AnalyticsEvent;
@@ -18,7 +19,7 @@ beforeEach(function () {
 
 function pgWriter(): PostgresEventWriter
 {
-    return new PostgresEventWriter();
+    return new PostgresEventWriter;
 }
 
 function baseEvent(array $o = []): AnalyticsEvent

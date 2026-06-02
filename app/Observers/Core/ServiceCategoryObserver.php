@@ -2,8 +2,8 @@
 
 namespace App\Observers\Core;
 
-use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;

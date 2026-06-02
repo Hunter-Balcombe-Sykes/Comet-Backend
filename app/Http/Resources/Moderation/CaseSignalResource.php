@@ -16,11 +16,11 @@ class CaseSignalResource extends JsonResource
     public function toArray($request): array
     {
         return [
-            'id'             => $this->id,
-            'signal_source'  => $this->signal_source,
-            'reason_code'    => $this->reason_code,
+            'id' => $this->id,
+            'signal_source' => $this->signal_source,
+            'reason_code' => $this->reason_code,
             'reason_details' => $this->reason_details,
-            'created_at'     => $this->created_at?->toIso8601String(),
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 }

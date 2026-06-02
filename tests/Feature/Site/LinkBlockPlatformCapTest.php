@@ -19,8 +19,8 @@
  * runs in shared code — both subclasses must resolve the right professional.
  */
 
-use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Staff\UserSite\Links\StaffStoreLinkRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;

@@ -26,12 +26,12 @@ it('creates a new case + signal + evidence on first report for a target', functi
     Site::factory()->for($user, 'user')->create();
 
     $dto = new PublicReportDto(
-        targetType:    'Site',
-        targetHandle:  'joeplumber',
-        reasonCode:    'spam',
-        details:       'looks like spam',
+        targetType: 'Site',
+        targetHandle: 'joeplumber',
+        reasonCode: 'spam',
+        details: 'looks like spam',
         reporterEmail: 'reporter@example.com',
-        reporterIp:    '203.0.113.42',
+        reporterIp: '203.0.113.42',
     );
 
     $result = app(ContentReportService::class)->submit($dto);
@@ -53,9 +53,9 @@ it('returns a synthetic receipt without opening a case for a suspended user (F10
     Queue::fake();
 
     $user = User::factory()->create([
-        'handle'    => 'suspendedguy',
+        'handle' => 'suspendedguy',
         'handle_lc' => 'suspendedguy',
-        'status'    => 'suspended',
+        'status' => 'suspended',
     ]);
     Site::factory()->for($user, 'user')->create();
 
@@ -81,7 +81,7 @@ it('merges into the existing open case rather than creating a new one', function
     $user = User::factory()->create(['handle' => 'joeplumber', 'handle_lc' => 'joeplumber']);
     Site::factory()->for($user, 'user')->create();
 
-    $dto1 = new PublicReportDto('Site', 'joeplumber', 'spam',       null, 'r1@e.com', '203.0.113.1');
+    $dto1 = new PublicReportDto('Site', 'joeplumber', 'spam', null, 'r1@e.com', '203.0.113.1');
     $dto2 = new PublicReportDto('Site', 'joeplumber', 'harassment', null, 'r2@e.com', '203.0.113.2');
 
     app(ContentReportService::class)->submit($dto1);
@@ -101,7 +101,7 @@ it('does NOT merge into a resolved case (opens a fresh one)', function () {
 
     ModerationCase::factory()->resolved()->create([
         'reportable_type' => 'Site',
-        'reportable_id'   => $site->id,
+        'reportable_id' => $site->id,
     ]);
 
     $dto = new PublicReportDto('Site', 'joeplumber', 'spam', null, 'r@e.com', '203.0.113.5');

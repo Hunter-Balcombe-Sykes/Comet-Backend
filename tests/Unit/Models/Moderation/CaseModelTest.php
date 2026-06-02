@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Moderation\ModerationCase;
 use App\Models\Core\User\User;
+use App\Models\Moderation\ModerationCase;
 use Tests\TestCase;
 
 // Opt in to the full Laravel bootstrap — the Pest.php default only binds
@@ -16,7 +16,7 @@ beforeEach(function () {
 
 it('creates a moderation case via factory with sensible defaults', function () {
     $owner = User::factory()->create();
-    $case  = ModerationCase::factory()->forOwner($owner)->create();
+    $case = ModerationCase::factory()->forOwner($owner)->create();
 
     expect($case->case_type)->toBe('content_report');
     expect($case->severity)->toBe(2);

@@ -2,9 +2,9 @@
 
 namespace App\Services\Audit;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 

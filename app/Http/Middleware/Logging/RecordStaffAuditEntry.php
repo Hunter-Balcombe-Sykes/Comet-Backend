@@ -2,8 +2,8 @@
 
 namespace App\Http\Middleware\Logging;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\User;
 use App\Services\Audit\StaffAuditService;
 use Closure;
 use Illuminate\Database\Eloquent\Model;

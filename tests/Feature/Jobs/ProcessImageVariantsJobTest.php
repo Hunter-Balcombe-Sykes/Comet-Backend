@@ -4,7 +4,6 @@
 
 use App\Jobs\ProcessImageVariantsJob;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
 use Illuminate\Support\Facades\DB;
@@ -135,5 +134,3 @@ it('records the guard error message in processing_error so the frontend can surf
     expect($error)->toContain('64000000');
     expect($error)->toContain('24000000');
 });
-
-

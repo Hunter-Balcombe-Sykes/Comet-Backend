@@ -12,17 +12,20 @@ class ActionLogEntry extends BaseModel
     use HasFactory;
 
     protected $table = 'moderation.action_log';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
+
     protected $guarded = ['id'];
 
     protected $casts = [
         'action_target' => 'array',
         'dispatched_at' => 'datetime',
-        'completed_at'  => 'datetime',
-        'created_at'    => 'datetime',
-        'updated_at'    => 'datetime',
-        'attempts'      => 'integer',
+        'completed_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+        'attempts' => 'integer',
     ];
 
     public function decision(): BelongsTo

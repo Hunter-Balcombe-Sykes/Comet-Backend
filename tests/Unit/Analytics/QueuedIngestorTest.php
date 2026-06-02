@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Analytics/QueuedIngestorTest.php
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;

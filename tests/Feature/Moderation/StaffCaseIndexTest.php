@@ -17,7 +17,7 @@ it('returns 401 for unauthenticated requests', function () {
 it('lists cases sorted by severity DESC then priority ASC then created_at ASC', function () {
     $staff = PartnaStaff::factory()->create();
     ModerationCase::factory()->create(['severity' => 1, 'priority' => 5, 'status' => 'open']);
-    $sev5  = ModerationCase::factory()->csamMatch()->create();
+    $sev5 = ModerationCase::factory()->csamMatch()->create();
     ModerationCase::factory()->create(['severity' => 3, 'priority' => 2, 'status' => 'open']);
 
     $res = actingAsStaff($staff)->getJson('/api/staff/cases');

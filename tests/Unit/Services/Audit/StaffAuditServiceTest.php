@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
+use App\Models\Core\User\User;
 use App\Services\Audit\StaffAuditService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -40,16 +40,16 @@ beforeEach(function () {
 });
 
 it('inserts a row capturing the staff, target, route, and method', function () {
-    $staff = new PartnaStaff();
+    $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
     $staff->primary_email = 'support@partna.au';
     $staff->role = PartnaStaff::ROLE_SUPPORT;
 
-    $professional = new User();
+    $professional = new User;
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme-brand';
 
-    $entry = (new StaffAuditService())->record(
+    $entry = (new StaffAuditService)->record(
         staff: $staff,
         impersonator: null,
         professional: $professional,
@@ -75,7 +75,7 @@ it('inserts a row capturing the staff, target, route, and method', function () {
 });
 
 it('accepts a null professional and null staff', function () {
-    $entry = (new StaffAuditService())->record(
+    $entry = (new StaffAuditService)->record(
         staff: null,
         impersonator: null,
         professional: null,
@@ -96,7 +96,7 @@ it('swallows insert failures and returns null while logging a warning', function
     // Drop the table to force the insert to throw.
     DB::connection('pgsql')->statement('DROP TABLE audit.staff_audit_log');
 
-    $entry = (new StaffAuditService())->record(
+    $entry = (new StaffAuditService)->record(
         staff: null,
         impersonator: null,
         professional: null,
@@ -107,8 +107,7 @@ it('swallows insert failures and returns null while logging a warning', function
 
     expect($entry)->toBeNull();
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn ($message, $context) =>
-            $message === 'staff.audit.write_failed'
+        ->withArgs(fn ($message, $context) => $message === 'staff.audit.write_failed'
             && isset($context['exception'])
         );
 });
@@ -124,7 +123,7 @@ it('B3/P2-12: write-failure warning includes the X-Request-Id header for correla
     // The X-Request-Id header is set by Cloudflare/NGINX on inbound requests.
     request()->headers->set('X-Request-Id', 'req-abc-123');
 
-    (new StaffAuditService())->record(
+    (new StaffAuditService)->record(
         staff: null,
         impersonator: null,
         professional: null,
@@ -134,8 +133,7 @@ it('B3/P2-12: write-failure warning includes the X-Request-Id header for correla
     );
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context) =>
-            $message === 'staff.audit.write_failed'
+        ->withArgs(fn (string $message, array $context) => $message === 'staff.audit.write_failed'
             && ($context['request_id'] ?? null) === 'req-abc-123'
         );
 });

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\Uploads;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
@@ -28,8 +28,8 @@ use Illuminate\Support\Str;
 // actions that don't share the upload pipeline.
 class UserUploadController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(
         private readonly ImageVariantService $mediaService,
