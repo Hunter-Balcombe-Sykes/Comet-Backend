@@ -2,13 +2,15 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, development-v2]
+    branches: [main, development-v2, development]
   push:
-    branches: [main]
+    branches: [main, development]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Locked to least-privilege — add per-step permissions explicitly if a future step needs the token.
 
     services:
       redis:
@@ -84,19 +86,7 @@ jobs:
             ':!app/Services/Cache/' \
             ':!app/Http/Controllers/Api/Webhooks/' \
             ':!app/Http/Controllers/Api/HealthController.php' \
-            ':!app/Http/Controllers/Api/Professional/ShopifyEmbeddedConnectionController.php' \
-            ':!app/Http/Controllers/Api/Professional/Notifications/NotificationController.php' \
-            ':!app/Http/Controllers/Api/Professional/Store/BrandStoreSettingsController.php' \
-            ':!app/Http/Controllers/Api/PublicSite/PublicShopifyStorefrontController.php' \
-            ':!app/Jobs/Shopify/ProcessShopifyShopUpdateJob.php' \
-            ':!app/Observers/Core/BrandProfileObserver.php' \
-            ':!app/Observers/Core/CustomerObserver.php' \
-            ':!app/Observers/Retail/BrandStoreSettingsObserver.php' \
-            ':!app/Services/Professional/BrandStatusService.php' \
-            ':!app/Services/Shopify/ShopifySetupTokenService.php' \
-            ':!app/Services/Store/BrandCatalogService.php' \
-            ':!app/Services/Stripe/CommissionPayoutRefundService.php' \
-            ':!app/Services/Stripe/StripeConnectService.php')
+            ':!app/Observers/Core/CustomerObserver.php') # Cache::forget via CacheKeyGenerator — direct invalidation in observer, no service injection point
           set -e
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."

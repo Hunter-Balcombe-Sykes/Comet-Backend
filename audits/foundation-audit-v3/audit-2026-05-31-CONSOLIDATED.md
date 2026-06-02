@@ -378,13 +378,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — CI & Deploy
 
-- [ ] **#P2-31** CI workflow has no explicit `permissions` declaration — Lens: `ci-deploy`
+- [x] **#P2-31** CI workflow has no explicit `permissions` declaration — Lens: `ci-deploy`
     - Where: `.github/workflows/ci.yml:1` (no `permissions:` key)
     - What: GitHub Actions defaults `GITHUB_TOKEN` to broad write scope for private repositories (`contents: write`, `packages: write`, and others). No current CI step uses the token for writes, but a future step or transitive action would silently inherit write scope without any code change. Explicit `permissions: {}` makes the boundary a code-level decision enforced in the workflow file.
     - Fix: Add `permissions: { contents: read }` at the `jobs.test` level. Add an inline comment: `# Locked to least-privilege — add per-step permissions explicitly if a future step needs the token.`
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-32** Direct pushes to `development` bypass all CI checks — Lens: `ci-deploy`
+- [x] **#P2-32** Direct pushes to `development` bypass all CI checks — Lens: `ci-deploy`
     - Where: `.github/workflows/ci.yml:4–7` (`on:` block)
     - What: The workflow triggers on `push: branches: [main]` and `pull_request: branches: [main, development-v2]`. The active integration branch `development` (deployed to `dev-api.partna.au`) appears in neither list. A direct `git push origin development` or a squash-merge bypassing a PR skips Pint, inline-403 detection, the GS-1 lint, migration guard, `composer audit`, and the full Pest test suite.
     - Fix: Add `development` to the `push:` trigger and to the `pull_request: branches:` list. Separately add a GitHub branch protection rule on `development` requiring the `test` status check to pass.
@@ -656,7 +656,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Update `"php": "^8.2"` to `"^8.4"` in `composer.json`'s `require` block. Run `composer update --lock`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-08** GS-1 cache-discipline allowlist retains 10 stale path exclusions from the standalone strip-down — Lens: `ci-deploy`
+- [x] **#P3-08** GS-1 cache-discipline allowlist retains 10 stale path exclusions from the standalone strip-down — Lens: `ci-deploy`
     - Where: `.github/workflows/ci.yml` (`No raw Cache::* calls outside cache services (GS-1)` step)
     - What: Ten `:!path` exclusions reference files confirmed deleted in the 2026-05-22 standalone strip (Shopify/commerce controllers, observers, services). Deleted files can't fail the lint. The forward risk: when commerce is reintegrated (planned), these paths would automatically be on the "approved exceptions" list without review — raw `Cache::` calls would bypass the GS-1 lint silently.
     - Fix: Remove the 10 stale exclusions. Confirm `app/Observers/Core/CustomerObserver.php` (the one surviving exception) still legitimately uses raw `Cache::` and add a brief inline justification comment.
@@ -1071,7 +1071,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B10: CI/deploy hardening (3 items — #P2-31, #P2-32, #P3-08) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-31`, `#P2-32`, `#P3-08`
 - Models: impl=haiku · review=sonnet
 - Rationale: All three are changes to `.github/workflows/ci.yml`. One focused session, one file.
