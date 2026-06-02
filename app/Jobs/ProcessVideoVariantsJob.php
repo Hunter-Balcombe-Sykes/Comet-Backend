@@ -194,6 +194,7 @@ class ProcessVideoVariantsJob implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        report($e);
         $this->markFailed($e->getMessage());
         $this->cleanupR2Artifacts();
     }
