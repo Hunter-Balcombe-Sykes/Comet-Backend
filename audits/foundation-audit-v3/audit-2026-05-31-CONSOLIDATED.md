@@ -416,13 +416,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Race Conditions & Idempotency
 
-- [ ] **#P2-36** Check-then-insert race in bootstrap email subscription creation — Lens: `transactions`
+- [x] **#P2-36** Check-then-insert race in bootstrap email subscription creation — Lens: `transactions`
     - Where: `app/Services/User/UserBootstrapService.php:130–153`
     - What: `ensureSidestUpdatesSubscription` SELECT-then-INSERT for the `sidest_updates` subscription. Concurrent bootstraps from the same auth user (two-tab double-submit) can both pass the existence check and collide on the `email_subscriptions_unique_global_list_email_lc` index. The `23505 QueryException` propagates out of the outer `DB::transaction()`, rolls back the entire signup, and surfaces as an unhandled exception to the controller.
     - Fix: Replace the SELECT + INSERT with `DB::table('notifications.email_subscriptions')->insertOrIgnore([…])`, which generates `INSERT … ON CONFLICT DO NOTHING` — single atomic instruction, never errors on a duplicate.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-37** Race condition in moderation case take/decide — status guard runs outside transaction — Lens: `transactions`
+- [x] **#P2-37** Race condition in moderation case take/decide — status guard runs outside transaction — Lens: `transactions`
     - Where: `app/Services/Moderation/ModerationCaseService.php:63–65` · `ModerationDecisionService.php:47–49`
     - What: Both `take()` and `decide()` read `$case->status` from the in-memory model before entering the transaction. Two concurrent staff members acting on the same case at the same instant both pass the guard; the second hits the state machine `IllegalCaseTransition` (422) rather than the intended `CaseAlreadyTaken` / `CaseAlreadyResolved` (409).
     - Fix: In both methods, move the status guard inside the `DB::transaction` callback after re-loading with `ModerationCase::query()->lockForUpdate()->findOrFail($case->id)`. The locked re-fetch makes the read-check-transition atomic.
@@ -1139,7 +1139,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B13: Race condition fixes (2 items — #P2-36, #P2-37) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-36`, `#P2-37`
 - Models: impl=sonnet · review=sonnet
 - Rationale: Both are TOCTOU fixes using `DB::transaction` + `lockForUpdate`. Implementing together ensures consistent use of the savepoint/lock pattern across signup and moderation paths.
