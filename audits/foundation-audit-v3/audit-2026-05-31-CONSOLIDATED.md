@@ -618,17 +618,18 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — Cache Layer
 
-- [ ] **#P3-03** `siteImagesViewVariants` hardcodes the filter space with no enforcement link to the controller's allowlists — Lens: `cache`
+- [x] **#P3-03** `siteImagesViewVariants` hardcodes the filter space with no enforcement link to the controller's allowlists — Lens: `cache`
     - Where: `app/Services/Cache/CacheKeyGenerator.php:110–123` · `app/Http/Controllers/Api/User/Uploads/UserUploadController.php:109,114`
     - What: `siteImagesViewVariants()` hardcodes `[null, 'gallery', 'content'] × ['image', 'video', 'all']`. `UserUploadController::index` validates the same allowlists via inline `in_array`. The two lists currently match but are maintained by comment only. Adding a new pool value or media type to the controller without updating `siteImagesViewVariants` leaves stale gallery data visible until TTL expiry.
     - Fix: Extract the accepted values into shared constants (e.g. `SiteMedia::GALLERY_POOLS`, `SiteMedia::MEDIA_TYPE_FILTERS`) and reference them from both call sites. Add a unit test asserting `siteImagesViewVariants()` returns exactly the Cartesian product of those constants.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-04** `MISS_SENTINEL` TTL writes skip the `JitteredTtl` trait used everywhere else in the cache layer — Lens: `cache`
+- [x] **#P3-04** `MISS_SENTINEL` TTL writes skip the `JitteredTtl` trait used everywhere else in the cache layer — Lens: `cache`
     - Where: `app/Services/Cache/SiteCacheService.php:93–95`
     - What: The negative-cache path uses bare `now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS)`, bypassing jitter. `MISS_PRIMARY_TTL_SECONDS = 30` means all MISS_SENTINEL entries written in a burst (e.g., a bot scanner requesting bogus subdomains) expire at exactly the same wall-clock second, producing a synchronised wave of DB lookups. The `JitteredTtl` trait is already on the class; `self::applyJitter()` is callable — the fix is a two-line change.
     - Fix: Replace the two `now()->addSeconds(...)` calls with `self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS)` and `self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER)`.
     - Models: impl=haiku · review=sonnet
+    - Resolution (2026-06-03): ALREADY SATISFIED — premise stale. `SiteCacheService` already writes both MISS_SENTINEL keys via `self::applyJitter(...)` (now lines 69–70, not 93–95); zero `now()->addSeconds` remain in the file. Verified by independent sonnet review; no code change made.
 
 ---
 
@@ -1320,7 +1321,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B21: Cache layer jitter polish (2 items — #P3-03, #P3-04) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox — done 2026-06-03 (P3-03 single-sourced the image-filter allowlists into `SiteMedia::GALLERY_POOLS` / `MEDIA_TYPE_FILTERS` + a lock test; P3-04 already satisfied — MISS_SENTINEL already jittered, no change). Reviewed by independent sonnet session: APPROVE.
 - Items: `#P3-03`, `#P3-04`
 - Models: impl=haiku · review=sonnet
 - Rationale: Both are in the cache layer. #P3-04 is a two-line mechanical change; #P3-03 requires extracting shared constants and adding one test. One focused session.
