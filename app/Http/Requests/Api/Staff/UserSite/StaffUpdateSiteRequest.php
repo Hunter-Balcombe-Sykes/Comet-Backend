@@ -55,15 +55,15 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             // unknown keys are silently dropped, but we allowlist the known shapes here for
             // clear 422s on typos.
             'design_kit' => ['sometimes', 'array'],
-            // Colors group
-            'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_text' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_placeholder' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // Colors group — hex-only: regex enforced so values land safely in inline CSS
+            'design_kit.color_bg' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_text' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_text_muted' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_accent' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_accent_contrast' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_placeholder' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_contrasting_bg' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.color_contrasting_text' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
             // Typography group — body + heading scale (h1 / h2; h3 reuses
             // body fontSize). fontFamily is a slug resolved by
             // @partnaau/design-system/design-assets.
@@ -119,13 +119,13 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'design_kit.motion_expand_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.motion_fade_duration' => ['sometimes', 'nullable', 'string', 'max:16'],
             // Buttons — all derived-default colors (null = follow the linked
-            // colors.* var via vars.css; non-null = explicit override).
-            'design_kit.button_primary_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.button_primary_text' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.button_secondary_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.button_secondary_text' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.button_general_bg' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'design_kit.button_general_text' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // colors.* var via vars.css; non-null = explicit override). Hex-only.
+            'design_kit.button_primary_bg' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.button_primary_text' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.button_secondary_bg' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.button_secondary_text' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.button_general_bg' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
+            'design_kit.button_general_text' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
 
             'settings' => ['sometimes', 'array'],
             // settings.design.* is dead — reject any incoming key under it.
