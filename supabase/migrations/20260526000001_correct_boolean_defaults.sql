@@ -24,7 +24,12 @@ BEGIN;
 ALTER TABLE site.sites
     ALTER COLUMN is_published SET DEFAULT true;
 
-ALTER TABLE core.customers
-    ALTER COLUMN marketing_opt_in_cached DROP DEFAULT;
+-- Guard: core.customers may not exist if this DB was provisioned from an older
+-- baseline snapshot that predates the customers table.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'core' AND table_name = 'customers') THEN
+        EXECUTE 'ALTER TABLE core.customers ALTER COLUMN marketing_opt_in_cached DROP DEFAULT';
+    END IF;
+END $$;
 
 COMMIT;

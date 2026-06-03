@@ -951,20 +951,26 @@ it('handles a race where the site is deleted between resolve and payload cache r
     $deletedProId = (string) Str::uuid();
 
     // Pre-fill the resolve cache to simulate a stale entry pointing at a pro
-    // that no longer exists in the DB. The controller's fast path reads this
-    // directly without hitting the DB, then the payload callback finds no User
-    // row and returns null.
-    Cache::put('handle.resolve:deleted-race-pro', [
+    // that no longer exists in the DB. rememberLocked writes BOTH a primary key
+    // and a longer-lived :stale twin, so seed both — the controller's fast path
+    // reads the primary directly, then the payload callback finds no User row
+    // and returns null. (CCH-1)
+    $resolved = [
         'pro_id'         => $deletedProId,
         'site_id'        => null,
         'updated_at_ts'  => 0,
-    ], 60);
+    ];
+    Cache::put('handle.resolve:deleted-race-pro', $resolved, 60);
+    Cache::put('handle.resolve:deleted-race-pro:stale', $resolved, 600);
 
     // The payload cache for the matching key is cold, so the callback runs.
     // User::find($deletedProId) returns null → payload is null → controller
     // evicts the stale resolve entry and returns 404.
     $this->getJson('/api/public/profiles/deleted-race-pro')->assertNotFound();
 
-    // Stale resolve cache entry must be evicted so the next request re-resolves from DB.
+    // BOTH the primary and the :stale twin must be evicted — clearing only the
+    // primary lets the SWR fast path resurrect the stale pointer and loop the
+    // 404 for the full stale TTL. (CCH-1)
     expect(Cache::get('handle.resolve:deleted-race-pro'))->toBeNull();
+    expect(Cache::get('handle.resolve:deleted-race-pro:stale'))->toBeNull();
 });

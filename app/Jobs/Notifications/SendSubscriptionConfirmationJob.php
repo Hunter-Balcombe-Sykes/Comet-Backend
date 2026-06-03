@@ -50,7 +50,10 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             // Stamp the idempotency flag while the row lock is still held so the
             // check-and-set is atomic — a concurrent worker or retry reads the
             // committed timestamp and bails instead of double-sending. The mail
-            // send happens AFTER this commit, never inside the lock.
+            // send happens AFTER this commit, never inside the lock. Deliberate
+            // at-most-once: if the send later throws, the retry skips it (no
+            // double-send) rather than guaranteeing delivery — permanent failures
+            // surface via report() in failed().
             $s->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
 
             return $s;

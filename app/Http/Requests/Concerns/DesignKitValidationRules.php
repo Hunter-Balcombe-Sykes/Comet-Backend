@@ -43,11 +43,12 @@ trait DesignKitValidationRules
             'design_kit.typography_h2_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_h2_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
-            // Borders (focus color is a derived default — null = follow accent)
+            // Borders (focus color is a derived default — null = follow accent).
+            // Color fields are hex-only (same inline-CSS surface as color_*).
             'design_kit.border_thickness' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
             'design_kit.border_radius' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.border_focus_color' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.border_focus_color' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
             // Space — single scale used for both CSS padding props AND
             // flex/grid gap props. Replaces the prior padding + spacing pair.
             'design_kit.space_xs' => ['sometimes', 'nullable', 'string', 'max:16'],
@@ -55,9 +56,9 @@ trait DesignKitValidationRules
             'design_kit.space_regular' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.space_medium' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.space_large' => ['sometimes', 'nullable', 'string', 'max:16'],
-            // Icons
+            // Icons (icon_color is hex-only — same inline-CSS surface as color_*)
             'design_kit.icon_size' => ['sometimes', 'nullable', 'string', 'max:16'],
-            'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'design_kit.icon_color' => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'],
             'design_kit.icons_xl_size' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.icons_xxl_size' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.icons_stroke_width' => ['sometimes', 'nullable', 'string', 'max:16'],

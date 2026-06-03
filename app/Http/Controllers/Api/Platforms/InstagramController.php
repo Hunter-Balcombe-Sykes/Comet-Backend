@@ -7,10 +7,10 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -37,7 +37,13 @@ class InstagramController extends ApiController
 
     private const APIFY_DAILY_CAP = 200;
 
-    public function __construct(private readonly InstagramScraper $scraper) {}
+    // Hosts `mirror()` will fetch from — Instagram/Facebook CDNs only.
+    private const ALLOWED_IMAGE_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
+
+    public function __construct(
+        private readonly InstagramScraper $scraper,
+        private readonly SafeUrlFetcher $fetcher,
+    ) {}
 
     protected function platform(): string
     {
@@ -221,18 +227,50 @@ class InstagramController extends ApiController
 
     // Download a (short-lived) Instagram CDN image and re-host it on the R2
     // `media` disk. Returns the public URL, or null on failure.
+    //
+    // SSRF guard (manual mode's image URLs are client-supplied): the host is
+    // allowlisted to IG/FB CDNs, the fetch goes through SafeUrlFetcher (scheme +
+    // resolved-IP + per-redirect-hop validation against private/reserved ranges),
+    // and the body is only stored if the response is actually an image.
     private function mirror(string $url, string $path): ?string
     {
+        if (! $this->isAllowedImageHost($url)) {
+            return null;
+        }
+
         try {
-            $res = Http::timeout(20)->get($url);
-            if (! $res->successful()) {
+            $res = $this->fetcher->fetch($url, ['Accept' => 'image/*']);
+            if ($res['status'] >= 400) {
                 return null;
             }
-            Storage::disk('media')->put($path, $res->body());
+            $contentType = strtolower(trim(explode(';', $res['contentType'])[0]));
+            if (! str_starts_with($contentType, 'image/')) {
+                return null;
+            }
+            Storage::disk('media')->put($path, $res['body']);
 
             return Storage::disk('media')->url($path);
         } catch (Throwable) {
             return null;
         }
+    }
+
+    // Legitimate mirror sources are always Instagram/Facebook CDNs (auto mode
+    // comes from the scraper; manual mode's URLs originate from the scraper-backed
+    // picker). True only when $url's host is one of those CDNs (or a subdomain).
+    private function isAllowedImageHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+
+        foreach (self::ALLOWED_IMAGE_HOSTS as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

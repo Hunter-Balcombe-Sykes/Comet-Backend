@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Route;
 // Ping
 Route::get('/ping', fn () => response()->json(['pong' => true]))->middleware('throttle:health-check');
 
-// Webhooks (no auth middleware — signature validated in controller)
+// Webhooks (no auth middleware — signature validated by per-route middleware)
 Route::middleware('throttle:webhooks')->group(function () {
     // Supabase Send Email Hook — receives auth-email events (password reset,
     // magic link, signup confirm, invite) and dispatches our own Mailable so

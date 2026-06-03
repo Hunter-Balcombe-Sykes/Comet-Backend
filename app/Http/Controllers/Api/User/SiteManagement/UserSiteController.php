@@ -62,6 +62,9 @@ class UserSiteController extends ApiController
         // pre-write state. withoutEvents installs a NullDispatcher for the call
         // so that premature bust is suppressed; the explicit invalidateSite()
         // after the kit write below is the authoritative post-write invalidation.
+        // NB: withoutEvents() suppresses model events GLOBALLY for the closure
+        // (not just Site) — safe only because the $data === [] path performs no
+        // other model writes inside execute(). Preserve that if execute() grows.
         $site = $data === []
             ? Site::withoutEvents(fn () => $action->execute($professional, $data))
             : $action->execute($professional, $data);
@@ -156,6 +159,13 @@ class UserSiteController extends ApiController
     {
         $validated = $request->validated();
         $professional = $this->currentUser($request);
+
+        // Authorization Doctrine: gate via SitePolicy like update()/visibility().
+        // Ownership is structurally guaranteed (site resolved from the authed
+        // professional); the policy's effective job here is the pending-deletion
+        // 423 gate as defence-in-depth alongside EnforcePendingDeletionReadOnly.
+        $site = $this->currentSite($professional);
+        $this->authorizeForUser($professional, 'update', $site);
 
         $site = $action->execute($professional, [
             'settings' => [

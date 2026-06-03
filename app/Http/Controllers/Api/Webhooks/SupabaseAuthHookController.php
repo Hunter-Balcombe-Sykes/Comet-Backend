@@ -21,8 +21,8 @@ use Illuminate\Support\Facades\Cache;
  * the rejection so subsequent window queries keep flagging the user as
  * in-cooldown.
  *
- * Signature verification is the FIRST thing this does — unsigned or
- * forged requests get 401 before any DB access. Standard Webhooks spec.
+ * Signature verification is handled by the supabase.auth-hook middleware
+ * — this controller only runs for requests that have already been authenticated.
  */
 class SupabaseAuthHookController extends Controller
 {
