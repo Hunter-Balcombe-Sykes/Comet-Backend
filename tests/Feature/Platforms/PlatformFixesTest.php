@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramScraper;
@@ -62,7 +62,7 @@ it('drops elapsed events from the Eventbrite selection at read time', function (
     $future = now()->addDays(5)->toIso8601String();
 
     $user = fbActingUser();
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'eventbrite',
         'payload' => [
             'url' => 'https://www.eventbrite.com/o/acme-1',
@@ -88,7 +88,7 @@ it('keeps an in-progress event (started, not yet ended) in the Eventbrite select
     $endsLater = now()->addHours(3)->toIso8601String();
 
     $user = fbActingUser();
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'eventbrite',
         'payload' => [
             'url' => 'https://www.eventbrite.com/o/acme-1',
@@ -119,7 +119,7 @@ it('refreshes the Apple Music "most recent" tile when highlights are updated', f
     });
 
     $user = fbActingUser();
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'apple-music', 'resource_id' => 'apple-music',
         'payload' => [
             'input' => 'someartist',
@@ -147,7 +147,7 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
     });
 
     $user = fbActingUser();
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'apple-podcast', 'resource_id' => 'apple-podcast',
         'payload' => [
             'input' => 'someshow',
@@ -172,7 +172,7 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
 function seedShopifyBrand(): User
 {
     $user = fbActingUser();
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'shopify',
         'payload' => [
             'b1' => [

@@ -3,7 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SmartLink;
@@ -13,7 +13,7 @@ use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Observers\Core\BlockObserver;
 use App\Observers\Core\CustomerObserver;
-use App\Observers\Core\PlatformConnectionObserver;
+use App\Observers\Core\IntegrationConnectionObserver;
 use App\Observers\Core\ServiceCategoryObserver;
 use App\Observers\Core\ServiceObserver;
 use App\Observers\Core\SiteMediaObserver;
@@ -39,6 +39,6 @@ class EventServiceProvider extends ServiceProvider
         Customer::observe(CustomerObserver::class);
         SiteMedia::observe(SiteMediaObserver::class);
         SmartLink::observe(SmartLinkObserver::class);
-        PlatformConnection::observe(PlatformConnectionObserver::class);
+        IntegrationConnection::observe(IntegrationConnectionObserver::class);
     }
 }

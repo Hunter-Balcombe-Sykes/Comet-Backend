@@ -1,7 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -25,7 +25,7 @@ function makePlatformUser(string $handle = 'jane'): User
 it('persists a per-user platform connection with a jsonb payload', function () {
     $user = makePlatformUser();
 
-    $conn = PlatformConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'shopify',
         'resource_id' => 'brand-abc',
@@ -33,18 +33,18 @@ it('persists a per-user platform connection with a jsonb payload', function () {
         'last_refresh_status' => 'ok',
     ]);
 
-    $fresh = PlatformConnection::find($conn->id);
+    $fresh = IntegrationConnection::find($conn->id);
 
     expect($fresh->payload)->toBe(['brandName' => 'Acme', 'productIds' => ['p1', 'p2']]);
     expect($fresh->is_active)->toBeTrue();
     expect($fresh->consecutive_failures)->toBe(0);
     expect($fresh->user->is($user))->toBeTrue();
-    expect($user->platformConnections()->count())->toBe(1);
+    expect($user->integrationConnections()->count())->toBe(1);
 });
 
 it('soft deletes a connection', function () {
     $user = makePlatformUser('sam');
-    $conn = PlatformConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'tiktok',
         'resource_id' => 'sam-store',
@@ -53,16 +53,16 @@ it('soft deletes a connection', function () {
 
     $conn->delete();
 
-    expect(PlatformConnection::find($conn->id))->toBeNull();
-    expect(PlatformConnection::withTrashed()->find($conn->id))->not->toBeNull();
+    expect(IntegrationConnection::find($conn->id))->toBeNull();
+    expect(IntegrationConnection::withTrashed()->find($conn->id))->not->toBeNull();
 });
 
 it('scopes to active connections', function () {
     $user = makePlatformUser('lee');
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'a', 'payload' => [], 'is_active' => true]);
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'a', 'payload' => [], 'is_active' => true]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
 
-    expect(PlatformConnection::active()->count())->toBe(1);
+    expect(IntegrationConnection::active()->count())->toBe(1);
 });
 
 it('purges the sitepage edge cache when a connection is written', function () {
@@ -77,7 +77,7 @@ it('purges the sitepage edge cache when a connection is written', function () {
 
     Queue::fake();
 
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'shopify',
         'resource_id' => 'b1',

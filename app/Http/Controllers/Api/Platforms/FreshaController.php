@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\SmartLinks\SafeUrlFetcher;
@@ -24,7 +24,7 @@ use Throwable;
 // table per user, and wire to /account/platforms in Partna-Frontend.
 class FreshaController extends ApiController
 {
-    use ManagesPlatformConnection;
+    use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
     // Matches both locale-prefixed and bare slug URLs:

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramScraper;
@@ -23,7 +23,7 @@ use Throwable;
 // `media` disk stays here (IG CDN urls expire, so we re-host the chosen images).
 class InstagramController extends ApiController
 {
-    use ManagesPlatformConnection;
+    use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
     private const AUTO_IMAGE_COUNT = 8;

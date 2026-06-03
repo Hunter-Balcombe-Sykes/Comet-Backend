@@ -1,7 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +23,7 @@ function loopUser(): User
         'primary_email' => 'pilot@example.com',
     ]);
 
-    // A sitepage subdomain so PlatformConnectionObserver can resolve a purge target.
+    // A sitepage subdomain so IntegrationConnectionObserver can resolve a purge target.
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $user->id,
@@ -45,7 +45,7 @@ it('runs the full per-user platform loop: authenticated connect → public read 
         ->assertJsonPath('username', 'pilot');
 
     // Stored per-user...
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
     // ...and the write fired a surgical edge purge for this handle's subdomain.
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
 

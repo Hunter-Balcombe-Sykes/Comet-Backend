@@ -16,7 +16,7 @@ use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -39,7 +39,7 @@ use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
-use App\Policies\PlatformConnectionPolicy;
+use App\Policies\IntegrationConnectionPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSelfPolicy;
@@ -132,7 +132,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Feedback::class, FeedbackPolicy::class);
         Gate::policy(ModerationCase::class, CasePolicy::class);
         Gate::policy(Decision::class, DecisionPolicy::class);
-        Gate::policy(PlatformConnection::class, PlatformConnectionPolicy::class);
+        Gate::policy(IntegrationConnection::class, IntegrationConnectionPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.

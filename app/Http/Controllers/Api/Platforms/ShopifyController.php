@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ShopifyScraper;
@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Cache;
 // keeps rendering the Shop card until the skeleton is reworked for multi-brand.
 class ShopifyController extends ApiController
 {
-    use ManagesPlatformConnection;
+    use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
     // Picker-catalog cache key prefix (transient, per-brand, shared across users —

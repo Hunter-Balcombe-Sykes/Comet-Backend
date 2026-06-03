@@ -79,13 +79,13 @@ Schedule::command('smartlinks:refresh')
 // Eventbrite events, Apple latest release) daily so sitepages show fresh data
 // without the user re-connecting. Static links + costly/multi-step platforms are
 // excluded by the command (see PlatformRefresher).
-Schedule::command('platforms:refresh')
+Schedule::command('integrations:refresh')
     ->dailyAt('03:40')
     ->runInBackground()
     ->onOneServer()
     ->withoutOverlapping(60)
     ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: platforms:refresh', [
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: integrations:refresh', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);

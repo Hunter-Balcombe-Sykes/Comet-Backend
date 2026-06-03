@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Str;
@@ -24,7 +24,7 @@ function refreshCronUser(): User
 
 it('refreshes a stale YouTube connection to the new latest video, preserving highlights', function () {
     $user = refreshCronUser();
-    $conn = PlatformConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'youtube',
         'resource_id' => 'youtube',
@@ -41,7 +41,7 @@ it('refreshes a stale YouTube connection to the new latest video, preserving hig
         ]);
     });
 
-    $this->artisan('platforms:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
 
     $conn->refresh();
     expect($conn->payload['name'])->toBe('New Video');
@@ -51,7 +51,7 @@ it('refreshes a stale YouTube connection to the new latest video, preserving hig
 
 it('does not touch non-refreshable platforms (Instagram is never queried)', function () {
     $user = refreshCronUser();
-    $conn = PlatformConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
@@ -60,7 +60,7 @@ it('does not touch non-refreshable platforms (Instagram is never queried)', func
     ]);
 
     // No scraper mock: if the cron touched Instagram it would attempt a live scrape.
-    $this->artisan('platforms:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
 
     $conn->refresh();
     expect($conn->payload['username'])->toBe('ig');     // untouched

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesPlatformConnection;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +16,7 @@ use Illuminate\Http\Request;
 //   ~/Developer/platform link capabilites/youtube-implementation.md
 class YoutubeController extends ApiController
 {
-    use ManagesPlatformConnection;
+    use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
     private const MAX_HIGHLIGHTS = 5;

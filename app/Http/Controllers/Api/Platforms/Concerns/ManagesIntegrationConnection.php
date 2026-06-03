@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms\Concerns;
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 
 // Per-user platform-connection storage — the pilot replacement for
@@ -14,9 +14,9 @@ use App\Models\Core\User\User;
 // Facebook) keep one row per user under the default resource id. Multi-resource
 // platforms (Shopify brands) pass an explicit resource id.
 //
-// Writes go through the model, so PlatformConnectionObserver fires and purges
+// Writes go through the model, so IntegrationConnectionObserver fires and purges
 // the user's sitepage edge cache automatically.
-trait ManagesPlatformConnection
+trait ManagesIntegrationConnection
 {
     // The platform key stored in site.platform_connections.platform (must match
     // the migration CHECK constraint).
@@ -31,25 +31,25 @@ trait ManagesPlatformConnection
     /** All of the user's active connections for this platform, ordered. */
     protected function connectionsFor(User $user)
     {
-        return $user->platformConnections()
+        return $user->integrationConnections()
             ->where('platform', $this->platform())
             ->orderBy('sort_order')
             ->orderBy('created_at')
             ->get();
     }
 
-    protected function connectionFor(User $user, ?string $resourceId = null): ?PlatformConnection
+    protected function connectionFor(User $user, ?string $resourceId = null): ?IntegrationConnection
     {
-        return $user->platformConnections()
+        return $user->integrationConnections()
             ->where('platform', $this->platform())
             ->where('resource_id', $resourceId ?? $this->defaultResourceId())
             ->first();
     }
 
     /** Upsert the selection payload for one resource; returns the row. */
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null): PlatformConnection
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null): IntegrationConnection
     {
-        return PlatformConnection::updateOrCreate(
+        return IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'platform' => $this->platform(),

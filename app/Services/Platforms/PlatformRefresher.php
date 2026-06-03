@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 
 // Pilot daily refresh for the cheap auto-content platforms — re-fetches the
 // latest YouTube video, Eventbrite events, and Apple latest release so sitepages
@@ -13,7 +13,7 @@ use App\Models\Core\Site\PlatformConnection;
 //
 // Mirrors SmartLinkRefresher: persists the outcome and returns the model with
 // last_refresh_status set. 'ok' updates the payload through the model so
-// PlatformConnectionObserver purges the sitepage edge cache; a failed fetch is
+// IntegrationConnectionObserver purges the sitepage edge cache; a failed fetch is
 // recorded quietly, keeping the last-known-good payload (no purge — nothing
 // changed for the sitepage).
 class PlatformRefresher
@@ -26,7 +26,7 @@ class PlatformRefresher
         private readonly AppleSearch $apple,
     ) {}
 
-    public function refresh(PlatformConnection $connection): PlatformConnection
+    public function refresh(IntegrationConnection $connection): IntegrationConnection
     {
         $payload = $connection->payload ?? [];
 

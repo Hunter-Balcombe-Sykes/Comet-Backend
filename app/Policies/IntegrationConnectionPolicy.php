@@ -6,10 +6,10 @@ use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
-// Authorization for PlatformConnection. Ownership is the denormalised user_id
+// Authorization for IntegrationConnection. Ownership is the denormalised user_id
 // on the row (same shape as Block/Enquiry under SitePolicy). Non-owners get a
 // 404 (not 403) to avoid leaking existence — the 403-vs-404 standard.
-class PlatformConnectionPolicy extends BasePolicy
+class IntegrationConnectionPolicy extends BasePolicy
 {
     public function view(User $actor, Model $resource): bool|Response
     {

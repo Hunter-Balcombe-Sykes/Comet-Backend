@@ -21,7 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // videos they feature) AND the last fetched upstream snapshot. Its shape
 // varies per platform — it mirrors the blob each platform controller cached
 // in test mode.
-class PlatformConnection extends BaseModel
+class IntegrationConnection extends BaseModel
 {
     use HasUuids;
     use SoftDeletes;

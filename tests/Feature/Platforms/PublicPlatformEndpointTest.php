@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 
 beforeEach(function () {
@@ -20,9 +20,9 @@ function makePublicUser(string $handle): User
 
 it("returns a handle's platform connections grouped by platform", function () {
     $user = makePublicUser('jane');
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'org1', 'payload' => ['organiser' => 'Acme']]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'org1', 'payload' => ['organiser' => 'Acme']]);
 
     $res = $this->getJson('/api/public/profiles/jane/platforms');
 
@@ -38,9 +38,9 @@ it('404s an unknown handle (no existence leak)', function () {
 
 it('excludes inactive and soft-deleted connections', function () {
     $user = makePublicUser('sam');
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'a', 'payload' => [], 'is_active' => true]);
-    PlatformConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
-    $deleted = PlatformConnection::create(['user_id' => $user->id, 'platform' => 'tiktok', 'resource_id' => 'c', 'payload' => []]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'a', 'payload' => [], 'is_active' => true]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'b', 'payload' => [], 'is_active' => false]);
+    $deleted = IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'tiktok', 'resource_id' => 'c', 'payload' => []]);
     $deleted->delete();
 
     $res = $this->getJson('/api/public/profiles/sam/platforms');

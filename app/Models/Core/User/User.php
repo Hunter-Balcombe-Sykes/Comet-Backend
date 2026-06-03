@@ -8,7 +8,7 @@ use App\Models\Analytics\SiteVisit;
 use App\Models\BaseModel;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -173,9 +173,9 @@ class User extends BaseModel
         return $this->hasMany(EmailSubscription::class, 'user_id');
     }
 
-    public function platformConnections(): HasMany
+    public function integrationConnections(): HasMany
     {
-        return $this->hasMany(PlatformConnection::class, 'user_id');
+        return $this->hasMany(IntegrationConnection::class, 'user_id');
     }
 
     // Point HasFactory at the non-namespaced UserFactory so User::factory()

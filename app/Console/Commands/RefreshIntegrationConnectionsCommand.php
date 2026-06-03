@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\PlatformRefresher;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -12,9 +12,9 @@ use Illuminate\Support\Facades\Log;
 // are intentionally NOT queried — see PlatformRefresher for why (static links
 // have nothing to refresh; Instagram/Fresha/Shopify are deferred). Mirrors
 // smartlinks:refresh.
-class RefreshPlatformConnectionsCommand extends Command
+class RefreshIntegrationConnectionsCommand extends Command
 {
-    protected $signature = 'platforms:refresh {--limit=300 : Max connections to refresh this run} {--throttle-ms=200 : Politeness delay between fetches}';
+    protected $signature = 'integrations:refresh {--limit=300 : Max connections to refresh this run} {--throttle-ms=200 : Politeness delay between fetches}';
 
     protected $description = 'Re-fetch stale auto-content platform connections (pilot).';
 
@@ -23,7 +23,7 @@ class RefreshPlatformConnectionsCommand extends Command
         $limit = (int) $this->option('limit');
         $throttleMs = (int) $this->option('throttle-ms');
 
-        $connections = PlatformConnection::query()
+        $connections = IntegrationConnection::query()
             ->active()
             ->whereIn('platform', PlatformRefresher::REFRESHABLE)
             ->orderByRaw('last_refreshed_at ASC NULLS FIRST')
@@ -38,7 +38,7 @@ class RefreshPlatformConnectionsCommand extends Command
                 $refreshed->last_refresh_status === 'ok' ? $ok++ : $failed++;
             } catch (\Throwable $e) {
                 $failed++;
-                Log::warning('platforms:refresh failed for a connection', [
+                Log::warning('integrations:refresh failed for a connection', [
                     'platform_connection_id' => $connection->id,
                     'platform' => $connection->platform,
                     'message' => $e->getMessage(),

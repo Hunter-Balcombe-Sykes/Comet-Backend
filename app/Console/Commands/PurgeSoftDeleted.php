@@ -6,7 +6,7 @@ use App\Models\Core\FeatureFlag;
 use App\Models\Core\Feedback;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\Customer;
@@ -41,7 +41,7 @@ class PurgeSoftDeleted extends Command
         Block::class,
         Feedback::class,
         SmartLink::class,
-        PlatformConnection::class,
+        IntegrationConnection::class,
     ];
 
     /**

@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
@@ -48,7 +48,7 @@ it('connects an Eventbrite organiser scoped to the authenticated user', function
         ->assertOk()
         ->assertJsonPath('organiser', 'Acme');
 
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->exists())->toBeTrue();
 });
 
 it('connects a YouTube channel scoped to the authenticated user', function () {
@@ -65,7 +65,7 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
         ->assertOk()
         ->assertJsonPath('handle', 'mychannel');
 
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
 });
 
 it('requires auth, connects per-user, and rate-limits re-connect on Instagram', function () {
@@ -86,7 +86,7 @@ it('requires auth, connects per-user, and rate-limits re-connect on Instagram', 
         ->assertOk()
         ->assertJsonPath('mode', 'automatic');
 
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeTrue();
 
     // Pilot cost guard: an immediate second connect is rate-limited (429).
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'iguser'])
@@ -100,7 +100,7 @@ it('requires auth on the fresha dashboard routes', function () {
 
 it('reads back a per-user Fresha selection + url from the connection payload', function () {
     $user = scraperUser('fresh');
-    PlatformConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => [
             'url' => 'https://www.fresha.com/a/acme-salon',
@@ -145,13 +145,13 @@ it('stores Apple Music + Podcast as independent per-user connections', function 
     actingAsUser($user)->postJson('/api/platforms/apple/podcast/connect', ['show' => 'Show'])
         ->assertOk()->assertJsonPath('name', 'Ep');
 
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeTrue();
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
 
     // Disconnecting Music leaves Podcast intact (independent rows).
     actingAsUser($user)->deleteJson('/api/platforms/apple/music')->assertOk();
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeFalse();
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-music')->exists())->toBeFalse();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->exists())->toBeTrue();
 });
 
 it('requires auth on the shopify dashboard routes', function () {
@@ -176,7 +176,7 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://f.example.com'])
         ->assertStatus(422);
 
-    $conn = PlatformConnection::where('user_id', $user->id)->where('platform', 'shopify')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shopify')->first();
     expect($conn)->not->toBeNull();
     expect(count($conn->payload))->toBe(5);
 });

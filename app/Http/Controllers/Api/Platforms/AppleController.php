@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use Illuminate\Http\JsonResponse;
@@ -239,17 +239,17 @@ class AppleController extends ApiController
     // Read one Apple platform's per-user selection payload (null when none).
     private function read(User $user, string $platform): ?array
     {
-        return $user->platformConnections()
+        return $user->integrationConnections()
             ->where('platform', $platform)
             ->where('resource_id', $platform)
             ->first()?->payload;
     }
 
     // Upsert one Apple platform's per-user selection. Goes through the model so
-    // PlatformConnectionObserver fires and purges the sitepage edge cache.
+    // IntegrationConnectionObserver fires and purges the sitepage edge cache.
     private function put(User $user, string $platform, array $data): void
     {
-        PlatformConnection::updateOrCreate(
+        IntegrationConnection::updateOrCreate(
             ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $platform],
             [
                 'payload' => $data,
@@ -264,7 +264,7 @@ class AppleController extends ApiController
 
     private function forgetOne(User $user, string $platform): void
     {
-        $user->platformConnections()
+        $user->integrationConnections()
             ->where('platform', $platform)
             ->where('resource_id', $platform)
             ->first()?->delete();

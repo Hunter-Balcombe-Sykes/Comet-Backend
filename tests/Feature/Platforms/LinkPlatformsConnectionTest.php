@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
@@ -34,7 +34,7 @@ it('connects a TikTok link scoped to the authenticated user', function () {
         ->assertJsonPath('username', 'dancer')
         ->assertJsonPath('url', 'https://www.tiktok.com/@dancer');
 
-    $conn = PlatformConnection::where('user_id', $user->id)->where('platform', 'tiktok')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'tiktok')->first();
     expect($conn->payload['username'])->toBe('dancer');
 });
 
@@ -45,7 +45,7 @@ it('connects a Facebook legacy page link scoped to the authenticated user', func
         ->assertOk()
         ->assertJsonPath('url', 'https://www.facebook.com/pages/Some-Cafe/123');
 
-    expect(PlatformConnection::where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
 });
 
 it("keeps two users' connections separate (per-user isolation)", function () {
@@ -58,5 +58,5 @@ it("keeps two users' connections separate (per-user isolation)", function () {
     actingAsUser($jane)->getJson('/api/platforms/tiktok/selection')->assertJsonPath('selection.username', 'janedance');
     actingAsUser($bob)->getJson('/api/platforms/tiktok/selection')->assertJsonPath('selection.username', 'bobdance');
 
-    expect(PlatformConnection::where('platform', 'tiktok')->count())->toBe(2);
+    expect(IntegrationConnection::where('platform', 'tiktok')->count())->toBe(2);
 });

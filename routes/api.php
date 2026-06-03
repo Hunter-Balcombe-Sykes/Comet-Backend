@@ -14,7 +14,7 @@ use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
-use App\Http\Controllers\Api\PublicSite\PublicPlatformController;
+use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
@@ -50,7 +50,7 @@ Route::middleware(['supabase.jwt', 'throttle:bootstrap'])->post('/bootstrap', [B
 require __DIR__.'/api/user.php';
 require __DIR__.'/api/staff.php';
 require __DIR__.'/api/publicSite.php';
-require __DIR__.'/api/platforms.php';
+require __DIR__.'/api/integrations.php';
 
 // GET preserves the existing email-footer link behavior; POST satisfies
 // RFC 8058 one-click unsubscribe (List-Unsubscribe-Post: List-Unsubscribe=One-Click),
@@ -117,9 +117,13 @@ Route::get('/public/profiles/{handle}', [IndividualProfileController::class, 'sh
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
-// Public per-user platform connections (sitepage reads this to render platform
-// sections). Separate from the profile payload — additive, self-contained.
-Route::get('/public/profiles/{handle}/platforms', [PublicPlatformController::class, 'show'])
+// Public per-user integration connections (sitepage reads this to render
+// integration sections). Separate from the profile payload — additive,
+// self-contained. /platforms is a legacy alias kept until the sitepage flips.
+Route::get('/public/profiles/{handle}/integrations', [PublicIntegrationController::class, 'show'])
+    ->where('handle', '[A-Za-z0-9-]+')
+    ->middleware('throttle:public-profile');
+Route::get('/public/profiles/{handle}/platforms', [PublicIntegrationController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 

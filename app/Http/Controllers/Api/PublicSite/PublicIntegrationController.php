@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
@@ -20,11 +20,11 @@ use Illuminate\Http\JsonResponse;
  * platforms is an additive, self-contained feature.
  *
  * No backend Redis cache here: the Cloudflare edge cache does the heavy lifting
- * and is purged on every write by PlatformConnectionObserver, so a backend
+ * and is purged on every write by IntegrationConnectionObserver, so a backend
  * cache would only re-introduce the staleness we just fixed. The query is a
  * single indexed lookup (idx_platform_connections_user_platform_sort).
  */
-class PublicPlatformController extends ApiController
+class PublicIntegrationController extends ApiController
 {
     public function show(string $handle): JsonResponse
     {
@@ -40,7 +40,7 @@ class PublicPlatformController extends ApiController
 
         // Grouped by platform → list of {resourceId, payload, lastRefreshedAt}.
         // Most platforms have one connection; Shopify can have up to five brands.
-        $platforms = PlatformConnection::query()
+        $platforms = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
             ->orderBy('platform')
@@ -48,7 +48,7 @@ class PublicPlatformController extends ApiController
             ->orderBy('created_at')
             ->get(['platform', 'resource_id', 'payload', 'last_refreshed_at'])
             ->groupBy('platform')
-            ->map(fn ($rows) => $rows->map(fn (PlatformConnection $r) => [
+            ->map(fn ($rows) => $rows->map(fn (IntegrationConnection $r) => [
                 'resourceId' => $r->resource_id,
                 'payload' => $r->payload,
                 'lastRefreshedAt' => $r->last_refreshed_at?->toIso8601String(),

@@ -3,7 +3,7 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\Site\PlatformConnection;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Log;
 
@@ -18,26 +18,26 @@ use Illuminate\Support\Facades\Log;
 // served by the dedicated public platforms endpoint — so there's no reason to
 // roll the profile cache key. CloudflareCachePurgeJob is ShouldBeUnique, so the
 // burst of writes from a multi-row save coalesces to one purge per handle.
-class PlatformConnectionObserver
+class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
 
-    public function saved(PlatformConnection $connection): void
+    public function saved(IntegrationConnection $connection): void
     {
         $this->purge($connection);
     }
 
-    public function deleted(PlatformConnection $connection): void
+    public function deleted(IntegrationConnection $connection): void
     {
         $this->purge($connection);
     }
 
-    public function restored(PlatformConnection $connection): void
+    public function restored(IntegrationConnection $connection): void
     {
         $this->purge($connection);
     }
 
-    private function purge(PlatformConnection $connection): void
+    private function purge(IntegrationConnection $connection): void
     {
         try {
             $subdomain = User::query()
@@ -49,7 +49,7 @@ class PlatformConnectionObserver
                 CloudflareCachePurgeJob::dispatch($subdomain);
             }
         } catch (\Throwable $e) {
-            Log::warning('PlatformConnectionObserver purge failed', [
+            Log::warning('IntegrationConnectionObserver purge failed', [
                 'platform_connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
                 'message' => $e->getMessage(),
