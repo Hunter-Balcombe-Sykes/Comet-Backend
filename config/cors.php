@@ -15,13 +15,10 @@ return [
     // Regex patterns for hostnames where enumerating every entry is impossible:
     //   - *.partna.au: visitor mini-sites (handle subdomains); the character class
     //     excludes `.` so `evil.partna.au.attacker.com` cannot match.
-    //   - admin.shopify.com and *.myshopify.com: embedded Shopify admin extension.
     // All patterns require https. Subject to Laravel CORS package's `preg_match` —
     // anchors and delimiters are mandatory.
     'allowed_origins_patterns' => [
         '#^https://[a-z0-9-]+\.partna\.au$#i',
-        '#^https://admin\.shopify\.com$#i',
-        '#^https://[a-z0-9-]+\.myshopify\.com$#i',
     ],
     // Wildcard request headers remain safe: supports_credentials => false means the
     // browser's wildcard+credentials restriction does not apply. If supports_credentials

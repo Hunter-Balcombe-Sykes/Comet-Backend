@@ -16,6 +16,7 @@ use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\PlatformConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -27,13 +28,18 @@ use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserConfirmationPreference;
 use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Models\Moderation\Decision;
+use App\Models\Moderation\ModerationCase;
+use App\Policies\CasePolicy;
 use App\Policies\CustomerPolicy;
+use App\Policies\DecisionPolicy;
 use App\Policies\EnquiryPolicy;
 use App\Policies\FeatureFlagPolicy;
 use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
+use App\Policies\PlatformConnectionPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSelfPolicy;
@@ -124,9 +130,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
         Gate::policy(Feedback::class, FeedbackPolicy::class);
-        Gate::policy(\App\Models\Moderation\ModerationCase::class, \App\Policies\CasePolicy::class);
-        Gate::policy(\App\Models\Moderation\Decision::class, \App\Policies\DecisionPolicy::class);
-        Gate::policy(\App\Models\Core\Site\PlatformConnection::class, \App\Policies\PlatformConnectionPolicy::class);
+        Gate::policy(ModerationCase::class, CasePolicy::class);
+        Gate::policy(Decision::class, DecisionPolicy::class);
+        Gate::policy(PlatformConnection::class, PlatformConnectionPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -547,6 +553,25 @@ class AppServiceProvider extends ServiceProvider
                     return response()->json([
                         'error' => 'RATE_LIMITED',
                         'message' => 'Hold on a sec, try again in a minute.',
+                    ], 429);
+                });
+        });
+
+        // Per-document download cap — prevents a single IP from hammering one
+        // document's presigned-URL generation endpoint. Keyed by IP + document UUID
+        // so the bucket is per-document, not shared across all downloads.
+        RateLimiter::for('document-download', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $documentId = $request->route('document') ?? 'unknown';
+
+            return Limit::perHour(10)
+                ->by($request->ip().':doc:'.$documentId)
+                ->response(function () {
+                    return response()->json([
+                        'message' => 'Too many download attempts. Please try again later.',
                     ], 429);
                 });
         });

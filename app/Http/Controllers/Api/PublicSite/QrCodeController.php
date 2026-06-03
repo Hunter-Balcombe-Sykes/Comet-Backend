@@ -14,15 +14,24 @@ class QrCodeController extends ApiController
 {
     /**
      * Generate a QR code SVG pointing at the professional's vanity URL.
-     * Returns 404 if the professional is not found or has no partna_url set.
+     * Returns 404 if the professional is not found, has no partna_url, has no site,
+     * or the site is not published. Public endpoint — always 404, never 403.
      */
     public function svg(string $userId, Request $request): Response
     {
         $professional = User::query()
             ->whereKey($userId)
+            ->with('site')
             ->first();
 
         if (! $professional || ! $professional->partna_url) {
+            abort(404);
+        }
+
+        // Do not serve a QR code pointing at an unpublished site — the URL
+        // is valid but the page is not live, so the code would be useless.
+        $site = $professional->site;
+        if (! $site || ! $site->is_published) {
             abort(404);
         }
 

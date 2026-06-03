@@ -63,7 +63,9 @@ class PublicSiteController extends ApiController
             return $this->error('Missing X-Site-Subdomain header.', 400);
         }
 
-        $subdomain = strtolower(trim($subdomain));
+        // Enforce the same rules as PublicSiteShowRequest (max:63, alphanumeric-hyphen)
+        // so the header path and the routed path agree on what's a valid subdomain.
+        $subdomain = $this->validateSubdomainString($subdomain);
 
         $payload = $this->siteCache->getPublicSitePayload($subdomain);
         if ($payload) {
@@ -85,5 +87,21 @@ class PublicSiteController extends ApiController
         }
 
         return $this->error('Site not found.', 404);
+    }
+
+    /**
+     * Normalise and validate a raw subdomain value (from header or route).
+     * Mirrors the rules enforced by PublicSiteShowRequest: max 63 chars,
+     * only lowercase letters, digits, and hyphens. Aborts 400 on violation.
+     */
+    private function validateSubdomainString(string $raw): string
+    {
+        $subdomain = strtolower(trim($raw));
+
+        if (strlen($subdomain) > 63 || ! preg_match('/^[a-z0-9-]+$/i', $subdomain)) {
+            abort(response()->json(['message' => 'Invalid X-Site-Subdomain header.'], 400));
+        }
+
+        return $subdomain;
     }
 }

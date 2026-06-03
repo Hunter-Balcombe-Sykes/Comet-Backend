@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Internal\EnvCheckController;
 use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Http\Controllers\Api\PublicSite\AnalyticsController;
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
+use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
+use App\Http\Controllers\Api\PublicSite\PublicPlatformController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
@@ -73,7 +75,7 @@ Route::get('/public/site-by-slug', [PublicSiteController::class, 'showByHeader']
 // forces a download instead of rendering inline.
 Route::get('/public/documents/{document}/download', PublicDocumentDownloadController::class)
     ->whereUuid('document')
-    ->middleware('throttle:public-site');
+    ->middleware(['throttle:public-site', 'throttle:document-download']);
 
 // Static frontend config (social platform registry, etc). Aggressively cacheable.
 // See docs/social-links.md for the social platforms contract.
@@ -103,21 +105,21 @@ Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'sub
     ->middleware(['throttle:public-subscribe', 'bot.token:subscribe']);
 
 Route::post('/public/signup/availability', [PublicSignupAvailabilityController::class, 'check'])
-    ->middleware('throttle:public-site');
+    ->middleware(['throttle:public-site', 'bot.token:signup']);
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
-    ->middleware('throttle:public-site');
+    ->middleware(['throttle:public-site', 'bot.token:login-identifier']);
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
     ->middleware(['throttle:waitlist', 'bot.token:waitlist']);
 
 // §28.8 — Individual public profile (Astro Worker subrequest target).
 // Public, unauthenticated. Rate limit + cache key isolated from generic public-site.
-Route::get('/public/profiles/{handle}', [\App\Http\Controllers\Api\PublicSite\IndividualProfileController::class, 'show'])
+Route::get('/public/profiles/{handle}', [IndividualProfileController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
 // Public per-user platform connections (sitepage reads this to render platform
 // sections). Separate from the profile payload — additive, self-contained.
-Route::get('/public/profiles/{handle}/platforms', [\App\Http\Controllers\Api\PublicSite\PublicPlatformController::class, 'show'])
+Route::get('/public/profiles/{handle}/platforms', [PublicPlatformController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
