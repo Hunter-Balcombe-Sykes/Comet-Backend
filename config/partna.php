@@ -810,11 +810,10 @@ return [
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
         // Analytics endpoint exposed to the skeleton via data.publicConfig.
         // partna-pages reads this and uses it for client-side beacons.
-        // Falls back to the dev API host so dev deploys never ship a null/empty
-        // endpoint that breaks the skeleton's PublicConfig contract.
+        // Defaults to the current APP_URL so the fallback is always environment-correct.
         'analytics_endpoint' => env(
             'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
-            'https://dev-api.partna.au/api/analytics'
+            rtrim(config('app.url'), '/').'/api/analytics'
         ),
     ],
 
@@ -1202,7 +1201,7 @@ return [
     ],
 
     'moderation' => [
-        'enabled' => env('PARTNA_MODERATION_ENABLED', true),
+        'enabled' => (bool) env('PARTNA_MODERATION_ENABLED', true),
         // Emergency kill-switch for automated enforcement (e.g. the CSAM
         // auto-action pipeline). When false, CSAM matches still preserve
         // evidence + file the NCMEC CyberTip, but the automated suspend/

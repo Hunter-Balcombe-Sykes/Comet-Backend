@@ -88,6 +88,9 @@ class EnvCheckService
         'Google Maps (address autocomplete)' => [
             'services.google_maps.api_key' => 'GOOGLE_MAPS_API_KEY',
         ],
+        'Analytics' => [
+            'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
+        ],
     ];
 
     /**
