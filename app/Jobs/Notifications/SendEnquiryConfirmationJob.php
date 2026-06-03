@@ -49,6 +49,13 @@ class SendEnquiryConfirmationJob implements ShouldQueue
                 return false;
             }
 
+            // Stamp the idempotency flag while the row lock is still held so the
+            // check-and-set is atomic. A concurrent worker (Horizon scale-out or a
+            // retry) then reads the committed timestamp and bails instead of
+            // double-sending. The mail send happens AFTER this commit, never inside
+            // the lock — if it later throws, the retry correctly skips re-sending.
+            $e->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
+
             return $e;
         });
 
@@ -97,13 +104,12 @@ class SendEnquiryConfirmationJob implements ShouldQueue
             $brand = $resolver->partna();
         }
 
+        // confirmation_sent_at was already stamped atomically under the lock above.
         Mail::to($recipient)->send(new EnquiryConfirmationMail(
             brand: $brand,
             visitorName: trim((string) ($enquiry->name ?? '')),
             subject: (string) $enquiry->subject,
         ));
-
-        $enquiry->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
     }
 
     // Per-recipient hourly cap (shared bucket with the subscription confirmation),

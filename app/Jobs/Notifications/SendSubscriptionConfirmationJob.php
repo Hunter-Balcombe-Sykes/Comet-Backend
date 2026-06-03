@@ -47,6 +47,12 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
                 return false;
             }
 
+            // Stamp the idempotency flag while the row lock is still held so the
+            // check-and-set is atomic — a concurrent worker or retry reads the
+            // committed timestamp and bails instead of double-sending. The mail
+            // send happens AFTER this commit, never inside the lock.
+            $s->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
+
             return $s;
         });
 
@@ -108,13 +114,12 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             $brand = $resolver->partna();
         }
 
+        // confirmation_sent_at was already stamped atomically under the lock above.
         Mail::to($recipient)->send(new SubscriptionConfirmationMail(
             brand: $brand,
             unsubscribeUrl: $unsubscribeUrl,
             visitorName: $sub->full_name ?: null,
         ));
-
-        $sub->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
     }
 
     private function withinRateLimit(string $email): bool
