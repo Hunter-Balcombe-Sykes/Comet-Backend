@@ -547,7 +547,7 @@
         );
         ```
 
-- [ ] **#TEST-7** · P2 · S — `writeDesignKit()` is never called through a test; its FK-protection guard and column-filter logic are untested
+- [x] **#TEST-7** · P2 · S — `writeDesignKit()` is never called through a test; its FK-protection guard and column-filter logic are untested
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:84–103
     - **Affects:** User-facing site update endpoint (`PATCH /api/professional/site`). A bug in the `information_schema` intersection, the `unset($valid['site_id'])` guard, or the empty-kit short-circuit would silently corrupt or silently drop design kit writes with no test failure.
     - **Effort:** S (~0.5–1h)
