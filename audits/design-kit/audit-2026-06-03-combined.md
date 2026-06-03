@@ -227,7 +227,7 @@
             if ($e->getCode() === '23505') {
         ```
 
-- [ ] **#LIFE-2** · P2 · S — `design_kits:columns` cache key invalidated only by full `artisan cache:clear`; no version token ties bust to the migration that changes the column set
+- [x] **#LIFE-2** · P2 · S — `design_kits:columns` cache key invalidated only by full `artisan cache:clear`; no version token ties bust to the migration that changes the column set
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:260–266 (`writeDesignKit` private method)
     - **Affects:** Professionals attempting to save a newly shipped design kit variable in the first hour after a deploy. If the deploy script's `artisan cache:clear` fails, is skipped, or runs before the migration lands, `array_intersect_key` silently drops all keys for the new column. The dashboard returns 200 but nothing is written. Also: `cache:clear` is a blunt instrument — it cold-starts all site payload, email-brand, and block caches unnecessarily to bust a single metadata key.
     - **Effort:** S (~0.5–1h)
@@ -251,7 +251,7 @@
         );
         ```
 
-- [ ] **#CCH-1** · P2 · S — `handle.resolve` stale twin not cleared in the deleted-user recovery path
+- [x] **#CCH-1** · P2 · S — `handle.resolve` stale twin not cleared in the deleted-user recovery path
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:106 (`$payload === null` branch)
     - **Affects:** Public profile requests after a professional account is deleted. `CacheLockService::rememberLocked` writes both a primary key (`handle.resolve:{handle}`) and a `:stale` twin at 10× the primary TTL (~5 minutes for a 30s primary). The recovery path clears only the primary. The stale twin continues serving the deleted-user's `pro_id` to subsequent requests until its TTL expires, causing repeated cache misses → builder calls → `null` payloads → 404s on every request during that window.
     - **Effort:** S (~0.5–1h)
@@ -516,7 +516,7 @@
         // ... ~78 more identical entries ...
         ```
 
-- [ ] **#CCH-2** · P3 · S — `design_kits:columns` cache uses bare `Cache::remember` with no single-flight lock and no TTL jitter
+- [x] **#CCH-2** · P3 · S — `design_kits:columns` cache uses bare `Cache::remember` with no single-flight lock and no TTL jitter
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:260–266 (`writeDesignKit`)
     - **Affects:** Concurrent design-kit saves immediately after a deploy (when the `design_kits:columns` key is cold). All concurrent `writeDesignKit()` calls race to query `information_schema.columns` independently. The global key means every concurrent save across all professionals collides on the same cold-cache fill.
     - **Effort:** S (~0.5–1h)
@@ -535,7 +535,7 @@
         );
         ```
 
-- [ ] **#CACHE-1** · P3 · S — Three `invalidateSite()` calls fire per design-kit-only update; the first two precede the `design_kits` write
+- [x] **#CACHE-1** · P3 · S — Three `invalidateSite()` calls fire per design-kit-only update; the first two precede the `design_kits` write
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:40–56 (`update` method flow)
     - **Affects:** Every design-kit-only `PATCH /api/site` — three full cache-invalidation sweeps (each touching ~30 Redis keys) for one logical write. Busts 1 and 2 run before the `site.design_kits` row is updated, so any cache rebuild triggered by them serves the pre-write kit.
     - **Effort:** S (~0.5–1h)
