@@ -6,12 +6,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
     $conn = DB::connection('pgsql');
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
@@ -54,6 +55,8 @@ it('bulk-suspends a wave of professionals', function () {
         'ids' => $ids,
         'status' => 'suspended',
     ]);
+    // Fresh TOTP amr entry — satisfies the requiresFreshAal2 gate added in B17.
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     Log::spy();
     $response = $controller->bulkUpdateStatus($request);
@@ -79,6 +82,7 @@ it('accepts exactly 100 IDs', function () {
         'ids' => $ids,
         'status' => 'suspended',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     $response = $controller->bulkUpdateStatus($request);
     $data = json_decode($response->getContent(), true);
@@ -95,9 +99,10 @@ it('rejects 101 IDs with validation error', function () {
         'ids' => $ids,
         'status' => 'suspended',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('rejects unknown status values', function () {
@@ -106,9 +111,10 @@ it('rejects unknown status values', function () {
         'ids' => [(string) Str::uuid()],
         'status' => 'banned',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('rejects non-UUID IDs', function () {
@@ -117,9 +123,10 @@ it('rejects non-UUID IDs', function () {
         'ids' => ['not-a-uuid'],
         'status' => 'suspended',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('returns missing_ids for unknown UUIDs without rolling back valid ones', function () {
@@ -131,6 +138,7 @@ it('returns missing_ids for unknown UUIDs without rolling back valid ones', func
         'ids' => array_merge($valid, $missing),
         'status' => 'suspended',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     $response = $controller->bulkUpdateStatus($request);
     $data = json_decode($response->getContent(), true);
@@ -146,7 +154,8 @@ it('rejects empty ids array', function () {
         'ids' => [],
         'status' => 'suspended',
     ]);
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
 
     expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });

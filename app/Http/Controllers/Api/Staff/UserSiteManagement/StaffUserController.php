@@ -10,6 +10,7 @@ use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
 use Exception;
+use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -117,6 +118,14 @@ class StaffUserController extends ApiController
      */
     public function updateStatus(Request $request, User $professional): JsonResponse
     {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
         $data = $request->validate([
             'status' => ['required', 'string', 'in:active,suspended'],
         ]);
@@ -140,6 +149,14 @@ class StaffUserController extends ApiController
      */
     public function bulkUpdateStatus(Request $request): JsonResponse
     {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
         $data = $request->validate([
             'ids' => ['required', 'array', 'min:1', 'max:100'],
             'ids.*' => ['required', 'uuid', 'distinct'],
@@ -225,8 +242,49 @@ class StaffUserController extends ApiController
         ]);
     }
 
-    public function forceDestroy(User $professional): JsonResponse
+    /**
+     * Inline copy of BasePolicy::requiresFreshAal2 / MfaController::requiresFreshAal2.
+     *
+     * Kept as a local copy (not a shared trait) following the convention established
+     * in MfaController: these high-risk staff actions have no model to authorize against
+     * and a controller cannot call a protected policy method. Uses the staff fresh window
+     * (config('partna.mfa.fresh_window_seconds', 300)) rather than the unenroll window.
+     */
+    private function requiresFreshAal2(Request $request, ?int $maxAgeSeconds = null): GateResponse
     {
+        $maxAgeSeconds ??= (int) config('partna.mfa.fresh_window_seconds', 300);
+        $amr = $request->attributes->get('supabase_amr', []);
+        $mfaMethods = ['totp', 'phone', 'webauthn'];
+
+        $mostRecentMfaTs = null;
+        foreach ($amr as $entry) {
+            $method = $entry['method'] ?? null;
+            if (in_array($method, $mfaMethods, true)) {
+                $ts = (int) ($entry['timestamp'] ?? 0);
+                if ($mostRecentMfaTs === null || $ts > $mostRecentMfaTs) {
+                    $mostRecentMfaTs = $ts;
+                }
+            }
+        }
+
+        if ($mostRecentMfaTs === null) {
+            return GateResponse::denyWithStatus(401, 'Recent MFA verification required');
+        }
+
+        return (time() - $mostRecentMfaTs) <= $maxAgeSeconds
+            ? GateResponse::allow()
+            : GateResponse::denyWithStatus(401, 'Recent MFA verification required');
+    }
+
+    public function forceDestroy(Request $request, User $professional): JsonResponse
+    {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
 
         // Hard delete - PERMANENT
         $handle = $professional->handle;

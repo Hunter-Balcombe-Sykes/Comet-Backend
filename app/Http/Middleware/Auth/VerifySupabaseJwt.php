@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Laravel\Nightwatch\Compatibility;
 use Symfony\Component\HttpFoundation\Response;
 
 // V2: JWT authentication via Supabase JWKS (asymmetric). Falls back to Auth Server query. All authenticated routes require this.
@@ -80,7 +81,16 @@ class VerifySupabaseJwt
             // any device, admin action, etc.) reject the token even though
             // its signature is still valid. One Redis EXISTS per request.
             $sessionId = isset($claims['session_id']) ? (string) $claims['session_id'] : '';
-            if ($sessionId !== '' && $this->revocation->isRevoked($sessionId)) {
+            if ($sessionId === '') {
+                // Revocation gate is skipped for tokens that carry no session_id.
+                // Log so we can confirm this case never legitimately fires before
+                // hardening to a 401 rejection.
+                Log::warning('jwt.missing_session_id', [
+                    'request_id' => $requestId,
+                    'operation' => __METHOD__,
+                    'uid' => $uid,
+                ]);
+            } elseif ($this->revocation->isRevoked($sessionId)) {
                 return response()->json([
                     'message' => 'Session was terminated. Please log in again.',
                     'code' => 'session_revoked',
@@ -142,7 +152,16 @@ class VerifySupabaseJwt
                 // already confirmed the token is valid above.
                 $fallbackClaims = $this->extractJwtPayloadClaims($token);
                 $fallbackSessionId = isset($fallbackClaims['session_id']) ? (string) $fallbackClaims['session_id'] : '';
-                if ($fallbackSessionId !== '' && $this->revocation->isRevoked($fallbackSessionId)) {
+                if ($fallbackSessionId === '') {
+                    // Revocation gate is skipped for tokens that carry no session_id.
+                    // Log so we can confirm this case never legitimately fires before
+                    // hardening to a 401 rejection.
+                    Log::warning('jwt.missing_session_id', [
+                        'request_id' => $requestId,
+                        'operation' => __METHOD__,
+                        'uid' => $uid,
+                    ]);
+                } elseif ($this->revocation->isRevoked($fallbackSessionId)) {
                     return response()->json([
                         'message' => 'Session was terminated. Please log in again.',
                         'code' => 'session_revoked',
@@ -220,8 +239,8 @@ class VerifySupabaseJwt
         }
 
         // Nightwatch falls back to hidden context when no Laravel auth guard is resolved.
-        if (class_exists(\Laravel\Nightwatch\Compatibility::class)) {
-            \Laravel\Nightwatch\Compatibility::addUserIdToContext($uid);
+        if (class_exists(Compatibility::class)) {
+            Compatibility::addUserIdToContext($uid);
         }
     }
 
