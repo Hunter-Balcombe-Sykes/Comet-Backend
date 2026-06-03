@@ -57,8 +57,8 @@ class SiteCacheService
             // Negative-cache briefly to reduce DB load from bot scans.
             // :stale gets a longer window so the next bot-burst still hits cache
             // even if the primary just evicted.
-            Cache::put($key, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS));
-            Cache::put($staleKey, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
+            Cache::put($key, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS));
+            Cache::put($staleKey, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
 
             return null;
         }
@@ -553,8 +553,9 @@ class SiteCacheService
         // serving the old updated_at_ts and the new key is never constructed.
         $handle = strtolower((string) ($site->subdomain ?? ''));
         if ($handle !== '') {
-            $keys[] = "handle.resolve:{$handle}";
-            $keys[] = "handle.resolve:{$handle}:stale";
+            $resolveKey = CacheKeyGenerator::handleResolve($handle);
+            $keys[] = $resolveKey;
+            $keys[] = $resolveKey.':stale';
         }
 
         Cache::deleteMultiple(array_values(array_unique($keys)));

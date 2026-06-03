@@ -19,8 +19,8 @@
 BEGIN;
 
 ALTER TABLE site.design_kits
-  ADD COLUMN typography_font_family TEXT NULL,
-  ADD COLUMN typography_font_size TEXT NULL,
-  ADD COLUMN typography_font_weight TEXT NULL;
+  ADD COLUMN IF NOT EXISTS typography_font_family TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_font_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_font_weight TEXT NULL;
 
 COMMIT;

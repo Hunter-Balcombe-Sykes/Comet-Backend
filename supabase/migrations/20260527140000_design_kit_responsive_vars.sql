@@ -28,41 +28,41 @@ BEGIN;
 
 ALTER TABLE site.design_kits
   -- Padding (tablet)
-  ADD COLUMN padding_tablet_extra_small TEXT NULL,
-  ADD COLUMN padding_tablet_small TEXT NULL,
-  ADD COLUMN padding_tablet_general TEXT NULL,
-  ADD COLUMN padding_tablet_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_tablet_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_tablet_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_tablet_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_tablet_large TEXT NULL,
   -- Padding (desktop)
-  ADD COLUMN padding_desktop_extra_small TEXT NULL,
-  ADD COLUMN padding_desktop_small TEXT NULL,
-  ADD COLUMN padding_desktop_general TEXT NULL,
-  ADD COLUMN padding_desktop_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_desktop_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_desktop_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_desktop_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_desktop_large TEXT NULL,
 
   -- Spacing (tablet)
-  ADD COLUMN spacing_tablet_extra_small TEXT NULL,
-  ADD COLUMN spacing_tablet_small TEXT NULL,
-  ADD COLUMN spacing_tablet_general TEXT NULL,
-  ADD COLUMN spacing_tablet_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_tablet_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_tablet_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_tablet_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_tablet_large TEXT NULL,
   -- Spacing (desktop)
-  ADD COLUMN spacing_desktop_extra_small TEXT NULL,
-  ADD COLUMN spacing_desktop_small TEXT NULL,
-  ADD COLUMN spacing_desktop_general TEXT NULL,
-  ADD COLUMN spacing_desktop_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_desktop_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_desktop_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_desktop_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_desktop_large TEXT NULL,
 
   -- Sizing heights (tablet)
-  ADD COLUMN sizing_tablet_button_height TEXT NULL,
-  ADD COLUMN sizing_tablet_input_height TEXT NULL,
-  ADD COLUMN sizing_tablet_row_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_tablet_button_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_tablet_input_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_tablet_row_height TEXT NULL,
   -- Sizing heights (desktop)
-  ADD COLUMN sizing_desktop_button_height TEXT NULL,
-  ADD COLUMN sizing_desktop_input_height TEXT NULL,
-  ADD COLUMN sizing_desktop_row_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_desktop_button_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_desktop_input_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_desktop_row_height TEXT NULL,
 
   -- Typography font sizes (tablet)
-  ADD COLUMN typography_tablet_font_size TEXT NULL,
-  ADD COLUMN typography_tablet_title_font_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_tablet_font_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_tablet_title_font_size TEXT NULL,
   -- Typography font sizes (desktop)
-  ADD COLUMN typography_desktop_font_size TEXT NULL,
-  ADD COLUMN typography_desktop_title_font_size TEXT NULL;
+  ADD COLUMN IF NOT EXISTS typography_desktop_font_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_desktop_title_font_size TEXT NULL;
 
 COMMIT;

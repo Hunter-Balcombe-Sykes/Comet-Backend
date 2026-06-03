@@ -28,14 +28,14 @@ BEGIN;
 
 ALTER TABLE site.design_kits
   -- Borders (derived)
-  ADD COLUMN border_focus_color TEXT NULL,
+  ADD COLUMN IF NOT EXISTS border_focus_color TEXT NULL,
 
   -- Buttons (new group, all derived)
-  ADD COLUMN button_primary_bg TEXT NULL,
-  ADD COLUMN button_primary_text TEXT NULL,
-  ADD COLUMN button_secondary_bg TEXT NULL,
-  ADD COLUMN button_secondary_text TEXT NULL,
-  ADD COLUMN button_general_bg TEXT NULL,
-  ADD COLUMN button_general_text TEXT NULL;
+  ADD COLUMN IF NOT EXISTS button_primary_bg TEXT NULL,
+  ADD COLUMN IF NOT EXISTS button_primary_text TEXT NULL,
+  ADD COLUMN IF NOT EXISTS button_secondary_bg TEXT NULL,
+  ADD COLUMN IF NOT EXISTS button_secondary_text TEXT NULL,
+  ADD COLUMN IF NOT EXISTS button_general_bg TEXT NULL,
+  ADD COLUMN IF NOT EXISTS button_general_text TEXT NULL;
 
 COMMIT;

@@ -796,6 +796,12 @@ return [
     // Tunable at runtime via env without redeploy. Values are per-IP per-minute.
     'public_profile' => [
         'rate_limit_per_minute' => (int) env('SIDEST_RATE_LIMIT_PUBLIC_PROFILE_PER_MINUTE', 60),
+        // Short-TTL resolve-map window (handle → IDs). Bounded staleness without
+        // mutation-driven invalidation; low enough to keep rename lag imperceptible.
+        'resolve_cache_ttl' => (int) env('SIDEST_PUBLIC_PROFILE_RESOLVE_CACHE_TTL', 30),
+        // Slow-request threshold for the Nightwatch P95 warning. Tune up if
+        // builder is legitimately slow on cold paths; tune down to tighten alerting.
+        'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
         // Analytics endpoint exposed to the skeleton via data.publicConfig.

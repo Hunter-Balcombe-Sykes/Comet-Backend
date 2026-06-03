@@ -14,8 +14,8 @@
 -- =====================================================================
 
 ALTER TABLE site.design_kits
-  ADD COLUMN color_accent TEXT NULL,
-  ADD COLUMN color_bg TEXT NULL,
-  ADD COLUMN color_text TEXT NULL,
-  ADD COLUMN typography_font_heading TEXT NULL,
-  ADD COLUMN typography_font_body TEXT NULL;
+  ADD COLUMN IF NOT EXISTS color_accent TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_bg TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_text TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_font_heading TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_font_body TEXT NULL;

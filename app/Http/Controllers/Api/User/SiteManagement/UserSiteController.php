@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\User\SiteManagement;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Api\User\Site\UpdateBookingSettingsRequest;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Resources\SiteResource;
 use App\Services\Cache\SiteCacheService;
@@ -12,9 +13,6 @@ use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 // Site settings management (subdomain, skeleton, settings JSON, publish
 // status). Powers the dashboard's site editor. Per-user design vars are
@@ -119,20 +117,9 @@ class UserSiteController extends ApiController
      * Dedicated endpoint for booking mode + external URL.
      * Scoped validation so the frontend doesn't need to use the generic site update.
      */
-    public function updateBookingSettings(Request $request, UpdateSiteAction $action): JsonResponse
+    public function updateBookingSettings(UpdateBookingSettingsRequest $request, UpdateSiteAction $action): JsonResponse
     {
-        $allowedModes = ['manual'];
-
-        $validator = Validator::make($request->all(), [
-            'booking_mode' => ['required', 'string', Rule::in($allowedModes)],
-            'manual_booking_url' => ['nullable', 'url', 'max:2048'],
-        ]);
-
-        if ($validator->fails()) {
-            throw new ValidationException($validator);
-        }
-
-        $validated = $validator->validated();
+        $validated = $request->validated();
         $professional = $this->currentUser($request);
 
         $site = $action->execute($professional, [

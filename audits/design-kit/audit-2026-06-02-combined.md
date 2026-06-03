@@ -590,7 +590,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#CCH-2** · P3 · S — Unjittered TTL on `handle.resolve` cache causes fleet-wide synchronised expiry
+- [x] **#CCH-2** · P3 · S — Unjittered TTL on `handle.resolve` cache causes fleet-wide synchronised expiry
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php (RESOLVE_CACHE_TTL constant + Cache::remember call)
     - **Affects:** Minor — all Redis nodes expire the resolve cache at the same wall-clock second, creating a small synchronised lookup spike every 30 s on high-traffic handles.
     - **Effort:** S (~0.5h)
@@ -608,7 +608,7 @@
         );
         ```
 
-- [ ] **#CCH-5** · P3 · S — `IndividualProfileController` builds cache keys via ad-hoc string interpolation instead of `CacheKeyGenerator`
+- [x] **#CCH-5** · P3 · S — `IndividualProfileController` builds cache keys via ad-hoc string interpolation instead of `CacheKeyGenerator`
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php (both cache key constructions)
     - **Affects:** Future maintainability — a writer or invalidator that constructs the key differently (typo, different case handling) silently misses the cache.
     - **Effort:** S (~0.5h)
@@ -622,7 +622,7 @@
         $key = "public.profile:{$handleLc}:{$resolved['updated_at_ts']}";
         ```
 
-- [ ] **#CCH-6** · P3 · S — Unjittered TTL on the negative-cache sentinel in `SiteCacheService`
+- [x] **#CCH-6** · P3 · S — Unjittered TTL on the negative-cache sentinel in `SiteCacheService`
     - **Where:** app/Services/Cache/SiteCacheService.php:buildPayloadFromDb() (two `Cache::put` calls for `MISS_SENTINEL`)
     - **Affects:** Synchronised expiry of all "no site here" sentinel entries — a burst of bot scans during a fixed 30 s window causes all sentinels to expire at the same moment, briefly multiplying DB hits.
     - **Effort:** S (~0.5h)
@@ -635,7 +635,7 @@
         Cache::put($staleKey, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
         ```
 
-- [ ] **#CFG-3** · P3 · S — `IndividualProfileController` hardcodes the resolve-cache TTL and slow-request threshold as PHP constants
+- [x] **#CFG-3** · P3 · S — `IndividualProfileController` hardcodes the resolve-cache TTL and slow-request threshold as PHP constants
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:38–41
     - **Affects:** Operational agility — adjusting either value during a traffic incident or a performance investigation requires a code deploy rather than a config change.
     - **Effort:** S (~0.5–1h)
@@ -649,7 +649,7 @@
         private const SLOW_REQUEST_THRESHOLD_MS = 1_000;
         ```
 
-- [ ] **#CFG-4** · P3 · S — `EmailBrand::partna()` hardcodes `'https://partna.au'` rather than reading from config
+- [x] **#CFG-4** · P3 · S — `EmailBrand::partna()` hardcodes `'https://partna.au'` rather than reading from config
     - **Where:** app/Mail/Branding/EmailBrand.php:30
     - **Affects:** Non-production environments (staging, local dev) that send Partna-branded emails — footer links in those emails point to the live production site regardless of environment.
     - **Effort:** S (~0.5–1h)
@@ -672,7 +672,7 @@
         }
         ```
 
-- [ ] **#CFG-5** · P3 · S — `UpdateSiteRequest` accepts both `settings.charlie_enabled` (snake_case) and `settings.charlieEnabled` (camelCase) for the same setting
+- [x] **#CFG-5** · P3 · S — `UpdateSiteRequest` accepts both `settings.charlie_enabled` (snake_case) and `settings.charlieEnabled` (camelCase) for the same setting
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php (settings group)
     - **Affects:** API consumers who inadvertently send both keys in the same request — the resulting `settings` array contains both, and whichever key the application code checks for wins.
     - **Effort:** S (~0.5–1h)
@@ -686,7 +686,7 @@
         'settings.charlieEnabled'   => ['sometimes', 'boolean'],
         ```
 
-- [ ] **#LIFE-3** · P3 · S — `updateBookingSettings` uses inline `Validator::make` instead of a Form Request class
+- [x] **#LIFE-3** · P3 · S — `updateBookingSettings` uses inline `Validator::make` instead of a Form Request class
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:updateBookingSettings()
     - **Affects:** Architectural consistency — validation rules for this endpoint are embedded in the controller and cannot be reused or tested in isolation.
     - **Effort:** S (~0.5–1h)
@@ -706,7 +706,7 @@
         }
         ```
 
-- [ ] **#MIG-5** · P3 · S — Early design-kit `ADD COLUMN` migrations lack `IF NOT EXISTS` guard
+- [x] **#MIG-5** · P3 · S — Early design-kit `ADD COLUMN` migrations lack `IF NOT EXISTS` guard
     - **Where:** supabase/migrations/20260527080000 through 20260527140000 (seven pre-unified-space migrations using plain `ADD COLUMN`)
     - **Affects:** Fresh database provisioning attempts where migration state is reset but schema is not — particularly relevant given the known "Fresh-DB Provisioning Broken" issue. A column that already exists will cause the migration to fail.
     - **Effort:** S (~0.5–1h)
@@ -725,7 +725,7 @@
             ADD COLUMN IF NOT EXISTS icons_xl_size TEXT NULL;
         ```
 
-- [ ] **#API-3** · P3 · S — Both request classes allowlist orphan `typography_font_heading` / `typography_font_body` columns that store NULL and are never consumed
+- [x] **#API-3** · P3 · S — Both request classes allowlist orphan `typography_font_heading` / `typography_font_body` columns that store NULL and are never consumed
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:139–141, app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:64–66
     - **Affects:** API consumers who write these fields — they receive HTTP 200 and reasonably assume the value was persisted, but the columns currently exist only as unset stubs. Note: the comment in the code ("nothing reads them") is slightly misleading — `groupKitColumns` would surface them as `typography.fontHeading` if non-null; they are simply never written by any client.
     - **Effort:** S (~0.5–1h)

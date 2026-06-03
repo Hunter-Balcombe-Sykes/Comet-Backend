@@ -26,7 +26,7 @@ final class EmailBrand
         return new self(
             isPartna: true,
             proName: (string) config('mail.from.name', 'Partna'),
-            siteUrl: 'https://partna.au',
+            siteUrl: (string) config('app.partna_marketing_url', 'https://partna.au'),
             logoUrl: null,
             replyToEmail: null,
             palette: EmailBrandDefaults::defaults(),
@@ -63,7 +63,7 @@ final class EmailBrand
         return new self(
             isPartna: (bool) ($data['isPartna'] ?? true),
             proName: (string) ($data['proName'] ?? ''),
-            siteUrl: (string) ($data['siteUrl'] ?? 'https://partna.au'),
+            siteUrl: (string) ($data['siteUrl'] ?? config('app.partna_marketing_url', 'https://partna.au')),
             logoUrl: $data['logoUrl'] ?? null,
             replyToEmail: $data['replyToEmail'] ?? null,
             palette: new EmailPalette(

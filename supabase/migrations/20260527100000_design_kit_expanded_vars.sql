@@ -19,40 +19,40 @@ BEGIN;
 
 ALTER TABLE site.design_kits
   -- Colors
-  ADD COLUMN color_text_muted TEXT NULL,
-  ADD COLUMN color_accent_contrast TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_text_muted TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_accent_contrast TEXT NULL,
 
   -- Typography
-  ADD COLUMN typography_title_font_size TEXT NULL,
-  ADD COLUMN typography_title_font_weight TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_title_font_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS typography_title_font_weight TEXT NULL,
 
   -- Borders
-  ADD COLUMN border_thickness TEXT NULL,
-  ADD COLUMN border_color TEXT NULL,
-  ADD COLUMN border_radius TEXT NULL,
+  ADD COLUMN IF NOT EXISTS border_thickness TEXT NULL,
+  ADD COLUMN IF NOT EXISTS border_color TEXT NULL,
+  ADD COLUMN IF NOT EXISTS border_radius TEXT NULL,
 
   -- Spacing
-  ADD COLUMN spacing_extra_small TEXT NULL,
-  ADD COLUMN spacing_small TEXT NULL,
-  ADD COLUMN spacing_general TEXT NULL,
-  ADD COLUMN spacing_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS spacing_large TEXT NULL,
 
   -- Padding
-  ADD COLUMN padding_extra_small TEXT NULL,
-  ADD COLUMN padding_small TEXT NULL,
-  ADD COLUMN padding_general TEXT NULL,
-  ADD COLUMN padding_large TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_extra_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_small TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_general TEXT NULL,
+  ADD COLUMN IF NOT EXISTS padding_large TEXT NULL,
 
   -- Icons
-  ADD COLUMN icon_size TEXT NULL,
-  ADD COLUMN icon_color TEXT NULL,
+  ADD COLUMN IF NOT EXISTS icon_size TEXT NULL,
+  ADD COLUMN IF NOT EXISTS icon_color TEXT NULL,
 
   -- Effects
-  ADD COLUMN effect_overlay_blur TEXT NULL,
-  ADD COLUMN effect_overlay_opacity TEXT NULL,
+  ADD COLUMN IF NOT EXISTS effect_overlay_blur TEXT NULL,
+  ADD COLUMN IF NOT EXISTS effect_overlay_opacity TEXT NULL,
 
   -- Sizing (new group — UI control intrinsic dimensions)
-  ADD COLUMN sizing_button_height TEXT NULL,
-  ADD COLUMN sizing_input_height TEXT NULL;
+  ADD COLUMN IF NOT EXISTS sizing_button_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS sizing_input_height TEXT NULL;
 
 COMMIT;

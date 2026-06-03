@@ -197,4 +197,24 @@ class CacheKeyGenerator
     {
         return "staff:analytics:summary:{$userId}:{$from}:{$to}";
     }
+
+    /**
+     * Short-TTL resolve map: handle → {pro_id, site_id, updated_at_ts}.
+     * Consumers: IndividualProfileController (read/write) and
+     * SiteCacheService::invalidateSitePayload (bust).
+     */
+    public static function handleResolve(string $handle): string
+    {
+        return 'handle.resolve:'.strtolower($handle);
+    }
+
+    /**
+     * Full individual profile payload, keyed by handle + updated_at timestamp
+     * so the key naturally rolls forward on any site/user mutation without
+     * explicit Cache::forget.
+     */
+    public static function publicProfile(string $handle, int $updatedAtTs): string
+    {
+        return 'public.profile:'.strtolower($handle).':'.$updatedAtTs;
+    }
 }

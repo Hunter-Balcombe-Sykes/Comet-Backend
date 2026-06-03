@@ -62,7 +62,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.design' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
-            'settings.charlieEnabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
@@ -162,11 +161,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'design_kit.typography_h2_font_size' => ['sometimes', 'nullable', 'string', 'max:32'],
             'design_kit.typography_h2_font_weight' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
-            // Orphan typography slots from the earlier wiped vars — left in
-            // the allowlist so the request doesn't 422 on legacy clients,
-            // but the columns store NULL and nothing reads them.
-            'design_kit.typography_font_heading' => ['sometimes', 'nullable', 'string', 'max:64'],
-            'design_kit.typography_font_body' => ['sometimes', 'nullable', 'string', 'max:64'],
             // Borders (focus color is a derived default — null = follow accent)
             'design_kit.border_thickness' => ['sometimes', 'nullable', 'string', 'max:16'],
             'design_kit.border_color' => ['sometimes', 'nullable', 'string', 'max:32'],
