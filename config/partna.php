@@ -814,6 +814,13 @@ return [
         ),
     ],
 
+    // Version token for the design_kits column-list cache
+    // (CacheKeyGenerator::designKitColumns). Bump this in the SAME migration PR
+    // that adds or drops a site.design_kits column — the old cache key orphans
+    // and TTLs out, so picking up the new column set needs no `artisan
+    // cache:clear`. (LIFE-2)
+    'design_kit_columns_version' => (int) env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', 1),
+
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),
 
     /*

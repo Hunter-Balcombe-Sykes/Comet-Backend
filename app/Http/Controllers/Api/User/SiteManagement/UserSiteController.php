@@ -8,6 +8,9 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpdateBookingSettingsRequest;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Resources\SiteResource;
+use App\Models\Core\Site\Site;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
@@ -53,14 +56,22 @@ class UserSiteController extends ApiController
         $designKit = $data['design_kit'] ?? null;
         unset($data['design_kit']);
 
-        $site = $action->execute($professional, $data);
+        // CACHE-1: on a design-kit-only request ($data empty after stripping the
+        // kit), execute() does a non-dirty save whose afterCommit observer fires
+        // invalidateSite BEFORE writeDesignKit() runs — busting the cache on
+        // pre-write state. withoutEvents installs a NullDispatcher for the call
+        // so that premature bust is suppressed; the explicit invalidateSite()
+        // after the kit write below is the authoritative post-write invalidation.
+        $site = $data === []
+            ? Site::withoutEvents(fn () => $action->execute($professional, $data))
+            : $action->execute($professional, $data);
 
         if (is_array($designKit)) {
             $this->writeDesignKit($site->id, $designKit);
             // When $data was empty (design-kit-only request), UpdateSiteAction::execute()
             // is a no-op — sites.updated_at is unchanged, SiteObserver never fires.
             // Touch explicitly so the timestamp rotates and the public.profile:* cache key orphans.
-            if (!$site->wasChanged()) {
+            if (! $site->wasChanged()) {
                 $site->touch();
             }
             // execute() already fired invalidateSite via $site->save(), but that
@@ -87,14 +98,22 @@ class UserSiteController extends ApiController
             return;
         }
 
-        // information_schema is read-only metadata — fetch it outside the
-        // transaction so we don't hold the row lock any longer than necessary.
-        $columns = DB::connection('pgsql')
-            ->table('information_schema.columns')
-            ->where('table_schema', 'site')
-            ->where('table_name', 'design_kits')
-            ->pluck('column_name')
-            ->all();
+        // Column list is deploy-time stable; cache for 1 h so each save skips an
+        // extra metadata round-trip. Single-flight via CacheLockService so a
+        // burst of concurrent saves on a cold key (e.g. just after a deploy)
+        // doesn't each query information_schema (CCH-2). The key carries a
+        // version suffix so a design_kit migration busts it by bumping
+        // config('partna.design_kit_columns_version') — no `cache:clear` (LIFE-2).
+        $columns = app(CacheLockService::class)->rememberLocked(
+            CacheKeyGenerator::designKitColumns(),
+            3600,
+            fn () => DB::connection('pgsql')
+                ->table('information_schema.columns')
+                ->where('table_schema', 'site')
+                ->where('table_name', 'design_kits')
+                ->pluck('column_name')
+                ->all()
+        );
 
         $valid = array_intersect_key($designKit, array_flip($columns));
         unset($valid['site_id']); // never let a caller rewrite the FK

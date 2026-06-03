@@ -116,9 +116,14 @@ class IndividualProfileController extends ApiController
         );
 
         if ($payload === null) {
-            // Resolve cache pointed at a now-deleted row. Forget the resolve
-            // entry so the next request rebuilds from scratch.
-            Cache::forget(CacheKeyGenerator::handleResolve($handleLc));
+            // Resolve cache pointed at a now-deleted row. rememberLocked wrote
+            // BOTH the primary resolve key and a longer-lived :stale twin, so
+            // forget both — clearing only the primary lets the SWR fast path
+            // resurrect the stale entry on the very next request, re-trigger
+            // this same null-payload path, and loop for the full stale TTL.
+            // Mirrors SiteCacheService::invalidateSitePayload's bustWithStale. (CCH-1)
+            $resolveKey = CacheKeyGenerator::handleResolve($handleLc);
+            Cache::deleteMultiple([$resolveKey, $resolveKey.':stale']);
             $this->logIfSlow($handleLc, '404-deleted-race', $startedAt);
 
             return $this->error('Not found.', 404);

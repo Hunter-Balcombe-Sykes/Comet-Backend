@@ -32,10 +32,19 @@
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\SiteCacheService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
+    // Flush the column-list cache so each test re-reads from the seeded
+    // information_schema mirror (not a stale previous-test result). The cache
+    // routes through CacheLockService::rememberLocked, which writes a :stale
+    // twin alongside the primary — clear both or SWR serves stale columns.
+    $colKey = CacheKeyGenerator::designKitColumns();
+    Cache::deleteMultiple([$colKey, $colKey.':stale']);
     setupUsersTable();
     setupSitesTable();
     setupDesignKitsTable();
@@ -213,4 +222,34 @@ it('strips site_id if a caller attempts to rewrite the FK', function () {
     $other = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $otherId)->first();
     expect($other)->toBeNull();
+});
+
+// TEST-8 / CACHE-1: a design-kit-only update busts the site cache TWICE:
+//   - Bust 1 (SUPPRESSED): execute([]) runs inside Site::withoutEvents, so the
+//             non-dirty save's afterCommit 'saved' event never reaches SiteObserver.
+//             Without the wrap this bust would fire BEFORE the design_kits write
+//             lands, busting (and rebuilding) the cache on pre-write state.
+//   - Bust 2: $site->touch() → dirty save → SiteObserver → invalidateSite. Also
+//             rotates updated_at so the public.profile:* key naturally orphans.
+//   - Bust 3: explicit invalidateSite() after writeDesignKit — the authoritative
+//             post-write invalidation.
+//
+// Dropping the withoutObservers wrap pushes the count back to 3; removing the
+// explicit bust 3 drops it to 1. Either regression fails this assertion.
+it('busts the site cache twice on a design-kit-only update via the HTTP endpoint', function () {
+    config(['partna.throttle.enabled' => false]);
+
+    $pro = createTenant('double-bust');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    $spy = $this->spy(SiteCacheService::class);
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', [
+            'design_kit' => ['color_accent' => '#ff0000'],
+        ])
+        ->assertOk();
+
+    // Bust 1 is suppressed (withoutObservers); busts 2 (touch) + 3 (explicit) remain.
+    $spy->shouldHaveReceived('invalidateSite')->times(2);
 });
