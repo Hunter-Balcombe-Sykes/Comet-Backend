@@ -644,13 +644,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — CI & Deploy
 
-- [ ] **#P3-06** `--force` in `post-update-cmd` silently overwrites customised published assets on every `composer update` — Lens: `ci-deploy`
+- [x] **#P3-06** `--force` in `post-update-cmd` silently overwrites customised published assets on every `composer update` — Lens: `ci-deploy`
     - Where: `composer.json:82–84`
     - What: `post-update-cmd` fires on every `composer update` or `composer require`. `--force` causes `artisan vendor:publish` to silently overwrite any customised published file. Production deploys use `composer install` (not `update`) so production is unaffected. Blast radius is local development: a developer who tunes a published config then adds a new package loses those changes without warning.
     - Fix: Remove `--force` from the `post-update-cmd` entry. Without it, `vendor:publish` skips files that already exist.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-07** `composer.json` PHP floor `^8.2` contradicts the `openspout` production dependency — Lens: `ci-deploy`
+- [x] **#P3-07** `composer.json` PHP floor `^8.2` contradicts the `openspout` production dependency — Lens: `ci-deploy`
     - Where: `composer.json` (`"php": "^8.2"`) · `composer.lock` (`openspout/openspout` v5.7.0 requires `~8.4.0 || ~8.5.0`)
     - What: CI runs PHP 8.4 so the lock is consistent and CI passes. Any developer or future CI matrix runner on PHP 8.2/8.3 hits a platform-requirement error with no explanation from `composer.json`. The manifest's `^8.2` claim is a false promise.
     - Fix: Update `"php": "^8.2"` to `"^8.4"` in `composer.json`'s `require` block. Run `composer update --lock`.
@@ -1299,7 +1299,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B20: Composer manifest cleanup (2 items — #P3-06, #P3-07) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P3-06`, `#P3-07`
 - Models: impl=haiku · review=sonnet
 - Rationale: Both are one-line changes to `composer.json`. One session, one file, no runtime impact.
