@@ -217,6 +217,21 @@ Schedule::command('partna:backfill-subdomain-kv', ['--all', '--queue'])
         ]);
     });
 
+// P2-14: daily watchdog for ExportUserDataJob rows orphaned in PROCESSING by SIGKILL.
+// failed() only fires on retry exhaustion, never on a hard kill, so a worker death
+// between markProcessing() and completion leaves the audit row stuck forever.
+Schedule::command('gdpr:sweep-stale-exports')
+    ->dailyAt('03:35')
+    ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — export audit table is tiny; completes in seconds.
+    ->runInBackground()
+    ->onFailure(function (?\Throwable $e = null): void {
+        \Illuminate\Support\Facades\Log::error('Scheduled task failed: gdpr:sweep-stale-exports', [
+            'exception' => $e ? get_class($e) : null,
+            'message' => $e?->getMessage(),
+        ]);
+    });
+
 // QUEUE-5: hourly watchdog for SiteMedia rows orphaned in PROCESSING.
 Schedule::command('media:cleanup-stuck-processing')
     ->hourly()

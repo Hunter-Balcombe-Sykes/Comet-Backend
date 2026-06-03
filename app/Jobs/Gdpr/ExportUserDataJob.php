@@ -65,6 +65,14 @@ class ExportUserDataJob implements ShouldQueue
         $audit->markProcessing();
 
         $tmpPath = null;
+        // Declared outside try so the catch block can reference $remotePath
+        // even when the exception originates in the post-upload steps.
+        $remotePath = null;
+        // Tracks whether the R2 put() completed so the catch block knows
+        // whether an orphaned object exists to clean up. Without this flag,
+        // a failure before put() would cause the catch to attempt a pointless
+        // (and potentially misleading) delete of a path that never existed.
+        $uploaded = false;
 
         try {
             // writeStreaming() drives the builder row-by-row so a tenant with
@@ -81,6 +89,12 @@ class ExportUserDataJob implements ShouldQueue
             if (is_resource($stream)) {
                 fclose($stream);
             }
+
+            // Flag set IMMEDIATELY after put() returns so the catch block can
+            // clean up the object if any subsequent step (signed URL, mail,
+            // markCompleted) throws. If put() itself throws, $uploaded stays
+            // false and no delete is attempted — there is nothing to delete.
+            $uploaded = true;
 
             $ttlDays = (int) config('partna.gdpr.signed_url_ttl_days', 7);
             $signedUrl = $disk->temporaryUrl($remotePath, now()->addDays($ttlDays));
@@ -118,6 +132,22 @@ class ExportUserDataJob implements ShouldQueue
                 'size' => $written['size'],
             ]);
         } catch (Throwable $e) {
+            // If the upload succeeded but a later step failed, the R2 object
+            // is orphaned at $remotePath. Delete it before marking failed so
+            // the next retry starts clean. Wrap in its own try/catch so a
+            // delete failure cannot mask the original exception.
+            if ($uploaded && $remotePath !== null) {
+                try {
+                    Storage::disk(config('partna.media_disk'))->delete($remotePath);
+                } catch (Throwable $deleteError) {
+                    Log::warning('ExportUserDataJob: failed to delete orphaned R2 object', [
+                        'audit_id' => $audit->id,
+                        'remote_path' => $remotePath,
+                        'error' => $deleteError->getMessage(),
+                    ]);
+                }
+            }
+
             $audit->markFailed($e->getMessage());
             Log::error('ExportUserDataJob failed', [
                 'audit_id' => $audit->id,
