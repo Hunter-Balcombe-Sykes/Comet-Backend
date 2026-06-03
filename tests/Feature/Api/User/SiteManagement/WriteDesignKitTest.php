@@ -136,6 +136,32 @@ function seedSiteWithEmptyKit(array $kitOverrides = []): string
     return $site->id;
 }
 
+it('creates the design_kits row when none exists (backfill gap)', function () {
+    // SCHEMA-1: sites created before the design_kits backfill (or via a trigger
+    // bypass — pg_restore, session_replication_role='replica') can be missing
+    // their 1:1 kit row. The production trigger trg_create_empty_design_kit
+    // does not exist under SQLite, so we reproduce the gap by seeding a site
+    // with NO kit row at all. A plain ->update() targets zero rows and returns
+    // success, silently discarding the user's design choices. updateOrInsert
+    // must create the row instead.
+    $user = User::factory()->create([
+        'display_name' => 'No Kit', 'handle' => 'nokit', 'handle_lc' => 'nokit',
+    ]);
+    $siteId = Site::factory()->create(['user_id' => $user->id])->id;
+
+    // Precondition: the row genuinely does not exist.
+    expect(DB::connection('pgsql')->table('site.design_kits')->where('site_id', $siteId)->exists())
+        ->toBeFalse();
+
+    invokeWriteDesignKit($siteId, ['color_accent' => '#abcabc']);
+
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $siteId)->first();
+
+    expect($row)->not->toBeNull();
+    expect($row->color_accent)->toBe('#abcabc');
+});
+
 it('persists only columns that exist on site.design_kits', function () {
     $siteId = seedSiteWithEmptyKit();
 

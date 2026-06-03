@@ -8,7 +8,7 @@ use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Services\Cache\SiteCacheService;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -100,12 +100,11 @@ class UpdateSiteAction
                                 'expires_at'    => now()->addDays($redirectDays),
                                 'created_at'    => now(),
                             ]);
-                        } catch (QueryException $e) {
-                            if ($e->getCode() !== '23505') {
-                                throw $e;
-                            }
+                        } catch (UniqueConstraintViolationException $e) {
                             // Alias row already exists — refresh lifecycle timestamps in case
                             // it was stale (e.g. a previous alias that expired and wasn't pruned yet).
+                            // LIFE-1: typed catch handles only 23505 by construction — no SQLSTATE
+                            // string-compare (Postgres-specific; getCode() is '23000' under SQLite).
                             SiteSubdomainAlias::query()
                                 ->where('site_id', $site->id)
                                 ->whereRaw('lower(subdomain) = ?', [strtolower((string) $site->subdomain)])
@@ -133,10 +132,8 @@ class UpdateSiteAction
                                 'created_at'      => now(),
                                 'updated_at'      => now(),
                             ]);
-                        } catch (QueryException $e) {
-                            if ($e->getCode() !== '23505') {
-                                throw $e;
-                            }
+                        } catch (UniqueConstraintViolationException $e) {
+                            // Old handle is already aliased for this user — nothing to do.
                         }
 
                         $professional->forceFill([
@@ -213,14 +210,12 @@ class UpdateSiteAction
             $site->fill($data);
             try {
                 $site->save();
-            } catch (QueryException $e) {
-                // If you have a unique index on subdomain, this is your final safety net.
-                if ($e->getCode() === '23505') {
-                    throw ValidationException::withMessages([
-                        'subdomain' => ['This subdomain is already taken.'],
-                    ]);
-                }
-                throw $e;
+            } catch (UniqueConstraintViolationException $e) {
+                // Final safety net for the unique index on subdomain — e.g. a
+                // concurrent rename that slipped past the pre-checks above.
+                throw ValidationException::withMessages([
+                    'subdomain' => ['This subdomain is already taken.'],
+                ]);
             }
 
             return $site->fresh();

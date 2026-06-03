@@ -132,12 +132,18 @@ class UserSiteController extends ApiController
                 ->table('site.design_kits')
                 ->where('site_id', $siteId)
                 ->lockForUpdate()
-                ->get(); // acquire the lock before writing
+                ->get(); // acquire the lock if the row exists (no-op when missing)
 
+            // SCHEMA-1: updateOrInsert (not update) so a missing kit row is
+            // created rather than silently no-op'd. The trigger
+            // trg_create_empty_design_kit guarantees a row for sites created
+            // through the app, but pre-cleanup sites that missed the backfill
+            // (or rows lost to a trigger bypass) would otherwise discard every
+            // save with an HTTP 200. On insert the FK is taken from the match
+            // attributes; $valid no longer carries site_id (stripped above).
             DB::connection('pgsql')
                 ->table('site.design_kits')
-                ->where('site_id', $siteId)
-                ->update($valid);
+                ->updateOrInsert(['site_id' => $siteId], $valid);
         });
     }
 
