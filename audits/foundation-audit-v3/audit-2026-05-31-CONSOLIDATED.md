@@ -368,7 +368,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Change the default to derive from `config('app.url')`: `rtrim(config('app.url'), '/').'/api/analytics'`. Add `'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT'` to `EnvCheckService::RECOMMENDED`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-30** Generic exception fallback suppresses `abort(4xx, message)` messages in production — Lens: `bootstrap`
+- [x] **#P2-30** Generic exception fallback suppresses `abort(4xx, message)` messages in production — Lens: `bootstrap`
     - Where: `bootstrap/app.php:117–131` (the `else` branch of the exception renderer)
     - What: The renderer handles `AccessDeniedHttpException` (403 from policies) explicitly and preserves `$e->getMessage()`. A plain `abort(403, 'reason')` throws a base `HttpException(403)` which is NOT an `AccessDeniedHttpException` and falls to the `else` block where `config('app.debug')` gates the message — returning "An error occurred" in production. CI blocks inline `abort()` in controllers, limiting exposure, but the inconsistency is latent.
     - Fix: In the `else` branch, check whether `$e instanceof HttpException` with status < 500 and has a non-empty message; if so, pass the message through rather than substituting "An error occurred." Alternatively, promote call sites to use the `HttpStatusCodeInterface` domain-exception pattern.
@@ -448,13 +448,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Security Headers
 
-- [ ] **#P2-40** Web-route exception responses bypass `SecureHeaders` — the QR-code 404/500 ships un-headered HTML — Lens: `security-headers`
+- [x] **#P2-40** Web-route exception responses bypass `SecureHeaders` — the QR-code 404/500 ships un-headered HTML — Lens: `security-headers`
     - Where: `bootstrap/app.php:88–91` (exception render gate) · `routes/web.php:6–8` · `app/Http/Controllers/Api/PublicSite/QrCodeController.php:25–27`
     - What: The `withExceptions` render closure returns `null` for non-API routes, delegating to Laravel's default HTML renderer which carries no `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, CSP, or HSTS header. The only non-API route is the QR code SVG; every `abort(404)` from that controller produces an un-headered response.
     - Fix: Remove or restructure the `if (! $request->is('api/*')) { return null; }` early return so `SecureHeaders::apply()` is called for non-API error responses. Build a minimal error response and pass it through `SecureHeaders::apply($response, $request)` before returning.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-41** Exception-path API responses carry no `Cache-Control` — browsers may heuristically cache 4xx errors — Lens: `security-headers`
+- [x] **#P2-41** Exception-path API responses carry no `Cache-Control` — browsers may heuristically cache 4xx errors — Lens: `security-headers`
     - Where: `bootstrap/app.php:87–158` (exception render closure) · `app/Http/Middleware/AddPublicCacheHeaders.php:32–68`
     - What: When a controller throws, `AddPublicCacheHeaders::handle()` post-response logic never executes. The exception handler constructs `response()->json(…)` with no `Cache-Control` header and only calls `SecureHeaders::apply()`. RFC 7234 allows browsers to heuristically cache responses without explicit directives. A 404 from a freshly-created resource, or a 403 from a state that has since changed, could be replayed from browser cache. Authenticated responses are particularly affected: the `private, no-store` guard that `AddPublicCacheHeaders` normally sets for `Authorization`-bearing requests is absent on error responses.
     - Fix: Inside the `withExceptions` render closure, immediately before `SecureHeaders::apply()`, add `$response->headers->set('Cache-Control', 'private, no-store, max-age=0'); $response->headers->set('Pragma', 'no-cache');`. (Note: `AddPublicCacheHeaders::mergeVary()` is `private` and cannot be called from here — use direct `headers->set()`.)
@@ -608,7 +608,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add inline comments clarifying that the enforcement mechanism is `CAPABILITY_GATE_MAP` (not this field), and that `CAPABILITY_GATE_MAP = []` is intentionally empty for the standalone-individual model. Optionally add `@internal` PHPDoc tag.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-02** `AppServiceProvider` boot guards cover six misconfigurations but not `APP_DEBUG=true` — Lens: `bootstrap`
+- [x] **#P3-02** `AppServiceProvider` boot guards cover six misconfigurations but not `APP_DEBUG=true` — Lens: `bootstrap`
     - Where: `app/Providers/AppServiceProvider.php:94–140`
     - What: The exception renderer gates full exception messages on `config('app.debug')`. If `APP_DEBUG=true` ships to production, every uncaught exception leaks raw Laravel exception text, file paths, and status codes to API consumers until noticed. Six existing guards cover JWKS, JWT, throttle, Nightwatch, email hook secret, and public domain. A seventh for debug mode follows the same one-liner pattern.
     - Fix: Add `if (app()->isProduction() && config('app.debug')) { throw new \RuntimeException('APP_DEBUG must be false in production.'); }` after the existing guard block.
@@ -1161,7 +1161,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B14: Exception response handling (4 items — #P2-30, #P2-40, #P2-41, #P3-02) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-30`, `#P2-40`, `#P2-41`, `#P3-02`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All four are in `bootstrap/app.php` and `app/Providers/AppServiceProvider.php`. One session, two files, closely related concerns (exception rendering, missing headers, debug guard).
