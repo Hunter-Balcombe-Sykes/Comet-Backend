@@ -43,6 +43,15 @@ class SiteCacheService
      * Returns null (with a short-lived sentinel cached) when the subdomain has no
      * published site in the view.
      *
+     * LEGACY PATH NOTE (audit finding API-2, safe subset):
+     * This method hand-assembles a raw array for GET /api/public/site and
+     * GET /api/public/site-by-slug (served by PublicSiteController). Those routes
+     * bypass the Resource layer enforced by the newer IndividualProfileController →
+     * IndividualProfileResource path. They remain live because the external Astro
+     * front-end (partna-pages) and any mobile clients may still consume them.
+     * Decommissioning requires confirming with the Astro Worker / front-end that
+     * these routes are no longer called before removing them.
+     *
      * @return array<string, mixed>|null
      */
     protected function buildPayloadFromDb(string $subdomain, string $key): ?array
@@ -88,7 +97,6 @@ class SiteCacheService
             'published' => true,
             'site' => $site,
             'professional' => $payload['professional'] ?? null,
-            'theme' => $payload['theme'] ?? null,
             'services' => $services,
             'links' => $links,
             'sections' => $sections,

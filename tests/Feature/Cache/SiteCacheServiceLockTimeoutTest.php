@@ -35,7 +35,6 @@ function minimalCachedPayload(): array
         'blocks' => [],
         'site' => null,
         'professional' => null,
-        'theme' => null,
         'legal' => null,
         'store' => null,
         'selected_products' => [],
