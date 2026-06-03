@@ -25,15 +25,19 @@ it('ships only the allowlisted columns and passes non-design settings through', 
 
     $array = (new SiteResource($site))->resolve();
 
+    // booking_mode is promoted to a top-level key when present in settings
+    // (API-1) so the dashboard booking editor and the dedicated
+    // updateBookingSettings endpoint share one response shape.
     expect(array_keys($array))->toEqual([
         'id', 'user_id', 'subdomain', 'skeleton_id', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings',
-        'created_at', 'updated_at',
+        'created_at', 'updated_at', 'booking_mode',
     ]);
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
     expect($array['skeleton_id'])->toBe('skeleton-2');
+    expect($array['booking_mode'])->toBe('manual');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.
     expect($array['settings']->booking_mode)->toBe('manual');
@@ -51,4 +55,7 @@ it('handles empty settings as {} not []', function () {
     $array = (new SiteResource($site))->resolve();
 
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
+    // booking_mode / manual_booking_url are omitted (not null) when absent from settings.
+    expect($array)->not->toHaveKey('booking_mode');
+    expect($array)->not->toHaveKey('manual_booking_url');
 });
