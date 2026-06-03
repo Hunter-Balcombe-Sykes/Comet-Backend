@@ -73,9 +73,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
-- P2 Medium: 0 of 10 complete
-- P3 Low: 0 of 15 complete
+- P1 High: 3 of 3 complete
+- P2 Medium: 6 of 10 complete
+- P3 Low: 3 of 15 complete
 
 ---
 
@@ -173,7 +173,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SCHEMA-1** · P2 · S — `writeDesignKit()` silently discards values when no `site.design_kits` row exists
+- [x] **#SCHEMA-1** · P2 · S — `writeDesignKit()` silently discards values when no `site.design_kits` row exists
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:274–284 (`writeDesignKit` private method)
     - **Affects:** Professionals updating design settings for a site whose `design_kits` row is missing (backfill race on sites created before migration `20260527070000`, trigger bypass via `session_replication_role = 'replica'` or `pg_restore`, or manual DB operations). The dashboard returns HTTP 200 with no indication the write was a no-op.
     - **Effort:** S (~0.5–1h)
@@ -198,7 +198,7 @@
         });
         ```
 
-- [ ] **#LIFE-1** · P2 · S — `UpdateSiteAction` catches generic `QueryException` and string-compares SQLSTATE codes instead of `UniqueConstraintViolationException`
+- [x] **#LIFE-1** · P2 · S — `UpdateSiteAction` catches generic `QueryException` and string-compares SQLSTATE codes instead of `UniqueConstraintViolationException`
     - **Where:** app/Services/Site/UpdateSiteAction.php:103–105, 136–138, 216–219 (three catch blocks)
     - **Affects:** The subdomain rename flow — alias creation, handle alias creation, and the final site save unique guard. Note: commit `8f992afd docs: check off LIFE-1, SEC-1, SEC-2 in core audit` marked this done, but grep confirms the `getCode() !== '23505'` pattern is still present on all three lines as of the current source.
     - **Effort:** S (~0.5–1h)
@@ -311,7 +311,7 @@
         }
         ```
 
-- [ ] **#TEST-4** · P2 · M — `UpdateSiteRequest` and `StaffUpdateSiteRequest` validation rules are structurally tested but functionally untested (no 422 on bad input)
+- [x] **#TEST-4** · P2 · M — `UpdateSiteRequest` and `StaffUpdateSiteRequest` validation rules are structurally tested but functionally untested (no 422 on bad input)
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php; app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php
     - **Affects:** Dashboard users and staff submitting invalid design-kit values (non-hex colours, unknown skeleton IDs, reserved subdomains). A silently dropped validation rule lets malformed data pass through; the structural drift test (`DesignKitRequestDriftTest`) would not catch it because both the column and the rule would be absent simultaneously.
     - **Effort:** M (~2–4h)
