@@ -148,7 +148,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Wrap the body of `tryCreateSite()` in a nested `DB::transaction()` — Laravel translates nested calls to `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`, isolating the unique-violation from the outer transaction. Keep the existing `catch (QueryException $e)` to handle the savepoint rollback. Add a Pest feature test against pgsql (or a stub throwing `23505`) to prevent regression.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-11** Handle-availability and login-identifier endpoints open to automated enumeration — Lens: `rate-limiting`
+- [x] **#P1-11** Handle-availability and login-identifier endpoints open to automated enumeration — Lens: `rate-limiting`
     - Where: `routes/api.php` — `POST /public/signup/availability` · `POST /public/auth/resolve-identifier`
     - What: Both POST routes sit behind only `throttle:public-site` (60 req/min per IP). Every other public mutation (enquiry, subscribe, waitlist, leads) already carries `bot.token:*`. The availability endpoint leaks which handles are taken; the identifier resolver leaks which email addresses have registered accounts — both usable for enumeration and spear-phishing targeting at 3,600 probes/hour from a single source.
     - Fix: Add `bot.token:signup` middleware to `POST /public/signup/availability` and `bot.token:login-identifier` to `POST /public/auth/resolve-identifier`. Effective only once `BOT_PROTECTION_MODE` is set to `shadow` or `enforce` (see #P1-12).
@@ -394,13 +394,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Tenant Isolation
 
-- [ ] **#P2-33** `QrCodeController` generates QR codes for unpublished or suspended profiles without any publication check — Lens: `idor`
+- [x] **#P2-33** `QrCodeController` generates QR codes for unpublished or suspended profiles without any publication check — Lens: `idor`
     - Where: `app/Http/Controllers/Api/PublicSite/QrCodeController.php:16–27` · `routes/web.php:6–8`
     - What: The route carries only `throttle:public-site`. `QrCodeController::svg` resolves any `User` by UUID and checks only that `$professional->partna_url` is non-null. It does not check `site->is_published` or `professional->status`. Every other public-facing data endpoint goes through `PublicSiteResolver::resolvePublishedSite` which requires both `is_published = true` and `status = 'active'`.
     - Fix: Load the professional's Site and add `if (!$site || !$site->is_published) { abort(404); }`. Optionally also check `$professional->status === 'active'`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-34** `PublicSiteController::showByHeader` reads raw `X-Site-Subdomain` header without length or character validation — Lens: `idor`
+- [x] **#P2-34** `PublicSiteController::showByHeader` reads raw `X-Site-Subdomain` header without length or character validation — Lens: `idor`
     - Where: `app/Http/Controllers/Api/PublicSite/PublicSiteController.php:52–76`
     - What: `show()` passes through `PublicSiteShowRequest` which enforces `max:63` and `regex:/^[a-z0-9-]+$/i`. `showByHeader()` accepts a plain `Request` and performs only a null/is-string guard before passing the value directly into `SiteCacheService::getPublicSitePayload()`. A stream of random 4 KB strings produces a cache-key explosion consuming Redis memory. At 10k-scale with the Worker calling this endpoint on every cache miss, even a small proportion of garbage headers causes measurable cache churn.
     - Fix: Before the `strtolower(trim(…))` call, add `strlen($subdomain) > 63 → 400` and `preg_match('/^[a-z0-9-]+$/i', $subdomain) || 400`. Extract the shared validation into a private method reused by both `show()` and `showByHeader()`.
@@ -464,13 +464,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Rate Limiting & CORS
 
-- [ ] **#P2-42** Public document download throttled only by global IP bucket — no per-document rate control — Lens: `rate-limiting`
+- [x] **#P2-42** Public document download throttled only by global IP bucket — no per-document rate control — Lens: `rate-limiting`
     - Where: `routes/api.php` (`GET /public/documents/{document}/download`)
     - What: The route uses `whereUuid('document')` preventing random enumeration, but a legitimately obtained UUID has unlimited download throughput within the 60/min IP window. The controller 302-redirects to a short-TTL R2 presigned URL, so cost is in R2 egress rather than Laravel CPU.
     - Fix: Add a `document-download` rate limiter in `AppServiceProvider::configureRateLimiting()` keyed on `$request->ip().':doc:'.$request->route('document')` (e.g., 10/UUID/IP/hour). Apply `->middleware('throttle:document-download')` alongside `throttle:public-site`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-43** Dead Shopify CORS patterns remain after the standalone strip — unnecessary allowlist expansion — Lens: `rate-limiting`
+- [x] **#P2-43** Dead Shopify CORS patterns remain after the standalone strip — unnecessary allowlist expansion — Lens: `rate-limiting`
     - Where: `config/cors.php` (`allowed_origins_patterns` array)
     - What: The two Shopify patterns (`#^https://admin\.shopify\.com$#i` and `#^https://[a-z0-9-]+\.myshopify\.com$#i`) were not removed during the 2026-05-22 standalone strip. No Shopify webhook handlers or embedded-app controllers exist in `app/`; `supports_credentials: false` prevents credential forwarding but the allowlist still permits Shopify-embedded scripts to read unauthenticated API responses and trigger preflight-free simple requests.
     - Fix: Remove the two Shopify pattern entries from `allowed_origins_patterns`. Verify `SecureHeaders::originAllowed()` (which reads the same array) passes CI after removal.
@@ -1255,7 +1255,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B18: Public endpoint hardening (5 items — #P1-11, #P2-33, #P2-34, #P2-42, #P2-43) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-11`, `#P2-33`, `#P2-34`, `#P2-42`, `#P2-43`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All five harden public-facing endpoints — two add bot-token middleware, one adds a publication guard, one adds header validation, one adds a per-document rate limiter, and one removes dead CORS patterns. All changes are in `routes/api.php`, two controllers, and `config/cors.php` — one coherent session.
