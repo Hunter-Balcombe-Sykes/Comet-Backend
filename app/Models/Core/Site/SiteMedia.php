@@ -44,11 +44,30 @@ class SiteMedia extends BaseModel
 
     public const PURPOSE_PLACEHOLDER = 'placeholder';
 
+    /**
+     * Pool values accepted as a gallery-list filter on GET /api/images, and the
+     * pools CacheKeyGenerator::siteImagesViewVariants() enumerates for cache busting.
+     * Single source of truth — UserUploadController::index and the cache enumerator
+     * both reference this so the bust-key space can never drift from accepted input.
+     * Deliberately excludes POOL_DOCUMENTS / POOL_DESIGN (not gallery-listable).
+     *
+     * @var list<string>
+     */
+    public const GALLERY_POOLS = [self::POOL_GALLERY, self::POOL_CONTENT];
+
     public const MEDIA_TYPE_IMAGE = 'image';
 
     public const MEDIA_TYPE_VIDEO = 'video';
 
     public const MEDIA_TYPE_DOCUMENT = 'document';
+
+    /**
+     * media_type filter inputs accepted on GET /api/images. 'all' is a filter
+     * sentinel meaning "no type filter", not a stored media_type — hence the literal.
+     *
+     * @var list<string>
+     */
+    public const MEDIA_TYPE_FILTERS = [self::MEDIA_TYPE_IMAGE, self::MEDIA_TYPE_VIDEO, 'all'];
 
     public const PROCESSING_STATE_PENDING = 'pending';
 

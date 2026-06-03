@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\User\Uploads;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Models\Core\Site\SiteMedia;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
@@ -28,8 +30,8 @@ use Illuminate\Support\Str;
 // actions that don't share the upload pipeline.
 class UserUploadController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(
         private readonly ImageVariantService $mediaService,
@@ -106,12 +108,12 @@ class UserUploadController extends ApiController
         $site = $this->currentSite($pro);
 
         $rawMediaType = strtolower(trim((string) request()->input('media_type', 'image')));
-        $mediaTypeFilter = in_array($rawMediaType, ['image', 'video', 'all'], true) ? $rawMediaType : 'image';
+        $mediaTypeFilter = in_array($rawMediaType, SiteMedia::MEDIA_TYPE_FILTERS, true) ? $rawMediaType : 'image';
 
         $pool = null;
         if (request()->has('pool')) {
             $candidate = strtolower(trim((string) request()->input('pool')));
-            if (in_array($candidate, ['gallery', 'content'], true)) {
+            if (in_array($candidate, SiteMedia::GALLERY_POOLS, true)) {
                 $pool = $candidate;
             }
         }
@@ -132,14 +134,14 @@ class UserUploadController extends ApiController
         // within one poll cycle without holding a stampede on the DB.
         if (! empty($ids)) {
             $idsHash = substr(sha1(implode(',', $ids)), 0, 12);
-            $cacheKey = \App\Services\Cache\CacheKeyGenerator::siteImagesPolling($site->id, $pool, $mediaTypeFilter, $idsHash);
+            $cacheKey = CacheKeyGenerator::siteImagesPolling($site->id, $pool, $mediaTypeFilter, $idsHash);
             $ttl = 5;
         } else {
-            $cacheKey = \App\Services\Cache\CacheKeyGenerator::siteImagesView($site->id, $pool, $mediaTypeFilter);
+            $cacheKey = CacheKeyGenerator::siteImagesView($site->id, $pool, $mediaTypeFilter);
             $ttl = 30;
         }
 
-        $payload = app(\App\Services\Cache\CacheLockService::class)->rememberLocked(
+        $payload = app(CacheLockService::class)->rememberLocked(
             $cacheKey,
             $ttl,
             fn () => $this->buildIndexPayload($site->id, $pool, $mediaTypeFilter, $ids),

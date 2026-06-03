@@ -2,6 +2,8 @@
 
 namespace App\Services\Cache;
 
+use App\Models\Core\Site\SiteMedia;
+
 // V2: Central cache key naming convention. All cache keys across the application flow through this class.
 //
 // ONE-SITE-PER-PROFESSIONAL ASSUMPTION: Many keys below are namespaced by userId rather than siteId.
@@ -115,16 +117,19 @@ class CacheKeyGenerator
 
     /**
      * Pool/media_type tuples enumerated by invalidateSite to bust every
-     * filtered-view variant. Keep this aligned with the filter-input space
-     * accepted in UserUploadController::index.
+     * filtered-view variant. Alignment with UserUploadController::index is
+     * now enforced by shared constants (SiteMedia::GALLERY_POOLS and
+     * SiteMedia::MEDIA_TYPE_FILTERS) and locked by CacheKeyGeneratorTest.
      *
      * @return array<int, array{0: ?string, 1: string}>
      */
     public static function siteImagesViewVariants(): array
     {
         $variants = [];
-        foreach ([null, 'gallery', 'content'] as $pool) {
-            foreach (['image', 'video', 'all'] as $mediaType) {
+        // null pool = "all pools" (no filter); the rest mirror SiteMedia::GALLERY_POOLS —
+        // the same pool inputs UserUploadController::index accepts.
+        foreach (array_merge([null], SiteMedia::GALLERY_POOLS) as $pool) {
+            foreach (SiteMedia::MEDIA_TYPE_FILTERS as $mediaType) {
                 $variants[] = [$pool, $mediaType];
             }
         }
