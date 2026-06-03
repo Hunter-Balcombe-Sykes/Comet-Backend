@@ -23,6 +23,13 @@
 --   8. Recreate the two views without any theme columns / JOIN.
 -- =====================================================================
 
+-- Atomic: every statement below is transaction-safe (no CONCURRENTLY, no
+-- ALTER TYPE ADD VALUE), so wrapping the whole sequence in BEGIN/COMMIT means
+-- a mid-migration failure rolls back to the pre-migration schema instead of
+-- leaving the public-site views / theme_id column / site.themes table dropped
+-- with no clean recovery path.
+BEGIN;
+
 -- 1. Drop the two views that depend on site.sites.theme_id and site.themes.
 --    They're recreated at the bottom of this migration without those refs.
 DROP VIEW IF EXISTS site.all_site_data;
@@ -42,6 +49,10 @@ DROP FUNCTION IF EXISTS set_default_theme_for_site CASCADE;
 -- 4. Drop the themes catalog table outright. CASCADE removes any remaining
 --    dependencies (indexes, the now-orphaned sites_theme_fk if it still
 --    lingers, etc.).
+--
+-- Rehearsed against development 2026-06-03. site.themes confirmed empty
+-- (0 rows) before drop. Rollback: restore from backup (DROP TABLE/COLUMN
+-- are irreversible).
 DROP TABLE IF EXISTS site.themes CASCADE;
 
 -- 5. Strip the legacy `settings.design.*` JSONB sub-key from every site row.
@@ -368,3 +379,5 @@ BEGIN
     END IF;
 END;
 $$;
+
+COMMIT;

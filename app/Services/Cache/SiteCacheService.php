@@ -43,6 +43,15 @@ class SiteCacheService
      * Returns null (with a short-lived sentinel cached) when the subdomain has no
      * published site in the view.
      *
+     * LEGACY PATH NOTE (audit finding API-2, safe subset):
+     * This method hand-assembles a raw array for GET /api/public/site and
+     * GET /api/public/site-by-slug (served by PublicSiteController). Those routes
+     * bypass the Resource layer enforced by the newer IndividualProfileController →
+     * IndividualProfileResource path. They remain live because the external Astro
+     * front-end (partna-pages) and any mobile clients may still consume them.
+     * Decommissioning requires confirming with the Astro Worker / front-end that
+     * these routes are no longer called before removing them.
+     *
      * @return array<string, mixed>|null
      */
     protected function buildPayloadFromDb(string $subdomain, string $key): ?array
@@ -57,8 +66,8 @@ class SiteCacheService
             // Negative-cache briefly to reduce DB load from bot scans.
             // :stale gets a longer window so the next bot-burst still hits cache
             // even if the primary just evicted.
-            Cache::put($key, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS));
-            Cache::put($staleKey, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
+            Cache::put($key, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS));
+            Cache::put($staleKey, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
 
             return null;
         }
@@ -88,7 +97,6 @@ class SiteCacheService
             'published' => true,
             'site' => $site,
             'professional' => $payload['professional'] ?? null,
-            'theme' => $payload['theme'] ?? null,
             'services' => $services,
             'links' => $links,
             'sections' => $sections,
@@ -546,6 +554,16 @@ class SiteCacheService
             foreach (self::bustWithStale(CacheKeyGenerator::publicSitePayload(strtolower($aliasSubdomain))) as $aliasKey) {
                 $keys[] = $aliasKey;
             }
+        }
+
+        // Bust handle.resolve so the timestamp-keyed public.profile:* key rotates
+        // on the next request — without this, the 30s resolve cache continues
+        // serving the old updated_at_ts and the new key is never constructed.
+        $handle = strtolower((string) ($site->subdomain ?? ''));
+        if ($handle !== '') {
+            $resolveKey = CacheKeyGenerator::handleResolve($handle);
+            $keys[] = $resolveKey;
+            $keys[] = $resolveKey.':stale';
         }
 
         Cache::deleteMultiple(array_values(array_unique($keys)));

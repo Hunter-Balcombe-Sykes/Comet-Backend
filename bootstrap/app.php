@@ -108,9 +108,18 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         // Handle API exceptions with JSON responses
         $exceptions->render(function (Throwable $e, Request $request) {
-            // Only handle API routes
+            // For non-API routes (QR-code SVG path), apply security headers on
+            // HttpException responses — returning null for other exception types
+            // lets Laravel's default renderer produce the correct JSON/HTTP status
+            // (e.g. ValidationException → 422 when Accept: application/json) (#P2-40).
             if (! $request->is('api/*')) {
-                return null;
+                if (! $e instanceof HttpException) {
+                    return null;
+                }
+                $nonApiResponse = response('', $e->getStatusCode());
+                SecureHeaders::apply($nonApiResponse, $request);
+
+                return $nonApiResponse;
             }
 
             $response = null;
@@ -195,10 +204,12 @@ return Application::configure(basePath: dirname(__DIR__))
                     ]);
                 }
 
-                // Don't expose internal errors in production
-                $message = config('app.debug')
+                // Pass through non-empty 4xx messages — these come from intentional
+                // abort() calls with explicit messaging. Only 5xx errors get the
+                // generic fallback in production to prevent internal detail leakage (#P2-30).
+                $message = ($e instanceof HttpException && $statusCode < 500 && $e->getMessage() !== '')
                     ? $e->getMessage()
-                    : 'An error occurred';
+                    : (config('app.debug') ? $e->getMessage() : 'An error occurred');
 
                 $response = response()->json([
                     'message' => $message,
@@ -210,6 +221,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // AND CORS. Without this, error responses ship un-headered because the
             // exception renderer runs after middleware has unwound (#P2-40, #P3-11).
             if ($response !== null) {
+                // Prevent browsers from heuristically caching error responses — the
+                // AddPublicCacheHeaders middleware never runs on the exception path (#P2-41).
+                $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+                $response->headers->set('Pragma', 'no-cache');
                 SecureHeaders::apply($response, $request);
             }
 

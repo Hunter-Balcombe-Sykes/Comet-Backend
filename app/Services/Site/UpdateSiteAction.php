@@ -8,7 +8,7 @@ use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Services\Cache\SiteCacheService;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,10 +18,6 @@ use Illuminate\Validation\ValidationException;
 // vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
-    // Days between allowed subdomain changes. Mirrored in UserSelfController::show
-    // when computing subdomain_change_available_at for the /me payload.
-    public const SUBDOMAIN_COOLDOWN_DAYS = 30;
-
     /**
      * Updates the given professional's site.
      *
@@ -46,6 +42,47 @@ class UpdateSiteAction
         // IMPORTANT: never pass non-column fields into fill()
         unset($data['force_publish']);
 
+        // Hoist pure-PHP work out of the transaction to keep the lock window narrow.
+
+        // Merge settings for PATCH semantics (don't overwrite the whole JSON).
+        // settings.design.* is no longer accepted — the FormRequest rejects
+        // those keys at validation, but strip them here too as a belt-and-
+        // braces defence against any service-layer caller bypassing the
+        // FormRequest (job replays, internal tools, etc.).
+        if (array_key_exists('settings', $data)) {
+            $existing = is_array($site->settings) ? $site->settings : [];
+            $incoming = is_array($data['settings']) ? $data['settings'] : [];
+            // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
+            unset($incoming['selected_products']);
+            // Skeleton-system cleanup: settings.design.* is dead. Any
+            // incoming `design` sub-key gets dropped on the floor.
+            unset($incoming['design']);
+            $merged = array_replace_recursive($existing, $incoming);
+            // Same guard on the merged result — old design data on disk
+            // was already stripped by the cleanup migration, but if any
+            // straggler resurfaced via a write race it dies here.
+            unset($merged['design']);
+
+            $data['settings'] = $merged;
+        }
+
+        // If publishing, enforce completeness unless staff force_publish is allowed + true.
+        // Throwing before the transaction is strictly better — no transaction to roll back
+        // on a validation failure.
+        if (($data['is_published'] ?? null) === true) {
+            $canBypass = $allowForcePublish && $forcePublish;
+
+            if (! $canBypass) {
+                // Must have display name
+                if (empty($professional->display_name)) {
+                    throw ValidationException::withMessages([
+                        'is_published' => ['Cannot publish: professional must have a display name.'],
+                    ]);
+                }
+
+            }
+        }
+
         return DB::transaction(function () use ($professional, $site, $data, $options, $allowForcePublish, $forcePublish, $allowSubdomainOverride): Site {
             if (array_key_exists('subdomain', $data)) {
                 $incoming = strtolower($data['subdomain']);
@@ -55,7 +92,9 @@ class UpdateSiteAction
                     unset($data['subdomain']);
                 } else {
                     if (! $allowSubdomainOverride && $site->subdomain_changed_at) {
-                        $nextAllowed = $site->subdomain_changed_at->copy()->addDays(self::SUBDOMAIN_COOLDOWN_DAYS);
+                        // Days between allowed subdomain changes; mirrored in UserSelfController::show.
+                        $cooldownDays = (int) config('partna.handle.subdomain_cooldown_days', 30);
+                        $nextAllowed = $site->subdomain_changed_at->copy()->addDays($cooldownDays);
 
                         if (Carbon::now()->lt($nextAllowed)) {
                             throw ValidationException::withMessages([
@@ -100,12 +139,11 @@ class UpdateSiteAction
                                 'expires_at'    => now()->addDays($redirectDays),
                                 'created_at'    => now(),
                             ]);
-                        } catch (QueryException $e) {
-                            if ($e->getCode() !== '23505') {
-                                throw $e;
-                            }
+                        } catch (UniqueConstraintViolationException $e) {
                             // Alias row already exists — refresh lifecycle timestamps in case
                             // it was stale (e.g. a previous alias that expired and wasn't pruned yet).
+                            // LIFE-1: typed catch handles only 23505 by construction — no SQLSTATE
+                            // string-compare (Postgres-specific; getCode() is '23000' under SQLite).
                             SiteSubdomainAlias::query()
                                 ->where('site_id', $site->id)
                                 ->whereRaw('lower(subdomain) = ?', [strtolower((string) $site->subdomain)])
@@ -133,10 +171,8 @@ class UpdateSiteAction
                                 'created_at'      => now(),
                                 'updated_at'      => now(),
                             ]);
-                        } catch (QueryException $e) {
-                            if ($e->getCode() !== '23505') {
-                                throw $e;
-                            }
+                        } catch (UniqueConstraintViolationException $e) {
+                            // Old handle is already aliased for this user — nothing to do.
                         }
 
                         $professional->forceFill([
@@ -171,56 +207,17 @@ class UpdateSiteAction
                 }
             }
 
-            // Merge settings for PATCH semantics (don't overwrite the whole JSON).
-            // settings.design.* is no longer accepted — the FormRequest rejects
-            // those keys at validation, but strip them here too as a belt-and-
-            // braces defence against any service-layer caller bypassing the
-            // FormRequest (job replays, internal tools, etc.).
-            if (array_key_exists('settings', $data)) {
-                $existing = is_array($site->settings) ? $site->settings : [];
-                $incoming = is_array($data['settings']) ? $data['settings'] : [];
-                // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
-                unset($incoming['selected_products']);
-                // Skeleton-system cleanup: settings.design.* is dead. Any
-                // incoming `design` sub-key gets dropped on the floor.
-                unset($incoming['design']);
-                $merged = array_replace_recursive($existing, $incoming);
-                // Same guard on the merged result — old design data on disk
-                // was already stripped by the cleanup migration, but if any
-                // straggler resurfaced via a write race it dies here.
-                unset($merged['design']);
-
-                $data['settings'] = $merged;
-            }
-
-            // If publishing, enforce completeness unless staff force_publish is allowed + true
-            if (($data['is_published'] ?? null) === true) {
-                $canBypass = $allowForcePublish && $forcePublish;
-
-                if (! $canBypass) {
-                    // Must have display name
-                    if (empty($professional->display_name)) {
-                        throw ValidationException::withMessages([
-                            'is_published' => ['Cannot publish: professional must have a display name.'],
-                        ]);
-                    }
-
-                }
-            }
-
             // Future: staff-only overrides could go here (options['allow_force_publish'] etc.)
 
             $site->fill($data);
             try {
                 $site->save();
-            } catch (QueryException $e) {
-                // If you have a unique index on subdomain, this is your final safety net.
-                if ($e->getCode() === '23505') {
-                    throw ValidationException::withMessages([
-                        'subdomain' => ['This subdomain is already taken.'],
-                    ]);
-                }
-                throw $e;
+            } catch (UniqueConstraintViolationException $e) {
+                // Final safety net for the unique index on subdomain — e.g. a
+                // concurrent rename that slipped past the pre-checks above.
+                throw ValidationException::withMessages([
+                    'subdomain' => ['This subdomain is already taken.'],
+                ]);
             }
 
             return $site->fresh();

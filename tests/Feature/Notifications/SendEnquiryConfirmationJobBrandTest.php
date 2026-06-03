@@ -62,6 +62,22 @@ it('sends a brand-resolved enquiry confirmation', function () {
     expect($row->confirmation_sent_at)->not->toBeNull();
 });
 
+it('stamps confirmation_sent_at under the lock before the send, so a failed send is not retried into a double-send', function () {
+    [, , $enquiryId] = makeConfirmableBrandEnquiry();
+
+    // Simulate a mail-provider hiccup. The idempotency flag is claimed atomically
+    // under the lockForUpdate transaction, so it must already be committed before
+    // the send is attempted — a Horizon retry then bails at the guard instead of
+    // delivering a second confirmation. (TXN-1)
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
+
+    expect(fn () => (new SendEnquiryConfirmationJob($enquiryId))->handle())
+        ->toThrow(RuntimeException::class);
+
+    $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
+    expect($row->confirmation_sent_at)->not->toBeNull();
+});
+
 it('falls back to the Partna brand (and still sends + logs) when resolution throws', function () {
     Mail::fake();
     [, $site, $enquiryId] = makeConfirmableBrandEnquiry();

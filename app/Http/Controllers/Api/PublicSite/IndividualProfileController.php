@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\Log;
  *   - Handle not found
  *
  * Caching (audit Phase G P3):
- *   1. handle.resolve:{handle}     short-TTL (30 s) Redis map of
+ *   1. handle.resolve:{handle}     short-TTL (default 30 s, config-driven) Redis map of
  *                                  handle → {pro_id, site_id, updated_at_ts}.
  *                                  Skipping it would cost two DB queries on
  *                                  every cache hit; with it the hot path is
@@ -47,13 +48,6 @@ use Illuminate\Support\Facades\Log;
  */
 class IndividualProfileController extends ApiController
 {
-    /** Resolve-cache TTL in seconds — short window to absorb traffic without
-     * needing mutation-driven invalidation. */
-    private const RESOLVE_CACHE_TTL = 30;
-
-    /** Slow-request threshold; anything above logs a warning for Nightwatch. */
-    private const SLOW_REQUEST_THRESHOLD_MS = 1_000;
-
     public function __construct(
         private readonly CacheLockService $cache,
         private readonly IndividualProfilePayloadBuilder $builder,
@@ -74,8 +68,8 @@ class IndividualProfileController extends ApiController
         // caching means enumeration spikes don't repeatedly query for
         // non-existent handles.
         $resolved = $this->cache->rememberLocked(
-            "handle.resolve:{$handleLc}",
-            self::RESOLVE_CACHE_TTL,
+            CacheKeyGenerator::handleResolve($handleLc),
+            (int) config('partna.public_profile.resolve_cache_ttl', 30),
             function () use ($handleLc) {
                 $pro = User::query()->where('handle_lc', $handleLc)->first();
                 if (! $pro) {
@@ -102,7 +96,7 @@ class IndividualProfileController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $key = "public.profile:{$handleLc}:{$resolved['updated_at_ts']}";
+        $key = CacheKeyGenerator::publicProfile($handleLc, (int) $resolved['updated_at_ts']);
 
         $payload = $this->cache->rememberLocked(
             $key,
@@ -122,9 +116,14 @@ class IndividualProfileController extends ApiController
         );
 
         if ($payload === null) {
-            // Resolve cache pointed at a now-deleted row. Forget the resolve
-            // entry so the next request rebuilds from scratch.
-            Cache::forget("handle.resolve:{$handleLc}");
+            // Resolve cache pointed at a now-deleted row. rememberLocked wrote
+            // BOTH the primary resolve key and a longer-lived :stale twin, so
+            // forget both — clearing only the primary lets the SWR fast path
+            // resurrect the stale entry on the very next request, re-trigger
+            // this same null-payload path, and loop for the full stale TTL.
+            // Mirrors SiteCacheService::invalidateSitePayload's bustWithStale. (CCH-1)
+            $resolveKey = CacheKeyGenerator::handleResolve($handleLc);
+            Cache::deleteMultiple([$resolveKey, $resolveKey.':stale']);
             $this->logIfSlow($handleLc, '404-deleted-race', $startedAt);
 
             return $this->error('Not found.', 404);
@@ -132,9 +131,10 @@ class IndividualProfileController extends ApiController
 
         $this->logIfSlow($handleLc, '200', $startedAt);
 
-        // Wrap in the standard envelope. ApiController::success() passes $data
-        // directly to response()->json() — so we keep the {'data': ...} wrapper
-        // that the Astro Worker subrequest expects.
+        // INTENTIONAL: the outer {'data': ...} envelope is part of the Astro Worker
+        // contract (partna-pages reads payload.data.*). Do NOT "normalise" this to
+        // match other endpoints — the Worker subrequest depends on this exact shape.
+        // Any change here requires a coordinated deploy with the Worker code.
         return $this->success(['data' => $payload]);
     }
 
@@ -143,7 +143,7 @@ class IndividualProfileController extends ApiController
     private function logIfSlow(string $handleLc, string $outcome, float $startedAt): void
     {
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
-        if ($durationMs < self::SLOW_REQUEST_THRESHOLD_MS) {
+        if ($durationMs < (int) config('partna.public_profile.slow_request_threshold_ms', 1000)) {
             return;
         }
         Log::warning('slow_public_profile', [

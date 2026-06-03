@@ -197,4 +197,38 @@ class CacheKeyGenerator
     {
         return "staff:analytics:summary:{$userId}:{$from}:{$to}";
     }
+
+    /**
+     * Short-TTL resolve map: handle → {pro_id, site_id, updated_at_ts}.
+     * Consumers: IndividualProfileController (read/write) and
+     * SiteCacheService::invalidateSitePayload (bust).
+     */
+    public static function handleResolve(string $handle): string
+    {
+        return 'handle.resolve:'.strtolower($handle);
+    }
+
+    /**
+     * Full individual profile payload, keyed by handle + updated_at timestamp
+     * so the key naturally rolls forward on any site/user mutation without
+     * explicit Cache::forget.
+     */
+    public static function publicProfile(string $handle, int $updatedAtTs): string
+    {
+        return 'public.profile:'.strtolower($handle).':'.$updatedAtTs;
+    }
+
+    /**
+     * Column list for site.design_kits, cached so each design-kit save skips an
+     * information_schema round-trip. The :v{version} suffix ties the cache entry
+     * to the column set: bumping config('partna.design_kit_columns_version') in
+     * the same PR as a design_kits migration orphans the old key (it TTLs out)
+     * instead of forcing a blunt `artisan cache:clear`. Same version-token idea
+     * as the analytics version keys above, but a deploy-time config constant
+     * (the column set is deploy-stable) rather than a runtime counter. (LIFE-2 / CCH-2)
+     */
+    public static function designKitColumns(): string
+    {
+        return 'design_kits:columns:v'.config('partna.design_kit_columns_version');
+    }
 }

@@ -33,7 +33,7 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
 
     public function __construct(public readonly string $subscriptionId)
     {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
@@ -46,6 +46,12 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             if ($s->confirmation_sent_at !== null) {
                 return false;
             }
+
+            // Stamp the idempotency flag while the row lock is still held so the
+            // check-and-set is atomic — a concurrent worker or retry reads the
+            // committed timestamp and bails instead of double-sending. The mail
+            // send happens AFTER this commit, never inside the lock.
+            $s->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
 
             return $s;
         });
@@ -108,13 +114,12 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             $brand = $resolver->partna();
         }
 
+        // confirmation_sent_at was already stamped atomically under the lock above.
         Mail::to($recipient)->send(new SubscriptionConfirmationMail(
             brand: $brand,
             unsubscribeUrl: $unsubscribeUrl,
             visitorName: $sub->full_name ?: null,
         ));
-
-        $sub->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
     }
 
     private function withinRateLimit(string $email): bool
@@ -138,6 +143,8 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
         Log::error('SendSubscriptionConfirmationJob failed permanently', [
             'subscription_id' => $this->subscriptionId,
             'error' => $e->getMessage(),
+            'job_id' => $this->job?->getJobId(),
+            'attempt' => $this->attempts(),
         ]);
     }
 }

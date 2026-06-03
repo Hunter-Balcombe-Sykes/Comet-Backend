@@ -30,6 +30,10 @@ return [
         // Total days an alias serves a 301 redirect. After this it is hard-deleted and the handle returns to the pool.
         'redirect_days' => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
 
+        // Minimum days between subdomain changes for self-serve users. Mirrored in
+        // UserSelfController when computing subdomain_change_available_at for the /me payload.
+        'subdomain_cooldown_days' => (int) env('SIDEST_HANDLE_SUBDOMAIN_COOLDOWN_DAYS', 30),
+
         // Years to retain handle_change_log rows. 7y matches typical fraud-investigation retention.
         'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
     ],
@@ -796,6 +800,12 @@ return [
     // Tunable at runtime via env without redeploy. Values are per-IP per-minute.
     'public_profile' => [
         'rate_limit_per_minute' => (int) env('SIDEST_RATE_LIMIT_PUBLIC_PROFILE_PER_MINUTE', 60),
+        // Short-TTL resolve-map window (handle → IDs). Bounded staleness without
+        // mutation-driven invalidation; low enough to keep rename lag imperceptible.
+        'resolve_cache_ttl' => (int) env('SIDEST_PUBLIC_PROFILE_RESOLVE_CACHE_TTL', 30),
+        // Slow-request threshold for the Nightwatch P95 warning. Tune up if
+        // builder is legitimately slow on cold paths; tune down to tighten alerting.
+        'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
         // Analytics endpoint exposed to the skeleton via data.publicConfig.
@@ -807,6 +817,13 @@ return [
             'https://dev-api.partna.au/api/analytics'
         ),
     ],
+
+    // Version token for the design_kits column-list cache
+    // (CacheKeyGenerator::designKitColumns). Bump this in the SAME migration PR
+    // that adds or drops a site.design_kits column — the old cache key orphans
+    // and TTLs out, so picking up the new column set needs no `artisan
+    // cache:clear`. (LIFE-2)
+    'design_kit_columns_version' => (int) env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', 1),
 
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),
 
@@ -929,6 +946,14 @@ return [
     // retry_after is harmless.
     'analytics_queue' => [
         'name' => env('PARTNA_ANALYTICS_QUEUE', 'analytics'),
+    ],
+
+    // Named queue lanes for domain-specific job routing. Keeping queue names
+    // config-driven lets ops reroute to a dedicated worker without a code deploy.
+    'queues' => [
+        // Transactional confirmation emails (enquiry + subscription). Set
+        // PARTNA_QUEUE_NOTIFICATIONS in .env to route to a different lane.
+        'notifications' => env('PARTNA_QUEUE_NOTIFICATIONS', 'notifications'),
     ],
 
     'video_variants' => [

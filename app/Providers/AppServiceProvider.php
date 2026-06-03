@@ -180,6 +180,12 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('NIGHTWATCH_TOKEN must be set when NIGHTWATCH_ENABLED is true in production.');
         }
 
+        // APP_DEBUG=true in production leaks raw exception text, file paths, and
+        // stack traces via the exception renderer's debug branch (#P3-02).
+        if (app()->isProduction() && config('app.debug')) {
+            throw new \RuntimeException('APP_DEBUG must be false in production.');
+        }
+
         // Auth::user() is always null in this app (Supabase JWT), so a user-based
         // Horizon gate is not possible. Default behavior: dashboard is open in
         // non-production environments and sealed in production. Production access

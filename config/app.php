@@ -17,6 +17,8 @@ return [
 
     'frontend_url' => env('FRONTEND_URL', 'https://partna.au'),
 
+    'partna_marketing_url' => env('PARTNA_MARKETING_URL', 'https://partna.au'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

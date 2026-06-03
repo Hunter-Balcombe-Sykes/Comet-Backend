@@ -22,6 +22,6 @@
 BEGIN;
 
 ALTER TABLE site.design_kits
-  ADD COLUMN effect_bg_image_enabled BOOLEAN NULL;
+  ADD COLUMN IF NOT EXISTS effect_bg_image_enabled BOOLEAN NULL;
 
 COMMIT;

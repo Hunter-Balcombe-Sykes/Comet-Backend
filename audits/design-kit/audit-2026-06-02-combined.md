@@ -66,7 +66,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 3 complete
-- P2 Medium: 0 of 14 complete
+- P2 Medium: 1 of 14 complete
 - P3 Low: 0 of 16 complete
 
 ---
@@ -147,7 +147,7 @@
         }
         ```
 
-- [ ] **#SCHEMA-1** · P1 · M — StaffUpdateSiteRequest design_kit validation entirely out of sync with site.design_kits schema
+- [x] **#SCHEMA-1** · P1 · M — StaffUpdateSiteRequest design_kit validation entirely out of sync with site.design_kits schema
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php (design_kit section — ~28 rules for dropped columns, ~13 columns missing)
     - **Affects:** Staff operators editing a professional's design kit via the staff dashboard. Every write returns HTTP 200 but `writeDesignKit()` discards all spacing/padding/tablet-tier values (columns were dropped by migration `20260529053028`). Meanwhile the new `space_*`, `color_placeholder`, `color_contrasting_*` columns are unvalidated — staff can submit malformed values for them with no 422 feedback.
     - **Effort:** M (~2–4h)
@@ -316,7 +316,7 @@
         } catch (LockTimeoutException) { ... }
         ```
 
-- [ ] **#CCH-4** · P2 · M — Design-kit writes do not invalidate the `public.profile:*` cache
+- [x] **#CCH-4** · P2 · M — Design-kit writes do not invalidate the `public.profile:*` cache
     - **Where:** Write path: app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:writeDesignKit() + subsequent `invalidateSite()` call. Read path: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:show() (key `public.profile:{handle}:{updated_at_ts}`)
     - **Affects:** Every professional who saves design-kit changes (colours, fonts, spacing). When the request contains only `design_kit` data and no other site fields, `sites.updated_at` is not bumped, the timestamp-based cache key does not rotate, and the cached profile payload continues serving the old design kit until the TTL expires (~60 s default).
     - **Effort:** M (~2–4h)
@@ -344,7 +344,7 @@
         $key = "public.profile:{$handleLc}:{$resolved['updated_at_ts']}"; // stale key served
         ```
 
-- [ ] **#LIFE-1** · P2 · S — Race condition in `writeDesignKit`: concurrent saves can silently lose design customisations
+- [x] **#LIFE-1** · P2 · S — Race condition in `writeDesignKit`: concurrent saves can silently lose design customisations
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:writeDesignKit() (lines ~72–95)
     - **Affects:** Any professional who triggers two rapid design-kit saves (e.g., opens the editor in two tabs, or a slow network causes a double-submit). The later write silently overwrites the earlier one without any error.
     - **Effort:** S (~0.5–1h)
@@ -379,7 +379,7 @@
         }
         ```
 
-- [ ] **#SEC-1** · P2 · S — StaffUpdateSiteRequest `prepareForValidation` skips settings-field sanitisation
+- [x] **#SEC-1** · P2 · S — StaffUpdateSiteRequest `prepareForValidation` skips settings-field sanitisation
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:prepareForValidation()
     - **Affects:** Staff-updated `hero_title`, `hero_subtitle`, `primary_button_text`, and `bio_text` — strings are stored with raw whitespace and artefacts rather than going through the `cleanString()` pass that the professional-facing path applies.
     - **Effort:** S (~0.5–1h)
@@ -412,7 +412,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P2 · S — StaffUpdateSiteRequest subdomain validation omits the `core.user_handle_aliases` collision check
+- [x] **#SEC-2** · P2 · S — StaffUpdateSiteRequest subdomain validation omits the `core.user_handle_aliases` collision check
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:rules() (subdomain closure, ~lines 111–137)
     - **Affects:** Staff subdomain assignments — a staff member can set a subdomain that matches a handle preserved as an alias for redirect/SEO purposes, silently overwriting that redirect and breaking the former professional's incoming traffic.
     - **Effort:** S (~0.5–1h)
@@ -447,7 +447,7 @@
         // No core.user_handle_aliases check follows.
         ```
 
-- [ ] **#TEST-3** · P2 · M — No test verifies the CHECK constraint, cascading FK, or auto-create trigger from the skeleton cleanup migration
+- [x] **#TEST-3** · P2 · M — No test verifies the CHECK constraint, cascading FK, or auto-create trigger from the skeleton cleanup migration
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (skeleton_id CHECK, design_kits FK, trg_create_empty_design_kit trigger)
     - **Affects:** Fresh database provisioning — if the migration applies incorrectly, the system would accept invalid skeleton IDs, allow orphan design_kits rows, or silently fail to create a kit on site creation. All three scenarios are currently invisible until a user reports a broken site. Especially relevant given the "Fresh-DB Provisioning Broken" issue.
     - **Effort:** M (~2–4h)
@@ -474,7 +474,7 @@
           FOR EACH ROW EXECUTE FUNCTION site.create_empty_design_kit();
         ```
 
-- [ ] **#TEST-4** · P2 · S — Two-token responsive prefix path in `groupKitColumns` has no test coverage
+- [x] **#TEST-4** · P2 · S — Two-token responsive prefix path in `groupKitColumns` has no test coverage
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:474–506 (two-token prefix loop)
     - **Affects:** Public profile API — `space_desktop_*`, `sizing_desktop_*`, and `typography_desktop_*` columns would route to the wrong wire group or be dropped entirely if the two-token prefix loop is accidentally reordered or removed.
     - **Effort:** S (~0.5–1h)
@@ -502,7 +502,7 @@
         )');
         ```
 
-- [ ] **#TEST-5** · P2 · M — No structural test catches drift between `UpdateSiteRequest` and `StaffUpdateSiteRequest` design_kit rules
+- [x] **#TEST-5** · P2 · M — No structural test catches drift between `UpdateSiteRequest` and `StaffUpdateSiteRequest` design_kit rules
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php, app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php
     - **Affects:** Every future design_kit column addition — without a CI guard, the staff request class will silently fall behind again (as demonstrated by SCHEMA-1 and SEC-1 in this audit).
     - **Effort:** M (~2–4h)
@@ -523,7 +523,7 @@
         // … space_xs through space_desktop_large are absent
         ```
 
-- [ ] **#TEST-6** · P2 · M — No test exercises the single-flight lock path in IndividualProfileController
+- [x] **#TEST-6** · P2 · M — No test exercises the single-flight lock path in IndividualProfileController
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:63–79 (`rememberLocked` call)
     - **Affects:** Public profile endpoint under traffic spikes. If `CacheLockService::rememberLocked` regresses (e.g. lock never releases, stale-while-revalidate stops serving), the symptom is 504s under load — the hardest failure mode to debug in production.
     - **Effort:** M (~2–4h)
@@ -547,7 +547,7 @@
         );
         ```
 
-- [ ] **#TEST-7** · P2 · S — `writeDesignKit()` is never called through a test; its FK-protection guard and column-filter logic are untested
+- [x] **#TEST-7** · P2 · S — `writeDesignKit()` is never called through a test; its FK-protection guard and column-filter logic are untested
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:84–103
     - **Affects:** User-facing site update endpoint (`PATCH /api/professional/site`). A bug in the `information_schema` intersection, the `unset($valid['site_id'])` guard, or the empty-kit short-circuit would silently corrupt or silently drop design kit writes with no test failure.
     - **Effort:** S (~0.5–1h)
@@ -590,7 +590,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#CCH-2** · P3 · S — Unjittered TTL on `handle.resolve` cache causes fleet-wide synchronised expiry
+- [x] **#CCH-2** · P3 · S — Unjittered TTL on `handle.resolve` cache causes fleet-wide synchronised expiry
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php (RESOLVE_CACHE_TTL constant + Cache::remember call)
     - **Affects:** Minor — all Redis nodes expire the resolve cache at the same wall-clock second, creating a small synchronised lookup spike every 30 s on high-traffic handles.
     - **Effort:** S (~0.5h)
@@ -608,7 +608,7 @@
         );
         ```
 
-- [ ] **#CCH-5** · P3 · S — `IndividualProfileController` builds cache keys via ad-hoc string interpolation instead of `CacheKeyGenerator`
+- [x] **#CCH-5** · P3 · S — `IndividualProfileController` builds cache keys via ad-hoc string interpolation instead of `CacheKeyGenerator`
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php (both cache key constructions)
     - **Affects:** Future maintainability — a writer or invalidator that constructs the key differently (typo, different case handling) silently misses the cache.
     - **Effort:** S (~0.5h)
@@ -622,7 +622,7 @@
         $key = "public.profile:{$handleLc}:{$resolved['updated_at_ts']}";
         ```
 
-- [ ] **#CCH-6** · P3 · S — Unjittered TTL on the negative-cache sentinel in `SiteCacheService`
+- [x] **#CCH-6** · P3 · S — Unjittered TTL on the negative-cache sentinel in `SiteCacheService`
     - **Where:** app/Services/Cache/SiteCacheService.php:buildPayloadFromDb() (two `Cache::put` calls for `MISS_SENTINEL`)
     - **Affects:** Synchronised expiry of all "no site here" sentinel entries — a burst of bot scans during a fixed 30 s window causes all sentinels to expire at the same moment, briefly multiplying DB hits.
     - **Effort:** S (~0.5h)
@@ -635,7 +635,7 @@
         Cache::put($staleKey, self::MISS_SENTINEL, now()->addSeconds(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
         ```
 
-- [ ] **#CFG-3** · P3 · S — `IndividualProfileController` hardcodes the resolve-cache TTL and slow-request threshold as PHP constants
+- [x] **#CFG-3** · P3 · S — `IndividualProfileController` hardcodes the resolve-cache TTL and slow-request threshold as PHP constants
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:38–41
     - **Affects:** Operational agility — adjusting either value during a traffic incident or a performance investigation requires a code deploy rather than a config change.
     - **Effort:** S (~0.5–1h)
@@ -649,7 +649,7 @@
         private const SLOW_REQUEST_THRESHOLD_MS = 1_000;
         ```
 
-- [ ] **#CFG-4** · P3 · S — `EmailBrand::partna()` hardcodes `'https://partna.au'` rather than reading from config
+- [x] **#CFG-4** · P3 · S — `EmailBrand::partna()` hardcodes `'https://partna.au'` rather than reading from config
     - **Where:** app/Mail/Branding/EmailBrand.php:30
     - **Affects:** Non-production environments (staging, local dev) that send Partna-branded emails — footer links in those emails point to the live production site regardless of environment.
     - **Effort:** S (~0.5–1h)
@@ -672,7 +672,7 @@
         }
         ```
 
-- [ ] **#CFG-5** · P3 · S — `UpdateSiteRequest` accepts both `settings.charlie_enabled` (snake_case) and `settings.charlieEnabled` (camelCase) for the same setting
+- [x] **#CFG-5** · P3 · S — `UpdateSiteRequest` accepts both `settings.charlie_enabled` (snake_case) and `settings.charlieEnabled` (camelCase) for the same setting
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php (settings group)
     - **Affects:** API consumers who inadvertently send both keys in the same request — the resulting `settings` array contains both, and whichever key the application code checks for wins.
     - **Effort:** S (~0.5–1h)
@@ -686,7 +686,7 @@
         'settings.charlieEnabled'   => ['sometimes', 'boolean'],
         ```
 
-- [ ] **#LIFE-3** · P3 · S — `updateBookingSettings` uses inline `Validator::make` instead of a Form Request class
+- [x] **#LIFE-3** · P3 · S — `updateBookingSettings` uses inline `Validator::make` instead of a Form Request class
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:updateBookingSettings()
     - **Affects:** Architectural consistency — validation rules for this endpoint are embedded in the controller and cannot be reused or tested in isolation.
     - **Effort:** S (~0.5–1h)
@@ -706,7 +706,7 @@
         }
         ```
 
-- [ ] **#MIG-5** · P3 · S — Early design-kit `ADD COLUMN` migrations lack `IF NOT EXISTS` guard
+- [x] **#MIG-5** · P3 · S — Early design-kit `ADD COLUMN` migrations lack `IF NOT EXISTS` guard
     - **Where:** supabase/migrations/20260527080000 through 20260527140000 (seven pre-unified-space migrations using plain `ADD COLUMN`)
     - **Affects:** Fresh database provisioning attempts where migration state is reset but schema is not — particularly relevant given the known "Fresh-DB Provisioning Broken" issue. A column that already exists will cause the migration to fail.
     - **Effort:** S (~0.5–1h)
@@ -725,7 +725,7 @@
             ADD COLUMN IF NOT EXISTS icons_xl_size TEXT NULL;
         ```
 
-- [ ] **#API-3** · P3 · S — Both request classes allowlist orphan `typography_font_heading` / `typography_font_body` columns that store NULL and are never consumed
+- [x] **#API-3** · P3 · S — Both request classes allowlist orphan `typography_font_heading` / `typography_font_body` columns that store NULL and are never consumed
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:139–141, app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:64–66
     - **Affects:** API consumers who write these fields — they receive HTTP 200 and reasonably assume the value was persisted, but the columns currently exist only as unset stubs. Note: the comment in the code ("nothing reads them") is slightly misleading — `groupKitColumns` would surface them as `typography.fontHeading` if non-null; they are simply never written by any client.
     - **Effort:** S (~0.5–1h)

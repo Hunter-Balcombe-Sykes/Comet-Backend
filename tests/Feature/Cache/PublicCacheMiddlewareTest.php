@@ -98,7 +98,6 @@ function prewarmSiteCache(string $subdomain): void
             'handle' => $subdomain,
             'display_name' => 'Test Pro',
         ],
-        'theme' => null,
         'services' => [],
         'links' => [],
         'sections' => [],

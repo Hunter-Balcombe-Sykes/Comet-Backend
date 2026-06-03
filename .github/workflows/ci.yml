@@ -12,6 +12,14 @@ jobs:
     permissions:
       contents: read  # Locked to least-privilege — add per-step permissions explicitly if a future step needs the token.
 
+    env:
+      # `composer install` runs package:discover (post-autoload-dump), which boots
+      # the app BEFORE the "Copy env" step creates .env. Without APP_ENV, Laravel
+      # defaults to production and AppServiceProvider's F2 AUTH-1 guard aborts the
+      # boot because SUPABASE_JWT_ISSUER is unset. Declaring CI as testing takes the
+      # guard's local/testing exemption. The test run already uses testing (phpunit.xml).
+      APP_ENV: testing
+
     services:
       redis:
         image: redis:7-alpine

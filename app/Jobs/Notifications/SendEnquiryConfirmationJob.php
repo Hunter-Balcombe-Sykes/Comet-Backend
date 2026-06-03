@@ -34,7 +34,7 @@ class SendEnquiryConfirmationJob implements ShouldQueue
 
     public function __construct(public readonly string $enquiryId)
     {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
@@ -48,6 +48,13 @@ class SendEnquiryConfirmationJob implements ShouldQueue
             if ($e->confirmation_sent_at !== null) {
                 return false;
             }
+
+            // Stamp the idempotency flag while the row lock is still held so the
+            // check-and-set is atomic. A concurrent worker (Horizon scale-out or a
+            // retry) then reads the committed timestamp and bails instead of
+            // double-sending. The mail send happens AFTER this commit, never inside
+            // the lock — if it later throws, the retry correctly skips re-sending.
+            $e->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
 
             return $e;
         });
@@ -97,13 +104,12 @@ class SendEnquiryConfirmationJob implements ShouldQueue
             $brand = $resolver->partna();
         }
 
+        // confirmation_sent_at was already stamped atomically under the lock above.
         Mail::to($recipient)->send(new EnquiryConfirmationMail(
             brand: $brand,
             visitorName: trim((string) ($enquiry->name ?? '')),
             subject: (string) $enquiry->subject,
         ));
-
-        $enquiry->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
     }
 
     // Per-recipient hourly cap (shared bucket with the subscription confirmation),
@@ -129,6 +135,8 @@ class SendEnquiryConfirmationJob implements ShouldQueue
         Log::error('SendEnquiryConfirmationJob failed permanently', [
             'enquiry_id' => $this->enquiryId,
             'error' => $e->getMessage(),
+            'job_id' => $this->job?->getJobId(),
+            'attempt' => $this->attempts(),
         ]);
     }
 }

@@ -368,7 +368,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Change the default to derive from `config('app.url')`: `rtrim(config('app.url'), '/').'/api/analytics'`. Add `'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT'` to `EnvCheckService::RECOMMENDED`.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-30** Generic exception fallback suppresses `abort(4xx, message)` messages in production — Lens: `bootstrap`
+- [x] **#P2-30** Generic exception fallback suppresses `abort(4xx, message)` messages in production — Lens: `bootstrap`
     - Where: `bootstrap/app.php:117–131` (the `else` branch of the exception renderer)
     - What: The renderer handles `AccessDeniedHttpException` (403 from policies) explicitly and preserves `$e->getMessage()`. A plain `abort(403, 'reason')` throws a base `HttpException(403)` which is NOT an `AccessDeniedHttpException` and falls to the `else` block where `config('app.debug')` gates the message — returning "An error occurred" in production. CI blocks inline `abort()` in controllers, limiting exposure, but the inconsistency is latent.
     - Fix: In the `else` branch, check whether `$e instanceof HttpException` with status < 500 and has a non-empty message; if so, pass the message through rather than substituting "An error occurred." Alternatively, promote call sites to use the `HttpStatusCodeInterface` domain-exception pattern.
@@ -448,13 +448,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Security Headers
 
-- [ ] **#P2-40** Web-route exception responses bypass `SecureHeaders` — the QR-code 404/500 ships un-headered HTML — Lens: `security-headers`
+- [x] **#P2-40** Web-route exception responses bypass `SecureHeaders` — the QR-code 404/500 ships un-headered HTML — Lens: `security-headers`
     - Where: `bootstrap/app.php:88–91` (exception render gate) · `routes/web.php:6–8` · `app/Http/Controllers/Api/PublicSite/QrCodeController.php:25–27`
     - What: The `withExceptions` render closure returns `null` for non-API routes, delegating to Laravel's default HTML renderer which carries no `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, CSP, or HSTS header. The only non-API route is the QR code SVG; every `abort(404)` from that controller produces an un-headered response.
     - Fix: Remove or restructure the `if (! $request->is('api/*')) { return null; }` early return so `SecureHeaders::apply()` is called for non-API error responses. Build a minimal error response and pass it through `SecureHeaders::apply($response, $request)` before returning.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-41** Exception-path API responses carry no `Cache-Control` — browsers may heuristically cache 4xx errors — Lens: `security-headers`
+- [x] **#P2-41** Exception-path API responses carry no `Cache-Control` — browsers may heuristically cache 4xx errors — Lens: `security-headers`
     - Where: `bootstrap/app.php:87–158` (exception render closure) · `app/Http/Middleware/AddPublicCacheHeaders.php:32–68`
     - What: When a controller throws, `AddPublicCacheHeaders::handle()` post-response logic never executes. The exception handler constructs `response()->json(…)` with no `Cache-Control` header and only calls `SecureHeaders::apply()`. RFC 7234 allows browsers to heuristically cache responses without explicit directives. A 404 from a freshly-created resource, or a 403 from a state that has since changed, could be replayed from browser cache. Authenticated responses are particularly affected: the `private, no-store` guard that `AddPublicCacheHeaders` normally sets for `Authorization`-bearing requests is absent on error responses.
     - Fix: Inside the `withExceptions` render closure, immediately before `SecureHeaders::apply()`, add `$response->headers->set('Cache-Control', 'private, no-store, max-age=0'); $response->headers->set('Pragma', 'no-cache');`. (Note: `AddPublicCacheHeaders::mergeVary()` is `private` and cannot be called from here — use direct `headers->set()`.)
@@ -608,7 +608,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add inline comments clarifying that the enforcement mechanism is `CAPABILITY_GATE_MAP` (not this field), and that `CAPABILITY_GATE_MAP = []` is intentionally empty for the standalone-individual model. Optionally add `@internal` PHPDoc tag.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-02** `AppServiceProvider` boot guards cover six misconfigurations but not `APP_DEBUG=true` — Lens: `bootstrap`
+- [x] **#P3-02** `AppServiceProvider` boot guards cover six misconfigurations but not `APP_DEBUG=true` — Lens: `bootstrap`
     - Where: `app/Providers/AppServiceProvider.php:94–140`
     - What: The exception renderer gates full exception messages on `config('app.debug')`. If `APP_DEBUG=true` ships to production, every uncaught exception leaks raw Laravel exception text, file paths, and status codes to API consumers until noticed. Six existing guards cover JWKS, JWT, throttle, Nightwatch, email hook secret, and public domain. A seventh for debug mode follows the same one-liner pattern.
     - Fix: Add `if (app()->isProduction() && config('app.debug')) { throw new \RuntimeException('APP_DEBUG must be false in production.'); }` after the existing guard block.
@@ -692,29 +692,31 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — Migrations
 
-- [ ] **#P3-12** Skeleton-system cleanup migration has no transaction wrapper — partial failure leaves schema in unrecoverable split state — Lens: `migration`
+- [x] **#P3-12** Skeleton-system cleanup migration has no transaction wrapper — partial failure leaves schema in unrecoverable split state — Lens: `migration`
     - Where: `supabase/migrations/20260527070000_skeleton_system_cleanup.sql`
     - What: Without an explicit `BEGIN;` / `COMMIT;`, each of the ~11 DDL and DML statements is auto-committed independently. If the final `CREATE VIEW site.public_site_payload` fails, the preceding drops (views, table columns, `site.themes`, triggers) are already durably committed — the database is missing the primary public-site view with no clean rollback path. This migration has already run on dev; current practical risk is low but the pattern should be corrected.
     - Fix: Wrap the entire file in `BEGIN;` / `COMMIT;`. None of the statements use `CONCURRENTLY`, so there is no technical barrier.
     - Models: impl=opus · review=opus
 
-- [ ] **#P3-13** Redundant `account_type` CHECK constraint added after the baseline already defines an identical one — Lens: `migration`
+- [x] **#P3-13** Redundant `account_type` CHECK constraint added after the baseline already defines an identical one — Lens: `migration`
     - Where: `supabase/migrations/20260526200001_accounttype_check_constraint.sql` · `supabase/migrations/20260526000000_baseline_standalone_user.sql`
     - What: The baseline defines `CONSTRAINT users_account_type_check CHECK (account_type = 'individual')`. Migration `20260526200001` adds a second `CONSTRAINT users_account_type_individual CHECK (account_type = 'individual') NOT VALID`. PostgreSQL accepts both; the incremental files were authored before the baseline was updated and never cleaned up.
     - Fix: Delete `20260526200001_accounttype_check_constraint.sql` and `20260526200002_validate_accounttype_check.sql`. Both are no-ops on any database running the current baseline.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-14** [@10k] No partial index on `confirmation_sent_at IS NULL` for idempotency guard queries in confirmation-send jobs — Lens: `migration`
+- [x] **#P3-14** [@10k] No partial index on `confirmation_sent_at IS NULL` for idempotency guard queries in confirmation-send jobs — Lens: `migration`
     - Where: `supabase/migrations/20260530010000_add_visitor_confirmation_sent_at.sql:7–10`
     - What: `SendEnquiryConfirmationJob` and `SendSubscriptionConfirmationJob` query `WHERE confirmation_sent_at IS NULL` to guard against double-sends. Without a partial index, each job tick performs a sequential scan proportional to total row count. At 500k+ rows with a 60-second cadence this becomes a measurable recurring load. Runway item — not a pre-launch blocker.
     - Fix: Add a migration (no `BEGIN/COMMIT`, use `CONCURRENTLY`) with `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_enquiries_confirmation_unsent ON site.enquiries (created_at) WHERE confirmation_sent_at IS NULL AND deleted_at IS NULL` and the equivalent on `notifications.email_subscriptions`.
     - Models: impl=sonnet · review=opus
+    - Resolution (2026-06-03): NOT APPLICABLE — no index added. The finding's premise (a `WHERE confirmation_sent_at IS NULL` sweep) does not exist in the code: both jobs are dispatched once per submission by UUID from the public controllers and load the row by primary key (`Enquiry::find($id)` / `EmailSubscription::find($id)`), checking `confirmation_sent_at !== null` in PHP, not SQL. No sweeper is scheduled (`routes/console.php`) or planned (visitor-confirmation design/plan docs). The prescribed index would never be chosen by a PK lookup — pure write-amplification (the anti-pattern #P3-27 flags). Additionally, `notifications.email_subscriptions` has no `deleted_at` column, so the literal fix could not apply. Decision confirmed by repo owner. Reinstate only if a `WHERE confirmation_sent_at IS NULL` sweeper is ever introduced — add the index in the same change.
 
-- [ ] **#P3-15** Two migrations share timestamp `20260530000000`; duplicate grant migration also present — Lens: `migration` · `rls`
+- [x] **#P3-15** Two migrations share timestamp `20260530000000`; duplicate grant migration also present — Lens: `migration` · `rls`
     - Where: `supabase/migrations/20260530000000_drop_workplace_hours.sql` · `supabase/migrations/20260530000000_grant_moderation_schema_to_app_backend.sql` (same prefix) · `supabase/migrations/20260530000050_grant_moderation_schema_to_app_backend.sql` (duplicate content)
     - What: Two files share the `20260530000000` version key; Supabase tracks applied migrations by this key, so one may be silently skipped or the CLI may error on `db reset`. The 000050 file is byte-for-byte identical to the 000000 grant file; running both is harmless (DO block is idempotent) but adds noise to history.
     - Fix: Rename `20260530000000_grant_moderation_schema_to_app_backend.sql` to `20260530000010_grant_moderation_schema_to_app_backend.sql`. Delete `20260530000050_grant_moderation_schema_to_app_backend.sql`. If dev DB has already applied the old names, use `supabase migration repair`.
     - Models: impl=haiku · review=sonnet
+    - Resolution (2026-06-03): ALREADY RESOLVED before this session — no action needed. Git history (`git log --all -- 'supabase/migrations/*grant_moderation*'`) shows the grant file was only ever committed as `20260530000050_grant_moderation_schema_to_app_backend.sql` (commit `d4055c8a`). The current tree has no `20260530000000_grant_*` file: the sole holder of the `20260530000000` prefix is `20260530000000_drop_workplace_hours.sql`, and only one grant file exists. No timestamp collision, no duplicate. Renaming `000050`→`000010` was deliberately NOT done — it is already applied on dev and renaming would create a needless migration-history mismatch requiring `supabase migration repair` for zero benefit.
 
 ---
 
@@ -1161,7 +1163,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B14: Exception response handling (4 items — #P2-30, #P2-40, #P2-41, #P3-02) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-30`, `#P2-40`, `#P2-41`, `#P3-02`
 - Models: impl=sonnet · review=sonnet
 - Rationale: All four are in `bootstrap/app.php` and `app/Providers/AppServiceProvider.php`. One session, two files, closely related concerns (exception rendering, missing headers, debug guard).
@@ -1184,7 +1186,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B15: Migration housekeeping (4 items — #P3-12, #P3-13, #P3-14, #P3-15) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox — done 2026-06-03 (P3-12 wrapped, P3-13 deleted; P3-14 not-applicable, P3-15 already resolved). Reviewed by independent opus session: APPROVE.
 - Items: `#P3-12`, `#P3-13`, `#P3-14`, `#P3-15`
 - Models: impl=opus · review=opus
 - Rationale: All four are Supabase migration file operations. One session with `supabase migration` tooling. No application code changes. Delivers a clean migration history before production promotion.

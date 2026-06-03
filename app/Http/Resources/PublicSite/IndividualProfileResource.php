@@ -3,6 +3,7 @@
 namespace App\Http\Resources\PublicSite;
 
 use App\Http\Resources\ApiResource;
+use App\Models\Core\Site\Site;
 use Illuminate\Http\Request;
 use stdClass;
 
@@ -116,7 +117,7 @@ class IndividualProfileResource extends ApiResource
 
             // Which of the four code-side skeletons to render. One of
             // 'skeleton-1', 'skeleton-2', 'skeleton-3', 'skeleton-4'.
-            'skeletonId' => $this->sections['skeleton_id'] ?? 'skeleton-1',
+            'skeletonId' => $this->sections['skeleton_id'] ?? Site::DEFAULT_SKELETON_ID,
 
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.

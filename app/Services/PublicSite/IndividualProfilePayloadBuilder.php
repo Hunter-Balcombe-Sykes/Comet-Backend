@@ -9,6 +9,7 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\SmartLinks\SmartLinkVisitorUrl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -76,7 +77,7 @@ class IndividualProfilePayloadBuilder
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
             'design_media' => $this->buildDesignMedia($site),
-            'skeleton_id' => $site?->skeleton_id ?? 'skeleton-1',
+            'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
             'public_config' => $this->buildPublicConfig(),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'bio' => $this->buildBio($pro, $sections),
@@ -554,7 +555,7 @@ class IndividualProfilePayloadBuilder
             ?? $pro->updated_at?->timestamp
             ?? 0;
 
-        return "public.profile:{$handleLc}:{$stamp}";
+        return CacheKeyGenerator::publicProfile($handleLc, $stamp);
     }
 
     public function cacheTtl(): int

@@ -23,7 +23,7 @@ class StaffSiteController extends ApiController
             return $this->error('Site not found.', 404);
         }
 
-        return $this->success(new StaffSiteResource($row));
+        return $this->success(['site' => new StaffSiteResource($row)]);
     }
 
     public function showByProfessional(User $professional): JsonResponse
@@ -36,6 +36,6 @@ class StaffSiteController extends ApiController
             return $this->error('Site not found for professional.', 404);
         }
 
-        return $this->success(new StaffSiteResource($row));
+        return $this->success(['site' => new StaffSiteResource($row)]);
     }
 }

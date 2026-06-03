@@ -16,8 +16,8 @@
 BEGIN;
 
 ALTER TABLE site.design_kits
-  ADD COLUMN sizing_row_height TEXT NULL,
-  ADD COLUMN motion_expand_duration TEXT NULL,
-  ADD COLUMN motion_fade_duration TEXT NULL;
+  ADD COLUMN IF NOT EXISTS sizing_row_height TEXT NULL,
+  ADD COLUMN IF NOT EXISTS motion_expand_duration TEXT NULL,
+  ADD COLUMN IF NOT EXISTS motion_fade_duration TEXT NULL;
 
 COMMIT;
