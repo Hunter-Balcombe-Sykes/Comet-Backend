@@ -49,6 +49,10 @@ DROP FUNCTION IF EXISTS set_default_theme_for_site CASCADE;
 -- 4. Drop the themes catalog table outright. CASCADE removes any remaining
 --    dependencies (indexes, the now-orphaned sites_theme_fk if it still
 --    lingers, etc.).
+--
+-- Rehearsed against development 2026-06-03. site.themes confirmed empty
+-- (0 rows) before drop. Rollback: restore from backup (DROP TABLE/COLUMN
+-- are irreversible).
 DROP TABLE IF EXISTS site.themes CASCADE;
 
 -- 5. Strip the legacy `settings.design.*` JSONB sub-key from every site row.

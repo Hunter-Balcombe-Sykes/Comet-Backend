@@ -22,6 +22,6 @@
 -- =====================================================================
 
 ALTER TABLE site.design_kits
-  ADD COLUMN color_contrasting_bg TEXT NULL,
-  ADD COLUMN color_contrasting_text TEXT NULL,
-  ADD COLUMN color_placeholder TEXT NULL;
+  ADD COLUMN IF NOT EXISTS color_contrasting_bg TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_contrasting_text TEXT NULL,
+  ADD COLUMN IF NOT EXISTS color_placeholder TEXT NULL;
