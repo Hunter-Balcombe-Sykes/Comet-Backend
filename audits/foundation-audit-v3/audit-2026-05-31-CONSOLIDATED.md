@@ -254,13 +254,13 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: In `purge()`, after resolving the original email (same pattern as #P2-09), add: `EmailSubscription::query()->whereNull('user_id')->where('list_key', 'sidest_updates')->where('email_lc', $originalEmailLc)->delete()`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-13** Orphaned R2 export zip when post-upload DB write fails — Lens: `gdpr-export`
+- [x] **#P2-13** Orphaned R2 export zip when post-upload DB write fails — Lens: `gdpr-export`
     - Where: `app/Jobs/Gdpr/ExportUserDataJob.php:handle()` — upload-to-DB-write sequence
     - What: The job uploads the zip to R2, optionally sends the export email, then calls `markCompleted()`. If any step after the R2 upload throws, the catch block calls `markFailed()` and re-throws. The FAILED status blocks future retries via the early-return guard. The R2 object at `exports/{userId}/{auditId}.zip` consumes storage indefinitely; `file_path` is never recorded on the audit row.
     - Fix: Track upload success with `$uploaded = false` set `true` after `$disk->put()`. In the `catch` block, if `$uploaded` is true call `$disk->delete($remotePath)` before `markFailed()`. Alternatively record `file_path` immediately after upload so manual re-send is possible.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-14** Stale `PROCESSING` status if Horizon worker is killed mid-export — Lens: `gdpr-export`
+- [x] **#P2-14** Stale `PROCESSING` status if Horizon worker is killed mid-export — Lens: `gdpr-export`
     - Where: `app/Jobs/Gdpr/ExportUserDataJob.php:41–43` (early-return guard) · `:103–111` (`failed()` hook)
     - What: Laravel's `failed()` callback is invoked after retry exhaustion — NOT after SIGKILL. A SIGKILL between `markProcessing()` and completion leaves the audit row stuck in `PROCESSING` indefinitely. Within the 30-minute dedup window new export requests get 409 "already in progress." After expiry the PROCESSING row is permanent.
     - Fix: Add a scheduled command querying `audit.data_export_audit WHERE status = 'processing' AND created_at < now() - interval '1 hour'` and stamping them `failed` with `error_message = 'stale processing — worker death assumed'`. The 1-hour threshold safely exceeds the job's 600 s timeout.
@@ -1209,7 +1209,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B16: DSAR export reliability (2 items — #P2-13, #P2-14) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-13`, `#P2-14`
 - Models: impl=sonnet · review=sonnet
 - Rationale: Both are in `ExportUserDataJob`. The orphaned-R2-cleanup (#P2-13) and the stale-PROCESSING sweeper (#P2-14) are independent but both address job-lifecycle reliability for the same job class.
