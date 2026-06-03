@@ -502,7 +502,7 @@
         )');
         ```
 
-- [ ] **#TEST-5** · P2 · M — No structural test catches drift between `UpdateSiteRequest` and `StaffUpdateSiteRequest` design_kit rules
+- [x] **#TEST-5** · P2 · M — No structural test catches drift between `UpdateSiteRequest` and `StaffUpdateSiteRequest` design_kit rules
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php, app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php
     - **Affects:** Every future design_kit column addition — without a CI guard, the staff request class will silently fall behind again (as demonstrated by SCHEMA-1 and SEC-1 in this audit).
     - **Effort:** M (~2–4h)
@@ -523,7 +523,7 @@
         // … space_xs through space_desktop_large are absent
         ```
 
-- [ ] **#TEST-6** · P2 · M — No test exercises the single-flight lock path in IndividualProfileController
+- [x] **#TEST-6** · P2 · M — No test exercises the single-flight lock path in IndividualProfileController
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:63–79 (`rememberLocked` call)
     - **Affects:** Public profile endpoint under traffic spikes. If `CacheLockService::rememberLocked` regresses (e.g. lock never releases, stale-while-revalidate stops serving), the symptom is 504s under load — the hardest failure mode to debug in production.
     - **Effort:** M (~2–4h)

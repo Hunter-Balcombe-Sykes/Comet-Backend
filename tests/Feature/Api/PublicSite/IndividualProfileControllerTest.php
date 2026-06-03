@@ -911,3 +911,60 @@ it('newsletter engine returns null when input_placeholder is empty', function ()
     expect($this->getJson('/api/public/profiles/nl-empty')->assertOk()->json('data.profile.newsletter'))
         ->toBeNull();
 });
+
+// ---------------------------------------------------------------------------
+// Single-flight & race-condition cache tests
+// ---------------------------------------------------------------------------
+
+it('single-flights concurrent requests so only one payload is built', function () {
+    // Seed a real user + site so the resolve cache miss path runs a normal DB lookup.
+    $pro = seedIndividualProfile('singleflight-pro');
+
+    // Mock the builder — build() must be called exactly once across both requests.
+    // The second request hits the warm payload cache (fast path in CacheLockService)
+    // and never invokes the callback, so the builder is never reached again.
+    $mock = $this->mock(\App\Services\PublicSite\IndividualProfilePayloadBuilder::class);
+    $mock->shouldReceive('cacheTtl')->andReturn(300);
+    $mock->shouldReceive('build')
+        ->once()
+        ->andReturn([
+            'profile'      => ['handle' => 'singleflight-pro'],
+            'designKit'    => new stdClass,
+            'skeletonId'   => 'skeleton-1',
+            'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
+            'designMedia'  => [],
+        ]);
+
+    // First request — resolve cache miss → DB lookup; payload cache miss → builder called once.
+    $res1 = $this->getJson('/api/public/profiles/singleflight-pro')->assertOk();
+
+    // Second request — resolve cache hit (30s TTL); payload cache hit → builder NOT called again.
+    $res2 = $this->getJson('/api/public/profiles/singleflight-pro')->assertOk();
+
+    // Both responses carry identical payloads.
+    expect($res1->json())->toEqual($res2->json());
+
+    // Mockery verifies ->once() at teardown via Mockery::close().
+});
+
+it('handles a race where the site is deleted between resolve and payload cache reads', function () {
+    $deletedProId = (string) Str::uuid();
+
+    // Pre-fill the resolve cache to simulate a stale entry pointing at a pro
+    // that no longer exists in the DB. The controller's fast path reads this
+    // directly without hitting the DB, then the payload callback finds no User
+    // row and returns null.
+    Cache::put('handle.resolve:deleted-race-pro', [
+        'pro_id'         => $deletedProId,
+        'site_id'        => null,
+        'updated_at_ts'  => 0,
+    ], 60);
+
+    // The payload cache for the matching key is cold, so the callback runs.
+    // User::find($deletedProId) returns null → payload is null → controller
+    // evicts the stale resolve entry and returns 404.
+    $this->getJson('/api/public/profiles/deleted-race-pro')->assertNotFound();
+
+    // Stale resolve cache entry must be evicted so the next request re-resolves from DB.
+    expect(Cache::get('handle.resolve:deleted-race-pro'))->toBeNull();
+});
