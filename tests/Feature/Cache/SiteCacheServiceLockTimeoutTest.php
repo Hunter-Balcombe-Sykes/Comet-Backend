@@ -45,6 +45,19 @@ function minimalCachedPayload(): array
     ];
 }
 
+/**
+ * Stub the dedicated 'cache_locks' store so Cache::store('cache_locks')->lock(...)
+ * resolves to the given Lock mock. SiteCacheService routes fill locks to that store
+ * rather than the default cache store (commit e5f5fdcf), so tests must mock the
+ * store hop — not Cache::lock() directly.
+ */
+function stubFillLock(string $subdomain, Lock $lock): void
+{
+    $store = M::mock();
+    $store->shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    Cache::shouldReceive('store')->with('cache_locks')->andReturn($store);
+}
+
 // Tests ───────────────────────────────────────────────────────────────────────
 
 it('returns null on lock timeout when MISS_SENTINEL is already cached', function () {
@@ -57,7 +70,7 @@ it('returns null on lock timeout when MISS_SENTINEL is already cached', function
     // Flow: primary miss → :stale miss (no SWR) → blocking lock → timeout → re-check returns sentinel.
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, '__MISS__');
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn(null);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $result = $this->service->getPublicSitePayload($subdomain);
 
@@ -75,7 +88,7 @@ it('returns cached payload on lock timeout when cache fills during the wait', fu
     // Flow: primary miss → :stale miss (no SWR) → blocking lock → timeout → re-check finds payload.
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, $payload);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn(null);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $result = $this->service->getPublicSitePayload($subdomain);
 
@@ -99,7 +112,7 @@ it('falls through to compute on lock timeout when cache is still empty (CACHE-4 
     // Primary reads (twice) and stale read (once) all return null → cold-miss path → lock timeout → fallthrough compute.
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn(null);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $computeReached = false;
     $fakePayload = minimalCachedPayload();
@@ -145,7 +158,7 @@ it('returns stale payload immediately when primary expired and another worker is
 
     Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn($stalePayload);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $result = $this->service->getPublicSitePayload($subdomain);
 
@@ -197,7 +210,7 @@ it('returns null from stale MISS_SENTINEL when primary expired and another worke
 
     Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn('__MISS__');
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $result = $this->service->getPublicSitePayload($subdomain);
 
@@ -219,7 +232,7 @@ it('B14/P2-10: SWR no-lock branch heals a valid stale payload (missing legal bac
 
     Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn($staleWithoutLegal);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
 
     $result = $this->service->getPublicSitePayload($subdomain);
 
@@ -262,7 +275,7 @@ it('B14/P2-10: SWR no-lock branch forces rebuild when stale holds old payload sh
 
     Cache::shouldReceive('get')->with($key)->once()->andReturn(null);
     Cache::shouldReceive('get')->with($key.':stale')->once()->andReturn($oldShapeStale);
-    Cache::shouldReceive('lock')->with('site:fill:'.$subdomain, 10)->once()->andReturn($lock);
+    stubFillLock($subdomain, $lock);
     // Must clear both keys before rebuilding.
     Cache::shouldReceive('forget')->with($key)->once();
     Cache::shouldReceive('forget')->with($key.':stale')->once();
