@@ -39,7 +39,11 @@ beforeEach(function () {
         icons_xl_size TEXT NULL,
         icons_xxl_size TEXT NULL,
         icons_stroke_width TEXT NULL,
-        icons_large_stroke_width TEXT NULL
+        icons_large_stroke_width TEXT NULL,
+        space_regular TEXT NULL,
+        space_desktop_regular TEXT NULL,
+        sizing_desktop_base TEXT NULL,
+        typography_desktop_size_base TEXT NULL
     )');
 
     Cache::flush();
@@ -210,6 +214,51 @@ it('maps icons_xl_size column to icons.xlSize in the wire shape', function () {
 
     expect($data['designKit'])->toHaveKey('icons');
     expect($data['designKit']['icons']['xlSize'])->toBe('32px');
+});
+
+it('groups two-token responsive prefix columns into the correct nested group', function () {
+    // Stored: space_desktop_regular — a two-token prefix column.
+    // Wire:   designKit.spaceDesktop.regular (NOT designKit.space.desktop_regular).
+    $pro = seedIndividualProfile('solo-dk-responsive');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'space_desktop_regular' => '2rem',
+        'sizing_desktop_base' => '16px',
+        'typography_desktop_size_base' => '1rem',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk-responsive')->assertOk()->json('data');
+
+    expect($data['designKit']['spaceDesktop']['regular'])->toBe('2rem');
+    expect($data['designKit']['sizingDesktop']['base'])->toBe('16px');
+    expect($data['designKit']['typographyDesktop']['sizeBase'])->toBe('1rem');
+    // Verify two-token columns don't also leak into their single-token siblings.
+    expect($data['designKit'])->not->toHaveKey('space');
+    expect($data['designKit'])->not->toHaveKey('sizing');
+});
+
+it('two-token prefix wins over single-token when they share an initial token', function () {
+    // `space_desktop_regular` shares "space" with the single-token prefix.
+    // The two-token loop runs first, so it must claim the column before the
+    // single-token loop can incorrectly route it into designKit.space.
+    $pro = seedIndividualProfile('solo-dk-priority');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'space_regular' => '1rem',
+        'space_desktop_regular' => '2rem',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk-priority')->assertOk()->json('data');
+
+    // Single-token path: space_regular → space.regular
+    expect($data['designKit']['space']['regular'])->toBe('1rem');
+    // Two-token path: space_desktop_regular → spaceDesktop.regular (not space.desktopRegular)
+    expect($data['designKit']['spaceDesktop']['regular'])->toBe('2rem');
+    expect($data['designKit']['space'])->not->toHaveKey('desktopRegular');
 });
 
 it('excludes brand-only and commerce fields', function () {

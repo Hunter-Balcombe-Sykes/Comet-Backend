@@ -147,7 +147,7 @@
         }
         ```
 
-- [ ] **#SCHEMA-1** · P1 · M — StaffUpdateSiteRequest design_kit validation entirely out of sync with site.design_kits schema
+- [x] **#SCHEMA-1** · P1 · M — StaffUpdateSiteRequest design_kit validation entirely out of sync with site.design_kits schema
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php (design_kit section — ~28 rules for dropped columns, ~13 columns missing)
     - **Affects:** Staff operators editing a professional's design kit via the staff dashboard. Every write returns HTTP 200 but `writeDesignKit()` discards all spacing/padding/tablet-tier values (columns were dropped by migration `20260529053028`). Meanwhile the new `space_*`, `color_placeholder`, `color_contrasting_*` columns are unvalidated — staff can submit malformed values for them with no 422 feedback.
     - **Effort:** M (~2–4h)
@@ -316,7 +316,7 @@
         } catch (LockTimeoutException) { ... }
         ```
 
-- [ ] **#CCH-4** · P2 · M — Design-kit writes do not invalidate the `public.profile:*` cache
+- [x] **#CCH-4** · P2 · M — Design-kit writes do not invalidate the `public.profile:*` cache
     - **Where:** Write path: app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:writeDesignKit() + subsequent `invalidateSite()` call. Read path: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:show() (key `public.profile:{handle}:{updated_at_ts}`)
     - **Affects:** Every professional who saves design-kit changes (colours, fonts, spacing). When the request contains only `design_kit` data and no other site fields, `sites.updated_at` is not bumped, the timestamp-based cache key does not rotate, and the cached profile payload continues serving the old design kit until the TTL expires (~60 s default).
     - **Effort:** M (~2–4h)
@@ -344,7 +344,7 @@
         $key = "public.profile:{$handleLc}:{$resolved['updated_at_ts']}"; // stale key served
         ```
 
-- [ ] **#LIFE-1** · P2 · S — Race condition in `writeDesignKit`: concurrent saves can silently lose design customisations
+- [x] **#LIFE-1** · P2 · S — Race condition in `writeDesignKit`: concurrent saves can silently lose design customisations
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:writeDesignKit() (lines ~72–95)
     - **Affects:** Any professional who triggers two rapid design-kit saves (e.g., opens the editor in two tabs, or a slow network causes a double-submit). The later write silently overwrites the earlier one without any error.
     - **Effort:** S (~0.5–1h)
@@ -379,7 +379,7 @@
         }
         ```
 
-- [ ] **#SEC-1** · P2 · S — StaffUpdateSiteRequest `prepareForValidation` skips settings-field sanitisation
+- [x] **#SEC-1** · P2 · S — StaffUpdateSiteRequest `prepareForValidation` skips settings-field sanitisation
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:prepareForValidation()
     - **Affects:** Staff-updated `hero_title`, `hero_subtitle`, `primary_button_text`, and `bio_text` — strings are stored with raw whitespace and artefacts rather than going through the `cleanString()` pass that the professional-facing path applies.
     - **Effort:** S (~0.5–1h)
@@ -412,7 +412,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P2 · S — StaffUpdateSiteRequest subdomain validation omits the `core.user_handle_aliases` collision check
+- [x] **#SEC-2** · P2 · S — StaffUpdateSiteRequest subdomain validation omits the `core.user_handle_aliases` collision check
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:rules() (subdomain closure, ~lines 111–137)
     - **Affects:** Staff subdomain assignments — a staff member can set a subdomain that matches a handle preserved as an alias for redirect/SEO purposes, silently overwriting that redirect and breaking the former professional's incoming traffic.
     - **Effort:** S (~0.5–1h)
@@ -474,7 +474,7 @@
           FOR EACH ROW EXECUTE FUNCTION site.create_empty_design_kit();
         ```
 
-- [ ] **#TEST-4** · P2 · S — Two-token responsive prefix path in `groupKitColumns` has no test coverage
+- [x] **#TEST-4** · P2 · S — Two-token responsive prefix path in `groupKitColumns` has no test coverage
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:474–506 (two-token prefix loop)
     - **Affects:** Public profile API — `space_desktop_*`, `sizing_desktop_*`, and `typography_desktop_*` columns would route to the wrong wire group or be dropped entirely if the two-token prefix loop is accidentally reordered or removed.
     - **Effort:** S (~0.5–1h)
