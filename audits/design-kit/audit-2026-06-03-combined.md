@@ -138,7 +138,7 @@
         $sub->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
         ```
 
-- [ ] **#TEST-1** · P1 · M — `UpdateSiteAction` has no test coverage despite containing the most critical business logic in the codebase
+- [x] **#TEST-1** · P1 · M — `UpdateSiteAction` has no test coverage despite containing the most critical business logic in the codebase
     - **Where:** app/Services/Site/UpdateSiteAction.php (entire class)
     - **Affects:** Every user who changes a subdomain, publishes their site, or renames their handle. A regression silently breaks subdomain assignment, orphans alias rows, skips cooldown enforcement, or allows publication of incomplete profiles — all without a test catching it.
     - **Effort:** M (~2–4h)
@@ -277,7 +277,7 @@
         }
         ```
 
-- [ ] **#SEC-1** · P2 · M — `UserSiteController::update()` and `::visibility()` never call `authorizeForUser`; inline ownership resolution bypasses the Policy layer
+- [x] **#SEC-1** · P2 · M — `UserSiteController::update()` and `::visibility()` never call `authorizeForUser`; inline ownership resolution bypasses the Policy layer
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:33–55 (`update` and `visibility` methods)
     - **Affects:** Site mutation endpoints from the professional dashboard. `SitePolicy` exists (`app/Policies/SitePolicy.php`) and has an `update` method with `denyIfPendingDeletion` and ownership checks, but neither controller method calls it. Note: commit `8f992afd docs: check off LIFE-1, SEC-1, SEC-2 in core audit` marked this done, but grep confirms no `authorizeForUser` call exists in the controller.
     - **Effort:** M (~2–4h)
@@ -677,7 +677,7 @@
         'skeletonId' => $this->sections['skeleton_id'] ?? 'skeleton-1',
         ```
 
-- [ ] **#TEST-5** · P3 · S — `StaffSiteController` has zero test coverage
+- [x] **#TEST-5** · P3 · S — `StaffSiteController` has zero test coverage
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffSiteController.php
     - **Affects:** Staff dashboard functionality — if either `show` or `showByProfessional` breaks, staff cannot view a professional's site details.
     - **Effort:** S (~0.5–1h)

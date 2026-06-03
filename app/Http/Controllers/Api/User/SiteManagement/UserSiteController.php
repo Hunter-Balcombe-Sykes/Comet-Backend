@@ -34,6 +34,15 @@ class UserSiteController extends ApiController
     public function update(UpdateSiteRequest $request, UpdateSiteAction $action)
     {
         $professional = $this->currentUser($request);
+
+        // Authorization Doctrine: gate the mutation through SitePolicy rather
+        // than relying solely on the EnforcePendingDeletionReadOnly middleware.
+        // Ownership is structurally guaranteed (the site is resolved from the
+        // authenticated professional), so the policy's effective job here is the
+        // pending-deletion 423 gate as defence-in-depth.
+        $site = $this->currentSite($professional);
+        $this->authorizeForUser($professional, 'update', $site);
+
         $data = $request->validated();
 
         // design_kit writes to site.design_kits, not site.sites. Pull it out
@@ -140,6 +149,14 @@ class UserSiteController extends ApiController
     public function visibility(UpdateSiteRequest $request, UpdateSiteAction $action)
     {
         $professional = $this->currentUser($request);
+
+        // Same policy gate as update(). NB: this method is not currently wired
+        // to a route (the live visibility toggle is SiteVisibilityController);
+        // the gate is here so the Authorization Doctrine holds if it is ever
+        // routed.
+        $site = $this->currentSite($professional);
+        $this->authorizeForUser($professional, 'update', $site);
+
         $data = $request->validated();
         // visibility() shares the request shape with update() — strip the
         // design_kit key so it doesn't leak into the sites row update.
