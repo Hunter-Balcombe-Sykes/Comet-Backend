@@ -178,13 +178,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Auth & Security
 
-- [ ] **#P2-01** Revocation silently skipped for tokens missing `session_id` claim — Lens: `jwt-mfa`
+- [x] **#P2-01** Revocation silently skipped for tokens missing `session_id` claim — Lens: `jwt-mfa`
     - Where: `app/Http/Middleware/Auth/VerifySupabaseJwt.php:82–88`
     - What: The guard `if ($sessionId !== '' && $this->revocation->isRevoked($sessionId))` silently bypasses the blocklist when `session_id` is absent from the JWT. `TokenRevocationService::isRevoked()` also returns `false` early for an empty string. A future token type or service token that omits the claim receives a clean pass through the revocation gate.
     - Fix: Add `Log::warning('jwt.missing_session_id', ['uid' => $uid])` when `$sessionId === ''`. Once logs confirm the case never fires in practice, tighten to `return response()->json(['message' => 'Token missing session_id'], 401)`. Apply the same change to the fallback path's `$fallbackSessionId` check.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-02** `RequireAal2` middleware checks only session-level AAL; no `amr`-based freshness window for sensitive staff operations — Lens: `jwt-mfa`
+- [x] **#P2-02** `RequireAal2` middleware checks only session-level AAL; no `amr`-based freshness window for sensitive staff operations — Lens: `jwt-mfa`
     - Where: `app/Http/Middleware/Auth/RequireAal2.php:22–29` · `app/Policies/BasePolicy.php:69–93`
     - What: Supabase sets `aal=aal2` once per session and never downgrades on token refresh (valid for ~30 days). A staff refresh token minted weeks ago continues passing the AAL2 gate. `BasePolicy::requiresFreshAal2()` already implements `amr`-timestamp freshness checking and is used by `UserSelfPolicy` and `MfaController`. It is not yet applied to the highest-risk staff operations (role changes, account deletion, force-delete, bulk status update).
     - Fix: Identify high-risk staff controller actions and add `$aal2Check = $this->requiresFreshAal2(); if ($aal2Check->denied()) return $aal2Check;` to the corresponding policy methods or inline in controllers following the `MfaController` pattern. Tune the freshness window via `config('partna.mfa.fresh_window_seconds', 300)`.
@@ -1231,7 +1231,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B17: JWT claim hardening (2 items — #P2-01, #P2-02) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-01`, `#P2-02`
 - Models: impl=sonnet · review=opus
 - Rationale: Both are hardening additions to the JWT verification and AAL2 enforcement path. Closely related: #P2-01 tightens the revocation gate; #P2-02 adds per-action freshness checks using already-existing infrastructure.
