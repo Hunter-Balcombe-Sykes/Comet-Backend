@@ -77,7 +77,7 @@ class IndividualProfilePayloadBuilder
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
             'design_media' => $this->buildDesignMedia($site),
-            'skeleton_id' => $site?->skeleton_id ?? 'skeleton-1',
+            'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
             'public_config' => $this->buildPublicConfig(),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'bio' => $this->buildBio($pro, $sections),

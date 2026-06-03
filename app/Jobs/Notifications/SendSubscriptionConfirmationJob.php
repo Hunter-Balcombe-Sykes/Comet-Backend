@@ -33,7 +33,7 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
 
     public function __construct(public readonly string $subscriptionId)
     {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
@@ -143,6 +143,8 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
         Log::error('SendSubscriptionConfirmationJob failed permanently', [
             'subscription_id' => $this->subscriptionId,
             'error' => $e->getMessage(),
+            'job_id' => $this->job?->getJobId(),
+            'attempt' => $this->attempts(),
         ]);
     }
 }

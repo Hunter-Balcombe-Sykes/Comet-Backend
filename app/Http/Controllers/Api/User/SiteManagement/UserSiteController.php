@@ -150,6 +150,7 @@ class UserSiteController extends ApiController
     /**
      * Dedicated endpoint for booking mode + external URL.
      * Scoped validation so the frontend doesn't need to use the generic site update.
+     * Returns a full SiteResource so the client can update its site state in one round-trip.
      */
     public function updateBookingSettings(UpdateBookingSettingsRequest $request, UpdateSiteAction $action): JsonResponse
     {
@@ -163,12 +164,7 @@ class UserSiteController extends ApiController
             ],
         ]);
 
-        $settings = is_array($site->settings) ? $site->settings : [];
-
-        return $this->success([
-            'booking_mode' => $settings['booking_mode'] ?? 'manual',
-            'manual_booking_url' => $settings['manual_booking_url'] ?? null,
-        ]);
+        return $this->success(['site' => new SiteResource($site)]);
     }
 
     public function visibility(UpdateSiteRequest $request, UpdateSiteAction $action)

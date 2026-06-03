@@ -30,6 +30,10 @@ return [
         // Total days an alias serves a 301 redirect. After this it is hard-deleted and the handle returns to the pool.
         'redirect_days' => (int) env('SIDEST_HANDLE_REDIRECT_DAYS', 90),
 
+        // Minimum days between subdomain changes for self-serve users. Mirrored in
+        // UserSelfController when computing subdomain_change_available_at for the /me payload.
+        'subdomain_cooldown_days' => (int) env('SIDEST_HANDLE_SUBDOMAIN_COOLDOWN_DAYS', 30),
+
         // Years to retain handle_change_log rows. 7y matches typical fraud-investigation retention.
         'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
     ],
@@ -942,6 +946,14 @@ return [
     // retry_after is harmless.
     'analytics_queue' => [
         'name' => env('PARTNA_ANALYTICS_QUEUE', 'analytics'),
+    ],
+
+    // Named queue lanes for domain-specific job routing. Keeping queue names
+    // config-driven lets ops reroute to a dedicated worker without a code deploy.
+    'queues' => [
+        // Transactional confirmation emails (enquiry + subscription). Set
+        // PARTNA_QUEUE_NOTIFICATIONS in .env to route to a different lane.
+        'notifications' => env('PARTNA_QUEUE_NOTIFICATIONS', 'notifications'),
     ],
 
     'video_variants' => [

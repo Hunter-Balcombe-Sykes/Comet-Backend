@@ -72,15 +72,17 @@ it('returns site data for a given subdomain', function () {
     $response = (new StaffSiteController)->show('alpha');
     $body = $response->getData(true);
 
+    // API-3: responses are wrapped in ['site' => StaffSiteResource] to match the
+    // professional surface shape. The full StaffSiteResource shape is at $body['site'].
     expect($response->getStatusCode())->toBe(200)
-        ->and($body['is_published'])->toBeTrue()
-        ->and($body['site']['id'])->toBe($siteId)
-        ->and($body['site']['subdomain'])->toBe('alpha')
-        ->and($body['site']['skeleton_id'])->toBe('skeleton-2')
-        ->and($body['site']['settings'])->toBe(['hero_title' => 'Hello'])
-        ->and($body['professional']['handle'])->toBe('alpha')
-        ->and($body['professional']['display_name'])->toBe('Alpha Pro')
-        ->and($body['blocks'])->toBe([['block_type' => 'link', 'title' => 'My link']]);
+        ->and($body['site']['is_published'])->toBeTrue()
+        ->and($body['site']['site']['id'])->toBe($siteId)
+        ->and($body['site']['site']['subdomain'])->toBe('alpha')
+        ->and($body['site']['site']['skeleton_id'])->toBe('skeleton-2')
+        ->and($body['site']['site']['settings'])->toBe(['hero_title' => 'Hello'])
+        ->and($body['site']['professional']['handle'])->toBe('alpha')
+        ->and($body['site']['professional']['display_name'])->toBe('Alpha Pro')
+        ->and($body['site']['blocks'])->toBe([['block_type' => 'link', 'title' => 'My link']]);
 });
 
 it('matches the subdomain case-insensitively', function () {
@@ -107,8 +109,8 @@ it('returns site data for a given professional', function () {
     $body = $response->getData(true);
 
     expect($response->getStatusCode())->toBe(200)
-        ->and($body['professional']['id'])->toBe($pro->id)
-        ->and($body['site']['subdomain'])->toBe('by-pro');
+        ->and($body['site']['professional']['id'])->toBe($pro->id)
+        ->and($body['site']['site']['subdomain'])->toBe('by-pro');
 });
 
 it('returns 404 for a professional with no site row', function () {

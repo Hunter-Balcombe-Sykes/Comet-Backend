@@ -18,10 +18,6 @@ use Illuminate\Validation\ValidationException;
 // vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
-    // Days between allowed subdomain changes. Mirrored in UserSelfController::show
-    // when computing subdomain_change_available_at for the /me payload.
-    public const SUBDOMAIN_COOLDOWN_DAYS = 30;
-
     /**
      * Updates the given professional's site.
      *
@@ -55,7 +51,9 @@ class UpdateSiteAction
                     unset($data['subdomain']);
                 } else {
                     if (! $allowSubdomainOverride && $site->subdomain_changed_at) {
-                        $nextAllowed = $site->subdomain_changed_at->copy()->addDays(self::SUBDOMAIN_COOLDOWN_DAYS);
+                        // Days between allowed subdomain changes; mirrored in UserSelfController::show.
+                        $cooldownDays = (int) config('partna.handle.subdomain_cooldown_days', 30);
+                        $nextAllowed = $site->subdomain_changed_at->copy()->addDays($cooldownDays);
 
                         if (Carbon::now()->lt($nextAllowed)) {
                             throw ValidationException::withMessages([

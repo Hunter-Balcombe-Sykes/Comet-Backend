@@ -34,7 +34,7 @@ class SendEnquiryConfirmationJob implements ShouldQueue
 
     public function __construct(public readonly string $enquiryId)
     {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
@@ -135,6 +135,8 @@ class SendEnquiryConfirmationJob implements ShouldQueue
         Log::error('SendEnquiryConfirmationJob failed permanently', [
             'enquiry_id' => $this->enquiryId,
             'error' => $e->getMessage(),
+            'job_id' => $this->job?->getJobId(),
+            'attempt' => $this->attempts(),
         ]);
     }
 }

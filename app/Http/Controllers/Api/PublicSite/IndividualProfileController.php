@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
@@ -131,9 +131,10 @@ class IndividualProfileController extends ApiController
 
         $this->logIfSlow($handleLc, '200', $startedAt);
 
-        // Wrap in the standard envelope. ApiController::success() passes $data
-        // directly to response()->json() — so we keep the {'data': ...} wrapper
-        // that the Astro Worker subrequest expects.
+        // INTENTIONAL: the outer {'data': ...} envelope is part of the Astro Worker
+        // contract (partna-pages reads payload.data.*). Do NOT "normalise" this to
+        // match other endpoints — the Worker subrequest depends on this exact shape.
+        // Any change here requires a coordinated deploy with the Worker code.
         return $this->success(['data' => $payload]);
     }
 
