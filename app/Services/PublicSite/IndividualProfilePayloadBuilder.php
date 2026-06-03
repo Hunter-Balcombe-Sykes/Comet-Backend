@@ -9,6 +9,7 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\SmartLinks\SmartLinkVisitorUrl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -554,7 +555,7 @@ class IndividualProfilePayloadBuilder
             ?? $pro->updated_at?->timestamp
             ?? 0;
 
-        return "public.profile:{$handleLc}:{$stamp}";
+        return CacheKeyGenerator::publicProfile($handleLc, $stamp);
     }
 
     public function cacheTtl(): int
