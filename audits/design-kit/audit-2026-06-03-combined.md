@@ -74,8 +74,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 6 of 10 complete
-- P3 Low: 3 of 15 complete
+- P2 Medium: 9 of 10 complete (API-2 partial — safe subset only, see note)
+- P3 Low: 15 of 15 complete
 
 ---
 
@@ -329,7 +329,7 @@
         // … plus closure-based reserved-word and uniqueness checks
         ```
 
-- [ ] **#TEST-3** · P2 · S — Rate-limit early-return path untested in both confirmation job classes
+- [x] **#TEST-3** · P2 · S — Rate-limit early-return path untested in both confirmation job classes
     - **Where:** app/Jobs/Notifications/SendEnquiryConfirmationJob.php (`withinRateLimit`); app/Jobs/Notifications/SendSubscriptionConfirmationJob.php (`withinRateLimit`)
     - **Affects:** Visitors submitting multiple enquiries or subscriptions. If the rate limit fires, the job silently returns without sending — no mail, no error, no `confirmation_sent_at` stamp. No test verifies this path, so a misconfigured limit (e.g. `partna.throttle.visitor_confirmation_per_hour` accidentally set to 0) would suppress all outbound confirmations silently.
     - **Effort:** S (~0.5–1h)
@@ -346,7 +346,7 @@
         }
         ```
 
-- [ ] **#TEST-2** · P2 · M — `writeDesignKit()` `lockForUpdate` concurrency guard is a no-op under SQLite and has no real-Postgres race test
+- [x] **#TEST-2** · P2 · M — `writeDesignKit()` `lockForUpdate` concurrency guard is a no-op under SQLite and has no real-Postgres race test
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php (`writeDesignKit`)
     - **Affects:** Users editing a site's design kit from two browser tabs simultaneously. Without a verified lock, two writes with disjoint column sets can overwrite each other — one request sets `color_accent`, another sets `typography_font_family`, and the second write could silently wipe the first's colour.
     - **Effort:** M (~2–4h)
@@ -372,6 +372,7 @@
         ```
 
 - [ ] **#API-2** · P2 · M — Legacy `PublicSiteController` is still live and bypasses the Resource layer, exposing a dead `theme` key
+    - **Status (2026-06-03 — partial, safe subset done):** Dead `'theme'` key removed from `buildPayloadFromDb()` + a LEGACY PATH NOTE comment added (commit `fix(audit-api2)`). Routes left registered — full decommission of `GET /api/public/site[-by-slug]` is DEFERRED pending confirmation from the external Astro front-end (`partna-pages`) / Worker and any mobile clients that they no longer consume these routes. Re-open this item when that coordination lands.
     - **Where:** app/Services/Cache/SiteCacheService.php (`buildPayloadFromDb`); app/Http/Controllers/Api/PublicSite/PublicSiteController.php
     - **Affects:** Any consumer of `GET /api/public/site` (subdomain header path) or `GET /api/public/site-by-slug`. Both routes are still registered and serve traffic through `buildPayloadFromDb()`, which assembles a raw associative array including a `'theme' => null` key (the skeleton-system cleanup removed theme data from the view but left the key in the builder). Consumers receive a payload that bypasses Resource allowlisting.
     - **Effort:** M (~2–4h)
@@ -397,7 +398,7 @@
         ];
         ```
 
-- [ ] **#MIG-1** · P2 · S — `skeleton_id` CHECK constraint added without `NOT VALID`, causing a full table scan under ACCESS EXCLUSIVE lock during the production deploy
+- [x] **#MIG-1** · P2 · S — `skeleton_id` CHECK constraint added without `NOT VALID`, causing a full table scan under ACCESS EXCLUSIVE lock during the production deploy
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql
     - **Affects:** All site writes (dashboard saves, publish toggles, subdomain changes) are blocked for the duration of the table scan during the production migration run. Pre-pilot the table is small and the lock is brief, but the pattern should be corrected before the table grows.
     - **Effort:** S (~0.5–1h)
@@ -420,7 +421,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SCHEMA-2** · P3 · S — `site.design_kits` table has no `created_at` / `updated_at` columns
+- [x] **#SCHEMA-2** · P3 · S — `site.design_kits` table has no `created_at` / `updated_at` columns
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql:116–118 (`CREATE TABLE site.design_kits`)
     - **Affects:** Internal debugging and future audit features. Without timestamps, there's no way to answer "when did this professional last change their design kit?" from the database alone. The parent `site.sites.updated_at` is touched by the controller after a kit-only write, but it's imprecise and lost entirely if a direct DB write occurs.
     - **Effort:** S (~0.5–1h)
@@ -437,7 +438,7 @@
         );
         ```
 
-- [ ] **#SCHEMA-3** · P3 · S — Migration `20260529044737` adds columns without `IF NOT EXISTS`, breaking idempotent re-run
+- [x] **#SCHEMA-3** · P3 · S — Migration `20260529044737` adds columns without `IF NOT EXISTS`, breaking idempotent re-run
     - **Where:** supabase/migrations/20260529044737_design_kit_contrasting_colors.sql:23–25
     - **Affects:** Deployment recovery — re-running this migration (disaster-restore, branch switch, partial-apply rollback) throws `ERROR: column "color_contrasting_bg" of relation "design_kits" already exists` and halts.
     - **Effort:** S (~0.5–1h)
@@ -454,7 +455,7 @@
           ADD COLUMN color_placeholder TEXT NULL;
         ```
 
-- [ ] **#SCHEMA-4** · P3 · S — Migration `20260529053028` drops and adds 34 columns without `IF EXISTS` / `IF NOT EXISTS` guards
+- [x] **#SCHEMA-4** · P3 · S — Migration `20260529053028` drops and adds 34 columns without `IF EXISTS` / `IF NOT EXISTS` guards
     - **Where:** supabase/migrations/20260529053028_design_kit_unified_space_scale.sql:52–80
     - **Affects:** Same as SCHEMA-3 — idempotent re-run fails. Higher blast radius: 24 `DROP COLUMN` (without `IF EXISTS`) and 10 `ADD COLUMN` (without `IF NOT EXISTS`) in a single `ALTER TABLE` statement. Any one already-present or already-absent column causes the entire atomic statement to fail.
     - **Effort:** S (~0.5–1h)
@@ -475,7 +476,7 @@
           …;
         ```
 
-- [ ] **#LIFE-3** · P3 · M — `Log::warning` calls in request classes and notification jobs lack tenant correlation context
+- [x] **#LIFE-3** · P3 · M — `Log::warning` calls in request classes and notification jobs lack tenant correlation context
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php (alias check warning), app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php (same), app/Jobs/Notifications/SendEnquiryConfirmationJob.php (`failed()`), app/Jobs/Notifications/SendSubscriptionConfirmationJob.php (`failed()`)
     - **Affects:** Operations visibility. Without `professional_id` and `request_id` in the log context, Nightwatch cannot correlate alias-check failures or permanently-failed notification jobs to a specific tenant or originating request.
     - **Effort:** M (~2–4h)
@@ -496,7 +497,7 @@
         ]);
         ```
 
-- [ ] **#LIFE-4** · P3 · S — `UpdateSiteRequest` and `StaffUpdateSiteRequest` duplicate ~80 `design_kit.*` validation rules
+- [x] **#LIFE-4** · P3 · S — `UpdateSiteRequest` and `StaffUpdateSiteRequest` duplicate ~80 `design_kit.*` validation rules
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php and app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php (both `rules()` methods)
     - **Affects:** Maintenance velocity. Every migration that adds or drops a `site.design_kits` column requires updating both files identically. The `DesignKitRequestSyncTest` catches drift after the fact, but the duplication itself is ongoing toil — two file edits per column addition.
     - **Effort:** S (~0.5–1h)
@@ -558,7 +559,7 @@
         }
         ```
 
-- [ ] **#TXN-3** · P3 · M — `UpdateSiteAction::execute()` holds a Postgres transaction open across ~140 lines of mixed reads, pure-PHP computation, and multi-model writes
+- [x] **#TXN-3** · P3 · M — `UpdateSiteAction::execute()` holds a Postgres transaction open across ~140 lines of mixed reads, pure-PHP computation, and multi-model writes
     - **Where:** app/Services/Site/UpdateSiteAction.php:48–191 (full `DB::transaction` closure)
     - **Affects:** Site update latency under concurrent subdomain changes — the transaction holds an open Postgres connection and row locks for the entire duration of the settings merge computation, publish validation, and all five model saves.
     - **Effort:** M (~2–4h)
@@ -589,7 +590,7 @@
         });
         ```
 
-- [ ] **#MIG-2** · P3 · S — Destructive `DROP TABLE` and `DROP COLUMN` lack a documented rehearsal note
+- [x] **#MIG-2** · P3 · S — Destructive `DROP TABLE` and `DROP COLUMN` lack a documented rehearsal note
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql
     - **Affects:** Irreversible loss of the entire `site.themes` catalog and `theme_id` column on `site.sites`. Any rollback requires a prior backup and manual restore.
     - **Effort:** S (~0.5–1h)
@@ -602,7 +603,7 @@
         DROP TABLE IF EXISTS site.themes CASCADE;
         ```
 
-- [ ] **#API-1** · P3 · S — `updateBookingSettings` returns a raw associative array instead of a Resource, inconsistent with every other action in the controller
+- [x] **#API-1** · P3 · S — `updateBookingSettings` returns a raw associative array instead of a Resource, inconsistent with every other action in the controller
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php (`updateBookingSettings`)
     - **Affects:** Professional dashboard clients consuming booking-settings update responses. Every other action returns `['site' => new SiteResource($site)]`; this action returns a flat array bypassing the Resource layer.
     - **Effort:** S (~0.5–1h)
@@ -616,7 +617,7 @@
         ]);
         ```
 
-- [ ] **#CFG-1** · P3 · S — Queue name `'notifications'` hardcoded as a string literal in both confirmation job classes
+- [x] **#CFG-1** · P3 · S — Queue name `'notifications'` hardcoded as a string literal in both confirmation job classes
     - **Where:** app/Jobs/Notifications/SendEnquiryConfirmationJob.php:34; app/Jobs/Notifications/SendSubscriptionConfirmationJob.php:34
     - **Affects:** All outbound visitor email confirmations. A staging or test environment that uses a different queue name requires a code change and redeploy; the two files must both be updated or they drift.
     - **Effort:** S (~0.5–1h)
@@ -631,7 +632,7 @@
         $this->onQueue('notifications');
         ```
 
-- [ ] **#CFG-2** · P3 · S — `SUBDOMAIN_COOLDOWN_DAYS` hardcoded as a class constant while sibling handle lifecycle settings are config-driven
+- [x] **#CFG-2** · P3 · S — `SUBDOMAIN_COOLDOWN_DAYS` hardcoded as a class constant while sibling handle lifecycle settings are config-driven
     - **Where:** app/Services/Site/UpdateSiteAction.php:30
     - **Affects:** Staging and test environments cannot shorten the 30-day cooldown for testing rename flows without a code change.
     - **Effort:** S (~0.5–1h)
@@ -646,7 +647,7 @@
         public const SUBDOMAIN_COOLDOWN_DAYS = 30;
         ```
 
-- [ ] **#API-3** · P3 · M — Response envelope shape differs across Professional, Staff, and PublicSite controller surfaces
+- [x] **#API-3** · P3 · M — Response envelope shape differs across Professional, Staff, and PublicSite controller surfaces
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php; app/Http/Controllers/Api/Staff/StaffSite/StaffSiteController.php; app/Http/Controllers/Api/PublicSite/IndividualProfileController.php
     - **Affects:** Any universal API client — each surface wraps successful responses in a different key, requiring three deserialization paths for the same platform entity.
     - **Effort:** M (~2–4h)
@@ -663,7 +664,7 @@
         return $this->success(['data' => $payload]);
         ```
 
-- [ ] **#CFG-3** · P3 · S — Default skeleton ID `'skeleton-1'` duplicated in two separate files with no shared source of truth
+- [x] **#CFG-3** · P3 · S — Default skeleton ID `'skeleton-1'` duplicated in two separate files with no shared source of truth
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php (`build`); app/Http/Resources/PublicSite/IndividualProfileResource.php (`toArray`)
     - **Affects:** If the platform default skeleton ever changes, both files must be updated in lockstep; a missed update causes the builder and the resource to disagree on the fallback.
     - **Effort:** S (~0.5–1h)
