@@ -42,6 +42,47 @@ class UpdateSiteAction
         // IMPORTANT: never pass non-column fields into fill()
         unset($data['force_publish']);
 
+        // Hoist pure-PHP work out of the transaction to keep the lock window narrow.
+
+        // Merge settings for PATCH semantics (don't overwrite the whole JSON).
+        // settings.design.* is no longer accepted — the FormRequest rejects
+        // those keys at validation, but strip them here too as a belt-and-
+        // braces defence against any service-layer caller bypassing the
+        // FormRequest (job replays, internal tools, etc.).
+        if (array_key_exists('settings', $data)) {
+            $existing = is_array($site->settings) ? $site->settings : [];
+            $incoming = is_array($data['settings']) ? $data['settings'] : [];
+            // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
+            unset($incoming['selected_products']);
+            // Skeleton-system cleanup: settings.design.* is dead. Any
+            // incoming `design` sub-key gets dropped on the floor.
+            unset($incoming['design']);
+            $merged = array_replace_recursive($existing, $incoming);
+            // Same guard on the merged result — old design data on disk
+            // was already stripped by the cleanup migration, but if any
+            // straggler resurfaced via a write race it dies here.
+            unset($merged['design']);
+
+            $data['settings'] = $merged;
+        }
+
+        // If publishing, enforce completeness unless staff force_publish is allowed + true.
+        // Throwing before the transaction is strictly better — no transaction to roll back
+        // on a validation failure.
+        if (($data['is_published'] ?? null) === true) {
+            $canBypass = $allowForcePublish && $forcePublish;
+
+            if (! $canBypass) {
+                // Must have display name
+                if (empty($professional->display_name)) {
+                    throw ValidationException::withMessages([
+                        'is_published' => ['Cannot publish: professional must have a display name.'],
+                    ]);
+                }
+
+            }
+        }
+
         return DB::transaction(function () use ($professional, $site, $data, $options, $allowForcePublish, $forcePublish, $allowSubdomainOverride): Site {
             if (array_key_exists('subdomain', $data)) {
                 $incoming = strtolower($data['subdomain']);
@@ -163,43 +204,6 @@ class UpdateSiteAction
 
                     $data['subdomain'] = $incoming;
                     $site->subdomain_changed_at = now();
-                }
-            }
-
-            // Merge settings for PATCH semantics (don't overwrite the whole JSON).
-            // settings.design.* is no longer accepted — the FormRequest rejects
-            // those keys at validation, but strip them here too as a belt-and-
-            // braces defence against any service-layer caller bypassing the
-            // FormRequest (job replays, internal tools, etc.).
-            if (array_key_exists('settings', $data)) {
-                $existing = is_array($site->settings) ? $site->settings : [];
-                $incoming = is_array($data['settings']) ? $data['settings'] : [];
-                // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
-                unset($incoming['selected_products']);
-                // Skeleton-system cleanup: settings.design.* is dead. Any
-                // incoming `design` sub-key gets dropped on the floor.
-                unset($incoming['design']);
-                $merged = array_replace_recursive($existing, $incoming);
-                // Same guard on the merged result — old design data on disk
-                // was already stripped by the cleanup migration, but if any
-                // straggler resurfaced via a write race it dies here.
-                unset($merged['design']);
-
-                $data['settings'] = $merged;
-            }
-
-            // If publishing, enforce completeness unless staff force_publish is allowed + true
-            if (($data['is_published'] ?? null) === true) {
-                $canBypass = $allowForcePublish && $forcePublish;
-
-                if (! $canBypass) {
-                    // Must have display name
-                    if (empty($professional->display_name)) {
-                        throw ValidationException::withMessages([
-                            'is_published' => ['Cannot publish: professional must have a display name.'],
-                        ]);
-                    }
-
                 }
             }
 
