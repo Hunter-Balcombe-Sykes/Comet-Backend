@@ -23,6 +23,13 @@
 --   8. Recreate the two views without any theme columns / JOIN.
 -- =====================================================================
 
+-- Atomic: every statement below is transaction-safe (no CONCURRENTLY, no
+-- ALTER TYPE ADD VALUE), so wrapping the whole sequence in BEGIN/COMMIT means
+-- a mid-migration failure rolls back to the pre-migration schema instead of
+-- leaving the public-site views / theme_id column / site.themes table dropped
+-- with no clean recovery path.
+BEGIN;
+
 -- 1. Drop the two views that depend on site.sites.theme_id and site.themes.
 --    They're recreated at the bottom of this migration without those refs.
 DROP VIEW IF EXISTS site.all_site_data;
@@ -368,3 +375,5 @@ BEGIN
     END IF;
 END;
 $$;
+
+COMMIT;
