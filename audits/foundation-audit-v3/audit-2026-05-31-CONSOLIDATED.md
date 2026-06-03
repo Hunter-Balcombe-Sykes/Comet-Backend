@@ -112,7 +112,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Raise `supervisor-notifications` `timeout` in the `defaults` block from 60 to at least 130. Verify `retry_after` in `config/queue.php` still exceeds the new value (it does at 360 s). Add a comment: "supervisor timeout must always exceed the max job `$timeout` dispatched to its queues."
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-05** `moderation.enabled` kill-switch missing `(bool)` cast — silently non-functional via env — Lens: `config-secret`
+- [x] **#P1-05** `moderation.enabled` kill-switch missing `(bool)` cast — silently non-functional via env — Lens: `config-secret`
     - Where: `config/partna.php` — `moderation.enabled` line
     - What: OS-level env vars arrive as raw strings; `env('PARTNA_MODERATION_ENABLED', true)` returns the string `'false'` which is truthy in PHP. Every other boolean in the same config block uses `(bool)` cast. The CSAM pipeline that reads this key was deferred on 2026-05-29 but is planned to return; shipping with a broken emergency stop is a pre-launch safety gap.
     - Fix: Change to `(bool) env('PARTNA_MODERATION_ENABLED', true)`. Add a unit test asserting `config('partna.moderation.enabled')` is `false` when the env var is `'false'`.
@@ -362,7 +362,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Config & Env
 
-- [ ] **#P2-29** `analytics_endpoint` defaults to dev API URL — production profile pages silently report analytics to wrong environment — Lens: `config-secret`
+- [x] **#P2-29** `analytics_endpoint` defaults to dev API URL — production profile pages silently report analytics to wrong environment — Lens: `config-secret`
     - Where: `config/partna.php` — `public_profile.analytics_endpoint` · `app/Services/PublicSite/IndividualProfilePayloadBuilder.php:460`
     - What: `env('PARTNA_PUBLIC_ANALYTICS_ENDPOINT', 'https://dev-api.partna.au/api/analytics')` is embedded in every `/api/public/profiles/{handle}` response. In any production environment where the env var is absent, all real visitor analytics beacons fire against `dev-api.partna.au`. Production analytics are lost; dev analytics are polluted. The variable is absent from both `EnvCheckService::REQUIRED` and `EnvCheckService::RECOMMENDED`.
     - Fix: Change the default to derive from `config('app.url')`: `rtrim(config('app.url'), '/').'/api/analytics'`. Add `'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT'` to `EnvCheckService::RECOMMENDED`.
@@ -578,19 +578,19 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Observability
 
-- [ ] **#P2-57** `AnalyticsQueryService` silently swallows click-table `QueryException` across four sites — Lens: `observability`
+- [x] **#P2-57** `AnalyticsQueryService` silently swallows click-table `QueryException` across four sites — Lens: `observability`
     - Where: `app/Services/Analytics/AnalyticsQueryService.php:88` · `:118` · `:223` · `:257`
     - What: Four `catch (QueryException)` blocks return zero/empty defaults with no log. The resilience is intentional (SQLite test environments). However production failures — a missing `analytics.link_clicks` table, a schema mismatch — are indistinguishable from "no clicks today." If the click pipeline breaks overnight, the dashboard shows zero for every user with no Nightwatch signal.
     - Fix: Change to `catch (QueryException $e)`. Add `Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()])` before each `return`. Keep the zero/empty defaults — resilience is correct; observability was missing.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-58** `StaffAnalyticsController` silently swallows the same click-table failures — same root cause, same tier — Lens: `observability`
+- [x] **#P2-58** `StaffAnalyticsController` silently swallows the same click-table failures — same root cause, same tier — Lens: `observability`
     - Where: `app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php:106` · `:134` · `:151`
     - What: Structurally identical to #P2-57. The three inline click-analytics query blocks duplicate `AnalyticsQueryService` logic (see #P3-24 for the refactor item) but without any logging fix once #P2-57 lands on the service. Staff investigating zero-click analytics for a user cannot distinguish genuine absence from a broken query.
     - Fix: Change `catch (Throwable)` to `catch (Throwable $e)`. Add `Log::warning('staff.analytics.click_query_failed', ['professional_id' => $professional->id, 'error' => $e->getMessage()])` in each block.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-59** `UserCacheService::getByAuthId` silently repairs a stale auth mapping without logging — Lens: `observability`
+- [x] **#P2-59** `UserCacheService::getByAuthId` silently repairs a stale auth mapping without logging — Lens: `observability`
     - Where: `app/Services/Cache/UserCacheService.php:166`
     - What: The code correctly self-heals when `$professional->auth_user_id !== $authUserId` (stale or corrupted cache key). However no log is emitted. `auth_user_id` is documented as immutable — any mismatch here is abnormal. A recurrent invalidation bug firing this branch on every request would go undetected until someone manually compares cache state against the database.
     - Fix: Add `Log::warning('cache.auth_id_mismatch', ['cached_user_id' => $id, 'auth_user_id' => $authUserId])` immediately before `Cache::forget($authIdKey)`. IDs are UUIDs — no PII exposure.
@@ -771,13 +771,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — Observability
 
-- [ ] **#P3-22** `CacheLockService::recordLockReleaseFailure` inner catch is completely silent when Redis is unreachable — Lens: `observability`
+- [x] **#P3-22** `CacheLockService::recordLockReleaseFailure` inner catch is completely silent when Redis is unreachable — Lens: `observability`
     - Where: `app/Services/Cache/CacheLockService.php:278`
     - What: If the `Redis::incr` counter itself throws (Redis unreachable), the failure is swallowed with no log. The counter exists to expose lock-release failures to ops. When Redis is down (the exact condition that causes lock-release failures to spike) the counter stops working silently.
     - Fix: Change `catch (\Throwable)` to `catch (\Throwable $e)`. Add `Log::warning('cache.lock_release_failure_counter_failed', ['error' => $e->getMessage()])`. Laravel's file/stack log driver is independent of Redis and succeeds even when Redis is down.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-23** RUM beacon catch block is completely empty — a broken log driver goes undetected — Lens: `observability`
+- [x] **#P3-23** RUM beacon catch block is completely empty — a broken log driver goes undetected — Lens: `observability`
     - Where: `app/Http/Controllers/Api/PublicSite/AnalyticsController.php:241`
     - What: The existing comment ("never bubble logging errors back to the visitor") is correct — the endpoint returns 200 regardless. But an empty `catch` means a persistent log-driver misconfiguration silently kills all RUM data collection with no operator signal.
     - Fix: The exception variable is already captured (`catch (\Throwable $e)`). Add `Log::warning('analytics.rum_logging_failed', ['error' => $e->getMessage()])` inside the catch. The 200 response is preserved.
@@ -1097,7 +1097,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B11: Observability — silent catch blocks (5 items — #P2-57, #P2-58, #P2-59, #P3-22, #P3-23) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P2-57`, `#P2-58`, `#P2-59`, `#P3-22`, `#P3-23`
 - Models: impl=haiku · review=sonnet
 - Rationale: All five are adding one `Log::warning(…)` line inside an existing `catch` block. Same pattern, trivial implementation, high observability return.
@@ -1279,7 +1279,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B19: Config cast and env defaults (2 items — #P1-05, #P2-29) — Effort: S
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox
 - Items: `#P1-05`, `#P2-29`
 - Models: impl=haiku · review=sonnet
 - Rationale: Both are one-line fixes in `config/partna.php`. One session, one file.

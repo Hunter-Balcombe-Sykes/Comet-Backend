@@ -742,7 +742,7 @@
         'design_kit.typography_font_body'    => ['sometimes', 'nullable', 'string', 'max:64'],
         ```
 
-- [ ] **#SEC-3** · P3 · S — No application-level rate limiting on the public profile endpoint
+- [x] **#SEC-3** · P3 · S — No application-level rate limiting on the public profile endpoint
     - **Where:** app/Http/Controllers/Api/PublicSite/IndividualProfileController.php (no throttle middleware, no `RateLimiter` calls in `show()`)
     - **Affects:** Handle enumeration — an attacker cycling unique handles at volume can map which handles exist without application-layer resistance. The 30 s resolve cache absorbs repeated lookups of the same handle, but each unique miss triggers a DB query.
     - **Effort:** S (~0.5–1h)
@@ -761,7 +761,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P3 · S — Color fields accept arbitrary strings with no format validation
+- [x] **#SEC-5** · P3 · S — Color fields accept arbitrary strings with no format validation
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php and app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php (all `design_kit.color_*` and `design_kit.button_*` rules)
     - **Affects:** The email Blade template, which renders colour values directly into inline CSS. A value like `#fff;}body{display:none` (under 32 chars) would terminate the inline style rule in an email client.
     - **Effort:** S (~0.5–1h)
@@ -778,7 +778,7 @@
         // style="background-color:{{ $brand->palette->bg }};"
         ```
 
-- [ ] **#SCALE-2** · P3 · S — `information_schema.columns` queried on every design-kit write
+- [x] **#SCALE-2** · P3 · S — `information_schema.columns` queried on every design-kit write
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:writeDesignKit() (column discovery query)
     - **Affects:** Every design-kit save from the dashboard. At 200 professionals this is low volume, but each save costs an extra metadata round-trip that changes only at deploy time.
     - **Effort:** S (~0.5–1h)
@@ -795,7 +795,7 @@
             ->all();
         ```
 
-- [ ] **#TEST-8** · P3 · S — The controller's double-bust cache invalidation pattern is not covered end-to-end
+- [x] **#TEST-8** · P3 · S — The controller's double-bust cache invalidation pattern is not covered end-to-end
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php:48–55
     - **Affects:** Public profile cache correctness after a design kit write. The second `invalidateSite()` after `writeDesignKit()` covers the email-brand bundle reading the updated kit — removing it as "redundant" would pass the existing test suite.
     - **Effort:** S (~0.5–1h)
@@ -811,7 +811,7 @@
         }
         ```
 
-- [ ] **#SCHEMA-2** · P3 · S — Migration `20260527070000` runs an inline full-table-scan UPDATE on `site.sites`
+- [x] **#SCHEMA-2** · P3 · S — Migration `20260527070000` runs an inline full-table-scan UPDATE on `site.sites`
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (step 5, `UPDATE site.sites SET settings = settings - 'design' WHERE settings ? 'design'`)
     - **Affects:** Migration authoring pattern — at current row counts (≤200) this ran instantly. As `site.sites` grows, any future migration following this pattern risks long lock holds that queue DML during deploy.
     - **Effort:** S (~0.5–1h) — process / documentation fix; the migration has already run.
@@ -828,7 +828,7 @@
         --  not in the migration so the backfill window stays predictable)."
         ```
 
-- [ ] **#SCALE-1** · P3 · S — `skeleton_id` CHECK constraint added without `NOT VALID` on `site.sites`
+- [x] **#SCALE-1** · P3 · S — `skeleton_id` CHECK constraint added without `NOT VALID` on `site.sites`
     - **Where:** supabase/migrations/20260527070000_skeleton_system_cleanup.sql (ALTER TABLE block adding `skeleton_id`)
     - **Affects:** Migration authoring pattern — this migration has already run. At current row counts (≤200) the validation scan was instant. On a table with millions of rows, `ADD COLUMN ... CHECK(...)` validates every existing row inline and holds an `ACCESS EXCLUSIVE` lock.
     - **Effort:** S (~0.5h) — process / documentation fix; the migration has already run.
@@ -844,7 +844,7 @@
         -- No NOT VALID + VALIDATE CONSTRAINT split.
         ```
 
-- [ ] **#SCALE-3** · P3 · S — Design-kit DDL migrations lack `lock_timeout` / `statement_timeout` guards
+- [x] **#SCALE-3** · P3 · S — Design-kit DDL migrations lack `lock_timeout` / `statement_timeout` guards
     - **Where:** supabase/migrations/20260527080000 through 20260530130000 (10 migration files adding/dropping columns on `site.design_kits`)
     - **Affects:** Future deploy safety as `site.design_kits` grows. At 200 rows all DDL runs in microseconds; but the pattern of unguarded `ALTER TABLE` on a table served by the live public-profile endpoint normalises a risk that grows with scale.
     - **Effort:** S (~0.5h) — process / documentation fix; these migrations have already run.

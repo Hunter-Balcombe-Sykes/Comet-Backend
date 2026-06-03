@@ -44,7 +44,12 @@ Thumbs.db
 .mcp.json
 boost.json
 .claude/
+.claire/
 claude-overnight.log
+
+# Editor / REPL scratch noise
+*.swp
+.Rhistory
 
 # ffmpeg binaries installed by deploy/ffmpeg.sh at build time
 /bin/
