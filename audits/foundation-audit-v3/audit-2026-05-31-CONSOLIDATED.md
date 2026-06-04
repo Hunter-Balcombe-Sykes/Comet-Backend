@@ -229,6 +229,7 @@ Themes that surfaced independently under two or more lens audits:
     - What: `ExportUserDataJob` writes to `exports/{user_id}/{audit_id}.zip`. The `DataExportAudit` FK is `ON DELETE SET NULL`, so after `User::forceDelete()` the `file_path` column retains the full R2 key but `user_id` becomes null. `purge()` has no step reading `file_path` or calling `Storage::disk(…)->delete(…)`. The ZIP — containing every piece of personal data the system holds — remains in R2 indefinitely, contradicting Art. 17 erasure.
     - Fix: In `purge()`, before `forceDelete()`, query `audit.data_export_audit WHERE user_id = $professional->id AND file_path IS NOT NULL` and delete each `file_path`. Also run `Storage::disk(…)->deleteDirectory("exports/{$professional->id}")` as a catch-all.
     - Models: impl=sonnet · review=opus
+    - Resolution (2026-06-04): completed. Row-by-row `file_path` deletion shipped originally; the catch-all `deleteDirectory("exports/{id}")` sweep was missing and has now been added to `purgeExportZips()`. Orphan-ZIP coverage added to `AccountDeletionPurgePiiTest` (P2-08).
 
 - [x] **#P2-09** Waitlist signup entries not deleted when the associated account is purged — Lens: `gdpr-deletion`
     - Where: `app/Services/User/AccountDeletionService.php:purge()` · `supabase/migrations/20260526000000_baseline_standalone_user.sql` (`core.waitlist_signups`)
@@ -247,6 +248,7 @@ Themes that surfaced independently under two or more lens audits:
     - What: The FK cascade nulls `reporter_user_id` but leaves `reporter_email`, `reason_details` (up to 4 000 chars freetext), and `signal_data` JSONB intact. The erasure command `moderation:redact-reporter-pii` already acknowledges these as PII and nulls them for Art. 17; the deletion path never calls it. `purge()` has no step touching the `moderation` schema at all.
     - Fix: In `purge()`, query `moderation.case_signals WHERE reporter_user_id = $professional->id` and null out `reporter_email`, `reason_details`, and identifying `signal_data` keys. Retain `reason_code`, `signal_source`, `dedup_hash`, and `case_id` for Trust & Safety analytics.
     - Models: impl=sonnet · review=opus
+    - Resolution (2026-06-04): completed. Original fix nulled `reporter_user_id`/`reporter_email`/`reason_details` but left `signal_data` (the verbatim report payload, e.g. `{"details": "..."}`) intact. `purgeCaseSignalPii()` now also resets `signal_data` to `'{}'`. `AccountDeletionPurgePiiTest` (P2-11 + combined) now seeds PII into `signal_data` and asserts it is cleared while non-PII columns survive.
 
 - [x] **#P2-12** Global `sidest_updates` email subscription not removed when account is purged — Lens: `gdpr-deletion`
     - Where: `app/Services/User/UserBootstrapService.php:ensureSidestUpdatesSubscription()` · `app/Services/User/AccountDeletionService.php:purge()`
@@ -733,13 +735,13 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — DSAR Polish
 
-- [ ] **#P3-17** At-least-once email send window on process crash between `Mail::send` and `markEmailSent` — Lens: `gdpr-export`
+- [x] **#P3-17** At-least-once email send window on process crash between `Mail::send` and `markEmailSent` — Lens: `gdpr-export`
     - Where: `app/Jobs/Gdpr/ExportUserDataJob.php` — `if ($shouldSendEmail)` block
     - What: The existing code explicitly documents this as "at-least-once: a crash between send and stamp causes a retry to re-send — preferable to silent loss for GDPR right-of-access requests." The design is intentional. No correctness change required; adding a call-site note prevents future maintainers from misreading the intent.
     - Fix: Add a short comment at the call site noting the two-email window and the deliberate design intent. Optional hardening: set a Redis key (`gdpr:email-sent:{auditId}`) before `Mail::send()` and check it on retry to suppress the duplicate without a DB round-trip.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P3-18** No email delivery or bounce tracking for export notification — Lens: `gdpr-export`
+- [x] **#P3-18** No email delivery or bounce tracking for export notification — Lens: `gdpr-export`
     - Where: `app/Mail/Gdpr/UserDataExportMail.php` · `app/Models/Core/Gdpr/DataExportAudit.php:markEmailSent()`
     - What: `markEmailSent()` records handoff timestamp only. Support staff investigating "I never received my export" tickets can confirm `email_sent_at` is populated but cannot distinguish delivery from bounce. Resend (the provider used by `BaseTransactionalMail`) supports delivery/bounce webhooks.
     - Fix: Add `email_delivery_status TEXT NULL CHECK (email_delivery_status IN ('sent','delivered','bounced','complaint'))` to `audit.data_export_audit`. Default to `'sent'` when `markEmailSent()` is called. Wire a Resend webhook handler to update the column for future plumbing.
@@ -1342,7 +1344,7 @@ Themes that surfaced independently under two or more lens audits:
 ---
 
 ### Bundle B22: DSAR email polish (2 items — #P3-17, #P3-18) — Effort: M
-- [ ] Bundle status checkbox
+- [x] Bundle status checkbox — done 2026-06-04 (#P3-17 at-least-once design comment added at the send call site; #P3-18 `email_delivery_status` column migration + `markEmailSent()` stamps `'sent'` + fillable). Tested in `ExportUserDataJobTest`.
 - Items: `#P3-17`, `#P3-18`
 - Models: impl=sonnet · review=sonnet
 - Rationale: Both are about the GDPR export email lifecycle. #P3-17 is a comment addition; #P3-18 requires a schema migration column + optional webhook stub. One coherent session.

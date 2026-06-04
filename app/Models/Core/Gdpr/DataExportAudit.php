@@ -30,6 +30,17 @@ class DataExportAudit extends BaseModel
 
     public const STATUS_FAILED = 'failed';
 
+    // #P3-18: delivery outcome of the export notification email. Stamped 'sent' on
+    // handoff to the mailer; a future Resend webhook handler advances it to one of
+    // the later states so support can tell a bounce from a genuine "never received".
+    public const EMAIL_DELIVERY_SENT = 'sent';
+
+    public const EMAIL_DELIVERY_DELIVERED = 'delivered';
+
+    public const EMAIL_DELIVERY_BOUNCED = 'bounced';
+
+    public const EMAIL_DELIVERY_COMPLAINT = 'complaint';
+
     protected $table = 'audit.data_export_audit';
 
     public $incrementing = false;
@@ -53,6 +64,7 @@ class DataExportAudit extends BaseModel
         'record_counts',
         'error_message',
         'email_sent_at',
+        'email_delivery_status',
     ];
 
     protected $casts = [
@@ -115,7 +127,10 @@ class DataExportAudit extends BaseModel
 
     public function markEmailSent(): void
     {
-        $this->forceFill(['email_sent_at' => now()])->saveQuietly();
+        $this->forceFill([
+            'email_sent_at' => now(),
+            'email_delivery_status' => self::EMAIL_DELIVERY_SENT,
+        ])->saveQuietly();
     }
 
     public function markFailed(string $error): void

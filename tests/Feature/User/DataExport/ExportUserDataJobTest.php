@@ -106,6 +106,23 @@ it('deletes the uploaded R2 object when a post-upload step throws, and marks the
     expect($audit->error_message)->toContain('SMTP failure');
 });
 
+// ─── P3-18: email delivery status stamped on handoff to the mailer ─────────
+
+it('stamps email_delivery_status = sent alongside email_sent_at when markEmailSent runs', function () {
+    $userId = (string) Str::uuid();
+    seedExportUser($userId);
+    $audit = seedExportAudit($userId);
+
+    expect($audit->email_sent_at)->toBeNull()
+        ->and($audit->email_delivery_status)->toBeNull();
+
+    $audit->markEmailSent();
+
+    $audit->refresh();
+    expect($audit->email_sent_at)->not->toBeNull()
+        ->and($audit->email_delivery_status)->toBe(DataExportAudit::EMAIL_DELIVERY_SENT);
+});
+
 it('does NOT attempt to delete R2 when the failure happens before the upload (e.g. zip writer throws)', function () {
     $userId = (string) Str::uuid();
     seedExportUser($userId);

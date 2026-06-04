@@ -610,6 +610,11 @@ class AccountDeletionService
                     ]);
                 }
             }
+
+            // Catch-all: remove the whole exports/{id}/ prefix to sweep up any ZIP
+            // not captured by an audit row — e.g. one orphaned by a crash between
+            // the R2 upload and the file_path DB write (the window #P2-13 guards).
+            $disk->deleteDirectory("exports/{$professional->id}");
         } catch (\Throwable $e) {
             Log::error('Export ZIP erasure step failed during account purge', [
                 'user_id' => $professional->id,
@@ -668,6 +673,9 @@ class AccountDeletionService
      * The signal itself is moderation evidence and must not be deleted.
      * reporter_ip_hash is a one-way hash and not personally identifiable — kept.
      * reason_details is up to 4000 chars of freetext that may identify the reporter — erased.
+     * signal_data is the original report payload (e.g. {"details": "..."}), which carries
+     * the reporter's verbatim words — reset to an empty object. The non-PII columns
+     * (reason_code, signal_source, dedup_hash, case_id) are retained for T&S analytics.
      */
     private function purgeCaseSignalPii(User $professional): void
     {
@@ -679,6 +687,7 @@ class AccountDeletionService
                     'reporter_user_id' => null,
                     'reporter_email'   => null,
                     'reason_details'   => null,
+                    'signal_data'      => '{}',
                 ]);
         } catch (\Throwable $e) {
             Log::error('Case signal PII erasure failed during account purge', [

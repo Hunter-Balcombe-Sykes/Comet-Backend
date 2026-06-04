@@ -69,6 +69,11 @@ it('deletes R2 export ZIP files before forceDelete (P2-08)', function () {
     $zipPath = "exports/{$userId}/" . Str::uuid() . '.zip';
     Storage::disk('media')->put($zipPath, 'fake-zip-bytes');
 
+    // Orphan ZIP with no audit row / no file_path — e.g. left by a crash before the
+    // DB write. Only the directory catch-all sweep reaches this one.
+    $orphanPath = "exports/{$userId}/orphan-" . Str::uuid() . '.zip';
+    Storage::disk('media')->put($orphanPath, 'orphan-zip-bytes');
+
     DB::connection('pgsql')->table('audit.data_export_audit')->insert([
         'id'                           => (string) Str::uuid(),
         'user_id'                      => $userId,
@@ -86,6 +91,8 @@ it('deletes R2 export ZIP files before forceDelete (P2-08)', function () {
     app(AccountDeletionService::class)->purge($professional);
 
     Storage::disk('media')->assertMissing($zipPath);
+    // Catch-all directory sweep removes the untracked orphan too.
+    Storage::disk('media')->assertMissing($orphanPath);
 });
 
 it('deletes waitlist signup row matched by email_lc (P2-09)', function () {
@@ -140,7 +147,8 @@ it('nulls out reporter_user_id, reporter_email and reason_details on case_signal
         'id'               => $signalId,
         'case_id'          => (string) Str::uuid(),
         'signal_source'    => 'content_report',
-        'signal_data'      => '{}',
+        // signal_data carries the reporter's verbatim report payload — must be erased.
+        'signal_data'      => '{"details":"My name is Jane Doe, 12 Smith St, and they doxxed me."}',
         'reporter_user_id' => $userId,
         'reporter_email'   => 'p211@example.com',
         'reason_code'      => 'spam',
@@ -154,11 +162,16 @@ it('nulls out reporter_user_id, reporter_email and reason_details on case_signal
     $signal = DB::connection('pgsql')->table('moderation.case_signals')
         ->where('id', $signalId)->first();
 
-    // Signal survives (it's evidence) but reporter PII is erased.
+    // Signal survives (it's evidence) but ALL reporter PII is erased — including
+    // the verbatim report payload in signal_data, reset to an empty object.
     expect($signal)->not->toBeNull()
         ->and($signal->reporter_user_id)->toBeNull()
         ->and($signal->reporter_email)->toBeNull()
-        ->and($signal->reason_details)->toBeNull();
+        ->and($signal->reason_details)->toBeNull()
+        ->and($signal->signal_data)->toBe('{}')
+        // Non-PII evidence columns are retained for Trust & Safety analytics.
+        ->and($signal->reason_code)->toBe('spam')
+        ->and($signal->signal_source)->toBe('content_report');
 });
 
 it('deletes global email subscriptions matched by email_lc (P2-12)', function () {
@@ -232,7 +245,7 @@ it('clears all five PII surfaces in a single purge run', function () {
         'id'               => $signalId,
         'case_id'          => (string) Str::uuid(),
         'signal_source'    => 'content_report',
-        'signal_data'      => '{}',
+        'signal_data'      => '{"details":"verbatim reporter freetext PII"}',
         'reporter_user_id' => $userId,
         'reporter_email'   => $originalEmail,
         'reason_code'      => 'spam',
@@ -272,12 +285,13 @@ it('clears all five PII surfaces in a single purge run', function () {
         DB::connection('pgsql')->table('core.feedback')->where('user_id', $userId)->count()
     )->toBe(0);
 
-    // P2-11: signal survives but PII columns nulled
+    // P2-11: signal survives but PII columns nulled (incl. the signal_data payload)
     $signal = DB::connection('pgsql')->table('moderation.case_signals')->where('id', $signalId)->first();
     expect($signal)->not->toBeNull()
         ->and($signal->reporter_user_id)->toBeNull()
         ->and($signal->reporter_email)->toBeNull()
-        ->and($signal->reason_details)->toBeNull();
+        ->and($signal->reason_details)->toBeNull()
+        ->and($signal->signal_data)->toBe('{}');
 
     // P2-12: global subscription deleted
     expect(

@@ -75,7 +75,9 @@ class DataExportTestCase
             record_counts TEXT,
             error_message TEXT,
             created_at TEXT,
-            completed_at TEXT
+            completed_at TEXT,
+            email_sent_at TEXT,
+            email_delivery_status TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS site.customers (

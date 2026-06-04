@@ -109,6 +109,10 @@ class ExportUserDataJob implements ShouldQueue
             });
 
             if ($shouldSendEmail) {
+                // #P3-17: deliberate at-least-once window. If the worker dies between
+                // this send() and markEmailSent() below, the retry re-sends one
+                // duplicate export email. Accepted by design — a duplicate is
+                // preferable to silently dropping a GDPR right-of-access delivery.
                 Mail::to($audit->recipient_email)->send(new UserDataExportMail(
                     signedUrl: $signedUrl,
                     professionalHandle: $audit->professional_handle_snapshot,
