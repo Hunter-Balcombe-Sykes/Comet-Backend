@@ -13,7 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Design-layer singleton images: the two brand logos (logo_full, logo_square)
-// edited in /account/design, and one cover image per integration (cover_fresha,
+// edited in /account/design, and one cover image per integration (cover_shopify,
 // cover_youtube, cover_apple_music, cover_apple_podcast, cover_eventbrite). One
 // row per (site, purpose); re-uploading replaces. Free ratio — the pipeline
 // resizes preserving aspect, the display frame is the frontend's concern.

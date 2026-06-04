@@ -75,7 +75,7 @@ it('accepts a logo upload with a valid purpose + image', function () {
 });
 
 it('accepts every integration cover purpose', function () {
-    foreach (['cover_fresha', 'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite'] as $purpose) {
+    foreach (['cover_shopify', 'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite'] as $purpose) {
         $result = validateDesignMediaRequest(
             ['purpose' => $purpose],
             ['image' => UploadedFile::fake()->image('cover.png', 400, 200)],
@@ -173,7 +173,7 @@ it('reads back current design singletons by purpose (null for empty slots)', fun
     expect($data['images']['logo_full']['url'])->toBe('https://cdn.example.com/img/logo.webp');
     expect($data['images']['cover_youtube']['url'])->toBe('https://cdn.example.com/img/yt.webp');
     expect($data['images']['logo_square'])->toBeNull();
-    expect($data['images']['cover_fresha'])->toBeNull();
+    expect($data['images']['cover_shopify'])->toBeNull();
 });
 
 // ── Public payload exposure ─────────────────────────────────────────────────

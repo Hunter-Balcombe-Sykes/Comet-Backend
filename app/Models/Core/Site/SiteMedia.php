@@ -45,7 +45,7 @@ class SiteMedia extends BaseModel
     public const PURPOSE_PLACEHOLDER = 'placeholder';
 
     // Per-integration cover images — one design-pool singleton per platform.
-    public const PURPOSE_COVER_FRESHA = 'cover_fresha';
+    public const PURPOSE_COVER_SHOPIFY = 'cover_shopify';
 
     public const PURPOSE_COVER_YOUTUBE = 'cover_youtube';
 
@@ -58,7 +58,7 @@ class SiteMedia extends BaseModel
     /**
      * Design-pool singleton purposes — one row per (site, purpose): the two
      * brand logos plus one cover image per integration. Enforced by partial
-     * unique indexes (baseline + 20260604000001) and the app-side replace in
+     * unique indexes (baseline + 20260604000001 + 20260604000002) and the app-side replace in
      * MediaUploadService::uploadSingleton. UploadDesignMediaRequest validates
      * the incoming purpose against this allowlist.
      *
@@ -67,7 +67,7 @@ class SiteMedia extends BaseModel
     public const DESIGN_SINGLETON_PURPOSES = [
         self::PURPOSE_LOGO_FULL,
         self::PURPOSE_LOGO_SQUARE,
-        self::PURPOSE_COVER_FRESHA,
+        self::PURPOSE_COVER_SHOPIFY,
         self::PURPOSE_COVER_YOUTUBE,
         self::PURPOSE_COVER_APPLE_MUSIC,
         self::PURPOSE_COVER_APPLE_PODCAST,

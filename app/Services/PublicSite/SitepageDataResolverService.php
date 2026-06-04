@@ -235,7 +235,7 @@ class SitepageDataResolverService
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
      * (logo_full / logo_square) and the per-integration cover images
-     * (cover_fresha, cover_youtube, ...). Each maps to {url, url_hd} from the
+     * (cover_shopify, cover_youtube, ...). Each maps to {url, url_hd} from the
      * ready WebP variants; purposes with no uploaded/ready image are absent.
      *
      * Consumed by the public profile payload's siteImages map: partna-pages
