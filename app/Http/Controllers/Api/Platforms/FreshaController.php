@@ -127,11 +127,20 @@ class FreshaController extends ApiController
         $services = ($slug ? $this->fetchEmployeeServices($slug, $validated['employeeId']) : null)
             ?? $this->extractServices($location);
 
+        // Preserve previously hidden services, dropping ids that no longer exist
+        // in the refreshed menu so the hidden list never drifts stale.
+        $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
+        $hidden = array_values(array_filter(
+            (array) data_get($this->readConnection($user), 'selection.hiddenServiceIds', []),
+            static fn ($id): bool => in_array($id, $serviceIds, true),
+        ));
+
         $selection = [
             'url' => $url,
             'storeName' => $this->extractStoreName($location),
             'employee' => $employee,
             'services' => $services,
+            'hiddenServiceIds' => $hidden,
         ];
         $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
 
@@ -163,6 +172,53 @@ class FreshaController extends ApiController
     public function selection(Request $request): JsonResponse
     {
         return $this->success(['selection' => data_get($this->readConnection($this->currentUser($request)), 'selection')]);
+    }
+
+    // POST /api/platforms/fresha/service-visibility — show/hide one service on the
+    // public page. Toggles the service id in the saved selection's hiddenServiceIds
+    // list; only ids present in the saved menu are accepted. Returns the updated
+    // selection so the dashboard swaps state in place. (partna-pages filters the
+    // services list by hiddenServiceIds at render time — the public payload is
+    // shipped verbatim, so the hidden list is curation, not a privacy boundary.)
+    public function setServiceVisibility(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $validated = $request->validate([
+            'serviceId' => ['required', 'string', 'max:50'],
+            'hidden' => ['required', 'boolean'],
+        ]);
+
+        $payload = $this->readConnection($user);
+        $selection = data_get($payload, 'selection');
+        if (! is_array($selection)) {
+            return $this->error('No Fresha selection saved yet.', 404);
+        }
+
+        // Only toggle services that exist in the saved menu.
+        $serviceIds = array_map(
+            static fn ($s) => is_array($s) ? ($s['serviceId'] ?? null) : null,
+            (array) data_get($selection, 'services', []),
+        );
+        if (! in_array($validated['serviceId'], $serviceIds, true)) {
+            return $this->error('That service is not part of the saved Fresha menu.', 404);
+        }
+
+        $hidden = array_values(array_filter(
+            (array) data_get($selection, 'hiddenServiceIds', []),
+            static fn ($id): bool => is_string($id),
+        ));
+
+        if ($validated['hidden']) {
+            $hidden = array_values(array_unique([...$hidden, $validated['serviceId']]));
+        } else {
+            $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
+        }
+
+        $selection['hiddenServiceIds'] = $hidden;
+        $this->writeConnection($user, ['url' => data_get($payload, 'url'), 'selection' => $selection]);
+
+        return $this->success($selection);
     }
 
     // DELETE /api/platforms/fresha — clear the saved URL and selection.

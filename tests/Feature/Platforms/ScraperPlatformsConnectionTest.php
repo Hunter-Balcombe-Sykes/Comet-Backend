@@ -124,6 +124,65 @@ it('reads back a per-user Fresha selection + url from the connection payload', f
         ->assertJsonPath('url', 'https://www.fresha.com/a/acme-salon');
 });
 
+it('shows + hides individual Fresha services via service-visibility', function () {
+    $user = scraperUser('hideserv');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => [
+            'url' => 'https://www.fresha.com/a/acme-salon',
+            'selection' => [
+                'url' => 'https://www.fresha.com/a/acme-salon',
+                'storeName' => 'Acme',
+                'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo'],
+                'services' => [
+                    ['serviceId' => 's:1', 'name' => 'Cut'],
+                    ['serviceId' => 's:2', 'name' => 'Colour'],
+                ],
+            ],
+        ],
+    ]);
+
+    // Hide one service — it lands in hiddenServiceIds.
+    actingAsUser($user)->postJson('/api/platforms/fresha/service-visibility', [
+        'serviceId' => 's:1', 'hidden' => true,
+    ])->assertOk()->assertJsonPath('hiddenServiceIds', ['s:1']);
+
+    // Hiding again is idempotent — no duplicate.
+    actingAsUser($user)->postJson('/api/platforms/fresha/service-visibility', [
+        'serviceId' => 's:1', 'hidden' => true,
+    ])->assertOk()->assertJsonPath('hiddenServiceIds', ['s:1']);
+
+    // Show it again — the list empties.
+    actingAsUser($user)->postJson('/api/platforms/fresha/service-visibility', [
+        'serviceId' => 's:1', 'hidden' => false,
+    ])->assertOk()->assertJsonPath('hiddenServiceIds', []);
+});
+
+it('rejects hiding a service that is not in the saved Fresha menu', function () {
+    $user = scraperUser('hidebad');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => [
+            'url' => 'https://www.fresha.com/a/acme-salon',
+            'selection' => [
+                'url' => 'https://www.fresha.com/a/acme-salon',
+                'storeName' => 'Acme',
+                'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo'],
+                'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+            ],
+        ],
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/fresha/service-visibility', [
+        'serviceId' => 's:999', 'hidden' => true,
+    ])->assertStatus(404);
+});
+
+it('requires auth on the fresha service-visibility route', function () {
+    $this->postJson('/api/platforms/fresha/service-visibility', ['serviceId' => 's:1', 'hidden' => true])
+        ->assertUnauthorized();
+});
+
 it('requires auth on the apple dashboard routes', function () {
     $this->getJson('/api/platforms/apple/music/selection')->assertUnauthorized();
     $this->getJson('/api/platforms/apple/podcast/selection')->assertUnauthorized();
