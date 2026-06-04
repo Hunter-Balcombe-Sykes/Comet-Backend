@@ -179,7 +179,10 @@ class ShopifyScraper extends PlatformScraper
             return $this->absoluteUrl($candidates[0]['href'], $origin);
         }
 
-        return $origin.'/favicon.ico';
+        // No declared <link rel="icon"> — don't guess /favicon.ico (it often
+        // 404s, e.g. motionlab.space) since a broken favicon would shadow a
+        // usable logo. Null lets the brand fall back to the logo instead.
+        return null;
     }
 
     // Pick the best brand logo from the page.
@@ -193,7 +196,8 @@ class ShopifyScraper extends PlatformScraper
     //      Shopify themes.
     //   5. <img src> on the Shopify CDN whose filename contains "logo".
     //   6. apple-touch-icon (180×180+ — last-resort brand identity).
-    //   7. null.
+    //   7. og:image (social-share brand image).
+    //   8. null.
     private function logo(string $html, string $origin): ?string
     {
         if (preg_match('~"logo"\s*:\s*"(https?:[^"]+)"~i', $html, $m)) {
@@ -218,9 +222,12 @@ class ShopifyScraper extends PlatformScraper
             return $this->absoluteUrl(html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5), $origin);
         }
 
-        // Filename signal — Shopify CDN paths often embed "logo" in the
-        // uploaded asset name (`logo.png`, `brand_logo.svg`, etc.).
-        if (preg_match('~<img[^>]+src=["\']([^"\']+/cdn/shop/files/[^"\']*logo[^"\']*\.(?:png|svg|jpg|jpeg|webp))["\']~i', $html, $m)) {
+        // Filename signal — Shopify CDN paths often embed "logo" in the uploaded
+        // asset name (`logo.png`, `brand_logo.svg`, `motion_logo3.png`). Match
+        // either CDN layout (`/cdn/shop/files/` or the older `/s/files/`) by
+        // keying on the cdn.shopify.com host, and allow a `?v=` cache-buster
+        // after the extension.
+        if (preg_match('~<img[^>]+src=["\']([^"\']*cdn\.shopify\.com/[^"\']*logo[^"\']*\.(?:png|svg|jpg|jpeg|webp)(?:\?[^"\']*)?)["\']~i', $html, $m)) {
             return $this->absoluteUrl(html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5), $origin);
         }
 
@@ -229,6 +236,13 @@ class ShopifyScraper extends PlatformScraper
                 && preg_match('~href=["\']([^"\']+)["\']~i', $link, $h)) {
                 return $this->absoluteUrl(html_entity_decode(trim($h[1]), ENT_QUOTES | ENT_HTML5), $origin);
             }
+        }
+
+        // Last resort — the social-share image. On stores with no logo class,
+        // logo filename, or favicon link (e.g. motionlab.space) this is the only
+        // brand-identity image exposed in the homepage <head>.
+        if ($og = $this->metaContent($html, 'og:image')) {
+            return $this->absoluteUrl($og, $origin);
         }
 
         return null;
