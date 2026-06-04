@@ -77,6 +77,7 @@ class IndividualProfilePayloadBuilder
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
             'design_media' => $this->buildDesignMedia($site),
+            'site_images' => $this->buildSiteImages($site),
             'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
             'public_config' => $this->buildPublicConfig(),
             // Engine outputs — flat, camelCase, no envelope wrapper.
@@ -287,6 +288,33 @@ class IndividualProfilePayloadBuilder
             'poster' => $item['poster'] ?? null,
             'durationMs' => $item['duration_ms'] ?? null,
         ], $items));
+    }
+
+    /**
+     * Site image singletons — brand logos + per-integration cover images, keyed
+     * by camelCase purpose (logoFull, logoSquare, coverFresha, coverYoutube,
+     * coverAppleMusic, coverApplePodcast, coverEventbrite). Each value is
+     * {url, urlHd}; absent purposes have no uploaded/ready image. Empty object
+     * when nothing is set. partna-pages reads logos for the profile and covers
+     * per integration; the theme decides how (if at all) to render them.
+     *
+     * @return array<string, array{url: string, urlHd: string|null}>
+     */
+    private function buildSiteImages(?Site $site): array
+    {
+        $singletons = $this->resolver->getDesignSingletons($site);
+
+        $out = [];
+        foreach ($singletons as $purpose => $urls) {
+            // snake_case purpose → camelCase wire key (cover_apple_music → coverAppleMusic).
+            $key = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', (string) $purpose))));
+            $out[$key] = [
+                'url' => (string) ($urls['url'] ?? ''),
+                'urlHd' => $urls['url_hd'] ?? null,
+            ];
+        }
+
+        return $out;
     }
 
     /**
