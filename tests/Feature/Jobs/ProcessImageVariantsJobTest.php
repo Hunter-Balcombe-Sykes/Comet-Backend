@@ -2,12 +2,13 @@
 
 /** @phpstan-ignore-all */
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\ProcessImageVariantsJob;
 use App\Models\Core\Site\SiteMedia;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -62,6 +63,29 @@ it('marks the SiteMedia row as ready on successful processing', function () {
     $row = SiteMedia::query()->findOrFail($imageId);
     expect($row->processing_state)->toBe(SiteMedia::PROCESSING_STATE_READY);
     expect($row->processing_error)->toBeNull();
+});
+
+it('purges the sitepage edge cache when an image becomes ready', function () {
+    // The ready transition is a query-builder update (bypasses SiteMediaObserver),
+    // so the job must purge directly — otherwise a just-processed image / cover
+    // doesn't appear until the s-maxage window lapses.
+    $pro = createTenant('purgehost');
+    $pro->site->forceFill(['subdomain' => 'purgehost'])->saveQuietly();
+    $imageId = seedJobTestMediaRow('design', (string) $pro->site->id);
+    $originalPath = "images/test/{$imageId}/original.jpg";
+    Storage::disk('local')->put($originalPath, 'image-bytes');
+
+    $service = Mockery::mock(ImageVariantService::class);
+    $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
+    $service->shouldReceive('processVariants')->once()->andReturn([
+        'optimized' => new \stdClass,
+        'maximized' => new \stdClass,
+    ]);
+
+    Queue::fake();
+    (new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}"))->handle($service);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
 
 it('fails immediately without retrying when processVariants throws UnprocessableImageException', function () {
@@ -135,5 +159,3 @@ it('records the guard error message in processing_error so the frontend can surf
     expect($error)->toContain('64000000');
     expect($error)->toContain('24000000');
 });
-
-

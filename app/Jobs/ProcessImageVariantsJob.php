@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
@@ -163,6 +164,25 @@ class ProcessImageVariantsJob implements ShouldQueue
                     'processing_state' => SiteMedia::PROCESSING_STATE_READY,
                     'processing_error' => null,
                 ]);
+
+            // Purge the sitepage edge cache now that the image is READY (and thus
+            // publicly visible). The ready transition above is a query-builder
+            // update, so it bypasses SiteMediaObserver — without this purge, a
+            // just-processed gallery / content image OR per-integration cover
+            // doesn't appear until the s-maxage window lapses. Wrapped so a purge
+            // hiccup can't fail the already-successful job; CloudflareCachePurgeJob
+            // is ShouldBeUnique per handle, so concurrent variant jobs dedupe.
+            try {
+                $subdomain = $siteMedia->site?->subdomain;
+                if (is_string($subdomain) && $subdomain !== '') {
+                    CloudflareCachePurgeJob::dispatch($subdomain);
+                }
+            } catch (Throwable $e) {
+                Log::warning('ProcessImageVariantsJob: cache purge dispatch failed.', [
+                    'image_id' => $this->imageId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
 
             Log::info('ProcessImageVariantsJob: completed.', ['image_id' => $this->imageId]);
         } catch (UnprocessableImageException $e) {
