@@ -19,7 +19,7 @@ class SiteEnquiryNotification extends BaseTransactionalMail
     public function build(): self
     {
         // CRLF sanitisation happens centrally in BaseTransactionalMail::subject().
-        $dashboardUrl = rtrim((string) config('app.dashboard_url', config('app.url')), '/').'/enquiries';
+        $dashboardUrl = rtrim((string) config('app.dashboard_url', config('app.url')), '/').'/account/features/enquiries';
 
         return $this->buildEnvelope()
             ->subject(Str::limit("New enquiry from {$this->enquiry->name} — {$this->enquiry->subject}", 77))
