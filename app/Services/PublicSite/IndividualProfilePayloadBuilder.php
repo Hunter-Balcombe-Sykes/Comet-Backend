@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\DB;
  *       services: ProfileService[],
  *       document: DocumentData | null,
  *       newsletter: NewsletterData | null,
+ *       contact: ContactData | null,
  *       workplace: WorkplaceData | null,
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
@@ -87,6 +88,7 @@ class IndividualProfilePayloadBuilder
             'services' => $this->buildServices($site, $pro->id, $sections),
             'document' => $this->buildDocument($site),
             'newsletter' => $this->buildNewsletter($sections),
+            'contact' => $this->buildContact($sections),
             'workplace' => $this->buildWorkplace($site, $sections),
             'smart_links' => $this->buildSmartLinks($site),
         ]))->resolve();
@@ -434,6 +436,62 @@ class IndividualProfilePayloadBuilder
         }
 
         return ['inputPlaceholder' => $placeholder];
+    }
+
+    /**
+     * Contact engine — ContactData | null.
+     *
+     * Mirrors buildNewsletter: reads the contact section block directly and
+     * surfaces only the public-safe form props. Gated on the SAME live test
+     * the newsletter uses (is_active && is_enabled) so the form only appears
+     * when the block is published.
+     *
+     * subjectOptions is the merged dropdown list — platform defaults
+     * (config('partna.contact_subject_defaults')) followed by the block's
+     * custom settings.subject_options, de-duplicated in that order. This MUST
+     * match the controller's submission allowlist (PublicEnquiryController
+     * step 4b) so every choice the form offers passes validation.
+     *
+     * Private owner settings (notification_email, notification_channels) are
+     * intentionally NOT surfaced — they never belong in the public payload.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{subjectOptions: list<string>, headline?: string, description?: string}|null
+     */
+    private function buildContact(Collection $sections): ?array
+    {
+        $section = $sections->get('contact');
+        if (! $section instanceof Block) {
+            return null;
+        }
+        $isLive = (bool) $section->is_active && (bool) $section->is_enabled;
+        if (! $isLive) {
+            return null;
+        }
+
+        $settings = is_array($section->settings) ? $section->settings : [];
+
+        // Merge platform defaults + the block's custom additions, de-duped,
+        // defaults first — same order + dedupe the submission validator uses.
+        $defaults = (array) config('partna.contact_subject_defaults', []);
+        $custom = is_array($settings['subject_options'] ?? null) ? $settings['subject_options'] : [];
+        $subjectOptions = array_values(array_unique(array_merge($defaults, $custom)));
+
+        $out = ['subjectOptions' => $subjectOptions];
+
+        // headline / description are optional — omit the key entirely when
+        // unset/blank so the wire carries null only via absence (skeleton
+        // falls back to its own copy).
+        $headline = is_string($settings['headline'] ?? null) ? trim((string) $settings['headline']) : '';
+        if ($headline !== '') {
+            $out['headline'] = $headline;
+        }
+        $description = is_string($settings['description'] ?? null) ? trim((string) $settings['description']) : '';
+        if ($description !== '') {
+            $out['description'] = $description;
+        }
+
+        return $out;
     }
 
     /**

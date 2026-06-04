@@ -150,6 +150,7 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($profile['services'])->toBe([]);
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
+    expect($profile['contact'])->toBeNull();
 
     // Wire-level check: empty designKit / publicConfig must serialise as `{}`
     // (object), never `[]` (array). PHP defaults to `[]` for empty assoc
@@ -912,6 +913,95 @@ it('newsletter engine returns null when input_placeholder is empty', function ()
         ->toBeNull();
 });
 
+it('contact engine returns ContactData with merged subjectOptions + headline/description when live', function () {
+    $pro = seedIndividualProfile('contact-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'contact',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([
+            'headline' => 'Reach out',
+            'description' => 'I reply within a day.',
+            'subject_options' => ['Workshop', 'Other'],
+            // Private owner settings — MUST NOT surface in the public payload.
+            'notification_email' => 'owner@example.test',
+            'notification_channels' => ['email', 'in_app'],
+        ]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $contact = $this->getJson('/api/public/profiles/contact-live')->assertOk()->json('data.profile.contact');
+
+    expect($contact)->toHaveKeys(['subjectOptions', 'headline', 'description']);
+    expect($contact['headline'])->toBe('Reach out');
+    expect($contact['description'])->toBe('I reply within a day.');
+    // Merged list: platform defaults first, then the custom additions, deduped.
+    // 'Other' appears in both defaults and custom — deduped to a single entry.
+    $defaults = config('partna.contact_subject_defaults');
+    expect($contact['subjectOptions'])->toBe(array_values(array_unique(array_merge($defaults, ['Workshop', 'Other']))));
+    expect($contact['subjectOptions'])->toContain('Workshop');
+    // Private owner settings never leak.
+    expect($contact)->not->toHaveKey('notification_email');
+    expect($contact)->not->toHaveKey('notification_channels');
+});
+
+it('contact engine returns null when the contact block is not live', function () {
+    $pro = seedIndividualProfile('contact-draft');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // Block exists but is_active = false → drops to draft, same gate newsletter uses.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'contact',
+        'block_group' => 'sections',
+        'is_active' => 0,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode(['headline' => 'Hidden']),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    expect($this->getJson('/api/public/profiles/contact-draft')->assertOk()->json('data.profile.contact'))
+        ->toBeNull();
+});
+
+it('contact engine omits headline/description and exposes only platform-default subjects when unset', function () {
+    $pro = seedIndividualProfile('contact-bare');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'contact',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $contact = $this->getJson('/api/public/profiles/contact-bare')->assertOk()->json('data.profile.contact');
+
+    expect($contact)->toHaveKey('subjectOptions');
+    expect($contact)->not->toHaveKey('headline');
+    expect($contact)->not->toHaveKey('description');
+    expect($contact['subjectOptions'])->toBe(array_values(config('partna.contact_subject_defaults')));
+});
+
 // ---------------------------------------------------------------------------
 // Single-flight & race-condition cache tests
 // ---------------------------------------------------------------------------
@@ -928,11 +1018,11 @@ it('single-flights concurrent requests so only one payload is built', function (
     $mock->shouldReceive('build')
         ->once()
         ->andReturn([
-            'profile'      => ['handle' => 'singleflight-pro'],
-            'designKit'    => new stdClass,
-            'skeletonId'   => 'skeleton-1',
+            'profile' => ['handle' => 'singleflight-pro'],
+            'designKit' => new stdClass,
+            'skeletonId' => 'skeleton-1',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
-            'designMedia'  => [],
+            'designMedia' => [],
         ]);
 
     // First request — resolve cache miss → DB lookup; payload cache miss → builder called once.
@@ -956,9 +1046,9 @@ it('handles a race where the site is deleted between resolve and payload cache r
     // reads the primary directly, then the payload callback finds no User row
     // and returns null. (CCH-1)
     $resolved = [
-        'pro_id'         => $deletedProId,
-        'site_id'        => null,
-        'updated_at_ts'  => 0,
+        'pro_id' => $deletedProId,
+        'site_id' => null,
+        'updated_at_ts' => 0,
     ];
     Cache::put('handle.resolve:deleted-race-pro', $resolved, 60);
     Cache::put('handle.resolve:deleted-race-pro:stale', $resolved, 600);
