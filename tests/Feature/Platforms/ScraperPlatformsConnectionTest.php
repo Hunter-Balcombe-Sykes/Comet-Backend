@@ -63,7 +63,8 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
 
     actingAsUser($user)->postJson('/api/platforms/youtube/connect', ['channel' => '@mychannel'])
         ->assertOk()
-        ->assertJsonPath('handle', 'mychannel');
+        ->assertJsonPath('handle', 'mychannel')
+        ->assertJsonPath('latest.videoId', 'v1');
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
 });
