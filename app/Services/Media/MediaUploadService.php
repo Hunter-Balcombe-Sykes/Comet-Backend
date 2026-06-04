@@ -218,9 +218,11 @@ class MediaUploadService
             // A global (site_id, sort_order) unique index spans all pools, so
             // take the next free slot just like createMediaRow does — design
             // singletons have no ordering of their own, but must not collide.
+            // The advisory lock above already serialises writes for this site,
+            // so a plain max() is race-safe — and Postgres rejects FOR UPDATE
+            // with an aggregate, so we must NOT lockForUpdate() on a max().
             $maxSort = SiteMedia::query()
                 ->where('site_id', $site->id)
-                ->lockForUpdate()
                 ->max('sort_order');
 
             return SiteMedia::create([
