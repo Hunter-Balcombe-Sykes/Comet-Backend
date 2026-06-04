@@ -55,10 +55,14 @@ class YoutubeController extends ApiController
 
         $selection = [
             'handle' => $handle,
+            // Flat fields retained for partna-pages + back-compat. The nested
+            // `latest` is the canonical shape (same as a highlight item) and is
+            // what the dashboard reads to render the "Most recent" tile.
             'name' => $latest['name'],
             'description' => $latest['description'],
             'link' => $latest['link'],
             'thumbnail' => $latest['thumbnail'],
+            'latest' => $latest,
             'highlights' => $highlights,
         ];
         $this->writeConnection($user, $selection);
@@ -100,6 +104,18 @@ class YoutubeController extends ApiController
         $videos = $this->scraper->fetchRecentVideos(data_get($selection, 'handle'));
         if ($videos === null) {
             return $this->error('Could not load recent videos for that channel.', 502);
+        }
+
+        // Refresh the "Most recent" tile too (mirrors AppleController) — a video
+        // published since connect would otherwise leave `latest` (and the flat
+        // back-compat fields) stale while only the highlights updated.
+        if (isset($videos[0])) {
+            $latest = $videos[0];
+            $selection['latest'] = $latest;
+            $selection['name'] = $latest['name'];
+            $selection['description'] = $latest['description'];
+            $selection['link'] = $latest['link'];
+            $selection['thumbnail'] = $latest['thumbnail'];
         }
 
         // Snapshot the chosen videos in the order the user posted them.

@@ -5,6 +5,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
+use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -164,6 +165,36 @@ it('refreshes the Apple Podcast "most recent" tile when highlights are updated',
     expect($res->json('name'))->toBe('New Episode');
     expect($res->json('highlights'))->toHaveCount(1);
     expect($res->json('highlights.0.trackId'))->toBe('222');
+});
+
+// YouTube "most recent" tile refreshes when highlights are updated (mock the
+// scrape so no live call is made) — parity with the Apple tiles above.
+it('refreshes the YouTube "most recent" tile when highlights are updated', function () {
+    $this->mock(YoutubeScraper::class, function ($m) {
+        $m->shouldReceive('fetchRecentVideos')->andReturn([
+            ['videoId' => '111', 'name' => 'New Video', 'description' => 'd1', 'link' => 'l1', 'thumbnail' => 't1'],
+            ['videoId' => '222', 'name' => 'Old Video', 'description' => 'd2', 'link' => 'l2', 'thumbnail' => 't2'],
+        ]);
+    });
+
+    $user = fbActingUser();
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube',
+        'payload' => [
+            'handle' => 'mychannel',
+            'name' => 'Stale Video',
+            'latest' => ['videoId' => '999', 'name' => 'Stale Video'],
+            'highlights' => [],
+        ],
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/platforms/youtube/highlights', ['videoIds' => ['222']]);
+
+    $res->assertOk();
+    expect($res->json('latest.name'))->toBe('New Video');   // refreshed from the newest re-fetch
+    expect($res->json('name'))->toBe('New Video');          // flat back-compat field too
+    expect($res->json('highlights'))->toHaveCount(1);       // chosen highlight still snapshotted
+    expect($res->json('highlights.0.videoId'))->toBe('222');
 });
 
 // Shopify: PUT /selection reuses the picker-warmed catalog instead of
