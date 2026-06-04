@@ -79,6 +79,11 @@ class IndividualProfileResource extends ApiResource
         $publicConfig = $this->sections['public_config'] ?? [];
         $publicConfigOut = $publicConfig === [] ? new stdClass : $publicConfig;
 
+        // siteImages is a purpose-keyed map (logoFull, coverFresha, ...); an
+        // empty map must serialize as `{}` (object), not `[]`.
+        $siteImages = $this->sections['site_images'] ?? [];
+        $siteImagesOut = $siteImages === [] ? new stdClass : $siteImages;
+
         // Engine fields preserve null-vs-array distinction precisely:
         //   - bio/document/newsletter: null when no data is authored.
         //   - gallery/links/services: always emitted as an array.
@@ -122,6 +127,12 @@ class IndividualProfileResource extends ApiResource
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.
             'publicConfig' => $publicConfigOut,
+
+            // Site image singletons — brand logos + per-integration cover
+            // images, keyed by camelCase purpose (logoFull, coverFresha, ...).
+            // Always an object. partna-pages reads logos for the profile and
+            // covers per integration; rendering is the theme's concern.
+            'siteImages' => $siteImagesOut,
         ];
     }
 }

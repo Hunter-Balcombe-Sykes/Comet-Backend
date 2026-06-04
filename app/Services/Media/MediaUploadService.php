@@ -4,9 +4,9 @@ namespace App\Services\Media;
 
 use App\Jobs\ProcessImageVariantsJob;
 use App\Jobs\ProcessVideoVariantsJob;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
@@ -137,6 +137,105 @@ class MediaUploadService
         $media->load('mediaVariants');
 
         return $media;
+    }
+
+    /**
+     * Upload a purpose-scoped singleton design image (a brand logo or an
+     * integration cover). Images only — no pool count limit: each purpose holds
+     * exactly one row per site (DB partial unique indexes + the app-side replace
+     * here). Re-uploading replaces: the existing row of that purpose is
+     * soft-deleted and its variant + original files purged, then the new row
+     * runs the standard image pipeline (→ WebP variants). Free ratio — the
+     * pipeline resizes preserving aspect; the display frame is the caller's job.
+     *
+     * @return SiteMedia fresh, with mediaVariants loaded
+     */
+    public function uploadSingleton(
+        User $pro,
+        Site $site,
+        UploadedFile $file,
+        string $purpose,
+    ): SiteMedia {
+        Log::info('Singleton media upload started', [
+            'pro_id' => $pro->id,
+            'site_id' => $site->id,
+            'purpose' => $purpose,
+            'file_size_kb' => $file->getSize() / 1024,
+        ]);
+
+        // Replace any existing singleton of this purpose first — frees the
+        // unique slot and purges its files before the new row is created.
+        $this->purgeExistingSingleton($site, $purpose);
+
+        $media = $this->createSingletonRow($site, $purpose, $file);
+
+        $basePath = "images/{$pro->id}/{$media->id}";
+
+        try {
+            $originalPath = $this->imageService->storeOriginal($file, $basePath);
+        } catch (Throwable $e) {
+            Log::error('Failed to store singleton original', [
+                'media_id' => $media->id,
+                'error' => $e->getMessage(),
+            ]);
+            $media->delete();
+
+            throw new OriginalStoreFailedException('Failed to store file: '.$e->getMessage(), 0, $e);
+        }
+
+        $media->update(['path' => $originalPath]);
+        $this->dispatchImageJob($media->id, $originalPath, $basePath);
+
+        $media->refresh();
+        $media->load('mediaVariants');
+
+        return $media;
+    }
+
+    /** Soft-delete + purge files for the existing design singleton of this purpose, if any. */
+    private function purgeExistingSingleton(Site $site, string $purpose): void
+    {
+        $existing = SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('purpose', $purpose)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($existing as $media) {
+            $this->imageService->deleteVariants($media->id, $media->path);
+            $media->delete();
+        }
+    }
+
+    private function createSingletonRow(Site $site, string $purpose, UploadedFile $file): SiteMedia
+    {
+        return DB::transaction(function () use ($site, $purpose, $file) {
+            if (DB::getDriverName() === 'pgsql') {
+                DB::select('select pg_advisory_xact_lock(hashtext(?))', ["site-images:{$site->id}"]);
+            }
+
+            // A global (site_id, sort_order) unique index spans all pools, so
+            // take the next free slot just like createMediaRow does — design
+            // singletons have no ordering of their own, but must not collide.
+            $maxSort = SiteMedia::query()
+                ->where('site_id', $site->id)
+                ->lockForUpdate()
+                ->max('sort_order');
+
+            return SiteMedia::create([
+                'site_id' => $site->id,
+                'pool' => SiteMedia::POOL_DESIGN,
+                'purpose' => $purpose,
+                'path' => '',
+                'sort_order' => is_null($maxSort) ? 0 : ((int) $maxSort + 1),
+                'is_active' => true,
+                'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
+                'processing_state' => SiteMedia::PROCESSING_STATE_PENDING,
+                'original_mime' => $file->getMimeType(),
+                'original_size_bytes' => $file->getSize(),
+            ]);
+        });
     }
 
     private function createMediaRow(

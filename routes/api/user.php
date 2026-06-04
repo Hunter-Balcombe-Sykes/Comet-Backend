@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSmartLinkController;
 use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
+use App\Http\Controllers\Api\User\Uploads\UserDesignMediaController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
@@ -196,6 +197,10 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/images/reorder', [UserUploadController::class, 'reorder']);
         Route::delete('/images/{image}', [UserUploadController::class, 'destroy'])
             ->whereUuid('image');
+
+        // Design-layer singleton images (brand logos + per-integration covers).
+        Route::get('/design-media', [UserDesignMediaController::class, 'index']);
+        Route::post('/design-media', [UserDesignMediaController::class, 'upload']);
 
         // Image Gallery (gallery-pool ordering & legacy routes)
         Route::get('/gallery', [UserGalleryController::class, 'index']);

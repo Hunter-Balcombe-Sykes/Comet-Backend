@@ -230,6 +230,49 @@ class SitepageDataResolverService
             ->all();
     }
 
+    // ── Design singletons (logos + integration covers) ──────────────────
+
+    /**
+     * Design-pool singleton images keyed by purpose — the brand logos
+     * (logo_full / logo_square) and the per-integration cover images
+     * (cover_fresha, cover_youtube, ...). Each maps to {url, url_hd} from the
+     * ready WebP variants; purposes with no uploaded/ready image are absent.
+     *
+     * Consumed by the public profile payload's siteImages map: partna-pages
+     * reads the logos for the profile and the covers per integration. Rendering
+     * is the theme's concern — this only makes the URLs available.
+     *
+     * @return array<string, array{url: string, url_hd: string|null}>
+     */
+    public function getDesignSingletons(?Site $site): array
+    {
+        if (! $site) {
+            return [];
+        }
+
+        return SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->whereIn('purpose', SiteMedia::DESIGN_SINGLETON_PURPOSES)
+            ->where('is_active', true)
+            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+            ->with('mediaVariants')
+            ->get()
+            ->mapWithKeys(function (SiteMedia $media): array {
+                $urls = $media->variantUrls();
+                $url = $urls['optimized'] ?? $urls['original'] ?? '';
+                if ($url === '') {
+                    return [];
+                }
+
+                return [(string) $media->purpose => [
+                    'url' => $url,
+                    'url_hd' => $urls['maximized'] ?? null,
+                ]];
+            })
+            ->all();
+    }
+
     // ── Links (every category + synthesised booking) ────────────────────
 
     /**
