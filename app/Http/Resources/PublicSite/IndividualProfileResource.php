@@ -55,6 +55,7 @@ class IndividualProfileResource extends ApiResource
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,
+     *     contact?: array<string, mixed>|null,
      *     workplace?: array<string, mixed>|null,
      * }  $sections
      */
@@ -102,6 +103,7 @@ class IndividualProfileResource extends ApiResource
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
+                'contact' => $this->sections['contact'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
                 'smartLinks' => $this->sections['smart_links'] ?? [],
             ],
