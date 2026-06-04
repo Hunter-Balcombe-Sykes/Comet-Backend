@@ -11,7 +11,10 @@ use App\Services\SmartLinks\SafeUrlFetcher;
 // Spec: ~/Developer/platform link capabilites/youtube-implementation.md
 class YoutubeScraper extends PlatformScraper
 {
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    public function __construct(
+        private readonly SafeUrlFetcher $fetcher,
+        private readonly YoutubeThumbnailResolver $thumbnails,
+    ) {}
 
     // Reduce any of bare handle / @handle / full URL to a bare handle.
     public function normalizeHandle(string $input): string
@@ -67,13 +70,22 @@ class YoutubeScraper extends PlatformScraper
                 'name' => html_entity_decode($tm[1] ?? '', ENT_QUOTES | ENT_HTML5),
                 'description' => trim(html_entity_decode($dm[1] ?? '', ENT_QUOTES | ENT_HTML5)),
                 'link' => "https://www.youtube.com/watch?v={$videoId}",
-                'thumbnail' => "https://i.ytimg.com/vi/{$videoId}/hqdefault.jpg",
+                // Filled in below from a single batched maxres-vs-hq probe.
+                'thumbnail' => '',
             ];
 
             if (count($out) >= $limit) {
                 break;
             }
         }
+
+        // One batched probe for every video: maxresdefault.jpg (1280×720 16:9)
+        // where available, hqdefault.jpg otherwise. Replaces a per-entry hq guess.
+        $thumbnails = $this->thumbnails->bestForMany(array_column($out, 'videoId'));
+        foreach ($out as &$entry) {
+            $entry['thumbnail'] = $thumbnails[$entry['videoId']];
+        }
+        unset($entry);
 
         return $out;
     }
