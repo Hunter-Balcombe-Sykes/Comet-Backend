@@ -41,12 +41,22 @@ class WooCommerceController extends ApiController
     }
 
     // POST /api/platforms/woocommerce/brands
+    //
+    // Two modes:
+    //  - Client mode (default for the dashboard): the browser already fetched the
+    //    store's public WP REST API (bypassing any WAF that blocks our server's
+    //    IP) and passes `name`/`favicon`/`logo`. We trust those and skip scraping.
+    //  - Server mode (fallback): no client metadata — scrape server-side. Works
+    //    only for stores that don't block datacenter IPs.
     public function addBrand(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:500', 'url'],
             'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'favicon' => ['sometimes', 'nullable', 'string', 'max:1000', 'url'],
+            'logo' => ['sometimes', 'nullable', 'string', 'max:1000', 'url'],
         ]);
 
         $origin = $this->scraper->originOf($validated['url']);
@@ -54,8 +64,24 @@ class WooCommerceController extends ApiController
             return $this->error('Could not parse that store URL.', 422);
         }
 
-        $brand = $this->scraper->fetchBrand($origin);
-        $id = $brand['id'];
+        // Client mode is signalled by any browser-supplied brand field.
+        $clientMode = array_key_exists('name', $validated)
+            || array_key_exists('favicon', $validated)
+            || array_key_exists('logo', $validated);
+
+        if ($clientMode) {
+            $id = $this->scraper->brandId($origin);
+            $brand = [
+                'id' => $id,
+                'name' => $validated['name'] ?? null,
+                'currency' => null,
+                'favicon' => $validated['favicon'] ?? null,
+                'logo' => $validated['logo'] ?? null,
+            ];
+        } else {
+            $brand = $this->scraper->fetchBrand($origin);
+            $id = $brand['id'];
+        }
 
         $map = $this->brandMap($user);
         if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
@@ -126,18 +152,55 @@ class WooCommerceController extends ApiController
     }
 
     // PUT /api/platforms/woocommerce/brands/{id}/selection
+    //
+    // Two modes:
+    //  - Client mode (default): the browser passes the chosen full product
+    //    objects (it fetched the catalog directly, bypassing any store WAF). We
+    //    normalise + store them verbatim — no server re-fetch.
+    //  - Server mode (fallback): `productIds` + a server re-fetch of the catalog.
     public function setProducts(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'productIds' => ['present', 'array', 'max:250'],
-            'productIds.*' => ['string', 'max:50'],
-        ]);
 
         $map = $this->brandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
+
+        if ($request->has('products')) {
+            $validated = $request->validate([
+                'products' => ['present', 'array', 'max:250'],
+                'products.*.productId' => ['required', 'string', 'max:50'],
+                'products.*.title' => ['required', 'string', 'max:500'],
+                'products.*.handle' => ['nullable', 'string', 'max:500'],
+                'products.*.image' => ['nullable', 'string', 'max:2000'],
+                'products.*.price' => ['nullable', 'string', 'max:50'],
+                'products.*.currency' => ['nullable', 'string', 'max:10'],
+                'products.*.permalink' => ['nullable', 'string', 'max:2000'],
+                'products.*.available' => ['sometimes', 'boolean'],
+            ]);
+
+            $map[$id]['products'] = collect($validated['products'])->map(fn (array $p) => [
+                'productId' => (string) $p['productId'],
+                'title' => (string) $p['title'],
+                'handle' => (string) ($p['handle'] ?? ''),
+                'vendor' => null,
+                'image' => $p['image'] ?? null,
+                'price' => $p['price'] ?? null,
+                'currency' => $p['currency'] ?? null,
+                'variantId' => (string) $p['productId'],
+                'available' => (bool) ($p['available'] ?? true),
+                'permalink' => $p['permalink'] ?? null,
+            ])->values()->all();
+            $this->writeConnection($user, $map);
+
+            return $this->success($map[$id]);
+        }
+
+        $validated = $request->validate([
+            'productIds' => ['present', 'array', 'max:250'],
+            'productIds.*' => ['string', 'max:50'],
+        ]);
 
         $catalog = Cache::get($this->catalogKey($id))
             ?? $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);

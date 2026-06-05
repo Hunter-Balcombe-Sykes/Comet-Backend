@@ -22,6 +22,14 @@ class WooCommerceScraper extends PlatformScraper
         return "{$parts['scheme']}://{$parts['host']}";
     }
 
+    // Canonical brand id = slug of the host. Public so the controller can derive
+    // it for client-supplied brands (browser-fetched, no server scrape) without
+    // duplicating the rule.
+    public function brandId(string $origin): string
+    {
+        return preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
+    }
+
     /**
      * Brand profile for the store. `id` is a slug of the host (WooCommerce
      * has no storefront meta.json equivalent). `currency` is left null because
