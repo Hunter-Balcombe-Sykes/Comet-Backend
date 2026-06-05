@@ -5,10 +5,8 @@ use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
-use App\Http\Controllers\Api\Platforms\ProductsController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
-use App\Http\Controllers\Api\Platforms\WooCommerceController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
 use Illuminate\Support\Facades\Route;
 
@@ -43,24 +41,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::put('/brands/{id}/selection', [ShopifyController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/selection', [ShopifyController::class, 'selection']);
             Route::delete('/', [ShopifyController::class, 'forget']);
-        });
-
-    Route::prefix("{$base}/woocommerce")
-        ->middleware(['user.api', 'throttle:authenticated'])
-        ->group(function () {
-            Route::get('/brands', [WooCommerceController::class, 'brands']);
-            Route::post('/brands', [WooCommerceController::class, 'addBrand']);
-            Route::patch('/brands/{id}', [WooCommerceController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/brands/{id}', [WooCommerceController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/brands/{id}/products', [WooCommerceController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
-            Route::put('/brands/{id}/selection', [WooCommerceController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/', [WooCommerceController::class, 'forget']);
-        });
-
-    Route::prefix("{$base}/products")
-        ->middleware(['user.api', 'throttle:authenticated'])
-        ->group(function () {
-            Route::get('/brands', [ProductsController::class, 'brands']);
         });
 
     Route::prefix("{$base}/instagram")
