@@ -26,9 +26,17 @@ class DeleteMediaArtifactsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
+    public int $tries = 4;
 
-    public int $backoff = 30;
+    /**
+     * Exponential backoff (seconds) before each retry: 60 → 300 → 900.
+     * P1-08: tolerates ~21min of R2 degradation before failed() gives up.
+     * Anything still orphaned past that is recovered by the gdpr ledger sweep
+     * (paths are recorded in audit.user_deletion_audit at purge time).
+     *
+     * @var list<int>
+     */
+    public array $backoff = [60, 300, 900];
 
     public int $timeout = 120;
 
@@ -59,7 +67,7 @@ class DeleteMediaArtifactsJob implements ShouldQueue
             Log::info('DeleteMediaArtifactsJob: cleanup complete', [
                 'media_id' => $this->mediaId,
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error('DeleteMediaArtifactsJob: cleanup failed.', [
                 'media_id' => $this->mediaId,
                 'error' => $e->getMessage(),

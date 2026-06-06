@@ -130,7 +130,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add `streamContentReports(string $userId, ?string $lookupEmail)` generator querying `moderation.case_signals WHERE reporter_user_id = $userId OR (reporter_user_id IS NULL AND reporter_email = $lookupEmail)`. Drop `reporter_ip_hash`. Yield from `stream()` and `build()`.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P1-08** Video R2 files permanently orphaned if cleanup job exhausts retries after account purge — Lens: `gdpr-deletion`
+- [x] **#P1-08** Video R2 files permanently orphaned if cleanup job exhausts retries after account purge — Lens: `gdpr-deletion`
     - Where: `app/Services/User/AccountDeletionService.php:purgeVideoArtifacts()` · `app/Jobs/DeleteMediaArtifactsJob.php` · `app/Services/Media/VideoVariantService.php:deleteVariants()`
     - What: `purgeVideoArtifacts` dispatches `DeleteMediaArtifactsJob` to the `redis_video` connection. The job has 3 retries with 30 s fixed backoff; if R2 is degraded all three exhaust in under 2 minutes. After exhaustion `failed()` logs but takes no further action, and the only remaining record of the path is in `failed_jobs` (routinely pruned). No DB row remains to locate the R2 object. GDPR Art. 17 requires erasure of all personal media.
     - Fix: Capture each video's `$media->path` in `audit.user_deletion_audit` metadata before `forceDelete()` runs. Add a periodic `gdpr:sweep-orphaned-video-artifacts` command that lists the `videos/` prefix on R2 and cross-references against `site.site_media` (with `withTrashed()`). As an immediate fix, increase `$tries` on `DeleteMediaArtifactsJob` and add exponential backoff `[60, 300, 900]`.
@@ -1371,7 +1371,7 @@ The following items touch single-writer KV contracts, schema-wide RLS policies, 
 - [x] **#P0-01** — Delete one SQL file. No dependencies on other items. Must land before all migration work.
 - [x] **#P1-01** — StaffUserController theme crash fix. Self-contained, targeted. Land before any staff-dashboard QA session.
 - [ ] **#P1-02** — Cloudflare Worker error boundary. Requires Worker deploy; coordinate with edge deploy schedule.
-- [ ] **#P1-08** (GDPR-1) — Video R2 orphan strategy. Requires ops design decision on ledger vs sweep approach before implementation.
+- [x] **#P1-08** (GDPR-1) — Video R2 orphan strategy. DECIDED (Josh, 2026-06-06): "Both" — ledger sweep (`gdpr:sweep-purged-video-artifacts`, daily) + prefix GC (`media:gc-orphaned-video-artifacts`, weekly) + exponential backoff [60,300,900] on DeleteMediaArtifactsJob.
 - [ ] **#P1-09** (JWT-1) — Redis revocation catch. Auth middleware; opus review required. Do not bundle with JWT-2/3.
 - [ ] **#P1-10** (PROV-1) — PostgreSQL signup savepoint. Load-bearing transaction boundary; opus review. Add pgsql integration test. Do not bundle.
 - [x] **#P1-12** (RATE-2) — Bot protection mode prod guard. Must land before B18.

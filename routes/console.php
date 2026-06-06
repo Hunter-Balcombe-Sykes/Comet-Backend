@@ -1,7 +1,11 @@
 <?php
 
+use App\Jobs\Cache\AggregateCacheMetricsJob;
+use App\Jobs\Streaming\CheckStreamingLiveStatusJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -29,8 +33,8 @@ Schedule::command('partna:purge-soft-deletes')
     ->onOneServer()
     ->withoutOverlapping(600) // 10h lock — historical purges on large tables can run long.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: purge-soft-deletes', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: purge-soft-deletes', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -41,8 +45,8 @@ Schedule::command('partna:prune-notifications', ['--days' => 30])
     ->onOneServer()
     ->withoutOverlapping(120) // 2h lock — bounded by retention-window batch size.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-notifications', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: prune-notifications', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -53,8 +57,8 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->onOneServer()
     ->withoutOverlapping(30) // 30min lock — partition-scoped DELETE; daily cadence.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: purge-raw-events', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: purge-raw-events', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -68,8 +72,8 @@ Schedule::command('smartlinks:refresh')
     ->runInBackground()
     ->onOneServer()
     ->withoutOverlapping(60)
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: smartlinks:refresh', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: smartlinks:refresh', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -84,8 +88,8 @@ Schedule::command('integrations:refresh')
     ->runInBackground()
     ->onOneServer()
     ->withoutOverlapping(60)
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: integrations:refresh', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: integrations:refresh', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -96,8 +100,8 @@ Schedule::command('queue:prune-failed --hours=72')
     ->onOneServer()
     ->withoutOverlapping(60) // 60min lock — proportional to failed_jobs table size.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-failed-jobs', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: prune-failed-jobs', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -105,12 +109,12 @@ Schedule::command('queue:prune-failed --hours=72')
 
 // Reads the previous hour's cache hit/miss Redis counters, logs structured metrics,
 // and reports SLO violations (hot prefixes below 90% hit rate) to Nightwatch.
-Schedule::job(new \App\Jobs\Cache\AggregateCacheMetricsJob)
+Schedule::job(new AggregateCacheMetricsJob)
     ->hourly()
     ->onOneServer()
     ->withoutOverlapping(10) // 10min lock — read-only Redis aggregation, completes in seconds.
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: aggregate-cache-metrics', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: aggregate-cache-metrics', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -122,8 +126,8 @@ Schedule::command('horizon:snapshot')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10) // 10min lock — 2x everyFiveMinutes cadence safety ceiling.
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: horizon-snapshot', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: horizon-snapshot', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -133,12 +137,12 @@ Schedule::command('horizon:snapshot')
 // prior value (2) equalled the cadence, creating a same-tick race: lock TTL expiry
 // and the next dispatch happen at the same instant, so a slow run could collide
 // with itself. N must exceed the cadence for high-frequency tasks.
-Schedule::job(new \App\Jobs\Streaming\CheckStreamingLiveStatusJob)
+Schedule::job(new CheckStreamingLiveStatusJob)
     ->everyTwoMinutes()
     ->onOneServer()
     ->withoutOverlapping(5)
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: check-streaming-live-status', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: check-streaming-live-status', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -150,8 +154,8 @@ Schedule::command('handles:prune-expired-aliases')
     ->onOneServer()
     ->withoutOverlapping(120)
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: prune-expired-aliases', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: prune-expired-aliases', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -163,8 +167,8 @@ Schedule::command('handles:notify-expiry')
     ->onOneServer()
     ->withoutOverlapping(60) // 60min lock — closes a race between application-level whereNull guards on the notified_t* stamp columns.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: handles-notify-expiry', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: handles-notify-expiry', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -175,8 +179,8 @@ Schedule::command('feature-flags:prune-expired')
     ->withoutOverlapping(30)
     ->onOneServer()
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: feature-flags:prune-expired', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: feature-flags:prune-expired', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -192,8 +196,8 @@ Schedule::command('feature-flags:prune-expired')
 Schedule::call(function () {
     try {
         $url = rtrim((string) config('app.url'), '/').'/up';
-        \Illuminate\Support\Facades\Http::timeout(3)->retry(1, 200)->get($url);
-    } catch (\Throwable $e) {
+        Http::timeout(3)->retry(1, 200)->get($url);
+    } catch (Throwable $e) {
         // Silent — keep-alive failures aren't actionable.
     }
 })
@@ -210,8 +214,8 @@ Schedule::command('partna:backfill-subdomain-kv', ['--all', '--queue'])
     ->onOneServer()
     ->withoutOverlapping(120)
     ->description('Weekly resync of Cloudflare KV subdomain routing entries')
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: backfill-subdomain-kv', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: backfill-subdomain-kv', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -225,8 +229,8 @@ Schedule::command('gdpr:sweep-stale-exports')
     ->onOneServer()
     ->withoutOverlapping(60) // 60min lock — export audit table is tiny; completes in seconds.
     ->runInBackground()
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: gdpr:sweep-stale-exports', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: gdpr:sweep-stale-exports', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -237,8 +241,40 @@ Schedule::command('media:cleanup-stuck-processing')
     ->hourly()
     ->onOneServer()
     ->withoutOverlapping(30) // 30min lock — Postgres lookup + queue dispatch, typically seconds.
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: media:cleanup-stuck-processing', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: media:cleanup-stuck-processing', [
+            'exception' => $e ? get_class($e) : null,
+            'message' => $e?->getMessage(),
+        ]);
+    });
+
+// P1-08 (ledger sweep): daily recovery for video R2 artifacts orphaned when a
+// DeleteMediaArtifactsJob exhausted its retries during an R2 outage and the owning
+// account was then hard-deleted. Reads paths from EVENT_PURGED audit rows — cheap,
+// precise, GDPR-timely. Daily so erasure completes within the next-day window.
+Schedule::command('gdpr:sweep-purged-video-artifacts')
+    ->dailyAt('03:45')
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: gdpr:sweep-purged-video-artifacts', [
+            'exception' => $e ? get_class($e) : null,
+            'message' => $e?->getMessage(),
+        ]);
+    });
+
+// P1-08 (prefix GC backstop): weekly garbage collection of video R2 objects with
+// no backing site_media row, from ANY cause (failed upload, crashed transcode,
+// pre-ledger orphans). Heavier — a full videos/ prefix LIST — so it runs weekly,
+// off-peak, age-guarded against in-flight uploads.
+Schedule::command('media:gc-orphaned-video-artifacts')
+    ->weeklyOn(0, '04:20') // Sunday 04:20 UTC — off-peak for AU/NZ.
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: media:gc-orphaned-video-artifacts', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);
@@ -252,8 +288,8 @@ Schedule::command('moderation:sla-scan')
     ->everyFifteenMinutes()
     ->onOneServer()
     ->withoutOverlapping(30) // 30min lock — 2x the 15min cadence to prevent same-tick races.
-    ->onFailure(function (?\Throwable $e = null): void {
-        \Illuminate\Support\Facades\Log::error('Scheduled task failed: moderation:sla-scan', [
+    ->onFailure(function (?Throwable $e = null): void {
+        Log::error('Scheduled task failed: moderation:sla-scan', [
             'exception' => $e ? get_class($e) : null,
             'message' => $e?->getMessage(),
         ]);

@@ -351,6 +351,43 @@ class VideoVariantService
      */
     public function deleteVariants(string $mediaId, string $basePath): void
     {
+        $result = $this->purgeStoragePrefix($basePath);
+
+        // Deferred-unconditional: runs even if listing threw or per-file deletes failed.
+        MediaVariant::where('media_id', $mediaId)->delete();
+
+        if ($result['listError'] !== null) {
+            Log::error('VideoVariantService::deleteVariants list failed; DB rows still cleared.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $result['basePrefix'],
+                'error' => $result['listError']->getMessage(),
+                'exception' => get_class($result['listError']),
+            ]);
+        }
+
+        if ($result['failures'] !== []) {
+            Log::error('VideoVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
+                'media_id' => $mediaId,
+                'base_prefix' => $result['basePrefix'],
+                'failure_count' => count($result['failures']),
+                // Cap the sample so pathological cases don't bloat log lines.
+                'failures' => array_slice($result['failures'], 0, 20),
+            ]);
+        }
+    }
+
+    /**
+     * List and delete every object under a video artifact base path on the media
+     * disk. Pure storage operation — never touches MediaVariant/SiteMedia rows.
+     *
+     * Shared by deleteVariants() (per-media cleanup) and the P1-08 orphan-sweep
+     * commands. Idempotent: a base path with no objects returns deleted=0 with no
+     * error, so a re-sweep of an already-clean path is a cheap no-op.
+     *
+     * @return array{deleted:int, failures:list<array{path:string,error:string,exception?:string}>, listError:?\Throwable, basePrefix:string}
+     */
+    public function purgeStoragePrefix(string $basePath): array
+    {
         $disk = $this->disk();
         $basePrefix = $this->normalizeVideoCleanupBasePath($basePath);
 
@@ -363,12 +400,14 @@ class VideoVariantService
             $listError = $e;
         }
 
+        $deleted = 0;
         $failures = [];
         foreach ($files as $file) {
             try {
-                $deleted = $disk->delete($file);
-                if ($deleted === false) {
+                if ($disk->delete($file) === false) {
                     $failures[] = ['path' => $file, 'error' => 'delete returned false'];
+                } else {
+                    $deleted++;
                 }
             } catch (\Throwable $e) {
                 $failures[] = [
@@ -379,27 +418,12 @@ class VideoVariantService
             }
         }
 
-        // Deferred-unconditional: runs even if listing threw or per-file deletes failed.
-        MediaVariant::where('media_id', $mediaId)->delete();
-
-        if ($listError !== null) {
-            Log::error('VideoVariantService::deleteVariants list failed; DB rows still cleared.', [
-                'media_id' => $mediaId,
-                'base_prefix' => $basePrefix,
-                'error' => $listError->getMessage(),
-                'exception' => get_class($listError),
-            ]);
-        }
-
-        if ($failures !== []) {
-            Log::error('VideoVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
-                'media_id' => $mediaId,
-                'base_prefix' => $basePrefix,
-                'failure_count' => count($failures),
-                // Cap the sample so pathological cases don't bloat log lines.
-                'failures' => array_slice($failures, 0, 20),
-            ]);
-        }
+        return [
+            'deleted' => $deleted,
+            'failures' => $failures,
+            'listError' => $listError,
+            'basePrefix' => $basePrefix,
+        ];
     }
 
     /**

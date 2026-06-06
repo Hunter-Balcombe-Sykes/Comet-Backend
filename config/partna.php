@@ -939,6 +939,19 @@ return [
         'timeout' => (int) env('PARTNA_VIDEO_QUEUE_TIMEOUT', env('SIDEST_VIDEO_QUEUE_TIMEOUT', 3600)),
     ],
 
+    // P1-08: recovery for video R2 artifacts orphaned when DeleteMediaArtifactsJob
+    // exhausts its retries during an R2 outage. Two scheduled sweeps back it up.
+    'media_orphan_sweep' => [
+        // gdpr:sweep-purged-video-artifacts re-deletes paths recorded in
+        // EVENT_PURGED audit rows newer than this many days. Bounded so the
+        // audit-table scan stays cheap; the prefix GC is the older-than-window backstop.
+        'ledger_window_days' => (int) env('PARTNA_MEDIA_LEDGER_WINDOW_DAYS', 30),
+        // media:gc-orphaned-video-artifacts only deletes an unreferenced R2 object
+        // once it is older than this — a safety margin against deleting files for a
+        // just-created site_media row not yet visible to the sweep.
+        'gc_min_age_hours' => (int) env('PARTNA_MEDIA_GC_MIN_AGE_HOURS', 24),
+    ],
+
     // Analytics ingest queue. Reuses the default 'redis' connection — Horizon's
     // supervisor-analytics already consumes the 'analytics' queue (config/horizon.php).
     // No dedicated connection: jobs are tiny + PK-idempotent, so the default
@@ -1210,16 +1223,16 @@ return [
         // Default true; flip to false only during an incident.
         'auto_actions_enabled' => (bool) env('PARTNA_MODERATION_AUTO_ACTIONS_ENABLED', true),
         'reporting' => [
-            'public_throttle'         => [
+            'public_throttle' => [
                 'requests' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_REQUESTS', 5),
-                'minutes'  => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_MINUTES', 1),
+                'minutes' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_MINUTES', 1),
             ],
-            'per_target_throttle'     => [
-                'requests'        => (int) env('PARTNA_REPORT_TARGET_THROTTLE_REQUESTS', 3),
-                'window_minutes'  => (int) env('PARTNA_REPORT_TARGET_THROTTLE_WINDOW_MIN', 60),
+            'per_target_throttle' => [
+                'requests' => (int) env('PARTNA_REPORT_TARGET_THROTTLE_REQUESTS', 3),
+                'window_minutes' => (int) env('PARTNA_REPORT_TARGET_THROTTLE_WINDOW_MIN', 60),
             ],
-            'details_max_chars'       => 4000,
-            'merge_window_minutes'    => 60 * 24 * 7,
+            'details_max_chars' => 4000,
+            'merge_window_minutes' => 60 * 24 * 7,
             'staff_notify_thresholds' => [1, 3, 5, 10],
         ],
         // Dedicated Horizon queue lane for high-priority moderation jobs (suspend, notify on-call).
@@ -1230,11 +1243,11 @@ return [
         // SLA breach thresholds per severity level (hours). severity_5 = most urgent.
         // breach_warning_min: minutes before the SLA deadline at which to emit an early warning.
         'sla' => [
-            'severity_5_hours'   => 1,
-            'severity_4_hours'   => 4,
-            'severity_3_hours'   => 24,
-            'severity_2_hours'   => 72,
-            'severity_1_hours'   => 168,
+            'severity_5_hours' => 1,
+            'severity_4_hours' => 4,
+            'severity_3_hours' => 24,
+            'severity_2_hours' => 72,
+            'severity_1_hours' => 168,
             'breach_warning_min' => 120,
         ],
     ],

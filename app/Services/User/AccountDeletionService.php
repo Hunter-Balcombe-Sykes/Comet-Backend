@@ -496,7 +496,10 @@ class AccountDeletionService
 
         // Step 2: clean up R2 artifacts before the DB cascade deletes the rows.
         // forceDelete() cascades to site_media, but DB cascades do not touch R2 storage.
-        $this->purgeMediaArtifacts($professional);
+        // Capture the video paths for the audit ledger (P1-08) — they outlive the
+        // hard-deleted rows and seed the gdpr sweep that recovers any orphans left
+        // by a DeleteMediaArtifactsJob that exhausted its retries during an R2 outage.
+        $videoArtifactPaths = $this->purgeMediaArtifacts($professional);
 
         // Step 3: bust the public site cache (15-min TTL) so a just-purged site
         // stops serving stale payloads to public requests the instant we delete.
@@ -558,6 +561,11 @@ class AccountDeletionService
             'professional_email_snapshot' => $emailSnapshot,
             'event' => UserDeletionAuditEntry::EVENT_PURGED,
             'actor_type' => UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
+            // Ledger of R2 video paths for the orphan sweep (P1-08). Null when
+            // the account had no videos, so the metadata column stays clean.
+            'metadata' => $videoArtifactPaths !== []
+                ? ['video_artifact_paths' => $videoArtifactPaths]
+                : null,
         ]);
 
         return true;
@@ -698,9 +706,9 @@ class AccountDeletionService
                 ->where('reporter_user_id', $professional->id)
                 ->update([
                     'reporter_user_id' => null,
-                    'reporter_email'   => null,
-                    'reason_details'   => null,
-                    'signal_data'      => '{}',
+                    'reporter_email' => null,
+                    'reason_details' => null,
+                    'signal_data' => '{}',
                 ]);
         } catch (\Throwable $e) {
             Log::error('Case signal PII erasure failed during account purge', [
@@ -794,13 +802,21 @@ class AccountDeletionService
      * Videos are dispatched async (many HLS segments). Images and documents are
      * deleted synchronously (single file per record). Failures are logged and
      * skipped — a storage error must never block the DB deletion.
+     *
+     * Returns the R2 base paths of every video whose cleanup was dispatched, so
+     * purge() can record them in the EVENT_PURGED audit row (the ledger). After
+     * forceDelete() the site_media rows are gone — the ledger is then the only
+     * surviving record of which R2 objects an exhausted DeleteMediaArtifactsJob
+     * left behind, and the daily gdpr sweep re-deletes them. (P1-08)
+     *
+     * @return list<string> video artifact base paths
      */
-    private function purgeMediaArtifacts(User $professional): void
+    private function purgeMediaArtifacts(User $professional): array
     {
         $site = Site::query()->where('user_id', $professional->id)->first();
 
         if (! $site) {
-            return;
+            return [];
         }
 
         $mediaItems = SiteMedia::query()
@@ -808,10 +824,12 @@ class AccountDeletionService
             ->where('site_id', $site->id)
             ->get();
 
+        $videoPaths = [];
+
         foreach ($mediaItems as $media) {
             try {
                 match ($media->media_type) {
-                    SiteMedia::MEDIA_TYPE_VIDEO => $this->purgeVideoArtifacts($media),
+                    SiteMedia::MEDIA_TYPE_VIDEO => $videoPaths[] = $this->purgeVideoArtifacts($media),
                     SiteMedia::MEDIA_TYPE_DOCUMENT => $this->purgeDocumentArtifact($media),
                     default => $this->purgeImageArtifacts($media),
                 };
@@ -824,15 +842,28 @@ class AccountDeletionService
                 ]);
             }
         }
+
+        // purgeVideoArtifacts returns null for a path-less row; drop those.
+        return array_values(array_filter(
+            $videoPaths,
+            static fn ($p): bool => is_string($p) && $p !== '',
+        ));
     }
 
-    private function purgeVideoArtifacts(SiteMedia $media): void
+    /**
+     * Dispatch async cleanup for a video's R2 artifacts.
+     *
+     * @return string|null the dispatched base path, or null when the row has no path
+     */
+    private function purgeVideoArtifacts(SiteMedia $media): ?string
     {
         if (! $media->path) {
-            return;
+            return null;
         }
 
         DeleteMediaArtifactsJob::dispatch($media->id, $media->path, (string) $media->pool);
+
+        return $media->path;
     }
 
     private function purgeImageArtifacts(SiteMedia $media): void
