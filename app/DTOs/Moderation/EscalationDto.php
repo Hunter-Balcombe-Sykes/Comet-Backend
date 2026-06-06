@@ -19,6 +19,10 @@ final class EscalationDto
         return match ($this->target) {
             'law_enforcement' => 'escalate_law_enforcement',
             'esafety'         => 'escalate_esafety',
+            // $target is typed `string`, so the match can't be exhaustive at the
+            // type level. Throw explicitly rather than leaking an UnhandledMatchError
+            // — an unexpected target is a programming error, not user input.
+            default => throw new \InvalidArgumentException("Unknown escalation target: {$this->target}"),
         };
     }
 }

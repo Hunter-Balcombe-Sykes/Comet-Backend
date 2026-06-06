@@ -138,7 +138,7 @@ class UserEnquiryController extends ApiController
      * All five statuses are always present in the response (zero-filled),
      * so the client can render unread badges without null-checking.
      *
-     * @return JsonResponse{new:int,read:int,replied:int,archived:int,spam:int}
+     * Response shape: { new: int, read: int, replied: int, archived: int, spam: int }
      */
     public function counts(Request $request): JsonResponse
     {

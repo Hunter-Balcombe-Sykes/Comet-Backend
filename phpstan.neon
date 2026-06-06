@@ -1,0 +1,17 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    # Baseline = the 1055 pre-existing findings we triaged on 2026-06-03 and
+    # consciously deferred (mostly Eloquent dynamic-property noise + type debt).
+    # New code is gated against level 5; the baseline only silences known debt.
+    # To pay it down: delete entries from phpstan-baseline.neon and fix them,
+    # or regenerate with `composer analyse:baseline` after a cleanup pass.
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+
+    paths:
+        - app
+
+    # Larastan boots the framework to resolve container bindings, config keys,
+    # Eloquent magic, and facade roots. Nothing here queries the database.

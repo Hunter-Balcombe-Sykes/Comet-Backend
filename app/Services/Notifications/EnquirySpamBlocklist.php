@@ -33,7 +33,9 @@ class EnquirySpamBlocklist
     {
         $score = Redis::zscore($this->key($userId), $this->hash($email));
 
-        return $score !== null && (int) $score >= now()->timestamp;
+        // phpredis ZSCORE returns false (not null) when the member is absent;
+        // guard on false so a missing entry short-circuits before the cast.
+        return $score !== false && (int) $score >= now()->timestamp;
     }
 
     private function key(string $userId): string

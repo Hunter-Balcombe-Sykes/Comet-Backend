@@ -30,6 +30,7 @@
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
+        "larastan/larastan": "^3.0",
         "laravel/boost": "^1.8",
         "laravel/pail": "^1.2.2",
         "laravel/pint": "^1.24",
@@ -72,6 +73,12 @@
             "@composer guard:no-unsafe-migrations",
             "@php artisan config:clear --ansi",
             "@php artisan test"
+        ],
+        "analyse": [
+            "@php vendor/bin/phpstan analyse --memory-limit=2G"
+        ],
+        "analyse:baseline": [
+            "@php vendor/bin/phpstan analyse --memory-limit=2G --generate-baseline phpstan-baseline.neon"
         ],
         "guard:no-laravel-migrations": [
             "@php -r 'if (is_dir(\"database/migrations\")) { foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(\"database/migrations\")) as $f) { if ($f->isFile() && $f->getExtension() === \"php\") { fwrite(STDERR, \"Laravel migrations are not allowed: \" . $f->getPathname() . PHP_EOL); exit(1); } } }'"

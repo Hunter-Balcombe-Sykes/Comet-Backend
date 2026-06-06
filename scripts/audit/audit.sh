@@ -26,6 +26,9 @@
 #                    (correctness-under-concurrency trio: silent state drift bugs)
 #     pre-merge    — migration-safety + api-contract + configuration-hygiene + test-coverage
 #                    (run before merging a PR that touches schema or public API)
+#     code-quality — code-quality-slop + semantic-correctness
+#                    (AI slop + plausible-but-wrong logic the compiler can't see;
+#                     the qualitative companion to `composer analyse`)
 #
 # Phase organization (optional):
 #   Output always lands in audits/. Pass --phase <name> to organize further
@@ -160,8 +163,15 @@ if $FULL; then
             )
             META_PREFIXES="migration safety (MIG-*), API contract (API-*), configuration hygiene (CFG-*), and test coverage gaps (TEST-*) — pre-merge sweep for PRs touching schema, public API, or config"
             ;;
+        code-quality)
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/code-quality-slop.md"
+                "$SCRIPT_DIR/lenses/semantic-correctness.md"
+            )
+            META_PREFIXES="AI slop & low-value code (SLOP-*) and semantic correctness — type-valid-but-wrong behaviour (SEM-*). Complementary lenses: SLOP is a taste/maintainability pass graded against CLAUDE.md house style; SEM hunts plausible-but-wrong logic that compiles AND passes Larastan. Larastan already enforces symbol existence (undefined methods/properties/classes/config), so do NOT re-report missing-symbol findings here. When a single line is both slop and a semantic bug, keep the SEM finding (higher signal) and drop the SLOP duplicate. Apply both lenses' anti-hallucination directive: confirm every finding against the actual repo via Read/Grep before keeping it — never on a prior about how a library 'should' behave"
+            ;;
         *)
-            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge)" >&2
+            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality)" >&2
             exit 2
             ;;
     esac
