@@ -4,6 +4,7 @@ namespace App\Services\User;
 
 use App\Models\Core\Site\Site;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -84,20 +85,38 @@ class SiteProvisioningService
     private function tryCreateSite(string $userId, string $candidate): ?Site
     {
         try {
-            // skeleton_id defaults to 'skeleton-1' at the DB level (TEXT CHECK
-            // enum DEFAULT 'skeleton-1'). New sites pick up the default
-            // automatically; no need to set it explicitly.
-            $site = new Site([
-                'subdomain' => $candidate,
-                'is_published' => true,
-                'settings' => [],
-            ]);
+            // Wrap the insert in a nested transaction so Laravel emits a
+            // SAVEPOINT/RELEASE pair (instead of a fresh BEGIN/COMMIT) when this
+            // runs inside the outer signup transaction in UserBootstrapService.
+            // PostgreSQL aborts the ENTIRE transaction on any statement error: a
+            // subdomain unique-violation (23505) would otherwise poison the outer
+            // transaction, so every subsequent statement fails with 25P02
+            // ("current transaction is aborted") and the whole signup rolls back.
+            // On a 23505 the savepoint is rolled back to and the QueryException is
+            // re-thrown — caught below — leaving the outer transaction healthy so
+            // the retry loop can try the next candidate. SQLite doesn't abort on
+            // statement error, which is why this bug is invisible in the SQLite
+            // test suite (see SiteProvisioningSavepointTest, gated to real pgsql).
+            return DB::transaction(function () use ($userId, $candidate) {
+                // skeleton_id defaults to 'skeleton-1' at the DB level (TEXT CHECK
+                // enum DEFAULT 'skeleton-1'). New sites pick up the default
+                // automatically; no need to set it explicitly.
+                $site = new Site([
+                    'subdomain' => $candidate,
+                    'is_published' => true,
+                    'settings' => [],
+                ]);
 
-            $site->user_id = $userId;
-            $site->save();
+                $site->user_id = $userId;
+                $site->save();
 
-            return $site;
+                return $site;
+            });
         } catch (QueryException $e) {
+            // Catch sits OUTSIDE the nested DB::transaction() call: by the time the
+            // exception surfaces here, Laravel has already rolled back to (and
+            // released) the savepoint, so the outer transaction is no longer in an
+            // aborted state and the loop can safely retry.
             if ($this->isUniqueViolation($e)) {
                 return null;
             }
