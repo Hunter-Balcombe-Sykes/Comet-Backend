@@ -90,11 +90,32 @@ class VerifySupabaseJwt
                     'operation' => __METHOD__,
                     'uid' => $uid,
                 ]);
-            } elseif ($this->revocation->isRevoked($sessionId)) {
-                return response()->json([
-                    'message' => 'Session was terminated. Please log in again.',
-                    'code' => 'session_revoked',
-                ], 401);
+            } else {
+                // Revocation is a best-effort oracle layered on top of an
+                // already-cryptographically-valid token. isRevoked() does a Redis
+                // EXISTS, so a Redis outage must NOT propagate to the outer catch —
+                // there it would be mislogged as a JWKS failure and lock out every
+                // valid session for the duration of the outage. Fail open: on any
+                // throwable, treat the session as not-revoked and log distinctly.
+                // Mirrors the setSupabaseContext guard immediately below.
+                try {
+                    $revoked = $this->revocation->isRevoked($sessionId);
+                } catch (\Throwable $revocationEx) {
+                    $revoked = false;
+                    Log::warning('Revocation check failed after successful JWT verification', [
+                        'request_id' => $requestId,
+                        'operation' => __METHOD__,
+                        'reason' => $revocationEx->getMessage(),
+                        'kind' => 'revocation_check_failed',
+                    ]);
+                }
+
+                if ($revoked) {
+                    return response()->json([
+                        'message' => 'Session was terminated. Please log in again.',
+                        'code' => 'session_revoked',
+                    ], 401);
+                }
             }
 
             try {
