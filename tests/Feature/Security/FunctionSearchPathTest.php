@@ -1,0 +1,82 @@
+<?php
+
+// Audit / Supabase security-advisor regression guard: the 12 trigger and helper
+// functions hardened in 20260606040000_pin_function_search_paths.sql must keep a
+// PINNED search_path. A function with a mutable (null proconfig) search_path
+// inherits the caller's search_path, letting a malicious caller shadow any
+// unqualified object reference inside the body — a privilege-escalation /
+// resolution-hijack vector. The advisor (`function_search_path_mutable`) flags
+// any such function; this sentinel keeps it from regressing.
+//
+// Strategy mirrors tests/Feature/Security/ModerationSchemaRlsTest.php and
+// DesignKitsRlsTest.php: introspect pg_proc.proconfig (PostgreSQL-only) rather
+// than exercising behaviour. Skips on the default SQLite test driver.
+//
+// To run against a Supabase dev DB:
+//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter FunctionSearchPathTest
+
+use Illuminate\Support\Facades\DB;
+
+function functionSearchPathIsPostgres(): bool
+{
+    return DB::connection()->getDriverName() === 'pgsql';
+}
+
+/**
+ * Fetch a function's proconfig (the array of `key=value` SET clauses) by
+ * schema + name. Trigger functions are uniquely named within a schema, so name
+ * is sufficient here; all 12 targets are unambiguous.
+ *
+ * @return object{proconfig: ?string}|null
+ */
+function fetchFunctionSearchPathConfig(string $schema, string $name): ?object
+{
+    return DB::selectOne(
+        "SELECT array_to_string(p.proconfig, ',') AS proconfig
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = ? AND p.proname = ?",
+        [$schema, $name]
+    );
+}
+
+// The 12 functions pinned in 20260606040000_pin_function_search_paths.sql.
+// Each is [schema, name].
+$searchPathFunctions = [
+    ['public', 'set_updated_at'],
+    ['core', 'set_updated_at'],
+    ['core', 'set_media_variants_updated_at'],
+    ['core', 'set_user_confirmation_preferences_updated_at'],
+    ['core', 'reject_staff_audit_log_mutation'],
+    ['core', 'trg_handle_change_log_append_only'],
+    ['core', 'trg_user_handle_alias_check'],
+    ['core', 'trg_user_handle_change'],
+    ['site', 'compute_user_url'],
+    ['site', 'trg_recompute_partna_url'],
+    ['site', 'create_empty_design_kit'],
+    ['site', 'trg_sites_url_sync'],
+];
+
+dataset('search_path_functions', array_map(
+    fn (array $f) => ["{$f[0]}.{$f[1]}", $f[0], $f[1]],
+    $searchPathFunctions
+));
+
+// Every hardened function must exist and carry a non-null proconfig that pins
+// search_path — otherwise the function is mutable and the advisor re-fires.
+it('keeps a pinned search_path on every hardened function', function (string $label, string $schema, string $name) {
+    if (! functionSearchPathIsPostgres()) {
+        $this->markTestSkipped('pg_proc introspection requires PostgreSQL.');
+    }
+
+    $row = fetchFunctionSearchPathConfig($schema, $name);
+
+    expect($row)->not->toBeNull("Function {$label} not found in pg_proc.");
+    expect($row->proconfig)->not->toBeNull(
+        "{$label} has a NULL proconfig — its search_path is mutable (function_search_path_mutable). Pin it via ALTER FUNCTION ... SET search_path."
+    );
+    expect($row->proconfig)->toContain(
+        'search_path',
+        "{$label} has a pinned config but it does not set search_path — the mutable-search_path advisor will still fire."
+    );
+})->with('search_path_functions');
