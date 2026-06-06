@@ -33,7 +33,7 @@ class StaffUserController extends ApiController
         $searchLike = $this->prepareSearchLike($request, 'q');
 
         $query = User::query()
-            ->with(['site.theme'])
+            ->with(['site'])
             ->orderByDesc('created_at');
 
         if (is_string($status) && $status !== '') {
@@ -59,7 +59,6 @@ class StaffUserController extends ApiController
         // Keep response light for list-view
         $professionals = $page->getCollection()->map(function (User $p) {
             $site = $p->site;
-            $theme = $site?->theme;
 
             return [
                 'id' => $p->id,
@@ -75,11 +74,8 @@ class StaffUserController extends ApiController
                     'id' => $site->id,
                     'subdomain' => $site->subdomain,
                     'is_published' => (bool) $site->is_published,
-                    'theme' => $theme ? [
-                        'id' => $theme->id,
-                        'key' => $theme->key ?? null,
-                        'name' => $theme->name ?? null,
-                    ] : null,
+                    // skeleton_id replaces theme — skeletons are code constants, not DB rows.
+                    'skeleton_id' => $site->skeleton_id,
                 ] : null,
             ];
         });
@@ -95,7 +91,7 @@ class StaffUserController extends ApiController
      */
     public function show(User $professional): JsonResponse
     {
-        $professional->load(['site.theme', 'services', 'blocks']);
+        $professional->load(['site']);
 
         return $this->success([
             'professional' => new UserStaffResource($professional),
@@ -103,11 +99,8 @@ class StaffUserController extends ApiController
                 'id' => $professional->site->id,
                 'subdomain' => $professional->site->subdomain,
                 'is_published' => (bool) $professional->site->is_published,
-                'theme' => $professional->site->theme ? [
-                    'id' => $professional->site->theme->id,
-                    'key' => $professional->site->theme->key ?? null,
-                    'name' => $professional->site->theme->name ?? null,
-                ] : null,
+                // skeleton_id replaces theme — skeletons are code constants, not DB rows.
+                'skeleton_id' => $professional->site->skeleton_id,
             ] : null,
         ]);
     }
@@ -125,6 +118,9 @@ class StaffUserController extends ApiController
                 'code' => 'mfa_fresh_required',
             ], $gate->status() ?? 401);
         }
+
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         $data = $request->validate([
             'status' => ['required', 'string', 'in:active,suspended'],
@@ -156,6 +152,10 @@ class StaffUserController extends ApiController
                 'code' => 'mfa_fresh_required',
             ], $gate->status() ?? 401);
         }
+
+        // No model target — authorize against User::class (policy model hint).
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffBulkManage', User::class);
 
         $data = $request->validate([
             'ids' => ['required', 'array', 'min:1', 'max:100'],
@@ -203,6 +203,9 @@ class StaffUserController extends ApiController
         StaffUpdateUserRequest $request,
         User $professional,
     ) {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         DB::transaction(function () use ($professional, $request): void {
             $professional->fill($request->validated());
             $professional->save();
@@ -217,8 +220,11 @@ class StaffUserController extends ApiController
      * Soft delete - Normal staff operation
      * DELETE /api/staff/professionals/{professional}
      */
-    public function destroy(User $professional): JsonResponse
+    public function destroy(Request $request, User $professional): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         // Soft delete (sets deleted_at)
         if (! $professional->trashed()) {
             $professional->delete();
@@ -230,8 +236,11 @@ class StaffUserController extends ApiController
         ]);
     }
 
-    public function restore(User $professional): JsonResponse
+    public function restore(Request $request, User $professional): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         if ($professional->trashed()) {
             $professional->restore();
         }
@@ -285,6 +294,12 @@ class StaffUserController extends ApiController
                 'code' => 'mfa_fresh_required',
             ], $gate->status() ?? 401);
         }
+
+        // Explicit policy gate — defence-in-depth for the most destructive operation.
+        // staffForceDelete is admin-only even if the route group ever grants access
+        // to support staff (which would otherwise be able to permanently delete).
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffForceDelete', $professional);
 
         // Hard delete - PERMANENT
         $handle = $professional->handle;

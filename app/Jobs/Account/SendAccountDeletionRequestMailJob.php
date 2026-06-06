@@ -43,10 +43,41 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
 
     public function handle(): void
     {
-        $professional = User::query()->find($this->userId);
+        // Idempotency guard: lock the row so two concurrent workers (retry overlapping
+        // with the original, or Horizon scale-out) cannot both read deletion_mail_sent_at
+        // = null and both deliver the email. Mirrors SendEnquiryConfirmationJob.
+        $professional = DB::transaction(function () {
+            $user = User::query()->lockForUpdate()->find($this->userId);
+            if ($user === null) {
+                return null;
+            }
+
+            // Token mismatch: the user re-requested with a fresh token (or cancelled),
+            // so this job's rawToken no longer matches — bail without sending.
+            if ($user->deletion_token_hash !== hash('sha256', $this->rawToken)) {
+                return false;
+            }
+
+            if ($user->deletion_mail_sent_at !== null) {
+                return false; // already sent on a previous attempt
+            }
+
+            // Stamp atomically under the lock (at-most-once: if the mail send later
+            // throws, the retry will skip it — deliberate). Mirrors the confirmation
+            // job's choice: no double-send takes priority over guaranteed delivery;
+            // permanent failures surface via report() in failed().
+            $user->forceFill(['deletion_mail_sent_at' => now()])->saveQuietly();
+
+            return $user;
+        });
+
         if ($professional === null) {
             // User was purged/cancelled between dispatch and execution — nothing to send.
             return;
+        }
+
+        if ($professional === false) {
+            return; // already sent, or token was rotated — skip silently
         }
 
         $confirmationUrl = rtrim((string) config('app.frontend_url'), '/')

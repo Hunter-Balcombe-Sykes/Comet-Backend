@@ -2,8 +2,9 @@
 
 namespace App\Policies;
 
-use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -15,6 +16,11 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Audit-log models (UserDeletionAuditEntry) are immutable — update/delete
  * are blocked by the policy regardless of ownership.
+ *
+ * Also covers staff-facing abilities on User records. Gate::policy() is 1:1
+ * (one policy per model class), so staff abilities live here alongside the
+ * self-service ones. Staff actor methods use PartnaStaff as the first argument
+ * so Laravel's Gate dispatches them separately from the User-actor variants.
  */
 class UserSelfPolicy extends BasePolicy
 {
@@ -57,6 +63,57 @@ class UserSelfPolicy extends BasePolicy
     {
         return $this->update($actor, $resource);
     }
+
+    // -------------------------------------------------------------------------
+    // Staff-actor abilities (PartnaStaff as first argument)
+    // -------------------------------------------------------------------------
+    //
+    // destroy (soft-delete) and restore live in the staff-only route group (no
+    // staff.admin middleware), so a support-role actor reaches these methods and
+    // is denied HERE — the policy is the actual enforcement point for those two
+    // operations. The remaining write methods (updateStatus, update, forceDestroy,
+    // bulkUpdateStatus) are behind staff.admin, so this policy is defence-in-depth
+    // for those.
+    //
+    // Pattern mirrors CasePolicy + StaffCaseController: actor is resolved from
+    // $request->attributes->get('partna_staff') and passed via authorizeForUser().
+
+    /**
+     * General staff management ability: view/status-update/update/soft-delete/restore.
+     * Any active admin staff can perform these reversible operations.
+     */
+    public function staffManage(PartnaStaff $actor, User $target): bool
+    {
+        return $actor->isAdmin();
+    }
+
+    /**
+     * Hard (force) delete — PERMANENT and irreversible.
+     *
+     * Explicitly gated to admin role even though the route group already requires
+     * staff.admin, creating a defence-in-depth seam. If support staff are ever
+     * granted access to the staff route group, they will be denied here until
+     * this gate is deliberately relaxed. This prevents a support staffer from
+     * permanently destroying a professional's account.
+     */
+    public function staffForceDelete(PartnaStaff $actor, User $target): bool
+    {
+        // Admin-only: irreversible action requires the highest privilege tier.
+        return $actor->isAdmin();
+    }
+
+    /**
+     * Bulk status update — affects many users at once.
+     *
+     * Treated as admin-only because the blast radius of a bulk suspend/activate
+     * is much larger than a single-row status change.
+     */
+    public function staffBulkManage(PartnaStaff $actor): bool
+    {
+        return $actor->isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
 
     /**
      * Professional itself is the root record — ownership is $resource->id.

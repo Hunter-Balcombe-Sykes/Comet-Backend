@@ -49,6 +49,7 @@ class AccountDeletionTestCase
             deletion_requested_at TEXT,
             deletion_confirmed_at TEXT,
             deletion_previous_status TEXT,
+            deletion_mail_sent_at TEXT,
             phone TEXT,
             first_name TEXT,
             last_name TEXT,

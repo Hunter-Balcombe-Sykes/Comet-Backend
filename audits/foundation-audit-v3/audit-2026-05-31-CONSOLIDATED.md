@@ -88,7 +88,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ## P1
 
-- [ ] **#P1-01** `StaffUserController` crashes on every request — skeleton-system removed `Site::theme()` — Lens: `account-caps` · `n1` · `resources`
+- [x] **#P1-01** `StaffUserController` crashes on every request — skeleton-system removed `Site::theme()` — Lens: `account-caps` · `n1` · `resources`
     - Where: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:35` (index) · `:61` (theme access) · `:97` (show load)
     - What: The skeleton-system cleanup replaced `site.sites.theme_id` + `site.themes` with `skeleton_id` and removed the `theme()` Eloquent relationship from `Site`. `StaffUserController::index()` still calls `->with(['site.theme'])` and `show()` calls `->load(['site.theme', 'services', 'blocks'])`. Laravel's eager-load mechanism calls `(new Site)->theme()` to resolve relation constraints; with no such method defined, Eloquent throws `BadMethodCallException: Call to undefined method … Builder::theme()` on the first request. Both `GET /api/staff/professionals` and `GET /api/staff/professionals/{id}` return 500. The `services` and `blocks` eager-loads are also wasted — neither appears in `UserStaffResource::toArray()`.
     - Fix: Replace `->with(['site.theme'])` with `->with(['site'])` in `index()`; replace `->load(['site.theme', 'services', 'blocks'])` with `->load(['site'])` in `show()`. In both response payloads swap the `'theme' => [...]` block for `'skeleton_id' => $site->skeleton_id`. The `skeleton_id` column is already in `Site::$fillable`.
@@ -154,7 +154,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add `bot.token:signup` middleware to `POST /public/signup/availability` and `bot.token:login-identifier` to `POST /public/auth/resolve-identifier`. Effective only once `BOT_PROTECTION_MODE` is set to `shadow` or `enforce` (see #P1-12).
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-12** `BOT_PROTECTION_MODE` defaults to `off` with no production boot guard — all bot protection silently disabled — Lens: `rate-limiting`
+- [x] **#P1-12** `BOT_PROTECTION_MODE` defaults to `off` with no production boot guard — all bot protection silently disabled — Lens: `rate-limiting`
     - Where: `config/partna.php:1144` · `app/Http/Middleware/VerifyBotToken.php` (early return on `'off'`) · `app/Providers/BotProtectionServiceProvider.php`
     - What: `VerifyBotToken::handle()` returns `$next($request)` immediately when mode is `'off'`. The default in `config/partna.php` is `env('BOT_PROTECTION_MODE', 'off')` and `.env.example` ships `BOT_PROTECTION_MODE=off`. The existing boot guard only catches `enforce + null driver`; it never checks for `mode=off` in production. Every `bot.token:*` endpoint accepts unlimited bot submissions on any deploy that copies `.env.example` verbatim.
     - Fix: Add a boot guard in `BotProtectionServiceProvider::runBootGuards()`: `Log::warning('bot_protection.mode_off_in_production')` (or throw) when `$env === 'production'` and `$mode === 'off'`. Update `.env.example` to show `BOT_PROTECTION_MODE=shadow` as the recommended deployed value with a comment explaining the three modes.
@@ -190,7 +190,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Identify high-risk staff controller actions and add `$aal2Check = $this->requiresFreshAal2(); if ($aal2Check->denied()) return $aal2Check;` to the corresponding policy methods or inline in controllers following the `MfaController` pattern. Tune the freshness window via `config('partna.mfa.fresh_window_seconds', 300)`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-03** `StaffUserController` destructive write operations have no policy authorization layer — Lens: `policy`
+- [x] **#P2-03** `StaffUserController` destructive write operations have no policy authorization layer — Lens: `policy`
     - Where: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php` — `updateStatus()`, `update()`, `destroy()`, `restore()`, `forceDestroy()`, `bulkUpdateStatus()`
     - What: The staff admin route group applies a chain of middleware (`supabase.jwt`, `require.email_verified`, `staff`, `require.aal2`, `staff.admin`, `throttle:staff`, `staff.audit`) but once past that gate no policy method is ever invoked on any write action. `forceDestroy` — a permanent, irreversible operation — has zero defense-in-depth beyond the route middleware. There is no centralized location to add per-ability restrictions (e.g. "support can suspend but not hard-delete") without touching every controller method individually. `CasePolicy` already establishes the `User|PartnaStaff $actor` union-type pattern that is the correct template.
     - Fix: Extend `UserSelfPolicy` (or a new `UserStaffPolicy`) to add staff-facing abilities: `manage(PartnaStaff $actor, User $target): bool { return true; }` with the role-restricted variants for `forceDelete`, `restore`, and `bulkManage`. In each write method resolve `$staff = $request->attributes->get('partna_staff')` and call `$this->authorizeForUser($staff, 'manage', $professional)`.
@@ -272,7 +272,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Cache & Queue
 
-- [ ] **#P2-15** `getByAuthId` uses `rememberLocked` for a nullable callback — deleted-user lookups drain Redis locks on every request — Lens: `cache`
+- [x] **#P2-15** `getByAuthId` uses `rememberLocked` for a nullable callback — deleted-user lookups drain Redis locks on every request — Lens: `cache`
     - Where: `app/Services/Cache/UserCacheService.php:156–159`
     - What: `CacheLockService::rememberLocked` fast-paths on `$cached !== null`. `Cache::get()` returns `null` for both a missing key and a stored null, making the fast path structurally unable to detect a cached null. When `User::find($id)` returns null (deleted user), each subsequent authenticated request acquires a 10-second blocking Redis lock, queries Postgres, stores null, and repeats for the full `auth_id_lookup` TTL (~30 min). The correct method `rememberLockedNullable` is already used on the three surrounding lines.
     - Fix: Replace `$this->cacheLock->rememberLocked(…)` at line 156 with `$this->cacheLock->rememberLockedNullable(…)`, passing `nullTtl: now()->addSeconds(30)` to match the pattern in `getIdByAuthId`.
@@ -430,7 +430,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: In both methods, move the status guard inside the `DB::transaction` callback after re-loading with `ModerationCase::query()->lockForUpdate()->findOrFail($case->id)`. The locked re-fetch makes the read-check-transition atomic.
     - Models: impl=sonnet · review=sonnet
 
-- [ ] **#P2-38** Missing idempotency guard in `SendAccountDeletionRequestMailJob` — Lens: `transactions`
+- [x] **#P2-38** Missing idempotency guard in `SendAccountDeletionRequestMailJob` — Lens: `transactions`
     - Where: `app/Jobs/Account/SendAccountDeletionRequestMailJob.php:44–60`
     - What: The job has `$tries = 3`, `$backoff = [30, 120, 300]`. A crash between SMTP acceptance and job completion causes retries that re-send the deletion confirmation email. Every other transactional notification job uses `lockForUpdate + *_sent_at` to guard this path; this job is the sole exception.
     - Fix: Add a `deletion_mail_sent_at TIMESTAMPTZ` column to `core.users` via a Supabase migration. In `handle()`, open a `DB::transaction()`, re-fetch with `lockForUpdate()`, verify `deletion_token_hash` matches and `deletion_mail_sent_at IS NULL`; return early if not. Stamp `deletion_mail_sent_at = now()` after `Mail::to()->send()` succeeds.
@@ -440,7 +440,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Schema & Migration
 
-- [ ] **#P2-39** `CREATE INDEX` inside `BEGIN/COMMIT` in the enquiry inbox migration — blocks writes for the full build duration on non-empty tables — Lens: `migration`
+- [x] **#P2-39** `CREATE INDEX` inside `BEGIN/COMMIT` in the enquiry inbox migration — blocks writes for the full build duration on non-empty tables — Lens: `migration`
     - Where: `supabase/migrations/20260527160000_enquiry_inbox.sql:1–4` (guard disabled) · `:76–84` (three `CREATE INDEX` statements)
     - What: The migration disables the unsafe-migrations lint with the rationale that `site.enquiries` was empty at migration time. `CREATE INDEX` without `CONCURRENTLY` acquires `ACCESS EXCLUSIVE` for the full build duration. This is currently safe (pre-beta, empty tables) but becomes a live-traffic hazard on any environment with a production-data snapshot (staging restore, future `db reset` after pilot launch).
     - Fix: Move the three `CREATE INDEX` statements into a sibling file `20260527160001_enquiry_inbox_indexes.sql` with no transaction wrapper. Add `CONCURRENTLY` to each. Leave FK constraints, column additions, and the DML backfill `UPDATE` inside the original `BEGIN/COMMIT`.
@@ -1369,22 +1369,22 @@ Themes that surfaced independently under two or more lens audits:
 The following items touch single-writer KV contracts, schema-wide RLS policies, load-bearing transaction boundaries, or require a human design decision before implementation. Each must be its own PR reviewed with the specified model.
 
 - [x] **#P0-01** — Delete one SQL file. No dependencies on other items. Must land before all migration work.
-- [ ] **#P1-01** — StaffUserController theme crash fix. Self-contained, targeted. Land before any staff-dashboard QA session.
+- [x] **#P1-01** — StaffUserController theme crash fix. Self-contained, targeted. Land before any staff-dashboard QA session.
 - [ ] **#P1-02** — Cloudflare Worker error boundary. Requires Worker deploy; coordinate with edge deploy schedule.
 - [ ] **#P1-08** (GDPR-1) — Video R2 orphan strategy. Requires ops design decision on ledger vs sweep approach before implementation.
 - [ ] **#P1-09** (JWT-1) — Redis revocation catch. Auth middleware; opus review required. Do not bundle with JWT-2/3.
 - [ ] **#P1-10** (PROV-1) — PostgreSQL signup savepoint. Load-bearing transaction boundary; opus review. Add pgsql integration test. Do not bundle.
-- [ ] **#P1-12** (RATE-2) — Bot protection mode prod guard. Must land before B18.
+- [x] **#P1-12** (RATE-2) — Bot protection mode prod guard. Must land before B18.
 - [ ] **#P1-13** (KV-1) — Alias 301 path preservation. Single-writer KV / Worker change. Coordinate with Worker deploy.
 - [ ] **#P1-14** (RLS-1) — `design_kits` RLS. Schema-wide RLS migration; opus review. Requires `supabase db push` to both dev and prod.
-- [ ] **#P2-03** (AUTH-1) — Staff write policy authorization. New policy class required; load-bearing authz change. Must precede B17.
+- [x] **#P2-03** (AUTH-1) — Staff write policy authorization. New policy class required; load-bearing authz change. Must precede B17.
 - [ ] **#P2-04** (RLS-2) — Staff role write scoping on `core.users`. Schema-wide RLS policy migration; opus review.
 - [ ] **#P2-05** (RLS-3) — `app_backend` BYPASSRLS reduction. Architectural decision required (which tables, which jobs need cross-tenant access). L effort; discuss before implementing.
-- [ ] **#P2-15** (CACHE-1) — `getByAuthId` nullable method fix. Self-contained; touches every auth request path.
+- [x] **#P2-15** (CACHE-1) — `getByAuthId` nullable method fix. Self-contained; touches every auth request path.
 - [ ] **#P2-22** (QUEUE-6) — Raw deletion token in job payload. Restructures `AccountDeletionService::request()` + job constructor; load-bearing PII change; opus review.
 - [ ] **#P2-35** (IDOR-3) — X-Site-Subdomain trust. Requires human design decision: Worker-strip vs application-layer fallback vs combined. Discuss with Josh before implementing.
-- [ ] **#P2-38** (JOB-1) — Deletion mail idempotency. Requires Supabase migration (`deletion_mail_sent_at` column on `core.users`); do not bundle with other migrations.
-- [ ] **#P2-39** (MIGR-2) — Index inside BEGIN/COMMIT. Requires creating a sibling migration file; coordinate with migration sequence.
+- [x] **#P2-38** (JOB-1) — Deletion mail idempotency. Requires Supabase migration (`deletion_mail_sent_at` column on `core.users`); do not bundle with other migrations.
+- [x] **#P2-39** (MIGR-2) — Index inside BEGIN/COMMIT. Requires creating a sibling migration file; coordinate with migration sequence.
 - [ ] **#P2-45** (KV-2) — Professional deletion clears KV entry. Single-writer KV contract; new job or service method required; opus review.
 - [ ] **#P2-56** (NPL-1) — Unbounded subscriber CSV export [@10k]. Self-contained controller change but touches export UX; confirm export cap value with Josh before implementing.
 - [ ] **#P3-16** (RLS-4) — Moderation schema RLS. Schema-wide RLS policies on five tables; opus review. Low urgency (`moderation` not in `api.schemas`) but delivers defence-in-depth.

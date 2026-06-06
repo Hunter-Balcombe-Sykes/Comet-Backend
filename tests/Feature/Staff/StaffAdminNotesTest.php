@@ -4,15 +4,17 @@ use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Http\Resources\UserStaffResource;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
     $conn = DB::connection('pgsql');
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
@@ -58,6 +60,14 @@ it('persists admin_notes when staff PATCHes the professional', function () {
     $request->setContainer(app())->setRedirector(app('redirect'));
     $request->validateResolved();
 
+    // The write methods now enforce UserSelfPolicy::staffManage (admin-only, #P2-03).
+    // This direct controller call bypasses the staff middleware that normally sets
+    // the attribute, so inject an admin actor the same way the middleware would.
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
     $controller = new StaffUserController;
     $controller->update($request, $professional);
 
@@ -86,5 +96,5 @@ it('rejects admin_notes longer than 5000 chars', function () {
     $request->setContainer(app())->setRedirector(app('redirect'));
 
     expect(fn () => $request->validateResolved())
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,20 @@ beforeEach(function () {
     )');
 });
 
+/**
+ * Build an unsaved admin PartnaStaff to satisfy the staffBulkManage policy gate.
+ * These tests call the controller directly (no HTTP layer), so we inject the
+ * staff model onto the request attributes just as the middleware would.
+ */
+function adminStaffActor(): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+
+    return $staff;
+}
+
 function seedUsers(int $n, string $status = 'active'): array
 {
     $ids = [];
@@ -57,6 +72,8 @@ it('bulk-suspends a wave of professionals', function () {
     ]);
     // Fresh TOTP amr entry — satisfies the requiresFreshAal2 gate added in B17.
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    // Admin staff actor — satisfies the staffBulkManage policy gate added in #P2-03.
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     Log::spy();
     $response = $controller->bulkUpdateStatus($request);
@@ -83,6 +100,7 @@ it('accepts exactly 100 IDs', function () {
         'status' => 'suspended',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     $response = $controller->bulkUpdateStatus($request);
     $data = json_decode($response->getContent(), true);
@@ -100,6 +118,7 @@ it('rejects 101 IDs with validation error', function () {
         'status' => 'suspended',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     expect(fn () => $controller->bulkUpdateStatus($request))
         ->toThrow(ValidationException::class);
@@ -112,6 +131,7 @@ it('rejects unknown status values', function () {
         'status' => 'banned',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     expect(fn () => $controller->bulkUpdateStatus($request))
         ->toThrow(ValidationException::class);
@@ -124,6 +144,7 @@ it('rejects non-UUID IDs', function () {
         'status' => 'suspended',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     expect(fn () => $controller->bulkUpdateStatus($request))
         ->toThrow(ValidationException::class);
@@ -139,6 +160,7 @@ it('returns missing_ids for unknown UUIDs without rolling back valid ones', func
         'status' => 'suspended',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     $response = $controller->bulkUpdateStatus($request);
     $data = json_decode($response->getContent(), true);
@@ -155,6 +177,7 @@ it('rejects empty ids array', function () {
         'status' => 'suspended',
     ]);
     $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+    $request->attributes->set('partna_staff', adminStaffActor());
 
     expect(fn () => $controller->bulkUpdateStatus($request))
         ->toThrow(ValidationException::class);

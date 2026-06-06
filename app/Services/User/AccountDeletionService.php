@@ -6,10 +6,10 @@ use App\Jobs\Account\SendAccountDeletionRequestMailJob;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
-use App\Models\Core\User\User;
-use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Http\Request;
@@ -63,6 +63,9 @@ class AccountDeletionService
                 $professional->update([
                     'deletion_token_hash' => $tokenHash,
                     'deletion_requested_at' => now(),
+                    // Reset sent_at so the idempotency guard in the job allows re-delivery —
+                    // mirrors the subscription reset-on-re-subscribe precedent in PublicEmailSubscriptionController.
+                    'deletion_mail_sent_at' => null,
                 ]);
 
                 // Job dispatch runs inside the transaction so a dispatch infrastructure

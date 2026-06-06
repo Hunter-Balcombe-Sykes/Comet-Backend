@@ -92,7 +92,51 @@ it('allows null driver + enforce mode outside production', function () {
     expect(true)->toBeTrue();
 });
 
-it('guard-4 logs warning when trusted proxies are unconfigured in a deployed env', function () {
+it('boot-guard warns when mode is off in production', function () {
+    Log::spy();
+    config([
+        'partna.bot_protection.driver' => 'null',
+        'partna.bot_protection.mode' => 'off',
+    ]);
+    app()->detectEnvironment(fn () => 'production');
+    bp_test_proxies_set('*'); // configure proxies so guard-5 doesn't also fire
+
+    (new BotProtectionServiceProvider(app()))->boot();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'bot_protection.mode_off_in_production')
+        ->once();
+});
+
+it('boot-guard does not warn for mode off outside production', function () {
+    Log::spy();
+    config([
+        'partna.bot_protection.driver' => 'null',
+        'partna.bot_protection.mode' => 'off',
+    ]);
+    app()->detectEnvironment(fn () => 'local');
+    bp_test_proxies_set('*');
+
+    (new BotProtectionServiceProvider(app()))->boot();
+
+    Log::shouldNotHaveReceived('warning', fn ($msg) => $msg === 'bot_protection.mode_off_in_production');
+});
+
+it('boot-guard does not warn for mode off in testing env', function () {
+    Log::spy();
+    config([
+        'partna.bot_protection.driver' => 'null',
+        'partna.bot_protection.mode' => 'off',
+    ]);
+    app()->detectEnvironment(fn () => 'testing');
+    bp_test_proxies_set('*');
+
+    (new BotProtectionServiceProvider(app()))->boot();
+
+    Log::shouldNotHaveReceived('warning', fn ($msg) => $msg === 'bot_protection.mode_off_in_production');
+});
+
+it('guard-5 logs warning when trusted proxies are unconfigured in a deployed env', function () {
     Log::spy();
     config([
         'partna.bot_protection.driver' => 'null',
@@ -108,7 +152,7 @@ it('guard-4 logs warning when trusted proxies are unconfigured in a deployed env
         ->once();
 });
 
-it('guard-4 stays quiet when trusted proxies are configured', function () {
+it('guard-5 stays quiet when trusted proxies are configured', function () {
     Log::spy();
     config([
         'partna.bot_protection.driver' => 'null',
@@ -122,7 +166,7 @@ it('guard-4 stays quiet when trusted proxies are configured', function () {
     Log::shouldNotHaveReceived('warning', fn ($msg) => $msg === 'bot_protection.trusted_proxies_unconfigured');
 });
 
-it('guard-4 stays quiet in local/testing even when proxies are unconfigured', function () {
+it('guard-5 stays quiet in local/testing even when proxies are unconfigured', function () {
     Log::spy();
     config([
         'partna.bot_protection.driver' => 'null',

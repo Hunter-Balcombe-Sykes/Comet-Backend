@@ -1,7 +1,7 @@
 -- guard:no-unsafe-migrations:disable-file
--- Rationale: indexes and FKs run inside BEGIN…COMMIT (required for idempotent
--- column+FK+index steps). CONCURRENTLY is incompatible with explicit transactions.
--- All affected tables were empty at migration time (pre-beta). Safe to skip lint.
+-- Rationale: FK constraints are added without NOT VALID (tables were empty at
+-- migration time, pre-beta). The guard opt-out is retained for those FKs.
+-- Indexes were moved to sibling file 20260527160001_enquiry_inbox_indexes.sql.
 -- ==========================================================================
 -- Enquiry Inbox foundation (2026-05-27)
 --
@@ -10,10 +10,8 @@
 -- enquiries_user_created_idx (its (user_id, created_at DESC) prefix is
 -- covered by the new composite (user_id, status, created_at DESC)).
 --
--- Idempotent + single-transaction so it applies cleanly via `supabase db push`,
--- whose statement pipeline is incompatible with CREATE INDEX CONCURRENTLY. Plain
--- index creation is used instead (these tables are small/pre-beta, so the brief
--- ACCESS EXCLUSIVE lock during build is a non-issue).
+-- Indexes (CONCURRENTLY, outside transaction) live in:
+--   20260527160001_enquiry_inbox_indexes.sql
 --
 -- Spec: docs/superpowers/specs/2026-05-26-enquiry-inbox-design.md
 -- ==========================================================================
@@ -72,19 +70,9 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
 
--- 7. Indexes (plain CREATE INDEX inside the transaction — see header note on
---    why CONCURRENTLY is not used).
-CREATE INDEX IF NOT EXISTS idx_enquiries_user_status_created
-    ON site.enquiries (user_id, status, created_at DESC)
-    WHERE deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_enquiries_customer
-    ON site.enquiries (customer_id)
-    WHERE deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_enquiries_notification
-    ON site.enquiries (notification_id)
-    WHERE notification_id IS NOT NULL;
+-- 7. Indexes moved to sibling file 20260527160001_enquiry_inbox_indexes.sql.
+--    CREATE INDEX CONCURRENTLY cannot run inside a transaction; the sibling runs
+--    immediately after this file on a fresh build (CONVENTIONS.md §1).
 
 -- 8. Drop the redundant index (covered by the new composite).
 DROP INDEX IF EXISTS site.enquiries_user_created_idx;

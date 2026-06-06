@@ -80,6 +80,7 @@ class User extends BaseModel
         'deletion_requested_at',
         'deletion_confirmed_at',
         'deletion_previous_status',
+        'deletion_mail_sent_at',
 
         // Staff-only — surfaced through UserStaffResource. Never expose through
         // UserResource (self-service /me).
@@ -95,6 +96,7 @@ class User extends BaseModel
         'deleted_at' => 'datetime',
         'deletion_requested_at' => 'datetime',
         'deletion_confirmed_at' => 'datetime',
+        'deletion_mail_sent_at' => 'datetime',
     ];
 
     /** Route mail notifications to the user's primary email address. */

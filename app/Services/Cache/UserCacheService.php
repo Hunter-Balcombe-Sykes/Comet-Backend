@@ -3,8 +3,8 @@
 namespace App\Services\Cache;
 
 use App\Http\Resources\ServiceResource;
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -154,10 +154,13 @@ class UserCacheService
         // Cache the hydrated model for 60s with SWR + jitter. Eager-loading site
         // here makes it effectively free for every authenticated request — it rides
         // along inside the cached model, paid once per 60s window.
-        $professional = $this->cacheLock->rememberLocked(
+        // Short null-TTL (30s): if a user is deleted mid-session, avoid re-querying
+        // Postgres on every request for the full professional_model TTL window.
+        $professional = $this->cacheLock->rememberLockedNullable(
             CacheKeyGenerator::professionalModel($id),
             (int) config('partna.cache.ttls.professional_model'),
             fn () => User::query()->with(['site'])->find($id),
+            nullTtl: now()->addSeconds(30),
         );
         if (! $professional) {
             return null;

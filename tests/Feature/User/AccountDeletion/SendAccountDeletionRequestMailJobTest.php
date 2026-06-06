@@ -62,7 +62,7 @@ it('failed() clears the deletion token when the row still holds this jobs token 
     $pro = seedUserWithToken($rawToken);
 
     $job = new SendAccountDeletionRequestMailJob($pro->id, $rawToken);
-    $job->failed(new \RuntimeException('SMTP permanently down'));
+    $job->failed(new RuntimeException('SMTP permanently down'));
 
     $pro->refresh();
     expect($pro->deletion_token_hash)->toBeNull()
@@ -78,7 +78,7 @@ it('failed() leaves the row alone when the token has been rotated by a fresh req
 
     // The OLD job's failed() fires later — must not trample the new token.
     $job = new SendAccountDeletionRequestMailJob($pro->id, $oldRawToken);
-    $job->failed(new \RuntimeException('SMTP permanently down'));
+    $job->failed(new RuntimeException('SMTP permanently down'));
 
     $pro->refresh();
     expect($pro->deletion_token_hash)->toBe(hash('sha256', $newRawToken))
@@ -90,6 +90,46 @@ it('failed() is safe when the professional row no longer exists', function () {
 
     $job = new SendAccountDeletionRequestMailJob($missingId, 'irrelevant-token');
 
-    expect(fn () => $job->failed(new \RuntimeException('SMTP down')))
-        ->not->toThrow(\Throwable::class);
+    expect(fn () => $job->failed(new RuntimeException('SMTP down')))
+        ->not->toThrow(Throwable::class);
+});
+
+// ── Idempotency guard tests (P2-38) ────────────────────────────────────────
+
+it('handle() sends the mail only once when dispatched twice (retry simulation)', function () {
+    config(['app.frontend_url' => 'https://app.example.test']);
+
+    $rawToken = 'token-'.Str::random(58);
+    $pro = seedUserWithToken($rawToken);
+
+    $job = new SendAccountDeletionRequestMailJob($pro->id, $rawToken);
+
+    // First execution: mail is sent, deletion_mail_sent_at is stamped.
+    $job->handle();
+    Mail::assertSentTimes(AccountDeletionRequestedMail::class, 1);
+
+    $pro->refresh();
+    expect($pro->deletion_mail_sent_at)->not->toBeNull();
+
+    // Second execution (simulated retry): guard sees deletion_mail_sent_at IS NOT NULL
+    // and returns early — mail should still have been sent exactly once total.
+    $job->handle();
+    Mail::assertSentTimes(AccountDeletionRequestedMail::class, 1);
+});
+
+it('handle() does not send when the deletion token hash no longer matches', function () {
+    config(['app.frontend_url' => 'https://app.example.test']);
+
+    $originalToken = 'original-'.Str::random(54);
+    $rotatedToken = 'rotated-'.Str::random(55);
+    $pro = seedUserWithToken($rotatedToken); // row holds the NEW token
+
+    // Job was dispatched with the OLD token — should not send.
+    $job = new SendAccountDeletionRequestMailJob($pro->id, $originalToken);
+    $job->handle();
+
+    Mail::assertNothingSent();
+
+    $pro->refresh();
+    expect($pro->deletion_mail_sent_at)->toBeNull();
 });

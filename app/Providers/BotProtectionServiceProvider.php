@@ -59,7 +59,17 @@ final class BotProtectionServiceProvider extends ServiceProvider
             }
         }
 
-        // Guard 4: Trusted proxies unconfigured. Soft warn — log only, do not refuse boot.
+        // Guard 4: mode=off in production. Soft warn — log only, do not refuse boot.
+        // If .env.example was copied verbatim and BOT_PROTECTION_MODE left as 'off',
+        // every bot.token:* endpoint silently accepts unlimited submissions. Warn so
+        // the misconfiguration surfaces in Nightwatch rather than failing the deploy.
+        if ($env === 'production' && $mode === 'off') {
+            Log::warning('bot_protection.mode_off_in_production', [
+                'note' => 'BOT_PROTECTION_MODE=off disables all bot verification on every protected endpoint; set MODE=shadow or MODE=enforce in production.',
+            ]);
+        }
+
+        // Guard 5: Trusted proxies unconfigured. Soft warn — log only, do not refuse boot.
         // Without trusted-proxy config, $request->ip() returns the Cloudflare edge IP
         // instead of the real client IP — Turnstile fraud scoring is degraded and per-IP
         // rate limits collapse to a single bucket. Only meaningful in deployed envs;
