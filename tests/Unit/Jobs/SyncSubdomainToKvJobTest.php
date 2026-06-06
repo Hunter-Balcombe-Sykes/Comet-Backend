@@ -51,3 +51,56 @@ it('writes {type:"individual"} for an individual professional (§28.6)', functio
 
     (new SyncSubdomainToKvJob($proId))->handle($kv);
 });
+
+it('deletes the KV entry for a soft-deleted professional (#P2-45)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+
+    $proId = (string) Str::uuid();
+    // Soft-deleted: deleted_at set. find() excludes it; withTrashed() finds it,
+    // and trashed() routes the job into the retire branch.
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'goneact',
+        'handle_lc' => 'goneact',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 'g@example.test',
+        'deleted_at' => now()->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('goneact');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('deletes the captured handle when the professional row is hard-deleted (#P2-45)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+
+    // No row exists (hard delete) — the job must fall back to the handle
+    // captured at dispatch time by UserObserver::deleted.
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('vanished');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob((string) Str::uuid(), 'vanished'))->handle($kv);
+});
+
+it('no-ops when the professional is gone and no handle was captured (#P2-45)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldNotReceive('delete');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob((string) Str::uuid()))->handle($kv);
+});

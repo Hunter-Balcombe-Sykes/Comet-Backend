@@ -16,14 +16,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-// Syncs one professional's subdomain routing entries in Cloudflare KV.
-// All accounts are individual; only {"type":"individual"} entries are written.
-// Historical aliases: {"type":"alias","redirect":"https://<current>.partna.au"}
-// with expirationTtl. The Worker reads `entry.redirect` as a full URL — it
-// does NOT reconstruct from a handle. Pre-computing the URL here keeps
-// alias entries valid against the canonical subdomain regardless of future
-// Worker-side URL composition changes. Genuine deletes go through
-// RetireSubdomainFromKvJob, NOT this job.
+// Reconciles one professional's subdomain routing entries in Cloudflare KV
+// against the user's actual state. This is the SINGLE writer to SUBDOMAIN_KV
+// (§50 non-negotiable rule #5) — both upserts AND deletes flow through here so
+// there is exactly one code path that mutates the routing table.
+//
+// Active user  → upsert {"type":"individual"} for the current handle, plus
+//                {"type":"alias","redirect":"https://<current>.partna.au"} (with
+//                expirationTtl) for every historical alias. The Worker reads
+//                `entry.redirect` as a full URL — it does NOT reconstruct from a
+//                handle, so pre-computing the canonical URL here keeps alias
+//                entries valid regardless of future Worker-side URL composition.
+// Gone user    → soft-deleted / hard-deleted / handle cleared: delete the KV
+//                entry so <handle>.partna.au stops resolving immediately and the
+//                handle can be cleanly reclaimed by a new user. The handle is
+//                captured at dispatch time ($capturedHandle) because a
+//                hard-deleted row is no longer findable; for a soft-delete we
+//                fall back to reading it via withTrashed().
 //
 // `ShouldBeUnique` with a 45s window collapses observer storms to a single KV write per 45s.
 class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
@@ -34,7 +43,14 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 45;
 
-    public function __construct(public readonly string $userId)
+    /**
+     * @param  string  $userId  The professional whose KV routing to reconcile.
+     * @param  string|null  $capturedHandle  The handle to delete when the user is
+     *                                       gone (passed by UserObserver::deleted,
+     *                                       since a hard-deleted row can't be looked
+     *                                       up). Null for normal active-state syncs.
+     */
+    public function __construct(public readonly string $userId, public readonly ?string $capturedHandle = null)
     {
         $this->onQueue('default');
     }
@@ -46,9 +62,15 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(CloudflareKvService $kv): void
     {
-        $pro = User::query()->find($this->userId);
+        // withTrashed so a soft-deleted user is still found here — the find()
+        // exclusion was the original bug (deleted users left their KV live).
+        $pro = User::withTrashed()->find($this->userId);
 
-        if (! $pro || ! $pro->handle) {
+        // The user is gone (hard-deleted, soft-deleted, or has no handle) — remove
+        // the routing entry instead of upserting it.
+        if (! $pro || $pro->trashed() || ! $pro->handle) {
+            $this->retire($kv, $pro);
+
             return;
         }
 
@@ -64,6 +86,24 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // core.users.partna_url in sync so this fallback is rarely needed.
         $canonical = $pro->partna_url ?: "https://{$current}.partna.au";
         $this->writeAliasEntries($kv, $pro->id, $current, $canonical);
+    }
+
+    /**
+     * Delete the routing entry for a gone user. Prefers the soft-deleted model's
+     * own handle; falls back to the handle captured at dispatch time (the only
+     * source available once a row is hard-deleted). Idempotent — a missing key
+     * delete is a no-op at Cloudflare. Aliases are left to expire via their own
+     * TTL / the handles:prune-expired-aliases sweep.
+     */
+    private function retire(CloudflareKvService $kv, ?User $pro): void
+    {
+        $handle = strtolower(trim((string) ($pro?->handle ?: $this->capturedHandle)));
+
+        if ($handle === '') {
+            return;
+        }
+
+        $kv->delete($handle);
     }
 
     public function failed(Throwable $e): void

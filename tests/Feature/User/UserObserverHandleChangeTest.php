@@ -1,9 +1,8 @@
 <?php
 
-use App\Jobs\Cloudflare\RetireSubdomainFromKvJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Observers\User\UserObserver;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
@@ -29,16 +28,14 @@ it('dispatches SyncSubdomainToKvJob when handle changes', function () {
 
     app(UserObserver::class)->updated($pro);
 
-    // SyncSubdomainToKvJob now writes KV for the current handle AND every
-    // historical alias (UpdateSiteAction inserts the old handle into the
-    // alias table inside the same transaction), so a separate retirement
-    // dispatch is no longer needed — the old subdomain keeps resolving via
-    // its alias entry.
+    // SyncSubdomainToKvJob writes KV for the current handle AND every historical
+    // alias (UpdateSiteAction inserts the old handle into the alias table inside
+    // the same transaction), so the old subdomain keeps resolving via its alias
+    // entry on a rename — no separate retirement dispatch is needed.
     Queue::assertPushed(SyncSubdomainToKvJob::class, fn ($job) => $job->userId === $id);
-    Queue::assertNotPushed(RetireSubdomainFromKvJob::class);
 });
 
-it('does not dispatch retirement job when handle does not change', function () {
+it('does not dispatch KV sync when handle does not change', function () {
     Queue::fake();
 
     $pro = new User;
@@ -50,10 +47,9 @@ it('does not dispatch retirement job when handle does not change', function () {
     app(UserObserver::class)->updated($pro);
 
     Queue::assertNotPushed(SyncSubdomainToKvJob::class);
-    Queue::assertNotPushed(RetireSubdomainFromKvJob::class);
 });
 
-it('does not dispatch retirement job when old handle is empty', function () {
+it('dispatches KV sync even when the old handle was empty', function () {
     Queue::fake();
 
     $pro = new User;
@@ -65,7 +61,56 @@ it('does not dispatch retirement job when old handle is empty', function () {
     app(UserObserver::class)->updated($pro);
 
     Queue::assertPushed(SyncSubdomainToKvJob::class);
-    Queue::assertNotPushed(RetireSubdomainFromKvJob::class);
+});
+
+// ── KV retirement on delete / restore (#P2-45) ────────────────────────────
+
+it('dispatches a KV retire sync with the captured handle when a professional is deleted', function () {
+    Queue::fake();
+
+    $id = (string) Str::uuid();
+    $pro = new User;
+    $pro->setRawAttributes(['id' => $id, 'handle' => 'gone-handle']);
+    $pro->syncOriginal();
+
+    app(UserObserver::class)->deleted($pro);
+
+    // The single KV writer must be told to reconcile, carrying the handle so it
+    // can delete the entry even after a hard-delete removes the lookup row.
+    Queue::assertPushed(
+        SyncSubdomainToKvJob::class,
+        fn ($job) => $job->userId === $id && $job->capturedHandle === 'gone-handle'
+    );
+});
+
+it('does not dispatch a KV retire sync when the deleted professional has no handle', function () {
+    Queue::fake();
+
+    $pro = new User;
+    $pro->setRawAttributes(['id' => (string) Str::uuid(), 'handle' => null]);
+    $pro->syncOriginal();
+
+    app(UserObserver::class)->deleted($pro);
+
+    Queue::assertNotPushed(SyncSubdomainToKvJob::class);
+});
+
+it('re-dispatches a KV sync (upsert) when a professional is restored', function () {
+    Queue::fake();
+
+    $id = (string) Str::uuid();
+    $pro = new User;
+    $pro->setRawAttributes(['id' => $id, 'handle' => 'back-handle']);
+    $pro->syncOriginal();
+
+    app(UserObserver::class)->restored($pro);
+
+    // No captured handle on restore — the job upserts from the live (now
+    // untrashed) row.
+    Queue::assertPushed(
+        SyncSubdomainToKvJob::class,
+        fn ($job) => $job->userId === $id && $job->capturedHandle === null
+    );
 });
 
 // ── Site touch on public-visible User-field changes (PR #120) ─────────────

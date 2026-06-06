@@ -108,7 +108,10 @@ it('still completes purge when a professional has no site media', function () {
     $result = app(AccountDeletionService::class)->purge($professional);
 
     expect($result)->toBeTrue();
-    Queue::assertNothingPushed();
+    // No media → no artifact-deletion jobs. (Purge still dispatches a KV
+    // retire sync via UserObserver::deleted — that's expected, see #P2-45 —
+    // so this asserts the media path specifically, not "nothing at all".)
+    Queue::assertNotPushed(DeleteMediaArtifactsJob::class);
 });
 
 it('invalidates the public site cache before forceDelete so stale payloads are gone immediately', function () {

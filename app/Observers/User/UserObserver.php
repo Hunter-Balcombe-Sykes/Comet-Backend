@@ -65,11 +65,11 @@ class UserObserver
 
         $this->touchParentSiteIfPublicFieldChanged($professional);
 
-        // Handle change → KV needs to re-sync. SyncSubdomainToKvJob now writes
+        // Handle change → KV needs to re-sync. SyncSubdomainToKvJob writes
         // entries for the current handle AND every alias (the old handle gets
-        // added to user_handle_aliases by UpdateSiteAction), so a
-        // separate RetireSubdomainFromKvJob is no longer needed here — the old
-        // Dispatch on handle change so SUBDOMAIN_KV stays in sync.
+        // added to user_handle_aliases by UpdateSiteAction), so the old
+        // subdomain keeps resolving via its alias entry — no separate retirement
+        // dispatch is needed on a rename.
         if ($professional->wasChanged('handle')) {
             try {
                 SyncSubdomainToKvJob::dispatch((string) $professional->id);
@@ -144,6 +144,24 @@ class UserObserver
                 'message' => $e->getMessage(),
             ]));
         }
+
+        // Remove the subdomain routing entry so <handle>.partna.au stops
+        // resolving immediately on (soft-)delete — otherwise the stale KV entry
+        // routes for up to 7 days until the backfill cron, and blocks the handle
+        // from being reclaimed. Capture the handle from the model instance (still
+        // populated in the deleted event) and let SyncSubdomainToKvJob — the
+        // single KV writer — perform the delete. The captured handle is required
+        // because a hard-deleted row can't be looked up by the job.
+        if ($professional->handle) {
+            try {
+                SyncSubdomainToKvJob::dispatch((string) $professional->id, (string) $professional->handle);
+            } catch (\Throwable $e) {
+                Log::warning('UserObserver: KV retire dispatch failed on delete', $this->logContext(__METHOD__, [
+                    'user_id' => $professional->id,
+                    'message' => $e->getMessage(),
+                ]));
+            }
+        }
     }
 
     public function restored(User $professional): void
@@ -155,6 +173,19 @@ class UserObserver
                 'user_id' => $professional->id,
                 'message' => $e->getMessage(),
             ]));
+        }
+
+        // Restore re-adds the routing entry that deleted() removed — the same
+        // job upserts now that the user is no longer trashed (mirrors delete()).
+        if ($professional->handle) {
+            try {
+                SyncSubdomainToKvJob::dispatch((string) $professional->id);
+            } catch (\Throwable $e) {
+                Log::warning('UserObserver: KV sync dispatch failed on restore', $this->logContext(__METHOD__, [
+                    'user_id' => $professional->id,
+                    'message' => $e->getMessage(),
+                ]));
+            }
         }
     }
 }

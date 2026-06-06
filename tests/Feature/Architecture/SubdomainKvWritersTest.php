@@ -1,8 +1,9 @@
 <?php
 
 // §51 architecture test — single-writer rule for the Cloudflare KV subdomain
-// routing table. ONLY SyncSubdomainToKvJob (writes) + RetireSubdomainFromKvJob
-// (deletes) are allowed to call CloudflareKvService::put() / ->delete().
+// routing table. ONLY SyncSubdomainToKvJob is allowed to call
+// CloudflareKvService::put() / ->delete(). It reconciles both upserts and
+// deletes (retirement on user delete) so there is exactly one KV writer.
 //
 // Why this is load-bearing (§50 non-negotiable rule #5): the KV table is the
 // edge Worker's source of truth for subdomain routing. Any other writer
@@ -17,10 +18,9 @@
 // below with a written justification, forcing a deliberate decision rather
 // than a quiet bypass.
 
-it('only SyncSubdomainToKvJob and RetireSubdomainFromKvJob write to Cloudflare KV', function () {
+it('only SyncSubdomainToKvJob writes to Cloudflare KV', function () {
     $allowed = [
         'app/Jobs/Cloudflare/SyncSubdomainToKvJob.php',
-        'app/Jobs/Cloudflare/RetireSubdomainFromKvJob.php',
         // The service itself defines put() / delete() — exclude.
         'app/Services/Cloudflare/CloudflareKvService.php',
     ];
@@ -58,6 +58,6 @@ it('only SyncSubdomainToKvJob and RetireSubdomainFromKvJob write to Cloudflare K
     }
 
     expect($violations)->toBeEmpty(
-        "Single-writer rule violation: only SyncSubdomainToKvJob / RetireSubdomainFromKvJob may call ->put()/->delete() on CloudflareKvService. Offenders: \n - ".implode("\n - ", $violations)
+        "Single-writer rule violation: only SyncSubdomainToKvJob may call ->put()/->delete() on CloudflareKvService. Offenders: \n - ".implode("\n - ", $violations)
     );
 });
