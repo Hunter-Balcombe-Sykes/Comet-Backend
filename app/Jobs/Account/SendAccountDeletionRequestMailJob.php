@@ -5,6 +5,7 @@ namespace App\Jobs\Account;
 use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Models\Core\User\User;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -19,7 +20,16 @@ use Illuminate\Support\Facades\Mail;
 // can re-request cleanly. afterCommit ensures the wrapping DB::transaction in
 // AccountDeletionService::request() commits before this job is picked up,
 // otherwise the worker could observe a not-yet-persisted token row.
-class SendAccountDeletionRequestMailJob implements ShouldQueue
+//
+// ShouldBeEncrypted: the confirmationUrl carries the raw deletion token as a
+// query param (the consume side hash-matches it against deletion_token_hash, so
+// the URL MUST contain the raw credential to work). That makes the URL a bearer
+// secret — possession confirms account deletion. Marking the job encrypted means
+// Laravel ciphers the serialized payload before it lands in Redis, so Horizon
+// snapshots and Redis backup/monitoring tooling only ever see ciphertext. The
+// bare raw token is never carried as its own field; failed() works off the
+// non-reversible tokenHash, never the token or the URL.
+class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -29,9 +39,15 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
 
     public int $timeout = 15;
 
+    /**
+     * @param  string  $userId  core.users PK whose deletion is being confirmed.
+     * @param  string  $confirmationUrl  Pre-built link (carries the raw token); encrypted at rest via ShouldBeEncrypted.
+     * @param  string  $tokenHash  sha256 of the raw token — the only token reference failed() ever touches.
+     */
     public function __construct(
         public readonly string $userId,
-        public readonly string $rawToken,
+        public readonly string $confirmationUrl,
+        public readonly string $tokenHash,
     ) {
         $this->onQueue('notifications');
         // afterCommit prevents the worker from picking up the job before
@@ -53,8 +69,8 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
             }
 
             // Token mismatch: the user re-requested with a fresh token (or cancelled),
-            // so this job's rawToken no longer matches — bail without sending.
-            if ($user->deletion_token_hash !== hash('sha256', $this->rawToken)) {
+            // so this job's tokenHash no longer matches — bail without sending.
+            if ($user->deletion_token_hash !== $this->tokenHash) {
                 return false;
             }
 
@@ -80,13 +96,10 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
             return; // already sent, or token was rotated — skip silently
         }
 
-        $confirmationUrl = rtrim((string) config('app.frontend_url'), '/')
-            .'/account/deletion/confirm?token='.$this->rawToken;
-
         Mail::to($professional->primary_email)->send(
             new AccountDeletionRequestedMail(
                 displayName: (string) ($professional->display_name ?? 'there'),
-                confirmationUrl: $confirmationUrl,
+                confirmationUrl: $this->confirmationUrl,
             )
         );
     }
@@ -99,16 +112,18 @@ class SendAccountDeletionRequestMailJob implements ShouldQueue
         // the hash this job was dispatched with. If the user already re-requested
         // (writing a fresh token), the WHERE clause matches zero rows and the new
         // token survives — preventing this failed job from trampling a healthy retry.
-        $tokenHash = hash('sha256', $this->rawToken);
         $rowsCleared = DB::connection('pgsql')
             ->table('core.users')
             ->where('id', $this->userId)
-            ->where('deletion_token_hash', $tokenHash)
+            ->where('deletion_token_hash', $this->tokenHash)
             ->update([
                 'deletion_token_hash' => null,
                 'deletion_requested_at' => null,
             ]);
 
+        // Logs the non-reversible hash + user id only — never the raw token or the
+        // confirmationUrl that embeds it, so log retention never holds the bearer
+        // credential.
         Log::error('Account deletion request mail failed', [
             'user_id' => $this->userId,
             'token_cleared' => $rowsCleared > 0,

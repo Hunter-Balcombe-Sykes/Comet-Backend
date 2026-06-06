@@ -112,7 +112,9 @@ it('re-request resets deletion_mail_sent_at so a subsequent handle() re-delivers
         ->update(['deletion_token_hash' => hash('sha256', $rawToken)]);
 
     Mail::fake(); // resume mail interception for the handle() call below
-    $job = new SendAccountDeletionRequestMailJob($pro->id, $rawToken);
+    $confirmationUrl = rtrim((string) config('app.frontend_url'), '/')
+        .'/account/deletion/confirm?token='.$rawToken;
+    $job = new SendAccountDeletionRequestMailJob($pro->id, $confirmationUrl, hash('sha256', $rawToken));
     $job->handle();
 
     Mail::assertSent(AccountDeletionRequestedMail::class, function ($mail) use ($pro) {

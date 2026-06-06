@@ -53,13 +53,22 @@ class AccountDeletionService
         $rawToken = Str::random(64);
         $tokenHash = hash('sha256', $rawToken);
 
+        // Build the token-bearing confirmation link here (business logic stays in
+        // the service). The consume side hash-matches the token against
+        // deletion_token_hash, so the URL must carry the raw token to work — which
+        // is why the job is ShouldBeEncrypted: the URL is a bearer secret and must
+        // never sit in the plaintext Redis payload. The job receives the URL + the
+        // non-reversible tokenHash, never the bare raw token.
+        $confirmationUrl = rtrim((string) config('app.frontend_url'), '/')
+            .'/account/deletion/confirm?token='.$rawToken;
+
         try {
             // Pin the transaction to 'pgsql' explicitly so it shares the connection
             // with the Eloquent writes inside (User extends BaseModel which forces
             // pgsql). Using bare DB::transaction() would target the default
             // connection, which is 'sqlite' in feature tests — making the wrapper
             // a no-op and breaking rollback.
-            DB::connection('pgsql')->transaction(function () use ($professional, $tokenHash, $rawToken, $request) {
+            DB::connection('pgsql')->transaction(function () use ($professional, $tokenHash, $confirmationUrl, $request) {
                 $professional->update([
                     'deletion_token_hash' => $tokenHash,
                     'deletion_requested_at' => now(),
@@ -74,7 +83,8 @@ class AccountDeletionService
                 // delays the worker pickup until this transaction commits.
                 SendAccountDeletionRequestMailJob::dispatch(
                     $professional->id,
-                    $rawToken,
+                    $confirmationUrl,
+                    $tokenHash,
                 );
 
                 $this->logAuditEvent($professional, UserDeletionAuditEntry::EVENT_REQUESTED, $request);
