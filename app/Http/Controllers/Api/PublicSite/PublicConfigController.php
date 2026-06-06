@@ -54,7 +54,7 @@ class PublicConfigController extends ApiController
      * Current consumers:
      *   - Address autocomplete (Google Places) on the professional dashboard.
      *
-     * @return JsonResponse{googleMapsApiKey: string|null}
+     * Response shape: { googleMapsApiKey: string|null }
      */
     public function integrations(): JsonResponse
     {
