@@ -160,7 +160,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add a boot guard in `BotProtectionServiceProvider::runBootGuards()`: `Log::warning('bot_protection.mode_off_in_production')` (or throw) when `$env === 'production'` and `$mode === 'off'`. Update `.env.example` to show `BOT_PROTECTION_MODE=shadow` as the recommended deployed value with a comment explaining the three modes.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-13** Alias 301 redirects discard the request path and query string — breaks every deep link through a renamed handle — Lens: `subdomain-kv`
+- [x] **#P1-13** Alias 301 redirects discard the request path and query string — breaks every deep link through a renamed handle — Lens: `subdomain-kv`
     - Where: `cloudflare-worker/src/index.js` — alias branch (~line 200–210)
     - What: When the Worker matches an alias entry it constructs `Location: entry.redirect` verbatim. `entry.redirect` is always a bare origin (e.g. `https://newhandle.partna.au` — no path). The incoming request's `url.pathname` and `url.search` are discarded. A visitor bookmarking `/gallery` or `/services?category=photography` at an old handle lands on the new homepage instead of the intended page. `url.pathname` is already in scope in the Worker.
     - Fix: Replace `Location: entry.redirect` with `` Location: `${entry.redirect.replace(/\/$/, '')}${url.pathname}${url.search}` ``. No changes to the Laravel backend required — KV entries always store a bare origin.
@@ -1375,7 +1375,7 @@ The following items touch single-writer KV contracts, schema-wide RLS policies, 
 - [ ] **#P1-09** (JWT-1) — Redis revocation catch. Auth middleware; opus review required. Do not bundle with JWT-2/3.
 - [ ] **#P1-10** (PROV-1) — PostgreSQL signup savepoint. Load-bearing transaction boundary; opus review. Add pgsql integration test. Do not bundle.
 - [x] **#P1-12** (RATE-2) — Bot protection mode prod guard. Must land before B18.
-- [ ] **#P1-13** (KV-1) — Alias 301 path preservation. Single-writer KV / Worker change. Coordinate with Worker deploy.
+- [x] **#P1-13** (KV-1) — Alias 301 path preservation. Single-writer KV / Worker change. Coordinate with Worker deploy.
 - [ ] **#P1-14** (RLS-1) — `design_kits` RLS. Schema-wide RLS migration; opus review. Requires `supabase db push` to both dev and prod.
 - [x] **#P2-03** (AUTH-1) — Staff write policy authorization. New policy class required; load-bearing authz change. Must precede B17.
 - [ ] **#P2-04** (RLS-2) — Staff role write scoping on `core.users`. Schema-wide RLS policy migration; opus review.

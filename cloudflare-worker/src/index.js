@@ -217,8 +217,14 @@ export default {
     // Alias entries redirect old subdomains to the canonical URL.
     // Written by SyncSubdomainToKvJob when a professional renames their handle.
     if (entry.type === "alias" && typeof entry.redirect === "string") {
+      // Preserve the deep link: a visitor hitting `/gallery?x=1` on the old
+      // handle must land on `/gallery?x=1` at the canonical handle, not the
+      // bare homepage. `entry.redirect` is always a bare origin
+      // (SyncSubdomainToKvJob writes `https://<handle>.partna.au`), so strip any
+      // trailing slash before appending to avoid emitting `…partna.au//gallery`.
+      const target = `${entry.redirect.replace(/\/$/, "")}${url.pathname}${url.search}`;
       const h = new Headers({
-        Location: entry.redirect,
+        Location: target,
         // Without this, browsers cache 301s indefinitely. A handle rename
         // would leave stale redirects in client caches until users manually clear.
         "Cache-Control": "max-age=0, must-revalidate",
