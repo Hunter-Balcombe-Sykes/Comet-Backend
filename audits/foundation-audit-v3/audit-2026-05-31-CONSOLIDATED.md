@@ -202,7 +202,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Split each policy into a SELECT policy (any staff) and a write policy (admin-only) by adding `AND cs.role = 'admin'` to the `WITH CHECK` expression. Deliver as a migration using `DROP POLICY ... ; CREATE POLICY ...` pattern.
     - Models: impl=opus · review=opus
 
-- [ ] **#P2-05** `app_backend` holds `BYPASSRLS` with full schema-wide CRUD — no least-privilege scoping beyond three append-only tables — Lens: `rls`
+- [x] **#P2-05** `app_backend` holds `BYPASSRLS` with full schema-wide CRUD — no least-privilege scoping beyond three append-only tables — Lens: `rls`
     - Where: `supabase/migrations/20260526000000_baseline_standalone_user.sql` (section 12, role permissions)
     - What: If the Laravel database credentials are compromised, an attacker gains complete unfiltered read-write access to every row in every schema. The only exceptions are the three tables where `UPDATE`/`DELETE` were explicitly revoked (`staff_audit_log`, `handle_change_log`, `auth_factor_events`). This was documented as an intentional architectural decision (decision 16 in the baseline) to keep background jobs simple. The moderation grant migration later gave `app_backend` full CRUD on the `moderation` schema without adding similar revocations.
     - Fix: Short-term: revoke `DELETE` from analytics append tables (`analytics.site_visits`, `analytics.link_clicks`, etc.) and from `notifications.broadcast_email_receipts` — `app_backend` has no delete code paths there. Revoke `UPDATE, DELETE` from `moderation.decisions` and `moderation.action_log`. Long-term: revoke `BYPASSRLS` and replace with explicit TO-app_backend policies per table. Note the long-term fix is L-effort and requires auditing every background job query.
@@ -1379,7 +1379,7 @@ The following items touch single-writer KV contracts, schema-wide RLS policies, 
 - [ ] **#P1-14** (RLS-1) — `design_kits` RLS. Schema-wide RLS migration; opus review. Requires `supabase db push` to both dev and prod.
 - [x] **#P2-03** (AUTH-1) — Staff write policy authorization. New policy class required; load-bearing authz change. Must precede B17.
 - [ ] **#P2-04** (RLS-2) — Staff role write scoping on `core.users`. Schema-wide RLS policy migration; opus review.
-- [ ] **#P2-05** (RLS-3) — `app_backend` BYPASSRLS reduction. Architectural decision required (which tables, which jobs need cross-tenant access). L effort; discuss before implementing.
+- [x] **#P2-05** (RLS-3) — `app_backend` BYPASSRLS reduction. DONE short-term (2026-06-07, migration `20260607000000`): code-verified safe revokes only — UPDATE,DELETE on `moderation.decisions` + `notifications.broadcast_email_receipts`, DELETE-only on `moderation.action_log` (UPDATE kept; 3 jobs mutate dispatch state). Finding's analytics revokes REJECTED — `PurgeRawAnalyticsEvents` deletes those tables for retention. Long-term full BYPASSRLS removal still DEFERRED (L effort, separate task).
 - [x] **#P2-15** (CACHE-1) — `getByAuthId` nullable method fix. Self-contained; touches every auth request path.
 - [ ] **#P2-22** (QUEUE-6) — Raw deletion token in job payload. Restructures `AccountDeletionService::request()` + job constructor; load-bearing PII change; opus review.
 - [ ] **#P2-35** (IDOR-3) — X-Site-Subdomain trust. Requires human design decision: Worker-strip vs application-layer fallback vs combined. Discuss with Josh before implementing.
