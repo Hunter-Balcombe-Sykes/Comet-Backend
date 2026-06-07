@@ -952,6 +952,13 @@ return [
         'gc_min_age_hours' => (int) env('PARTNA_MEDIA_GC_MIN_AGE_HOURS', 24),
     ],
 
+    // P2-56: hard ceiling on streamed CSV exports (subscriber lists). Bounds the
+    // PHP-FPM worker hold time per export; the response carries X-Export-Truncated: 1
+    // when the cap is hit. Generous default — no realistic list truncates.
+    'export' => [
+        'max_rows' => (int) env('PARTNA_EXPORT_MAX_ROWS', 50_000),
+    ],
+
     // Analytics ingest queue. Reuses the default 'redis' connection — Horizon's
     // supervisor-analytics already consumes the 'analytics' queue (config/horizon.php).
     // No dedicated connection: jobs are tiny + PK-idempotent, so the default

@@ -96,6 +96,13 @@ class UserEmailSubscriptionController extends ApiController
 
         $filename = "email-subscribers-{$listKey}-{$status}.csv";
 
+        // P2-56: cap the stream so one export can't hold a PHP-FPM worker
+        // unbounded. Truncation is detectable before streaming (one row past the
+        // cap) so the response can advertise it in a header.
+        $cap = (int) config('partna.export.max_rows', 50_000);
+        $truncated = (clone $query)->offset($cap)->limit(1)->exists();
+        $query->limit($cap);
+
         return response()->streamDownload(function () use ($query) {
             $out = fopen('php://output', 'w');
             fputcsv($out, ['email', 'full_name', 'status', 'subscribed_at', 'unsubscribed_at']);
@@ -111,8 +118,9 @@ class UserEmailSubscriptionController extends ApiController
             }
 
             fclose($out);
-        }, $filename, [
+        }, $filename, array_filter([
             'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+            'X-Export-Truncated' => $truncated ? '1' : null,
+        ]));
     }
 }

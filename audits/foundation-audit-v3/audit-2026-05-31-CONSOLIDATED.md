@@ -570,7 +570,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — Scale & Throughput
 
-- [ ] **#P2-56** [@10k] Subscriber CSV exports stream an unbounded cursor with no row cap — Lens: `n1`
+- [x] **#P2-56** [@10k] Subscriber CSV exports stream an unbounded cursor with no row cap — Lens: `n1`
     - Where: `app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php` (`export`) · `app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php` (`export`)
     - What: Both controllers build a query and pass it to `$query->cursor()` inside `response()->streamDownload()`. The loop runs until every matching row is consumed with no `->limit()` and no timeout. At 50k+ subscribers a single export holds a PHP-FPM worker slot for tens of seconds; a small number of concurrent exports exhausts the pool and delays every other request on the host.
     - Fix: Add `->limit(config('partna.export.max_rows', 50_000))` before the cursor call. Set a `X-Export-Truncated: 1` response header (computable before streaming begins) when the result set equals the cap.
@@ -1386,7 +1386,7 @@ The following items touch single-writer KV contracts, schema-wide RLS policies, 
 - [x] **#P2-38** (JOB-1) — Deletion mail idempotency. Requires Supabase migration (`deletion_mail_sent_at` column on `core.users`); do not bundle with other migrations.
 - [x] **#P2-39** (MIGR-2) — Index inside BEGIN/COMMIT. Requires creating a sibling migration file; coordinate with migration sequence.
 - [ ] **#P2-45** (KV-2) — Professional deletion clears KV entry. Single-writer KV contract; new job or service method required; opus review.
-- [ ] **#P2-56** (NPL-1) — Unbounded subscriber CSV export [@10k]. Self-contained controller change but touches export UX; confirm export cap value with Josh before implementing.
+- [x] **#P2-56** (NPL-1) — Unbounded subscriber CSV export [@10k]. DONE (2026-06-07): `->limit(config('partna.export.max_rows'))` on both user + staff export controllers; `X-Export-Truncated: 1` header when capped. Cap value = 50,000 (env `PARTNA_EXPORT_MAX_ROWS`), generous so no realistic list truncates.
 - [ ] **#P3-16** (RLS-4) — Moderation schema RLS. Schema-wide RLS policies on five tables; opus review. Low urgency (`moderation` not in `api.schemas`) but delivers defence-in-depth.
 
 ---
