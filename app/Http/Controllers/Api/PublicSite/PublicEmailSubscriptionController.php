@@ -45,7 +45,10 @@ class PublicEmailSubscriptionController extends ApiController
             return $this->error('Could not determine site from URL.', 400);
         }
 
-        $site = $resolver->resolvePublishedSite($subdomain);
+        // Resolve to the canonical site (the resolver transparently follows an
+        // active alias). No 301 on an alias hit — a 301 on a POST would be
+        // downgraded to GET by most clients and silently drop the subscription.
+        $site = $resolver->resolvePublishedSite($subdomain)['site'];
 
         if (! $site) {
             return $this->error('Site not found.', 404);

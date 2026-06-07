@@ -59,7 +59,10 @@ class PublicEnquiryController extends ApiController
             return $this->error('Could not determine site from URL.', 400);
         }
 
-        $site = $resolver->resolvePublishedSite($subdomain);
+        // Resolve to the canonical site (the resolver transparently follows an
+        // active alias). No 301 on an alias hit — a 301 on a POST would be
+        // downgraded to GET by most clients and silently drop the enquiry.
+        $site = $resolver->resolvePublishedSite($subdomain)['site'];
         if (! $site || ! $site->user_id) {
             $this->logLead($request, $subdomain, $site?->id, null, 'site_not_found', $startedMs);
 

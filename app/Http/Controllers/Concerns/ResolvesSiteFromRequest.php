@@ -47,8 +47,8 @@ trait ResolvesSiteFromRequest
                 return $site;
             }
 
-            // Try alias
-            $alias = SiteSubdomainAlias::query()->whereRaw('lower(subdomain) = ?', [$subdomain])->first();
+            // Try alias — only ACTIVE (non-expired) aliases resolve.
+            $alias = SiteSubdomainAlias::query()->active()->whereRaw('lower(subdomain) = ?', [$subdomain])->first();
             if ($alias) {
                 return Site::query()->find($alias->site_id);
             }

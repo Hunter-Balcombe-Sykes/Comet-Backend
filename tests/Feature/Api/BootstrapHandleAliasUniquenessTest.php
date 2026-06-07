@@ -51,13 +51,19 @@ beforeEach(function () {
         updated_at TEXT NULL
     )');
 
-    // Alias table — the new uniqueness check queries this.
+    // Alias table — the new uniqueness check queries this. Includes the
+    // lifecycle columns (expires_at etc.) so the active-alias predicate resolves.
     $conn->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         handle TEXT NULL,
         handle_lc TEXT NULL,
-        created_at TEXT NULL
+        reclaim_until TEXT NULL,
+        expires_at TEXT NULL,
+        notified_t3_at TEXT NULL,
+        notified_t1_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
     )');
 })->group('bootstrap-handle-alias-uniqueness');
 
@@ -136,6 +142,24 @@ it('rejects a handle that exists in the core.user_handle_aliases table', functio
     $errors = validateBootstrapRequest(validBootstrapPayload(['handle' => 'aliashandle']));
 
     expect($errors)->toHaveKey('handle_lc');
+});
+
+it('accepts a handle whose alias has expired (expired aliases no longer reserve the handle)', function () {
+    // Before Item 4 this would have been rejected — any alias row blocked the handle,
+    // regardless of expiry. An expired alias has lapsed back to the pool.
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        'id' => '00000000-0000-0000-0000-000000000003',
+        'user_id' => '00000000-0000-0000-0000-000000000098',
+        'handle' => 'expiredalias',
+        'handle_lc' => 'expiredalias',
+        'reclaim_until' => now()->subDays(91)->toDateTimeString(),
+        'expires_at' => now()->subDay()->toDateTimeString(),
+        'created_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $errors = validateBootstrapRequest(validBootstrapPayload(['handle' => 'expiredalias']));
+
+    expect($errors)->toBeNull();
 });
 
 it('accepts a handle that exists neither in professionals nor in aliases', function () {

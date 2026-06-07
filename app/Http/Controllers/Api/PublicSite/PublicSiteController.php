@@ -28,7 +28,10 @@ class PublicSiteController extends ApiController
             return $this->success($this->liveStatus->injectIntoPayload($payload));
         }
 
+        // Only an ACTIVE (non-expired) alias resolves — a lapsed alias must 404,
+        // not redirect, even before the prune job hard-deletes the row.
         $alias = SiteSubdomainAlias::query()
+            ->active()
             ->whereRaw('lower(subdomain) = ?', [strtolower($subdomain)])
             ->first();
 
@@ -72,17 +75,23 @@ class PublicSiteController extends ApiController
             return $this->success($this->liveStatus->injectIntoPayload($payload));
         }
 
+        // Only an ACTIVE (non-expired) alias resolves.
         $alias = SiteSubdomainAlias::query()
+            ->active()
             ->whereRaw('lower(subdomain) = ?', [$subdomain])
             ->first();
 
         if ($alias) {
-            $site = Site::query()->find($alias->site_id);
+            // 301 to the canonical subdomain instead of serving the page under the
+            // old alias host (anti-duplicate-content). Unlike the old behaviour, the
+            // redirect fires on alias resolution regardless of cache warmth — the
+            // canonical request that follows will populate/serve the payload.
+            $site = Site::query()->where('is_published', true)->find($alias->site_id);
             if ($site) {
-                $canonicalPayload = $this->siteCache->getPublicSitePayload($site->subdomain);
-                if ($canonicalPayload) {
-                    return $this->success($this->liveStatus->injectIntoPayload($canonicalPayload));
-                }
+                $host = $site->subdomain.'.'.config('partna.public_domain');
+                $url = $request->getScheme().'://'.$host.'/';
+
+                return redirect()->to($url, 301)->header('Cache-Control', 'public, max-age=300');
             }
         }
 

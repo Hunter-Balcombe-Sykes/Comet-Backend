@@ -103,8 +103,13 @@ class UpdateSiteRequest extends BaseFormRequest
                         return;
                     }
 
+                    // Only ACTIVE aliases reserve a subdomain — an expired alias has
+                    // released the name back to the pool and must not block a new claim.
                     $aliasExists = DB::table('site.site_subdomain_aliases')
                         ->whereRaw('lower(subdomain) = ?', [strtolower($value)])
+                        ->where(function ($q) {
+                            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        })
                         ->exists();
 
                     if ($aliasExists) {
@@ -115,6 +120,7 @@ class UpdateSiteRequest extends BaseFormRequest
 
                     // Also block handles claimed by another professional's old handle alias.
                     // These are preserved for redirect/SEO purposes and must not be re-used.
+                    // (Active aliases only — expired ones have lapsed back to the pool.)
                     $currentUserId = $professional?->id;
 
                     try {
@@ -122,6 +128,9 @@ class UpdateSiteRequest extends BaseFormRequest
                             ->table('core.user_handle_aliases')
                             ->whereRaw('LOWER(handle) = LOWER(?)', [$value])
                             ->where('user_id', '!=', $currentUserId)
+                            ->where(function ($q) {
+                                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                            })
                             ->exists();
                     } catch (QueryException $e) {
                         report($e);

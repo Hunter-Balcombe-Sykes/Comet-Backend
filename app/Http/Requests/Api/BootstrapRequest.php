@@ -66,7 +66,12 @@ class BootstrapRequest extends BaseFormRequest
                         // attachments, so the dot-prefixed table name only resolves on pgsql.
                         $query = DB::connection('pgsql')
                             ->table('core.user_handle_aliases')
-                            ->whereRaw('LOWER(handle) = ?', [strtolower($value)]);
+                            ->whereRaw('LOWER(handle) = ?', [strtolower($value)])
+                            // Only ACTIVE aliases reserve a handle — an expired alias has
+                            // lapsed back to the pool and is claimable by anyone.
+                            ->where(function ($q) {
+                                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                            });
 
                         // Exclude the current professional's own aliases (re-bootstrap scenario)
                         if ($existingUserId) {

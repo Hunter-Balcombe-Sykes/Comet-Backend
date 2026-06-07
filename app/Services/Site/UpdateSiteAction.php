@@ -116,9 +116,14 @@ class UpdateSiteAction
 
                     // Exclude the current site's own aliases — renaming back to a
                     // previously held subdomain is allowed (the alias will be collapsed below).
+                    // Only ACTIVE aliases block: an expired-but-unpruned alias has released
+                    // the subdomain back to the pool, so it must not lock anyone out.
                     $conflictInAliases = DB::table('site.site_subdomain_aliases')
                         ->whereRaw('lower(subdomain) = ?', [$incoming])
                         ->where('site_id', '!=', $site->id)
+                        ->where(function ($q) {
+                            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        })
                         ->exists();
 
                     if ($conflictInAliases) {

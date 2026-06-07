@@ -56,7 +56,51 @@ it('does not resolve sites via expired subdomain aliases', function () {
     expect($resolver->resolvePublishedSite('newhandle')['site'])->not->toBeNull();
     expect($resolver->resolvePublishedSite('livehandle')['site'])->not->toBeNull();
     expect($resolver->resolvePublishedSite('expiredhandle')['site'])->toBeNull();
-})->todo(note: 'handle-redirect lifecycle not yet implemented — PublicSiteResolver does not filter expired aliases and returns ?Site, not the [site, alias_hit] array contract. See docs/superpowers/plans/2026-05-19-handle-redirect-lifecycle.md');
+});
+
+it('does not resolve an active alias whose canonical site is unpublished', function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupSubdomainAliasesTable();
+
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'unpub',
+        'handle_lc' => 'unpub',
+        'status' => 'active',
+        'primary_email' => 'unpub@example.test',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    // Canonical site is UNPUBLISHED — an active alias to it must not resolve.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $proId,
+        'subdomain' => 'unpub',
+        'is_published' => 0,
+        'settings' => json_encode([]),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    SiteSubdomainAlias::create([
+        'site_id' => $siteId,
+        'subdomain' => 'aliasx',
+        'reclaim_until' => now()->addDays(5),
+        'expires_at' => now()->addDays(60),
+        'created_at' => now(),
+    ]);
+
+    $result = app(PublicSiteResolver::class)->resolvePublishedSite('aliasx');
+
+    expect($result['site'])->toBeNull();
+    expect($result['alias_hit'])->toBeFalse();
+});
 
 it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an active alias', function () {
     setupSitesTable();
@@ -92,7 +136,7 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
         ->get('/api/public/site-by-slug');
 
     $response->assertStatus(301);
-})->todo(note: 'handle-redirect lifecycle not yet implemented — alias hits do not yet 301 to the canonical subdomain. See docs/superpowers/plans/2026-05-19-handle-redirect-lifecycle.md');
+});
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {
     setupUsersTable();
@@ -213,4 +257,4 @@ it('walks a subdomain alias through grace → redirect → released states', fun
     expect($result['alias_hit'])->toBeFalse();
 
     \Illuminate\Support\Carbon::setTestNow(); // reset
-})->todo(note: 'handle-redirect lifecycle not yet implemented — SiteSubdomainAlias lacks active()/reclaimable() scopes and PublicSiteResolver lacks the alias_hit contract. See docs/superpowers/plans/2026-05-19-handle-redirect-lifecycle.md');
+});
