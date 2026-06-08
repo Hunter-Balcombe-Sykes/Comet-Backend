@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 3 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
+- P3 Nice to have: 4 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
 
 ---
 
@@ -586,7 +586,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Add `shopifyBrandCatalog()`, `youtubeThumbnailVerdict()`, `instagramCooldown()`, `instagramDailyLimit()` to `CacheKeyGenerator`. Replace inline constructions.
     - **Evidence:** `"yt_thumb:{$videoId}"`, `"platforms:instagram:cooldown:{$user->id}"` etc. — not registered in `CacheKeyGenerator`.
 
-- [ ] **#CONS-33** · P3 · Effort: S — Fresha persisted-query hash and client version hardcoded — rotation requires a full code deploy
+- [x] **#CONS-33** · P3 · Effort: S — Fresha persisted-query hash and client version hardcoded — rotation requires a full code deploy
     - **Where:** `app/Http/Controllers/Api/Platforms/FreshaController.php:32–33`
     - **What to do:** Move `BOOKING_INIT_HASH` and `FRESHA_CLIENT_VERSION` to `config/services.php` under `fresha`. Add `FRESHA_BOOKING_INIT_HASH` / `FRESHA_CLIENT_VERSION` to `.env.example` with rotation cadence note.
     - **Evidence:** Code comment: "rotate when they redeploy" — yet values are `private const` class constants.

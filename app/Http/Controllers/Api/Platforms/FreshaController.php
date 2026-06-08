@@ -42,11 +42,9 @@ class FreshaController extends ApiController
     // Persisted-query hash + client version are pinned to a Fresha frontend
     // build and rotate when they redeploy. When they do, fetchEmployeeServices
     // returns null and callers fall back to the whole-location menu until these
-    // are re-captured. (Test-mode tradeoff; the real version uses Fresha's
-    // partner API.)
-    private const BOOKING_INIT_HASH = '4ea9d1b31075d62f789fcec884c45d76aaeb42e56ffb1b78cc1b7f7c557ad7cb';
-
-    private const FRESHA_CLIENT_VERSION = 'd135e4b3a3be51f9dd24f5cc2af6dd6a647f85dd';
+    // are re-captured. Override FRESHA_BOOKING_INIT_HASH / FRESHA_CLIENT_VERSION
+    // in env to update without a code deploy. (Test-mode tradeoff; the real
+    // version uses Fresha's partner API.)
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -259,6 +257,8 @@ class FreshaController extends ApiController
      */
     private function fetchEmployeeServices(string $slug, string $employeeId): ?array
     {
+        $clientVersion = config('services.fresha.client_version');
+
         $payload = [
             'operationName' => 'BookingFlow_Initialize_Mutation',
             'variables' => [
@@ -283,9 +283,9 @@ class FreshaController extends ApiController
                 ],
             ],
             'extensions' => [
-                'persistedQuery' => ['version' => 1, 'sha256Hash' => self::BOOKING_INIT_HASH],
+                'persistedQuery' => ['version' => 1, 'sha256Hash' => config('services.fresha.booking_init_hash')],
                 'platform' => 'web',
-                'version' => self::FRESHA_CLIENT_VERSION,
+                'version' => $clientVersion,
             ],
         ];
 
@@ -293,7 +293,7 @@ class FreshaController extends ApiController
             $response = Http::withHeaders([
                 'content-type' => 'application/json',
                 'x-client-platform' => 'web',
-                'x-client-version' => self::FRESHA_CLIENT_VERSION,
+                'x-client-version' => $clientVersion,
                 'x-graphql-operation-name' => 'mutation BookingFlow_Initialize_Mutation',
                 'origin' => 'https://www.fresha.com',
                 'User-Agent' => self::SCRAPE_USER_AGENT,

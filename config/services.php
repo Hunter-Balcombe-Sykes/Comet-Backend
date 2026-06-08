@@ -80,6 +80,15 @@ return [
         'client_secret' => env('KICK_CLIENT_SECRET'),
     ],
 
+    // Fresha's persisted-query hash + client version are pinned to a Fresha
+    // frontend build and rotate when they redeploy. Override via env without a
+    // code deploy; when they rotate, fetchEmployeeServices falls back to the
+    // whole-location menu until these are updated.
+    'fresha' => [
+        'booking_init_hash' => env('FRESHA_BOOKING_INIT_HASH', '4ea9d1b31075d62f789fcec884c45d76aaeb42e56ffb1b78cc1b7f7c557ad7cb'),
+        'client_version' => env('FRESHA_CLIENT_VERSION', 'd135e4b3a3be51f9dd24f5cc2af6dd6a647f85dd'),
+    ],
+
     // Apify — used by the test-mode Instagram platform integration to run the
     // instagram-profile-scraper actor. One token, server-side only.
     'apify' => [
