@@ -20,7 +20,7 @@
 
 ## Progress
 
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 4 of 4 complete
 - P3 Low: 17 of 17 complete
 
