@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\Concerns\JitteredTtl;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\Http;
  */
 class YoutubeThumbnailResolver
 {
+    use JitteredTtl;
+
     /** Short — a HEAD to i.ytimg.com is fast or it isn't worth waiting for. */
     private const TIMEOUT_SECONDS = 3;
 
@@ -86,7 +89,9 @@ class YoutubeThumbnailResolver
             $response = $responses[$id] ?? null;
             $hasMaxres = $response instanceof Response && $response->status() === 200;
 
-            Cache::put($this->cacheKey($id), $hasMaxres ? 'maxres' : 'hq', now()->addDays(self::CACHE_DAYS));
+            // Jittered TTL (integer seconds — DateTimeInterface bypasses jitter) so
+            // the whole batch's verdicts don't expire in the same second 30 days on.
+            Cache::put($this->cacheKey($id), $hasMaxres ? 'maxres' : 'hq', self::applyJitter(self::CACHE_DAYS * 86400));
             $result[$id] = $hasMaxres ? $this->maxresUrl($id) : $this->hqUrl($id);
         }
 

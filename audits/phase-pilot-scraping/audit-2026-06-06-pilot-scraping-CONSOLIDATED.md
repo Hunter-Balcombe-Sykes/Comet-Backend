@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 0 of 14 complete
+- P3 Nice to have: 1 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
 
 ---
 
@@ -571,7 +571,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Add migration: `ALTER TABLE site.platform_connections ALTER COLUMN id SET DEFAULT gen_random_uuid();`
     - **Evidence:** `CREATE TABLE IF NOT EXISTS site.platform_connections (id uuid PRIMARY KEY,` — no `DEFAULT gen_random_uuid()`
 
-- [ ] **#CONS-30** · P3 · Effort: S — `YoutubeThumbnailResolver` writes verdict cache with unjittered `DateTimeInterface` TTL
+- [x] **#CONS-30** · P3 · Effort: S — `YoutubeThumbnailResolver` writes verdict cache with unjittered `DateTimeInterface` TTL
     - **Where:** `app/Services/Platforms/YoutubeThumbnailResolver.php:115`
     - **What to do:** Replace `now()->addDays(self::CACHE_DAYS)` with `JitteredTtl::applyJitter(self::CACHE_DAYS * 86400)`.
     - **Evidence:** `Cache::put($this->cacheKey($id), ..., now()->addDays(self::CACHE_DAYS));`
