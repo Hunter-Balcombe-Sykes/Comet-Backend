@@ -32,7 +32,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 2 of 8 complete (CONS-21 parked — standalone)
+- P2 Correctness/data integrity: 3 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
@@ -355,7 +355,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-17** · P2 · Effort: S — Instagram Apify daily budget counter has a read-modify-write race
+- [x] **#CONS-17** · P2 · Effort: S — Instagram Apify daily budget counter has a read-modify-write race
     - **Where:** `app/Http/Controllers/Api/Platforms/InstagramController.php` — `guardApifyBudget()`
     - **Affects:** Cost control. The `APIFY_DAILY_CAP = 200` limit can be exceeded by the number of concurrent connect requests at the cap boundary. The code comment acknowledges this as "good enough for a pilot — backend dev to harden."
     - **What to do:**

@@ -149,25 +149,37 @@ class InstagramController extends ApiController
 
     // Pilot cost guard: 429 when the global daily Apify cap is hit or the user
     // is within their re-scrape cooldown; otherwise records the run and returns
-    // null. The global cap check is read-only and runs first so a capacity 429
-    // never locks the user into their per-user cooldown. Atomic per-user
-    // cooldown via Cache::add; the daily counter is a read-modify-write
-    // (good enough for a pilot — backend dev to harden).
+    // null. Both the daily counter and the per-user cooldown are handled
+    // atomically — Cache::increment is Redis INCR (atomic), so two concurrent
+    // requests can't both slip through the cap boundary the way a
+    // read-modify-write could.
     private function guardApifyBudget(User $user): ?JsonResponse
     {
-        // Read-only cap check runs before any side effect.
         $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
-        $count = (int) Cache::get($dayKey, 0);
-        if ($count >= self::APIFY_DAILY_CAP) {
+
+        // Atomic daily cap: initialise the counter once (no-op if it already
+        // exists, preserving its TTL), then INCR. Cache::increment is atomic, so two
+        // concurrent connects can't both slip through the cap boundary the way a
+        // Cache::get + Cache::put read-modify-write did. $count is the post-increment
+        // value, so the Nth run sees N — reject when it exceeds the cap.
+        Cache::add($dayKey, 0, now()->addDay());
+        $count = Cache::increment($dayKey);
+        if ($count > self::APIFY_DAILY_CAP) {
+            // Over capacity — release the slot we just claimed and 429 WITHOUT
+            // touching the user's cooldown, so they can retry once capacity frees.
+            Cache::decrement($dayKey);
+
             return $this->error('Instagram is busy right now — please try again later.', 429);
         }
 
+        // Per-user cooldown: only consume it once a daily slot is secured.
         $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
         if (! Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)) {
+            // Within cooldown — release the daily slot we took (no scrape runs).
+            Cache::decrement($dayKey);
+
             return $this->error('You refreshed Instagram recently — please wait a few minutes.', 429);
         }
-
-        Cache::put($dayKey, $count + 1, now()->addDay());
 
         return null;
     }
