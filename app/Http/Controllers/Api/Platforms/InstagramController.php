@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
+use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ use Throwable;
 // `media` disk stays here (IG CDN urls expire, so we re-host the chosen images).
 class InstagramController extends ApiController
 {
+    use JitteredTtl;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -160,6 +162,10 @@ class InstagramController extends ApiController
         // concurrent connects can't both slip through the cap boundary the way a
         // Cache::get + Cache::put read-modify-write did. $count is the post-increment
         // value, so the Nth run sees N — reject when it exceeds the cap.
+        // The daily-cap TTL is intentionally NOT jittered: it's a hard cost cap
+        // and applyJitter is ±20%, which could expire the date-keyed counter
+        // before the calendar day ends and reset the cap mid-day. A single global
+        // counter has no stampede to spread anyway.
         Cache::add($dayKey, 0, now()->addDay());
         $count = Cache::increment($dayKey);
         if ($count > $dailyCap) {
@@ -172,7 +178,9 @@ class InstagramController extends ApiController
 
         // Per-user cooldown: only consume it once a daily slot is secured.
         $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
-        if (! Cache::add($cooldownKey, 1, $cooldownSeconds)) {
+        // Jitter the soft per-user cooldown (±20%) so a synchronised burst of
+        // re-connect attempts doesn't all clear at the same wall-clock second.
+        if (! Cache::add($cooldownKey, 1, self::applyJitter($cooldownSeconds))) {
             // Within cooldown — release the daily slot we took (no scrape runs).
             Cache::decrement($dayKey);
 
