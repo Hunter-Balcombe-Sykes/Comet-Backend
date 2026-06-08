@@ -32,7 +32,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 4 of 8 complete (CONS-21 parked — standalone)
+- P2 Correctness/data integrity: 5 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
@@ -385,7 +385,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         // DateTimeInterface TTL — bypasses JitteredTtl
         ```
 
-- [ ] **#CONS-19** · P2 · Effort: S — Apify cost-control limits hardcoded class constants — tuning requires a code deploy
+- [x] **#CONS-19** · P2 · Effort: S — Apify cost-control limits hardcoded class constants — tuning requires a code deploy
     - **Where:** `app/Http/Controllers/Api/Platforms/InstagramController.php:30–31`
     - **Affects:** Operations. Adjusting the paid-scraper cooldown or daily budget cap requires a full pipeline deploy. The class comment explicitly flags these as pilot controls to "tune/extend."
     - **What to do:**

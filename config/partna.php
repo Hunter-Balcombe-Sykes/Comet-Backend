@@ -237,6 +237,19 @@ return [
         'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 5)),
     ],
 
+    'limits' => [
+        // Per-platform pilot cost controls for paid/external scrapers — tunable
+        // via env without a code deploy.
+        'platforms' => [
+            'instagram' => [
+                // Per-user re-scrape cooldown (seconds) and the global daily run cap
+                // for the paid Apify scraper. See InstagramController::guardApifyBudget.
+                'apify_cooldown_seconds' => (int) env('PARTNA_INSTAGRAM_APIFY_COOLDOWN_SECONDS', 600),
+                'apify_daily_cap' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
+            ],
+        ],
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Social platform registry

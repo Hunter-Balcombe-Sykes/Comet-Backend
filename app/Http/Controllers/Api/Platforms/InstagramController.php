@@ -30,13 +30,6 @@ class InstagramController extends ApiController
 
     private const MAX_MANUAL_IMAGES = 8;
 
-    // Pilot cost controls for the paid Apify scraper. Minimal — backend dev to
-    // tune/extend (cover posts/saveSelection, telemetry). A re-connect is
-    // rate-limited per user; total daily runs are globally capped.
-    private const APIFY_COOLDOWN_SECONDS = 600;
-
-    private const APIFY_DAILY_CAP = 200;
-
     // Hosts `mirror()` will fetch from — Instagram/Facebook CDNs only.
     private const ALLOWED_IMAGE_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
 
@@ -155,6 +148,9 @@ class InstagramController extends ApiController
     // read-modify-write could.
     private function guardApifyBudget(User $user): ?JsonResponse
     {
+        $dailyCap = (int) config('partna.limits.platforms.instagram.apify_daily_cap', 200);
+        $cooldownSeconds = (int) config('partna.limits.platforms.instagram.apify_cooldown_seconds', 600);
+
         $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
 
         // Atomic daily cap: initialise the counter once (no-op if it already
@@ -164,7 +160,7 @@ class InstagramController extends ApiController
         // value, so the Nth run sees N — reject when it exceeds the cap.
         Cache::add($dayKey, 0, now()->addDay());
         $count = Cache::increment($dayKey);
-        if ($count > self::APIFY_DAILY_CAP) {
+        if ($count > $dailyCap) {
             // Over capacity — release the slot we just claimed and 429 WITHOUT
             // touching the user's cooldown, so they can retry once capacity frees.
             Cache::decrement($dayKey);
@@ -174,7 +170,7 @@ class InstagramController extends ApiController
 
         // Per-user cooldown: only consume it once a daily slot is secured.
         $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
-        if (! Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)) {
+        if (! Cache::add($cooldownKey, 1, $cooldownSeconds)) {
             // Within cooldown — release the daily slot we took (no scrape runs).
             Cache::decrement($dayKey);
 
