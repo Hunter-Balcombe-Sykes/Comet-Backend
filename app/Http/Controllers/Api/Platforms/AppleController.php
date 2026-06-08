@@ -17,6 +17,10 @@ use Illuminate\Support\Facades\Cache;
 // episode + highlights), both on the unauthenticated iTunes Search API via
 // App\Services\Platforms\AppleSearch. No auth, no key. Two keys, so this
 // controller keeps its own storage rather than the single-key trait.
+// Music and Podcast flows share generic helpers (connectFor, recentFor,
+// highlightsFor, forgetFor) driven by musicConfig()/podcastConfig() — a fix
+// to one platform can't silently miss the other (the `latest`-key drift that
+// motivated CONS-39 was exactly that failure mode).
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
@@ -38,90 +42,25 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/music/connect
     public function connectMusic(Request $request): JsonResponse
     {
-        $user = $this->currentUser($request);
-        $validated = $request->validate(['artist' => ['required', 'string', 'max:200']]);
-        $input = trim($validated['artist']);
-
-        $albums = $this->apple->fetchAlbums($input);
-        if (empty($albums)) {
-            return $this->error('Could not find that Apple Music artist or an album.', 404);
-        }
-        $latest = $albums[0];
-
-        $selection = [
-            'input' => $input,
-            // Flat fields retained for partna-pages + back-compat. The nested
-            // `latest` is the canonical shape (same as a highlight item) and
-            // is what the dashboard now reads to render the "Most recent" tile.
-            'name' => $latest['name'],
-            'thumbnail' => $latest['thumbnail'],
-            'releaseDate' => $latest['releaseDate'],
-            'link' => $latest['link'],
-            'latest' => $latest,
-            'highlights' => $this->keptHighlights($user, self::MUSIC, $input),
-        ];
-        $this->put($user, self::MUSIC, $selection);
-
-        return $this->success($selection);
+        return $this->connectFor($request, $this->musicConfig());
     }
 
     // GET /api/platforms/apple/music/selection
     public function musicSelection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => $this->read($this->currentUser($request), self::MUSIC)]);
+        return $this->selectionFor($request, self::MUSIC);
     }
 
     // GET /api/platforms/apple/music/recent — last 15 albums for the picker.
     public function musicRecent(Request $request): JsonResponse
     {
-        $input = data_get($this->read($this->currentUser($request), self::MUSIC), 'input');
-        if (! $input) {
-            return $this->error('Connect an Apple Music artist first.', 404);
-        }
-        $albums = $this->apple->fetchAlbums($input);
-        if ($albums === null) {
-            return $this->error('Could not load recent albums.', 502);
-        }
-
-        return $this->success(['albums' => $albums]);
+        return $this->recentFor($request, $this->musicConfig());
     }
 
     // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
     public function musicHighlights(Request $request): JsonResponse
     {
-        $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'albumIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
-            'albumIds.*' => ['string', 'max:30'],
-        ]);
-
-        return $this->withLock($user, self::MUSIC, function () use ($user, $validated): JsonResponse {
-            $selection = $this->read($user, self::MUSIC);
-            if (! $selection) {
-                return $this->error('Connect an Apple Music artist first.', 404);
-            }
-            $albums = $this->apple->fetchAlbums(data_get($selection, 'input'));
-            if ($albums === null) {
-                return $this->error('Could not load recent albums.', 502);
-            }
-
-            // Refresh the "Most recent" tile too. This re-fetch is newest-first, so
-            // a release that landed since connect would otherwise leave `latest`
-            // (and the flat back-compat fields) stale while only highlights updated.
-            if (isset($albums[0])) {
-                $latest = $albums[0];
-                $selection['latest'] = $latest;
-                $selection['name'] = $latest['name'];
-                $selection['thumbnail'] = $latest['thumbnail'];
-                $selection['releaseDate'] = $latest['releaseDate'];
-                $selection['link'] = $latest['link'];
-            }
-
-            $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
-            $this->put($user, self::MUSIC, $selection);
-
-            return $this->success($selection);
-        });
+        return $this->highlightsFor($request, $this->musicConfig());
     }
 
     // ── Podcast ───────────────────────────────────────────────────
@@ -129,89 +68,25 @@ class AppleController extends ApiController
     // POST /api/platforms/apple/podcast/connect
     public function connectPodcast(Request $request): JsonResponse
     {
-        $user = $this->currentUser($request);
-        $validated = $request->validate(['show' => ['required', 'string', 'max:200']]);
-        $input = trim($validated['show']);
-
-        $episodes = $this->apple->fetchEpisodes($input);
-        if (empty($episodes)) {
-            return $this->error('Could not find that Apple Podcast or an episode.', 404);
-        }
-        $latest = $episodes[0];
-
-        $selection = [
-            'input' => $input,
-            // Flat fields retained for partna-pages + back-compat. The nested
-            // `latest` is the canonical shape (same as a highlight item) and
-            // is what the dashboard now reads to render the "Most recent" tile.
-            'name' => $latest['name'],
-            'thumbnail' => $latest['thumbnail'],
-            'description' => $latest['description'],
-            'link' => $latest['link'],
-            'latest' => $latest,
-            'highlights' => $this->keptHighlights($user, self::PODCAST, $input),
-        ];
-        $this->put($user, self::PODCAST, $selection);
-
-        return $this->success($selection);
+        return $this->connectFor($request, $this->podcastConfig());
     }
 
     // GET /api/platforms/apple/podcast/selection
     public function podcastSelection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => $this->read($this->currentUser($request), self::PODCAST)]);
+        return $this->selectionFor($request, self::PODCAST);
     }
 
     // GET /api/platforms/apple/podcast/recent — last 15 episodes for the picker.
     public function podcastRecent(Request $request): JsonResponse
     {
-        $input = data_get($this->read($this->currentUser($request), self::PODCAST), 'input');
-        if (! $input) {
-            return $this->error('Connect an Apple Podcast first.', 404);
-        }
-        $episodes = $this->apple->fetchEpisodes($input);
-        if ($episodes === null) {
-            return $this->error('Could not load recent episodes.', 502);
-        }
-
-        return $this->success(['episodes' => $episodes]);
+        return $this->recentFor($request, $this->podcastConfig());
     }
 
     // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
     public function podcastHighlights(Request $request): JsonResponse
     {
-        $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'episodeIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
-            'episodeIds.*' => ['string', 'max:30'],
-        ]);
-
-        return $this->withLock($user, self::PODCAST, function () use ($user, $validated): JsonResponse {
-            $selection = $this->read($user, self::PODCAST);
-            if (! $selection) {
-                return $this->error('Connect an Apple Podcast first.', 404);
-            }
-            $episodes = $this->apple->fetchEpisodes(data_get($selection, 'input'));
-            if ($episodes === null) {
-                return $this->error('Could not load recent episodes.', 502);
-            }
-
-            // Refresh the "Most recent" tile too (see musicHighlights) — a newer
-            // episode published since connect would otherwise leave `latest` stale.
-            if (isset($episodes[0])) {
-                $latest = $episodes[0];
-                $selection['latest'] = $latest;
-                $selection['name'] = $latest['name'];
-                $selection['thumbnail'] = $latest['thumbnail'];
-                $selection['description'] = $latest['description'];
-                $selection['link'] = $latest['link'];
-            }
-
-            $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
-            $this->put($user, self::PODCAST, $selection);
-
-            return $this->success($selection);
-        });
+        return $this->highlightsFor($request, $this->podcastConfig());
     }
 
     // DELETE /api/platforms/apple — clear both. Retained for back-compat;
@@ -229,17 +104,154 @@ class AppleController extends ApiController
     // disconnect one platform without touching the other.
     public function forgetMusic(Request $request): JsonResponse
     {
-        $this->forgetOne($this->currentUser($request), self::MUSIC);
-
-        return $this->success(['music' => null]);
+        return $this->forgetFor($request, self::MUSIC, 'music');
     }
 
     // DELETE /api/platforms/apple/podcast — clear just Podcasts.
     public function forgetPodcast(Request $request): JsonResponse
     {
-        $this->forgetOne($this->currentUser($request), self::PODCAST);
+        return $this->forgetFor($request, self::PODCAST, 'podcast');
+    }
 
-        return $this->success(['podcast' => null]);
+    // ── Platform configs ──────────────────────────────────────────
+
+    /**
+     * The handful of values that differ between Music and Podcast; everything else
+     * (storage, locking, tile-refresh, snapshotting) is shared.
+     *
+     * @return array{platform:string, inputField:string, idsField:string, idField:string, fetch:callable, flatFields:list<string>, recentKey:string, notFound:string, connectFirst:string, loadError:string}
+     */
+    private function musicConfig(): array
+    {
+        return [
+            'platform' => self::MUSIC,
+            'inputField' => 'artist',
+            'idsField' => 'albumIds',
+            'idField' => 'collectionId',
+            'fetch' => fn (string $input) => $this->apple->fetchAlbums($input),
+            // Flat back-compat tile fields copied verbatim from the latest item.
+            // Music exposes releaseDate; podcast exposes description.
+            'flatFields' => ['name', 'thumbnail', 'releaseDate', 'link'],
+            'recentKey' => 'albums',
+            'notFound' => 'Could not find that Apple Music artist or an album.',
+            'connectFirst' => 'Connect an Apple Music artist first.',
+            'loadError' => 'Could not load recent albums.',
+        ];
+    }
+
+    private function podcastConfig(): array
+    {
+        return [
+            'platform' => self::PODCAST,
+            'inputField' => 'show',
+            'idsField' => 'episodeIds',
+            'idField' => 'trackId',
+            'fetch' => fn (string $input) => $this->apple->fetchEpisodes($input),
+            'flatFields' => ['name', 'thumbnail', 'description', 'link'],
+            'recentKey' => 'episodes',
+            'notFound' => 'Could not find that Apple Podcast or an episode.',
+            'connectFirst' => 'Connect an Apple Podcast first.',
+            'loadError' => 'Could not load recent episodes.',
+        ];
+    }
+
+    // ── Generic operations ────────────────────────────────────────
+
+    private function connectFor(Request $request, array $cfg): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $validated = $request->validate([$cfg['inputField'] => ['required', 'string', 'max:200']]);
+        $input = trim($validated[$cfg['inputField']]);
+
+        $items = ($cfg['fetch'])($input);
+        if (empty($items)) {
+            return $this->error($cfg['notFound'], 404);
+        }
+        $latest = $items[0];
+
+        $selection = [
+            'input' => $input,
+            // Flat fields for partna-pages + back-compat; nested `latest` is the
+            // canonical shape the dashboard reads for the "Most recent" tile.
+            ...$this->flatTile($latest, $cfg['flatFields']),
+            'latest' => $latest,
+            'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
+        ];
+        $this->put($user, $cfg['platform'], $selection);
+
+        return $this->success($selection);
+    }
+
+    private function selectionFor(Request $request, string $platform): JsonResponse
+    {
+        return $this->success(['selection' => $this->read($this->currentUser($request), $platform)]);
+    }
+
+    private function recentFor(Request $request, array $cfg): JsonResponse
+    {
+        $input = data_get($this->read($this->currentUser($request), $cfg['platform']), 'input');
+        if (! $input) {
+            return $this->error($cfg['connectFirst'], 404);
+        }
+        $items = ($cfg['fetch'])($input);
+        if ($items === null) {
+            return $this->error($cfg['loadError'], 502);
+        }
+
+        return $this->success([$cfg['recentKey'] => $items]);
+    }
+
+    private function highlightsFor(Request $request, array $cfg): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $validated = $request->validate([
+            $cfg['idsField'] => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
+            $cfg['idsField'].'.*' => ['string', 'max:30'],
+        ]);
+
+        return $this->withLock($user, $cfg['platform'], function () use ($user, $cfg, $validated): JsonResponse {
+            $selection = $this->read($user, $cfg['platform']);
+            if (! $selection) {
+                return $this->error($cfg['connectFirst'], 404);
+            }
+            $items = ($cfg['fetch'])(data_get($selection, 'input'));
+            if ($items === null) {
+                return $this->error($cfg['loadError'], 502);
+            }
+
+            // Refresh the "Most recent" tile too — a release/episode published since
+            // connect would otherwise leave `latest` (and the flat back-compat fields)
+            // stale while only highlights updated.
+            if (isset($items[0])) {
+                $selection['latest'] = $items[0];
+                $selection = array_merge($selection, $this->flatTile($items[0], $cfg['flatFields']));
+            }
+
+            $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
+            $this->put($user, $cfg['platform'], $selection);
+
+            return $this->success($selection);
+        });
+    }
+
+    private function forgetFor(Request $request, string $platform, string $responseKey): JsonResponse
+    {
+        $this->forgetOne($this->currentUser($request), $platform);
+
+        return $this->success([$responseKey => null]);
+    }
+
+    // ── Flat-tile helper ──────────────────────────────────────────
+
+    /** Flat back-compat tile fields copied verbatim from a latest item. */
+    private function flatTile(array $latest, array $flatFields): array
+    {
+        $out = [];
+        foreach ($flatFields as $f) {
+            $out[$f] = $latest[$f];
+        }
+
+        return $out;
     }
 
     // ── internals ────────────────────────────────────────────────

@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 6 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P3 Nice to have: 7 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -616,7 +616,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Create per-platform Resource classes under `app/Http/Resources/Platforms/`. Each Resource's `toArray()` becomes the canonical allowlist. Reuse from the public endpoint (CONS-11) via `$this->when(...)` guards.
     - **Evidence:** Eight controllers each define their own response shape inline with no shared contract. Same structural gap that let `latest` drift (CONS-1).
 
-- [ ] **#CONS-39** · P3 · Effort: M — Five near-duplicate Apple Music/Podcast method pairs create five independent drift surfaces
+- [x] **#CONS-39** · P3 · Effort: M — Five near-duplicate Apple Music/Podcast method pairs create five independent drift surfaces
     - **Where:** `app/Http/Controllers/Api/Platforms/AppleController.php` — pairs `connectMusic`/`connectPodcast`, `musicRecent`/`podcastRecent`, `musicHighlights`/`podcastHighlights`, `musicSelection`/`podcastSelection`, `forgetMusic`/`forgetPodcast`
     - **What to do:** Extract a private generic method per operation accepting the platform constant, scraper callable, and platform-specific field names. Keep public methods as one-line adapters.
     - **Technical:** The `latest` key drift (CONS-1) illustrates the failure mode: a fix applied to one pair member that misses the sibling. Five 8–20-line pairs is past the "three similar lines" threshold.
