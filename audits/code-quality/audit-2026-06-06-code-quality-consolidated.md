@@ -21,7 +21,7 @@
 ## Progress
 
 - P1 High: 0 of 1 complete
-- P2 Medium: 2 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 17 complete
 
 ---
@@ -138,7 +138,7 @@
             ->value('professional_email_snapshot');
         ```
 
-- [ ] **#SEM-4** · P2 — Eventbrite upcoming-event filter uses lexicographic string comparison on ISO 8601 timestamps with timezone offsets
+- [x] **#SEM-4** · P2 — Eventbrite upcoming-event filter uses lexicographic string comparison on ISO 8601 timestamps with timezone offsets
     - **Where:** app/Services/Platforms/EventbriteScraper.php:96-104 (approx)
     - **Affects:** Eventbrite smart links in public profiles. Events in negative-UTC-offset timezones (US, Canada, Western Europe) can be incorrectly filtered out as "past" and omitted from the upcoming-events list while they are still in the future, because the local-time hour digits compare as smaller than the UTC server-time digits.
     - **Effort:** S (~0.5–1h)
@@ -158,7 +158,7 @@
         ));
         ```
 
-- [ ] **#SEM-5** · P2 — `guardApifyBudget` acquires the per-user cooldown before checking the global daily cap
+- [x] **#SEM-5** · P2 — `guardApifyBudget` acquires the per-user cooldown before checking the global daily cap
     - **Where:** app/Http/Controllers/Api/Platforms/InstagramController.php (`guardApifyBudget`, lines 154–168)
     - **Affects:** Any user who attempts an Instagram connect when `APIFY_DAILY_CAP` (200/day) has already been reached. Their request is rejected for capacity reasons — but their personal 600-second cooldown is already set, so they cannot retry even after the daily cap resets (midnight) without waiting out the full cooldown window.
     - **Effort:** S (~0.5–1h)

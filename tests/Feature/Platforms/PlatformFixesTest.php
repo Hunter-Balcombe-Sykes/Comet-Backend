@@ -8,6 +8,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -247,6 +248,53 @@ it('re-scrapes on Shopify setProducts only when the catalog cache is cold', func
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
     expect($res->json('products.0.productId'))->toBe('p1');
+});
+
+// SEM-5 regression: when the global daily Apify cap is already reached, the
+// connect endpoint must return the "busy" 429 WITHOUT setting the per-user
+// cooldown key, so the user is not locked out after the cap resets at midnight.
+
+it('returns busy 429 when the daily Apify cap is reached without locking the user cooldown', function () {
+    config(['services.apify.token' => 'test-token']);
+
+    $user = fbActingUser();
+    $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+    $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
+
+    // Pre-seed the daily counter at the cap (200).
+    Cache::put($dayKey, 200, now()->addDay());
+
+    $res = actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'testuser']);
+
+    $res->assertStatus(429);
+    expect($res->json('message'))->toContain('busy');
+
+    // The cooldown key must NOT have been set — user is not penalised for a cap hit.
+    expect(Cache::has($cooldownKey))->toBeFalse();
+});
+
+it('allows a connect attempt after the daily cap resets when no cooldown was set', function () {
+    config(['services.apify.token' => 'test-token']);
+    Storage::fake('media');
+    Http::fake(['*' => Http::response('img-bytes', 200)]);
+
+    $user = fbActingUser();
+    $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+    $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
+
+    // Simulate: cap was hit, then reset (cap key gone, no cooldown set).
+    Cache::forget($dayKey);
+    expect(Cache::has($cooldownKey))->toBeFalse();
+
+    $this->mock(InstagramScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Test', 'followersCount' => 5, 'postsCount' => 2]);
+        $m->shouldReceive('recentCoverImages')->andReturn([]);
+        $m->shouldReceive('profilePicUrl')->andReturn(null);
+    });
+
+    // Should succeed — no cooldown was set by the prior cap 429.
+    actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'testuser'])
+        ->assertOk();
 });
 
 // Instagram: failed image mirrors are surfaced (imagesDropped) instead of

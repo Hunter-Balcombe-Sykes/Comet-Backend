@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\SmartLinks\SafeUrlFetcher;
+use Illuminate\Support\Carbon;
 
 // Scrapes an Eventbrite organiser's upcoming events with no auth. The organiser
 // page (/o/<slug>-<id>) lists its event links; each event page carries a JSON-LD
@@ -54,11 +55,39 @@ class EventbriteScraper extends PlatformScraper
         // Soonest first; prefer still-upcoming (end — or start when no end — >=
         // now), fall back to whatever we have. Using endDate keeps an in-progress
         // event (started, not yet ended) in the list.
-        usort($events, fn ($a, $b) => strcmp((string) ($a['startDate'] ?? ''), (string) ($b['startDate'] ?? '')));
-        $now = now()->toIso8601String();
+        //
+        // Carbon::parse is required because startDate/endDate carry the event's
+        // LOCAL timezone offset (e.g. "2026-06-20T09:00:00-07:00"). Plain string
+        // comparison against a UTC "now" string compares textual hour digits and
+        // wrongly treats a 9am LA event as past versus a 16:xx UTC timestamp.
+        // Events with a missing/empty startDate sort first (matching old behaviour)
+        // and are never passed to Carbon::parse.
+        $now = now();
+        usort($events, function ($a, $b) {
+            $aDate = $a['startDate'] ?? '';
+            $bDate = $b['startDate'] ?? '';
+            if ($aDate === '' && $bDate === '') {
+                return 0;
+            }
+            if ($aDate === '') {
+                return -1;
+            }
+            if ($bDate === '') {
+                return 1;
+            }
+
+            return Carbon::parse($aDate)->getTimestamp() <=> Carbon::parse($bDate)->getTimestamp();
+        });
         $upcoming = array_values(array_filter(
             $events,
-            fn ($e) => empty($e['endDate'] ?? $e['startDate'] ?? null) || ($e['endDate'] ?? $e['startDate']) >= $now,
+            function ($e) use ($now) {
+                $compareDate = $e['endDate'] ?? $e['startDate'] ?? null;
+                if (empty($compareDate)) {
+                    return true;
+                }
+
+                return Carbon::parse($compareDate)->gte($now);
+            },
         ));
 
         return [

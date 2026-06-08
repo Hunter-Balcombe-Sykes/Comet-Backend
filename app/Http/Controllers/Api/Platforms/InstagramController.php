@@ -147,22 +147,26 @@ class InstagramController extends ApiController
 
     // ── internals ────────────────────────────────────────────────
 
-    // Pilot cost guard: 429 when the user is within their re-scrape cooldown or
-    // the global daily Apify cap is hit; otherwise records the run and returns
-    // null. Atomic per-user cooldown via Cache::add; the daily counter is a
-    // read-modify-write (good enough for a pilot — backend dev to harden).
+    // Pilot cost guard: 429 when the global daily Apify cap is hit or the user
+    // is within their re-scrape cooldown; otherwise records the run and returns
+    // null. The global cap check is read-only and runs first so a capacity 429
+    // never locks the user into their per-user cooldown. Atomic per-user
+    // cooldown via Cache::add; the daily counter is a read-modify-write
+    // (good enough for a pilot — backend dev to harden).
     private function guardApifyBudget(User $user): ?JsonResponse
     {
-        $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
-        if (! Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)) {
-            return $this->error('You refreshed Instagram recently — please wait a few minutes.', 429);
-        }
-
+        // Read-only cap check runs before any side effect.
         $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
         $count = (int) Cache::get($dayKey, 0);
         if ($count >= self::APIFY_DAILY_CAP) {
             return $this->error('Instagram is busy right now — please try again later.', 429);
         }
+
+        $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
+        if (! Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)) {
+            return $this->error('You refreshed Instagram recently — please wait a few minutes.', 429);
+        }
+
         Cache::put($dayKey, $count + 1, now()->addDay());
 
         return null;
