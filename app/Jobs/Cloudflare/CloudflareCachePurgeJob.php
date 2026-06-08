@@ -30,6 +30,9 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     /** @var list<int> */
     public array $backoff = [5, 15, 60];
 
+    // Short-circuit permanent failures (e.g. revoked token) so failed()/Nightwatch fires after 2 attempts, not 3.
+    public int $maxExceptions = 2;
+
     public int $timeout = 15;
 
     /**

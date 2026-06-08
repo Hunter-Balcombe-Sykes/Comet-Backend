@@ -30,7 +30,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 ## Progress
 
 - P1 Launch blockers: 5 of 5 complete
-- P2 Scale risks: 0 of 4 complete
+- P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
 - P2 Observability: 0 of 3 complete
@@ -201,7 +201,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-9** · P2 · Effort: S — Cloudflare jobs retry on permanent 4xx without `$maxExceptions` short-circuit
+- [x] **#CONS-9** · P2 · Effort: S — Cloudflare jobs retry on permanent 4xx without `$maxExceptions` short-circuit
     - **Where:** `app/Jobs/Cloudflare/CloudflareCachePurgeJob.php`; `app/Jobs/Concerns/HasCloudflareRetryPolicy.php` (consumed by `SyncSubdomainToKvJob` + `RetireSubdomainFromKvJob`)
     - **Affects:** Alert latency. A revoked or misconfigured Cloudflare API token burns all retry slots (~80–100s) before `failed()` fires and Nightwatch alerts. During that window the edge cache or KV routing table stays stale.
     - **What to do:**
