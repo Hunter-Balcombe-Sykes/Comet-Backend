@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 0 of 17 complete
+- P3 Low: 1 of 17 complete
 
 ---
 
@@ -215,7 +215,7 @@
         });
         ```
 
-- [ ] **#SEM-7** · P3 — Dead assigned variable and stale developer note in `HealthController::checkCache`
+- [x] **#SEM-7** · P3 — Dead assigned variable and stale developer note in `HealthController::checkCache`
     - **Where:** app/Http/Controllers/Api/HealthController.php:101 (`checkCache` method)
     - **Affects:** No runtime impact. The variable is assigned and immediately abandoned; the comment is a leftover thinking-out-loud note that can confuse future readers.
     - **Effort:** S (~0.5h)

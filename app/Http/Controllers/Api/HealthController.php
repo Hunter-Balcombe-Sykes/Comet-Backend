@@ -98,7 +98,6 @@ class HealthController extends ApiController
         $start = microtime(true);
 
         try {
-            $store = config('cache.default'); // or config('cache.default') depending on your config
             $key = 'health:cache:'.bin2hex(random_bytes(8));
             $value = bin2hex(random_bytes(8));
 
