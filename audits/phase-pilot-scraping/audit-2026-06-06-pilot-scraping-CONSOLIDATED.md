@@ -33,7 +33,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
-- P2 Observability: 0 of 3 complete
+- P2 Observability: 1 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
 
@@ -461,7 +461,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Observability
 
-- [ ] **#CONS-23** · P2 · Effort: S — `IntegrationConnectionObserver` swallows Throwable without Nightwatch visibility — stale edge cache is silent
+- [x] **#CONS-23** · P2 · Effort: S — `IntegrationConnectionObserver` swallows Throwable without Nightwatch visibility — stale edge cache is silent
     - **Where:** `app/Observers/Core/IntegrationConnectionObserver.php:51–55`
     - **Affects:** Every platform-connection write. If the user→site lookup or `CloudflareCachePurgeJob::dispatch()` fails persistently, the sitepage edge cache is never purged and the public page serves stale content indefinitely — with zero Nightwatch alert.
     - **What to do:**

@@ -49,6 +49,11 @@ class IntegrationConnectionObserver
                 CloudflareCachePurgeJob::dispatch($subdomain);
             }
         } catch (\Throwable $e) {
+            // Surface to Nightwatch — without report() a persistent failure (Redis
+            // outage, broken user→site join) silently serves stale edge cache with
+            // only a breadcrumb log. Do not re-throw: an observer must not crash the
+            // parent write.
+            report($e);
             Log::warning('IntegrationConnectionObserver purge failed', [
                 'platform_connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
