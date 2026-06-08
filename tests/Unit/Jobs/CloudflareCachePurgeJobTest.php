@@ -3,6 +3,11 @@
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('has its own retry policy and queue (not the KV trait — see §28.7)', function () {
     $job = new CloudflareCachePurgeJob('h');
@@ -37,4 +42,20 @@ it('is unique per lowered handle so a burst of site touches coalesces to one pur
     expect($job)->toBeInstanceOf(ShouldBeUnique::class)
         ->and($job->uniqueId())->toBe('mixed-case')
         ->and($job->uniqueFor)->toBe(120);
+});
+
+it('reports to Nightwatch and logs on terminal failure', function () {
+    Exceptions::fake();
+    Log::spy();
+
+    (new CloudflareCachePurgeJob('jane'))->failed(new RuntimeException('zone error'));
+
+    // Terminal failure must reach Nightwatch (report) AND the structured log so an
+    // accidental deletion of either is caught by CI.
+    Exceptions::assertReported(RuntimeException::class);
+    Log::shouldHaveReceived('error')
+        ->once()
+        ->withArgs(fn (string $msg, array $ctx) => $msg === 'cloudflare.cache_purge.failed'
+            && ($ctx['handle'] ?? null) === 'jane'
+            && ($ctx['error'] ?? null) === 'zone error');
 });

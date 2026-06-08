@@ -34,7 +34,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
-- P2 Test coverage: 0 of 3 complete
+- P2 Test coverage: 1 of 3 complete
 - P3 Nice to have: 0 of 14 complete
 
 ---
@@ -515,7 +515,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Test coverage
 
-- [ ] **#CONS-26** · P2 · Effort: S — `CloudflareCachePurgeJob::failed()` path is untested — terminal failure Nightwatch alerting is unverified
+- [x] **#CONS-26** · P2 · Effort: S — `CloudflareCachePurgeJob::failed()` path is untested — terminal failure Nightwatch alerting is unverified
     - **Where:** `app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:76–81`; `tests/Unit/Jobs/CloudflareCachePurgeJobTest.php`
     - **Affects:** Nightwatch observability. The test file covers `handle()`, `uniqueId()`, `uniqueFor`, and queue assignment but never invokes `failed()`. An accidental deletion of the `report()` call would silently stop terminal failures from appearing in Nightwatch.
     - **What to do:**
