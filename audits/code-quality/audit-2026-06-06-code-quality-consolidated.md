@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 1 of 17 complete
+- P3 Low: 2 of 17 complete
 
 ---
 
@@ -234,7 +234,7 @@
         Cache::forget($key);
         ```
 
-- [ ] **#SEM-8** · P3 — `UserSectionBlockController::upsert` uses `count()` for new-block `sort_order`; every other path uses `max() + 1`
+- [x] **#SEM-8** · P3 — `UserSectionBlockController::upsert` uses `count()` for new-block `sort_order`; every other path uses `max() + 1`
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php (new-block branch of `upsert`, lines 171–175) vs. `syncAllowedSections` (line 358/376) in the same file
     - **Affects:** `sort_order` assignment when a section block is first created. Produces correct value today because section blocks are never hard-deleted, but would assign a colliding `sort_order` if any row were ever removed outside the normal soft-delete flow (manual DB correction, future admin operation, or a test fixture teardown).
     - **Effort:** S (~0.5h)

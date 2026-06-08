@@ -168,11 +168,15 @@ class UserSectionBlockController extends ApiController
             ]);
 
             if (! $block->exists) {
-                $existingCount = Block::query()
+                // Use max+1, not count(), to stay gap-safe against the partial
+                // unique index on (site_id, block_group, sort_order) WHERE
+                // block_group = 'sections'. count() collides if any row was
+                // hard-deleted. ?? -1 then +1 yields 0 for an empty set.
+                $maxSortOrder = Block::query()
                     ->where('site_id', $site->id)
                     ->where('block_group', 'sections')
-                    ->count();
-                $block->sort_order = (int) $existingCount;
+                    ->max('sort_order') ?? -1;
+                $block->sort_order = (int) $maxSortOrder + 1;
                 $block->settings = $data['settings'] ?? [];
             }
 
@@ -336,9 +340,14 @@ class UserSectionBlockController extends ApiController
      * (max existing + 1) to avoid conflicts with the partial unique index on
      * (site_id, block_group, sort_order) WHERE block_group = 'sections'.
      *
+     * protected (not private) so a test subclass can stub it to a no-op, which
+     * exercises upsert()'s new-block branch — that branch is otherwise only
+     * reachable via a concurrent-request race, since this sync pre-creates the
+     * row before upsert()'s firstOrNew(). See SectionBlockUpsertSortOrderTest.
+     *
      * @param  array<int, string>  $allowedSections
      */
-    private function syncAllowedSections(string $userId, string $siteId, array $allowedSections): Collection
+    protected function syncAllowedSections(string $userId, string $siteId, array $allowedSections): Collection
     {
         $orderedAllowed = array_values(array_unique(array_filter($allowedSections, static fn ($value) => is_string($value))));
 
