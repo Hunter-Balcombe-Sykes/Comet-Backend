@@ -28,7 +28,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEM-1** · P1 — `SiteSubdomainAlias::$fillable` missing `reclaim_until` and `expires_at` — alias lifecycle silently broken on every rename
+- [x] **#SEM-1** · P1 — `SiteSubdomainAlias::$fillable` missing `reclaim_until` and `expires_at` — alias lifecycle silently broken on every rename
     - **Where:** app/Models/Core/Site/SiteSubdomainAlias.php:22-27 · app/Services/Site/UpdateSiteAction.php (create call) · app/Console/Commands/PruneExpiredHandleAliases.php:28-31
     - **Affects:** Every professional who renames their subdomain. Subdomain alias rows are created with `NULL` in both `reclaim_until` and `expires_at`. The prune cron (`handles:prune-expired-aliases`) filters `WHERE expires_at IS NOT NULL AND expires_at < now()`, so it never deletes any subdomain alias row. Aliases accumulate in `site.site_subdomain_aliases` permanently and are never resynced out of Cloudflare KV on expiry.
     - **Effort:** S (~0.5–1h)
