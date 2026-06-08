@@ -29,7 +29,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Progress
 
-- P1 Launch blockers: 2 of 5 complete
+- P1 Launch blockers: 3 of 5 complete
 - P2 Scale risks: 0 of 4 complete
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
@@ -94,7 +94,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         $this->writeConnection($user, $map);  // ← blind JSONB overwrite, no lock
         ```
 
-- [ ] **#CONS-3** · P1 · Effort: M — Fresha service-visibility toggle has no concurrency guard — concurrent show/hide of different services silently loses one toggle
+- [x] **#CONS-3** · P1 · Effort: M — Fresha service-visibility toggle has no concurrency guard — concurrent show/hide of different services silently loses one toggle
     - **Where:** `app/Http/Controllers/Api/Platforms/FreshaController.php` — `setServiceVisibility()`
     - **Affects:** Professionals managing Fresha booking service visibility. Toggling two services from separate dashboard tabs can result in one toggle being silently lost.
     - **What to do:**

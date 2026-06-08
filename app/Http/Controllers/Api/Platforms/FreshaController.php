@@ -189,36 +189,38 @@ class FreshaController extends ApiController
             'hidden' => ['required', 'boolean'],
         ]);
 
-        $payload = $this->readConnection($user);
-        $selection = data_get($payload, 'selection');
-        if (! is_array($selection)) {
-            return $this->error('No Fresha selection saved yet.', 404);
-        }
+        return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
+            $payload = $this->readConnection($user);
+            $selection = data_get($payload, 'selection');
+            if (! is_array($selection)) {
+                return $this->error('No Fresha selection saved yet.', 404);
+            }
 
-        // Only toggle services that exist in the saved menu.
-        $serviceIds = array_map(
-            static fn ($s) => is_array($s) ? ($s['serviceId'] ?? null) : null,
-            (array) data_get($selection, 'services', []),
-        );
-        if (! in_array($validated['serviceId'], $serviceIds, true)) {
-            return $this->error('That service is not part of the saved Fresha menu.', 404);
-        }
+            // Only toggle services that exist in the saved menu.
+            $serviceIds = array_map(
+                static fn ($s) => is_array($s) ? ($s['serviceId'] ?? null) : null,
+                (array) data_get($selection, 'services', []),
+            );
+            if (! in_array($validated['serviceId'], $serviceIds, true)) {
+                return $this->error('That service is not part of the saved Fresha menu.', 404);
+            }
 
-        $hidden = array_values(array_filter(
-            (array) data_get($selection, 'hiddenServiceIds', []),
-            static fn ($id): bool => is_string($id),
-        ));
+            $hidden = array_values(array_filter(
+                (array) data_get($selection, 'hiddenServiceIds', []),
+                static fn ($id): bool => is_string($id),
+            ));
 
-        if ($validated['hidden']) {
-            $hidden = array_values(array_unique([...$hidden, $validated['serviceId']]));
-        } else {
-            $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
-        }
+            if ($validated['hidden']) {
+                $hidden = array_values(array_unique([...$hidden, $validated['serviceId']]));
+            } else {
+                $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
+            }
 
-        $selection['hiddenServiceIds'] = $hidden;
-        $this->writeConnection($user, ['url' => data_get($payload, 'url'), 'selection' => $selection]);
+            $selection['hiddenServiceIds'] = $hidden;
+            $this->writeConnection($user, ['url' => data_get($payload, 'url'), 'selection' => $selection]);
 
-        return $this->success($selection);
+            return $this->success($selection);
+        });
     }
 
     // DELETE /api/platforms/fresha — clear the saved URL and selection.
