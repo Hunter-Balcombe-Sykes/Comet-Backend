@@ -109,6 +109,33 @@ it('keeps an in-progress event (started, not yet ended) in the Eventbrite select
     expect($res->json('selection.next.name'))->toBe('Live now');
 });
 
+it('keeps an event with no dates at all in the Eventbrite selection', function () {
+    $past = now()->subDays(2)->toIso8601String();
+
+    $user = fbActingUser();
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'eventbrite',
+        'payload' => [
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => null,
+            'upcoming' => [
+                ['name' => 'Old gig', 'startDate' => $past, 'endDate' => $past],
+                ['name' => 'Dateless gig', 'startDate' => null, 'endDate' => null],
+            ],
+        ],
+    ]);
+
+    $res = actingAsUser($user)->getJson('/api/platforms/eventbrite/selection');
+
+    // filterPastEvents: $end === null survives, so a dateless event is kept while
+    // the elapsed one is dropped (the intentional null-both-dates path).
+    $res->assertOk();
+    expect($res->json('selection.upcoming'))->toHaveCount(1);
+    expect($res->json('selection.upcoming.0.name'))->toBe('Dateless gig');
+    expect($res->json('selection.next.name'))->toBe('Dateless gig');
+});
+
 // Apple "most recent" tile refreshes when highlights are updated (mock the
 // iTunes Search fetch so no live call is made).
 

@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 4 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
+- P3 Nice to have: 5 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -601,7 +601,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Extract validation rules into Form Request classes. The Form Request `authorize()` method is the canonical home for `authorizeForUser` calls (CONS-10), so creating these classes bundles both fixes.
     - **Evidence:** `$validated = $request->validate(['artist' => ['required', 'string', 'max:200']]);` — representative of pattern across all controllers.
 
-- [ ] **#CONS-36** · P3 · Effort: S — `EventbriteController::filterPastEvents` null-both-dates path untested
+- [x] **#CONS-36** · P3 · Effort: S — `EventbriteController::filterPastEvents` null-both-dates path untested
     - **Where:** `app/Http/Controllers/Api/Platforms/EventbriteController.php:83–88`
     - **What to do:** Add `it('keeps an event with no dates at all')` — seed payload with both dates null alongside a past event; assert dateless event survives while past event is dropped.
     - **Evidence:** `$end = $e['endDate'] ?? $e['startDate'] ?? null; return $end === null || $end >= $now;` — null-both path is intentional but unasserted.
