@@ -18,9 +18,11 @@ return [
         'key' => env('POSTMARK_API_KEY'),
     ],
 
-    // Google Maps / Places — used client-side by the Hydrogen storefront
-    // for address autocomplete. Key is HTTP-referrer-restricted in
-    // Google Cloud, so it's safe to expose via /public/config/integrations.
+    // Google Maps / Places — client-side key for the professional dashboard's
+    // address autocomplete, returned (CDN-cached) by /public/config/integrations.
+    // Exposing it publicly is safe ONLY because it MUST be HTTP-referrer-restricted
+    // to *.partna.au/* in the Google Cloud Console. Re-verify that restriction on
+    // every key rotation and fresh-environment deploy — see .env.example.
     'google_maps' => [
         'api_key' => env('GOOGLE_MAPS_API_KEY'),
     ],

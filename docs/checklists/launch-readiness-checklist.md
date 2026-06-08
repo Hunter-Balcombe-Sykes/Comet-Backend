@@ -58,6 +58,7 @@ This is the **business + operational** counterpart to the audit checklists. It c
     - **When:** Before first pilot customer
     - **Cost:** DIY (~half day to write)
     - **What it covers:** For each credential class (Stripe keys, Supabase service role, Cloudflare API token, Shopify app secret, Hydrogen API key, Embedded API key), the steps to rotate without downtime + which env files / Laravel Cloud env vars to update
+    - **Google Maps key note:** the public `GOOGLE_MAPS_API_KEY` (served CDN-cached at `/api/public/config/integrations`) is safe only while its GCP **HTTP-referrer restriction** (`*.partna.au/*`) holds. Re-verify that restriction in the Google Cloud Console as part of any rotation **and on every fresh-environment deploy** — dropping it on a new project is the highest-risk moment.
 
 - [ ] **TECH-6 · P0** — DIY AI-driven pentest pass
     - **When:** Before first pilot customer

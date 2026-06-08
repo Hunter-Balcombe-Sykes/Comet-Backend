@@ -31,7 +31,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
-- P2 Security & privacy: 1 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
+- P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 0 of 8 complete
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
@@ -297,7 +297,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         -- No ALTER TABLE ... ENABLE ROW LEVEL SECURITY follows
         ```
 
-- [ ] **#CONS-14** · P2 · Effort: S — Google Maps API key served at public CDN-cached endpoint with no enforcement of GCP referrer restrictions
+- [x] **#CONS-14** · P2 · Effort: S — Google Maps API key served at public CDN-cached endpoint with no enforcement of GCP referrer restrictions
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicConfigController.php:60–66`
     - **Affects:** Key security posture. The key is returned at `GET /api/public/config/integrations` with `Cache-Control: public, max-age=3600`. The code's own docblock makes HTTP-referrer restrictions in GCP a contractual requirement — but nothing enforces this contract in code, CI, or `.env.example`.
     - **What to do:**
