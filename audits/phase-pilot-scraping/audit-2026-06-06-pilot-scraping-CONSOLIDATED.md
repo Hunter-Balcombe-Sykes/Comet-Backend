@@ -32,7 +32,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 5 of 8 complete (CONS-21 parked — standalone)
+- P2 Correctness/data integrity: 6 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
@@ -401,7 +401,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         private const APIFY_DAILY_CAP = 200;
         ```
 
-- [ ] **#CONS-20** · P2 · Effort: S — `CloudflarePurgeService::purgeHandle()` hardcodes `partna.au` base domain
+- [x] **#CONS-20** · P2 · Effort: S — `CloudflarePurgeService::purgeHandle()` hardcodes `partna.au` base domain
     - **Where:** `app/Services/Cloudflare/CloudflarePurgeService.php:90–96`
     - **Affects:** Cache purging in non-production environments. The method reads `config('app.url')` for one URL form but hardcodes `partna.au` for three others — half-config, half-hardcoded. In a staging environment with a different TLD, three out of four purge targets silently miss the correct zone.
     - **What to do:**

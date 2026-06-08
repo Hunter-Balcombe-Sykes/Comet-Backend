@@ -51,6 +51,7 @@ it('purgeHandle composes page URLs + the API subrequest URL', function () {
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', 'https://dev-api.partna.au');
+    Config::set('partna.public_domain', 'partna.au');
     Http::fake();
 
     (new CloudflarePurgeService)->purgeHandle('  MIXED-CASE  ');
@@ -67,6 +68,7 @@ it('purgeHandle strips trailing slash on app.url before composing API URL', func
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', 'https://dev-api.partna.au/');
+    Config::set('partna.public_domain', 'partna.au');
     Http::fake();
 
     (new CloudflarePurgeService)->purgeHandle('jane');
@@ -83,6 +85,7 @@ it('purgeHandle skips the API URL when app.url is unset', function () {
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
     Http::fake();
 
     (new CloudflarePurgeService)->purgeHandle('jane');
@@ -91,6 +94,24 @@ it('purgeHandle skips the API URL when app.url is unset', function () {
         'https://jane.partna.au/',
         'https://jane.partna.au',
         'https://jane.partna.au/_swr-shadow/',
+    ]);
+});
+
+it('purgeHandle composes page URLs against the configured public domain (non-prod TLD)', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('partna.public_domain', 'staging.partna.test');
+    Config::set('app.url', '');
+    Http::fake();
+
+    (new CloudflarePurgeService)->purgeHandle('jane');
+
+    // The hardcoded partna.au is gone — purge targets now follow public_domain,
+    // so a staging/non-prod TLD hits the correct zone instead of partna.au.
+    Http::assertSent(fn ($req) => $req['files'] === [
+        'https://jane.staging.partna.test/',
+        'https://jane.staging.partna.test',
+        'https://jane.staging.partna.test/_swr-shadow/',
     ]);
 });
 

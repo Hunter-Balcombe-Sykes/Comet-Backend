@@ -81,8 +81,8 @@ class CloudflarePurgeService
      *      so without this purge the edge holds the API response for 5 minutes
      *      and re-renders stale HTML even after the page URL has been evicted.
      *
-     * All URLs sit in the same Cloudflare zone (`partna.au`), so one
-     * purge_cache request covers everything.
+     * All URLs sit in the same Cloudflare zone (the configured public domain),
+     * so one purge_cache request covers everything.
      */
     public function purgeHandle(string $handle): void
     {
@@ -91,15 +91,21 @@ class CloudflarePurgeService
             return;
         }
 
+        // Canonical public-site base domain — the single source of truth shared
+        // with PublicSiteController/ResolvesSubdomainFromHost. Drives the zone
+        // these purge targets hit, so staging/non-prod TLDs resolve correctly
+        // instead of always pointing at partna.au.
+        $baseDomain = config('partna.public_domain');
+
         $urls = [
             // Page URL — root path and slash-less variant. Cloudflare treats
             // these as distinct cache keys, so list both.
-            "https://{$h}.partna.au/",
-            "https://{$h}.partna.au",
+            "https://{$h}.{$baseDomain}/",
+            "https://{$h}.{$baseDomain}",
             // SWR stale shadow — the router Worker's second cache layer,
             // 7-day TTL. Without purging this, post-mutation refreshes serve
             // pre-mutation content from the shadow.
-            "https://{$h}.partna.au/_swr-shadow/",
+            "https://{$h}.{$baseDomain}/_swr-shadow/",
         ];
 
         $apiBase = rtrim((string) config('app.url', ''), '/');
