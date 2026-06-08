@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 14 of 17 complete
+- P3 Low: 15 of 17 complete
 
 ---
 
@@ -437,7 +437,7 @@
         $siteImagesOut = $siteImages === [] ? new stdClass : $siteImages;
         ```
 
-- [ ] **#SLOP-9** · P3 — Dead `$backoff` property on a job that declares `$tries = 1`
+- [x] **#SLOP-9** · P3 — Dead `$backoff` property on a job that declares `$tries = 1`
     - **Where:** app/Jobs/Streaming/CheckStreamingLiveStatusJob.php:26–28
     - **Affects:** No runtime impact — dead config that a reader must mentally discard.
     - **Effort:** S (~0.5–1h)

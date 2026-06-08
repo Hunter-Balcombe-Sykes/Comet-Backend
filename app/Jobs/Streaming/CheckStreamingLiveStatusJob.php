@@ -20,7 +20,8 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
 
     public int $tries = 1;
 
-    // No backoff — tries=1 means no retry, so backoff is moot, but required for hygiene.
+    // tries=1 means no retry, so $backoff is moot at runtime — but JobHygienePolicyTest
+    // requires every ShouldQueue job to declare $tries, $backoff, and $timeout.
     public int $backoff = 0;
 
     public function __construct()
