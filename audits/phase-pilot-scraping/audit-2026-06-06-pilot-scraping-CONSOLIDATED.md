@@ -29,7 +29,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Progress
 
-- P1 Launch blockers: 4 of 5 complete
+- P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 0 of 4 complete
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
@@ -127,7 +127,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         $this->put($user, self::MUSIC, $selection);  // ← no lock
         ```
 
-- [ ] **#CONS-5** · P1 · Effort: M — `IntegrationConnectionPolicy` has zero tests — the 404-not-403 invariant is unverified by CI
+- [x] **#CONS-5** · P1 · Effort: M — `IntegrationConnectionPolicy` has zero tests — the 404-not-403 invariant is unverified by CI
     - **Where:** `app/Policies/IntegrationConnectionPolicy.php` — all 4 public methods (`view`, `update`, `delete`, `create`)
     - **Affects:** Every platform connect/read/delete endpoint — the policy governs all `IntegrationConnection` row operations but has never been exercised by a test. The critical `denyAsNotFound()` contract (404 not 403 for non-owner access) is asserted nowhere; a refactor that accidentally called `denyAsForbidden()` would pass CI.
     - **What to do:**
