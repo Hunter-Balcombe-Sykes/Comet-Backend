@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 13 of 17 complete
+- P3 Low: 14 of 17 complete
 
 ---
 
@@ -190,7 +190,7 @@
 
 ### Semantic (SEM)
 
-- [ ] **#SEM-6** · P3 — `UserBootstrapService::bootstrap` wraps Eloquent writes in an unpinned `DB::transaction()`, breaking rollback in feature tests
+- [x] **#SEM-6** · P3 — `UserBootstrapService::bootstrap` wraps Eloquent writes in an unpinned `DB::transaction()`, breaking rollback in feature tests
     - **Where:** app/Services/User/UserBootstrapService.php (bootstrap method, `DB::transaction(...)`)
     - **Affects:** Feature test isolation for the bootstrap path — if a test triggers a mid-transaction error, `User` and `Site` rows written on the `pgsql` connection are not rolled back by the transaction wrapper (which runs on the SQLite default in test environments).
     - **Effort:** S (~5 min)

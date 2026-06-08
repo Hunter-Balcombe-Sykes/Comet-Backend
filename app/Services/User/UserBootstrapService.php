@@ -40,7 +40,12 @@ class UserBootstrapService
             throw new RuntimeException('ACCOUNT_DISABLED');
         }
 
-        return DB::transaction(function () use ($uid, $data, $existing) {
+        // Pin to 'pgsql' so the transaction shares the connection with the Eloquent
+        // writes inside (User/Site extend BaseModel which forces pgsql). Bare
+        // DB::transaction() targets the default connection — 'sqlite' in feature
+        // tests — making the wrapper a no-op and breaking rollback. Mirrors
+        // AccountDeletionService::request().
+        return DB::connection('pgsql')->transaction(function () use ($uid, $data, $existing) {
             $createdProfessional = false;
             $professional = $existing;
 
