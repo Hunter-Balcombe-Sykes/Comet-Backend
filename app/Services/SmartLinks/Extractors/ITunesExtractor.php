@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
 use App\Services\SmartLinks\MetadataParser;
 use App\Services\SmartLinks\ParsedUrl;
 use App\Services\SmartLinks\ResolvedSmartLinkData;
@@ -19,6 +20,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
  */
 class ITunesExtractor implements SmartLinkExtractor
 {
+    use ExtractorHelpers;
+
     private const LOOKUP = 'https://itunes.apple.com/lookup';
 
     public function __construct(
@@ -204,15 +207,5 @@ class ITunesExtractor implements SmartLinkExtractor
         }
 
         return preg_replace('/\/\d+x\d+(bb|cc)?\.(jpg|png|webp)$/i', '/600x600bb.$2', $art) ?: $art;
-    }
-
-    private function str(mixed $v): ?string
-    {
-        if (! is_string($v)) {
-            return null;
-        }
-        $t = trim($v);
-
-        return $t === '' ? null : $t;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
 use App\Services\SmartLinks\MetadataParser;
 use App\Services\SmartLinks\ParsedMetadata;
 use App\Services\SmartLinks\ParsedUrl;
@@ -25,6 +26,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
  */
 class SpotifyExtractor implements SmartLinkExtractor
 {
+    use ExtractorHelpers;
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MetadataParser $parser,
@@ -134,22 +137,5 @@ class SpotifyExtractor implements SmartLinkExtractor
         $parts = preg_split('/\s*·\s*/u', $desc) ?: [];
 
         return array_values(array_filter(array_map('trim', $parts), fn ($s) => $s !== ''));
-    }
-
-    private function subTypeFromType(string $type): ?string
-    {
-        $parts = explode('.', $type);
-
-        return end($parts) ?: null;
-    }
-
-    private function str(mixed $v): ?string
-    {
-        if (! is_string($v)) {
-            return null;
-        }
-        $t = trim($v);
-
-        return $t === '' ? null : $t;
     }
 }

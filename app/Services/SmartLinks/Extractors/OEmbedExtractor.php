@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
 use App\Services\SmartLinks\ParsedUrl;
 use App\Services\SmartLinks\ResolvedSmartLinkData;
 use App\Services\SmartLinks\SafeUrlException;
@@ -15,6 +16,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
  */
 class OEmbedExtractor implements SmartLinkExtractor
 {
+    use ExtractorHelpers;
+
     private const PROVIDERS = [
         'spotify' => ['suffix' => 'open.spotify.com', 'endpoint' => 'https://open.spotify.com/oembed', 'display' => 'Spotify'],
         'youtube' => ['suffix' => 'youtube.com', 'endpoint' => 'https://www.youtube.com/oembed', 'display' => 'YouTube'],
@@ -95,22 +98,5 @@ class OEmbedExtractor implements SmartLinkExtractor
         }
 
         return null;
-    }
-
-    private function subTypeFromType(string $type): ?string
-    {
-        $parts = explode('.', $type);
-
-        return end($parts) ?: null;
-    }
-
-    private function str(mixed $v): ?string
-    {
-        if (! is_string($v)) {
-            return null;
-        }
-        $t = trim($v);
-
-        return $t === '' ? null : $t;
     }
 }

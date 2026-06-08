@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 4 of 17 complete
+- P3 Low: 7 of 17 complete
 
 ---
 
@@ -297,7 +297,7 @@
 
 ### Slop (SLOP)
 
-- [ ] **#SLOP-1** · P3 — `str()` helper duplicated identically across five extractor classes
+- [x] **#SLOP-1** · P3 — `str()` helper duplicated identically across five extractor classes
     - **Where:** app/Services/SmartLinks/Extractors/ITunesExtractor.php, OEmbedExtractor.php, ShopifyExtractor.php, SpotifyExtractor.php, StructuredDataExtractor.php
     - **Affects:** Anyone maintaining or extending the extractor namespace — must remember to copy the same helper on every new extractor; a fix to one copy silently leaves four others stale.
     - **Effort:** S (~45 min, bundle with SLOP-2 and SLOP-3)
@@ -319,7 +319,7 @@
         }
         ```
 
-- [ ] **#SLOP-2** · P3 — `hostBrand()` duplicated across `ShopifyExtractor` and `StructuredDataExtractor`
+- [x] **#SLOP-2** · P3 — `hostBrand()` duplicated across `ShopifyExtractor` and `StructuredDataExtractor`
     - **Where:** app/Services/SmartLinks/Extractors/ShopifyExtractor.php:242-247, StructuredDataExtractor.php:214-219
     - **Affects:** Maintenance — changing the fallback-brand-name logic requires editing two files; silent divergence already exists (one uses an intermediate variable, one inlines it).
     - **Effort:** S (~15 min, bundle with SLOP-1 and SLOP-3)
@@ -343,7 +343,7 @@
         }
         ```
 
-- [ ] **#SLOP-3** · P3 — `subTypeFromType()` duplicated across `OEmbedExtractor` and `SpotifyExtractor`
+- [x] **#SLOP-3** · P3 — `subTypeFromType()` duplicated across `OEmbedExtractor` and `SpotifyExtractor`
     - **Where:** app/Services/SmartLinks/Extractors/OEmbedExtractor.php:110-114, SpotifyExtractor.php:115-119
     - **Affects:** Maintenance — same one-liner in two files; any change requires editing both.
     - **Effort:** S (~15 min, bundle with SLOP-1 and SLOP-2)

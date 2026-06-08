@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
 use App\Services\SmartLinks\MetadataParser;
 use App\Services\SmartLinks\ParsedUrl;
 use App\Services\SmartLinks\ResolvedSmartLinkData;
@@ -17,6 +18,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
  */
 class ShopifyExtractor implements SmartLinkExtractor
 {
+    use ExtractorHelpers;
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MetadataParser $parser,
@@ -190,22 +193,5 @@ class ShopifyExtractor implements SmartLinkExtractor
         }
 
         return $url->pathSegments[$idx + 1] ?? null;
-    }
-
-    private function str(mixed $v): ?string
-    {
-        if (! is_string($v)) {
-            return null;
-        }
-        $t = trim($v);
-
-        return $t === '' ? null : $t;
-    }
-
-    private function hostBrand(string $host): string
-    {
-        $host = preg_replace('/^www\./', '', $host);
-
-        return ucfirst(explode('.', $host)[0] ?? $host);
     }
 }

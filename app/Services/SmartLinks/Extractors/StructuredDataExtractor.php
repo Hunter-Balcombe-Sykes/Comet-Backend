@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
 use App\Services\SmartLinks\MetadataParser;
 use App\Services\SmartLinks\ParsedMetadata;
 use App\Services\SmartLinks\ParsedUrl;
@@ -18,6 +19,8 @@ use App\Services\SmartLinks\SafeUrlFetcher;
  */
 class StructuredDataExtractor implements SmartLinkExtractor
 {
+    use ExtractorHelpers;
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MetadataParser $parser,
@@ -234,16 +237,6 @@ class StructuredDataExtractor implements SmartLinkExtractor
         return null;
     }
 
-    private function str(mixed $v): ?string
-    {
-        if (! is_string($v)) {
-            return null;
-        }
-        $t = trim($v);
-
-        return $t === '' ? null : $t;
-    }
-
     private function numeric(mixed $v): ?float
     {
         if (is_int($v) || is_float($v)) {
@@ -254,14 +247,5 @@ class StructuredDataExtractor implements SmartLinkExtractor
         }
 
         return null;
-    }
-
-    /** "gymshark.com" → "Gymshark" (last-resort brand name). */
-    private function hostBrand(string $host): string
-    {
-        $host = preg_replace('/^www\./', '', $host);
-        $label = explode('.', $host)[0] ?? $host;
-
-        return ucfirst($label);
     }
 }
