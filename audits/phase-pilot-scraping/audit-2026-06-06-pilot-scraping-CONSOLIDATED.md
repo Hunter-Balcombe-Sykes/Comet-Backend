@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 8 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P3 Nice to have: 9 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -626,7 +626,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Extract a private `refreshLatestTile(array &$selection, array $items, string $backCompatField): void` method, or a trait method on `ManagesIntegrationConnection`.
     - **Technical:** `PlatformRefresher::youtubePayload()` reimplements this same pattern in a fourth location without a shared reference — the absence of a canonical helper was the root cause of CONS-1.
 
-- [ ] **#CONS-41** · P3 · Effort: S — `PlatformRefresher` returns `null` for both "bad payload shape" and "network failure" — failure types are indistinguishable
+- [x] **#CONS-41** · P3 · Effort: S — `PlatformRefresher` returns `null` for both "bad payload shape" and "network failure" — failure types are indistinguishable
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` — all four private `*Payload` methods
     - **What to do:** Distinguish the "missing required key" early-return (use `last_refresh_status = 'error'` + `last_refresh_error = "missing_key: handle"`) from the "scraper returned empty" return (keep `'unavailable'`). Log a `Log::warning` at the shape-failure branch.
     - **Evidence:** `$handle = $payload['handle'] ?? null; if (! $handle) { return null; }` — same `null` path as a live network failure.

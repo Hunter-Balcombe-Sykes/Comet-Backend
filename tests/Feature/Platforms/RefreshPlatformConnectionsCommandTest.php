@@ -92,6 +92,26 @@ it('records unavailable status and increments consecutive_failures when the scra
     expect($conn->last_refresh_error)->toBe('youtube_no_videos'); // forensic reason (CONS-15)
 });
 
+it('marks a malformed connection (missing handle) as error, not unavailable', function () {
+    $user = refreshCronUser();
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'youtube',
+        'resource_id' => 'youtube',
+        'payload' => ['name' => 'No handle here'], // no 'handle' key
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    // No scraper mock needed: youtubePayload short-circuits on the missing handle
+    // before any fetch.
+    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+
+    $conn->refresh();
+    expect($conn->last_refresh_status)->toBe('error');
+    expect($conn->last_refresh_error)->toBe('missing_key: handle');
+    expect($conn->consecutive_failures)->toBe(1);
+});
+
 it('catches scraper exceptions without crashing the command loop', function () {
     Exceptions::fake();
     $user = refreshCronUser();
