@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 16 of 17 complete
+- P3 Low: 17 of 17 complete
 
 ---
 
@@ -494,7 +494,7 @@
         }
         ```
 
-- [ ] **#SLOP-12** · P3 — Image and video variant jobs duplicate ~60 lines of lock, guard, and cleanup logic
+- [x] **#SLOP-12** · P3 — Image and video variant jobs duplicate ~60 lines of lock, guard, and cleanup logic
     - **Where:** app/Jobs/ProcessImageVariantsJob.php and app/Jobs/ProcessVideoVariantsJob.php
     - **Affects:** Future maintainers — a fix to the in-flight lock strategy, the terminal-state guard, or the `markFailed`/`cleanupR2Artifacts` contract must be applied identically to both files.
     - **Effort:** L (~1–2d)

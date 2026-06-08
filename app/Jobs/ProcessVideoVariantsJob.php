@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\GuardsMediaProcessing;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\VideoVariantService;
 use Illuminate\Bus\Queueable;
@@ -10,7 +11,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -32,6 +32,7 @@ use Throwable;
 class ProcessVideoVariantsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use GuardsMediaProcessing;
 
     public int $tries = 2;
 
@@ -70,8 +71,7 @@ class ProcessVideoVariantsJob implements ShouldQueue
         // release-with-delay here would consume `tries` and trigger a spurious
         // `failed()` if the lock holder is still alive when retries exhaust.
         $lockKey = "video:processing-lock:{$this->mediaId}";
-        $acquired = Redis::set($lockKey, '1', 'EX', $this->timeout + 60, 'NX');
-        if (! $acquired) {
+        if (! $this->acquireProcessingLock($lockKey)) {
             Log::info('ProcessVideoVariantsJob: another worker is processing this media, skipping.', [
                 'media_id' => $this->mediaId,
             ]);
@@ -82,7 +82,7 @@ class ProcessVideoVariantsJob implements ShouldQueue
         try {
             $this->runHandle($service);
         } finally {
-            Redis::del($lockKey);
+            $this->releaseProcessingLock($lockKey);
         }
     }
 
@@ -113,7 +113,7 @@ class ProcessVideoVariantsJob implements ShouldQueue
 
         // Guard against redelivered jobs overwriting a terminal state back to processing.
         // At-least-once delivery makes this a certainty rather than a theory on Horizon.
-        if (in_array($siteMedia->processing_state, [SiteMedia::PROCESSING_STATE_READY, SiteMedia::PROCESSING_STATE_FAILED], true)) {
+        if ($this->isInTerminalState($siteMedia)) {
             Log::info('ProcessVideoVariantsJob: already in terminal state, skipping.', [
                 'media_id' => $this->mediaId,
                 'processing_state' => $siteMedia->processing_state,
