@@ -75,13 +75,11 @@ class IndividualProfileResource extends ApiResource
         $designKit = $this->sections['design_kit'] ?? [];
         $designKitOut = $designKit === [] ? new stdClass : $designKit;
 
-        // Same story for publicConfig — always an object, even if every field
-        // is absent. Empty associative arrays would JSON-encode to `[]`.
+        // Same empty-object coercion as $designKit above.
         $publicConfig = $this->sections['public_config'] ?? [];
         $publicConfigOut = $publicConfig === [] ? new stdClass : $publicConfig;
 
-        // siteImages is a purpose-keyed map (logoFull, coverFresha, ...); an
-        // empty map must serialize as `{}` (object), not `[]`.
+        // Same empty-object coercion as $designKit above.
         $siteImages = $this->sections['site_images'] ?? [];
         $siteImagesOut = $siteImages === [] ? new stdClass : $siteImages;
 

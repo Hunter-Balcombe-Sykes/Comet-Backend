@@ -1,7 +1,5 @@
 <?php
 
-// app/Services/Analytics/Writers/PostgresEventWriter.php
-
 namespace App\Services\Analytics\Writers;
 
 use App\Models\Analytics\LinkClick;

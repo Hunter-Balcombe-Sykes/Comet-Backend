@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 
-// V2: API resource for customer records — transforms email, phone, name, source, notes, and marketing opt-in status.
 class CustomerResource extends ApiResource
 {
     public function toArray(Request $request): array

@@ -386,7 +386,6 @@ class SiteCacheService
      */
     private function resolveImageVariantUrlsInSite(array $site, string $siteId): array
     {
-        // --- Collect all media IDs (images + videos) in one pass ---
         $allMediaIds = [];
         foreach (['gallery', 'content_images', 'gallery_videos', 'content_videos'] as $key) {
             foreach ($site[$key] ?? [] as $item) {
@@ -409,7 +408,6 @@ class SiteCacheService
             }
         }
 
-        // --- Images: resolve variant URLs ---
         foreach (['gallery', 'content_images'] as $key) {
             $items = $site[$key] ?? [];
             if (! is_array($items)) {
@@ -447,7 +445,6 @@ class SiteCacheService
             });
         }
 
-        // --- Videos: resolve variant/stream/poster URLs ---
         foreach (['gallery_videos', 'content_videos'] as $key) {
             $items = $site[$key] ?? [];
             if (! is_array($items)) {
@@ -482,7 +479,6 @@ class SiteCacheService
         $site['gallery_videos'] = $site['gallery_videos'] ?? [];
         $site['content_videos'] = $site['content_videos'] ?? [];
 
-        // --- Document: resolve preview_url from storage path to full CDN URL ---
         if (isset($site['document']) && is_array($site['document']) && ! empty($site['document']['preview_url'])) {
             $rawPath = (string) $site['document']['preview_url'];
             $site['document']['preview_url'] = Storage::disk(config('partna.media_disk'))->url($rawPath);

@@ -1,5 +1,5 @@
 <?php
-// app/Services/Analytics/AnalyticsEvent.php
+
 namespace App\Services\Analytics;
 
 // Immutable description of one analytics event. Flows through both seams and onto the
@@ -11,7 +11,9 @@ namespace App\Services\Analytics;
 final class AnalyticsEvent
 {
     public const TYPE_PAGEVIEW = 'pageview';
+
     public const TYPE_CLICK = 'click';
+
     public const TYPE_SECTION_VIEW = 'section_view';
 
     public function __construct(

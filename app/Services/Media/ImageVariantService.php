@@ -3,6 +3,7 @@
 namespace App\Services\Media;
 
 use App\Models\Core\MediaVariant;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -25,10 +26,6 @@ class ImageVariantService
 
     /** Safe extensions for R2 object keys — anything else falls back to the canonical default. */
     private const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'];
-
-    /* ------------------------------------------------------------------ */
-    /*  Public API */
-    /* ------------------------------------------------------------------ */
 
     /**
      * Process an original image into all configured variants, store them
@@ -54,7 +51,7 @@ class ImageVariantService
             throw new \RuntimeException('GD WebP support is not available. Cannot generate WebP variants.');
         }
 
-        \Illuminate\Support\Facades\Log::info('Starting image variant processing', [
+        Log::info('Starting image variant processing', [
             'image_id' => $imageId,
             'base_path' => $basePath,
         ]);
@@ -211,7 +208,7 @@ class ImageVariantService
             unset($sourceImage);
         }
 
-        \Illuminate\Support\Facades\Log::info('Image variant processing completed', [
+        Log::info('Image variant processing completed', [
             'image_id' => $imageId,
             'variant_count' => count($created),
         ]);
@@ -354,16 +351,12 @@ class ImageVariantService
         return $this->diskName();
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Internal helpers */
-    /* ------------------------------------------------------------------ */
-
     private function diskName(): string
     {
         return MediaDiskResolver::resolve();
     }
 
-    private function disk(): \Illuminate\Contracts\Filesystem\Filesystem
+    private function disk(): Filesystem
     {
         return Storage::disk($this->diskName());
     }

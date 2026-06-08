@@ -1,7 +1,5 @@
 <?php
 
-// app/Services/Analytics/Ingestors/SyncIngestor.php
-
 namespace App\Services\Analytics\Ingestors;
 
 use App\Services\Analytics\AnalyticsCacheService;

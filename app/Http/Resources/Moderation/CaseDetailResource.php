@@ -10,18 +10,15 @@ use App\Http\Resources\ApiResource;
  * Uses whenLoaded() throughout so callers control which relations are hydrated;
  * un-loaded relations are omitted from the response rather than triggering N+1
  * queries. Composes CaseSignalResource which enforces the PII strip on signals.
- *
- * Typical usage:
- *   new CaseDetailResource($case->load(['signals', 'evidence', 'decisions']))
  */
 class CaseDetailResource extends ApiResource
 {
     public function toArray($request): array
     {
         return [
-            'case'      => (new CaseResource($this->resource))->toArray($request),
-            'signals'   => CaseSignalResource::collection($this->whenLoaded('signals')),
-            'evidence'  => EvidenceResource::collection($this->whenLoaded('evidence')),
+            'case' => (new CaseResource($this->resource))->toArray($request),
+            'signals' => CaseSignalResource::collection($this->whenLoaded('signals')),
+            'evidence' => EvidenceResource::collection($this->whenLoaded('evidence')),
             'decisions' => DecisionResource::collection($this->whenLoaded('decisions')),
         ];
     }

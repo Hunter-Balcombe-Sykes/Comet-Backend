@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 7 of 17 complete
+- P3 Low: 13 of 17 complete
 
 ---
 
@@ -359,7 +359,7 @@
         }
         ```
 
-- [ ] **#SLOP-4** · P3 — Decorative banner comments in `ImageVariantService`
+- [x] **#SLOP-4** · P3 — Decorative banner comments in `ImageVariantService`
     - **Where:** app/Services/Media/ImageVariantService.php (two banner blocks separating public and private methods)
     - **Affects:** Readability — violates CLAUDE.md's explicit "Avoid: decorative banners" rule.
     - **Effort:** S (~5 min)
@@ -376,7 +376,7 @@
         /* ------------------------------------------------------------------ */
         ```
 
-- [ ] **#SLOP-5** · P3 — Section-separator comments restate the next code block in `SiteCacheService`
+- [x] **#SLOP-5** · P3 — Section-separator comments restate the next code block in `SiteCacheService`
     - **Where:** app/Services/Cache/SiteCacheService.php, inside `resolveImageVariantUrlsInSite`
     - **Affects:** Readability — four `// ---` separator lines say *what*, not *why*.
     - **Effort:** S (~5 min)
@@ -390,7 +390,7 @@
         // --- Document: resolve preview_url from storage path to full CDN URL ---
         ```
 
-- [ ] **#SLOP-6** · P3 — File-path comments duplicate the namespace declaration in 7 Analytics service files
+- [x] **#SLOP-6** · P3 — File-path comments duplicate the namespace declaration in 7 Analytics service files
     - **Where:** app/Services/Analytics/AnalyticsDedupGuard.php:2, AnalyticsEvent.php:2, Ingestors/QueuedIngestor.php:2, Ingestors/SyncIngestor.php:3, Writers/PostgresEventWriter.php:3, Contracts/AnalyticsEventWriter.php:2, Contracts/AnalyticsIngestor.php:2
     - **Affects:** Developers reading these files — the comments add zero information not already encoded in the `namespace` declaration and file location.
     - **Effort:** S (~0.5–1h)
@@ -404,7 +404,7 @@
         namespace App\Services\Analytics;
         ```
 
-- [ ] **#SLOP-7** · P3 — V2 comment in `CustomerResource` restates the field list immediately below it
+- [x] **#SLOP-7** · P3 — V2 comment in `CustomerResource` restates the field list immediately below it
     - **Where:** app/Http/Resources/CustomerResource.php:7
     - **Affects:** Readability — the comment enumerates verbatim fields that appear on the next 12 lines.
     - **Effort:** S (~0.5–1h)
@@ -416,7 +416,7 @@
         class CustomerResource extends ApiResource
         ```
 
-- [ ] **#SLOP-8** · P3 — Three near-identical 4–5 line comments re-explaining the same `stdClass` coercion
+- [x] **#SLOP-8** · P3 — Three near-identical 4–5 line comments re-explaining the same `stdClass` coercion
     - **Where:** app/Http/Resources/PublicSite/IndividualProfileResource.php — the `$designKit`, `$publicConfig`, and `$siteImages` blocks in `toArray()`
     - **Affects:** Developer attention — the same `[]` vs `{}` serialisation lesson is read three times in thirty lines.
     - **Effort:** S (~0.5–1h)
@@ -452,7 +452,7 @@
         public int $backoff = 0;
         ```
 
-- [ ] **#SLOP-10** · P3 — Tutorial-style "Typical usage:" example inside a production class docblock
+- [x] **#SLOP-10** · P3 — Tutorial-style "Typical usage:" example inside a production class docblock
     - **Where:** app/Http/Resources/Moderation/CaseDetailResource.php:15–17
     - **Affects:** Readability — usage examples belong in tests or developer docs, not in the class file.
     - **Effort:** S (~0.5–1h)
