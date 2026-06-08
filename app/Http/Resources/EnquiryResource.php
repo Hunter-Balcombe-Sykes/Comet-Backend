@@ -10,8 +10,10 @@ class EnquiryResource extends ApiResource
      * Transform the enquiry into an API payload.
      *
      * is_read is derived from status: any value other than 'new' means the
-     * enquiry has been seen/acted on. read_at is retained for backwards
-     * compatibility with existing consumers that relied on the timestamp form.
+     * enquiry has been seen/acted on. When status is null (e.g. a row created
+     * without the DB default) we fall back to read_at presence rather than
+     * defaulting to read. read_at is also exposed for consumers that relied on
+     * the timestamp form.
      *
      * @return array<string, mixed>
      */
@@ -25,7 +27,7 @@ class EnquiryResource extends ApiResource
             'subject' => $this->subject,
             'message' => $this->message,
             'status' => $this->status?->value,
-            'is_read' => $this->status?->value !== 'new',
+            'is_read' => $this->status !== null ? $this->status->value !== 'new' : $this->read_at !== null,
             'read_at' => optional($this->read_at)->toIso8601String(),
             'replied_at' => optional($this->replied_at)->toIso8601String(),
             'archived_at' => optional($this->archived_at)->toIso8601String(),

@@ -41,3 +41,28 @@ it('is_read is false when status is new', function () {
     $payload = (new EnquiryResource($enquiry))->resolve();
     expect($payload['is_read'])->toBe(false);
 });
+
+// SEM-9: a null status must NOT silently read as is_read=true. The old
+// `$this->status?->value !== 'new'` evaluated `null !== 'new'` → true.
+it('is_read falls back to read_at (false) when status is null and unread', function () {
+    $user = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), ['status' => 'new']);
+    $enquiry = Enquiry::find($enquiryId);
+    // Simulate a row created without the status default (e.g. bulk import).
+    $enquiry->status = null;
+    $enquiry->read_at = null;
+
+    $payload = (new EnquiryResource($enquiry))->resolve();
+    expect($payload['is_read'])->toBe(false);
+});
+
+it('is_read is true when status is null but read_at is set', function () {
+    $user = makeInboxUser();
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), ['status' => 'new']);
+    $enquiry = Enquiry::find($enquiryId);
+    $enquiry->status = null;
+    $enquiry->read_at = now();
+
+    $payload = (new EnquiryResource($enquiry))->resolve();
+    expect($payload['is_read'])->toBe(true);
+});

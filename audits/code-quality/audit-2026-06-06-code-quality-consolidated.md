@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 2 of 17 complete
+- P3 Low: 3 of 17 complete
 
 ---
 
@@ -256,7 +256,7 @@
         $block->sort_order = ++$maxSortOrder;
         ```
 
-- [ ] **#SEM-9** · P3 — `EnquiryResource` derives `is_read` from status alone; a null status silently produces `is_read: true`
+- [x] **#SEM-9** · P3 — `EnquiryResource` derives `is_read` from status alone; a null status silently produces `is_read: true`
     - **Where:** app/Http/Resources/EnquiryResource.php — `is_read` line inside `toArray()`
     - **Affects:** Dashboard inbox — an enquiry whose `status` is null renders `is_read: true`, suppressing the unread badge.
     - **Effort:** S (~0.5–1h)
