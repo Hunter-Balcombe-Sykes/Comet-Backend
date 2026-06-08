@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
@@ -17,10 +18,7 @@ use Throwable;
 class SuspendUserJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public int $tries = 3;
-
-    public array $backoff = [10, 30, 60];
+    use HasActionLogLifecycle;
 
     public int $timeout = 60;
 
@@ -44,23 +42,19 @@ class SuspendUserJob implements ShouldQueue
     public function handle(): void
     {
         DB::connection('pgsql')->transaction(function () {
-            $case  = ModerationCase::query()->findOrFail($this->caseId);
+            $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the user update throws, the action log reflects the attempt.
-            $entry->update([
-                'status'        => 'dispatched',
-                'dispatched_at' => now(),
-                'attempts'      => $entry->attempts + 1,
-            ]);
+            $this->markDispatched($entry);
 
             if ($case->reportable_owner_user_id !== null) {
                 // Most recent decision on the case determines the target status.
-                $decision  = $case->decisions()->latest('decided_at')->first();
+                $decision = $case->decisions()->latest('decided_at')->first();
                 $newStatus = match ($decision?->decision_type) {
                     'ban_user' => 'disabled',
-                    default    => 'suspended',
+                    default => 'suspended',
                 };
 
                 User::query()
@@ -68,10 +62,7 @@ class SuspendUserJob implements ShouldQueue
                     ->update(['status' => $newStatus]);
             }
 
-            $entry->update([
-                'status'       => 'completed',
-                'completed_at' => now(),
-            ]);
+            $this->markCompleted($entry);
         });
     }
 
@@ -79,14 +70,14 @@ class SuspendUserJob implements ShouldQueue
     {
         report($e);
         ActionLogEntry::query()->where('id', $this->actionLogId)->update([
-            'status'    => 'failed',
+            'status' => 'failed',
             'failed_at' => now(),
         ]);
         Log::error('Moderation enforcement job permanently failed', [
-            'job'           => static::class,
+            'job' => static::class,
             'action_log_id' => $this->actionLogId,
-            'case_id'       => $this->caseId,
-            'error'         => $e->getMessage(),
+            'case_id' => $this->caseId,
+            'error' => $e->getMessage(),
         ]);
     }
 }

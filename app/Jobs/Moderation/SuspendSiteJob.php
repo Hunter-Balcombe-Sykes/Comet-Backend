@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Core\Site\Site;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
@@ -17,10 +18,7 @@ use Throwable;
 class SuspendSiteJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public int $tries = 3;
-
-    public array $backoff = [10, 30, 60];
+    use HasActionLogLifecycle;
 
     public int $timeout = 60;
 
@@ -46,16 +44,12 @@ class SuspendSiteJob implements ShouldQueue
     public function handle(): void
     {
         DB::connection('pgsql')->transaction(function () {
-            $case  = ModerationCase::query()->findOrFail($this->caseId);
+            $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the site update throws, the action log reflects the attempt.
-            $entry->update([
-                'status'        => 'dispatched',
-                'dispatched_at' => now(),
-                'attempts'      => $entry->attempts + 1,
-            ]);
+            $this->markDispatched($entry);
 
             $siteId = $this->resolveSiteId($case);
             if ($siteId !== null) {
@@ -64,10 +58,7 @@ class SuspendSiteJob implements ShouldQueue
                     ->update(['moderation_state' => 'hidden']);
             }
 
-            $entry->update([
-                'status'       => 'completed',
-                'completed_at' => now(),
-            ]);
+            $this->markCompleted($entry);
         });
     }
 
@@ -75,14 +66,14 @@ class SuspendSiteJob implements ShouldQueue
     {
         report($e);
         ActionLogEntry::query()->where('id', $this->actionLogId)->update([
-            'status'    => 'failed',
+            'status' => 'failed',
             'failed_at' => now(),
         ]);
         Log::error('Moderation enforcement job permanently failed', [
-            'job'           => static::class,
+            'job' => static::class,
             'action_log_id' => $this->actionLogId,
-            'case_id'       => $this->caseId,
-            'error'         => $e->getMessage(),
+            'case_id' => $this->caseId,
+            'error' => $e->getMessage(),
         ]);
     }
 

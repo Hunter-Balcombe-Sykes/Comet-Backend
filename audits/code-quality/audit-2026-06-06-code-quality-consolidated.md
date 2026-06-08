@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 15 of 17 complete
+- P3 Low: 16 of 17 complete
 
 ---
 
@@ -470,7 +470,7 @@
          */
         ```
 
-- [ ] **#SLOP-11** · P3 — Seven moderation jobs share ~25 identical lines of ActionLogEntry lifecycle boilerplate
+- [x] **#SLOP-11** · P3 — Seven moderation jobs share ~25 identical lines of ActionLogEntry lifecycle boilerplate
     - **Where:** app/Jobs/Moderation/SuspendSiteJob.php, SuspendUserJob.php, QuarantineMediaJob.php, PurgeModerationCacheJob.php, NotifyOnCallStaffJob.php, NotifyReportedUserJob.php, NotifyReporterJob.php
     - **Affects:** Future maintainers — a change to the `ActionLogEntry` lifecycle must be replicated identically across seven files with real drift risk.
     - **Effort:** M (~2–4h)

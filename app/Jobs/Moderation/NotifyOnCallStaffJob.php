@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
@@ -19,10 +20,7 @@ use Throwable;
 class NotifyOnCallStaffJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public int $tries = 3;
-
-    public array $backoff = [10, 30, 60];
+    use HasActionLogLifecycle;
 
     public int $timeout = 30;
 
@@ -34,15 +32,16 @@ class NotifyOnCallStaffJob implements ShouldQueue
 
     public function handle(): void
     {
-        $case  = ModerationCase::query()->findOrFail($this->caseId);
+        $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
-        $entry->update(['status' => 'dispatched', 'dispatched_at' => now(), 'attempts' => $entry->attempts + 1]);
+        $this->markDispatched($entry);
 
         // On-call routing: all admin staff are treated as on-call.
         // PartnaStaff has no is_on_call column — all role='admin' rows are on-call.
         $oncall = PartnaStaff::query()->where('role', 'admin')->get();
         if ($oncall->isEmpty()) {
-            $entry->update(['status' => 'completed', 'completed_at' => now()]);
+            $this->markCompleted($entry);
+
             return;
         }
 
@@ -50,28 +49,27 @@ class NotifyOnCallStaffJob implements ShouldQueue
 
         $notification = match (true) {
             $case->case_type === 'csam_match' => new CsamAutoActionStaffNotification($case),
-            $latestDecision !== null && str_starts_with($latestDecision->decision_type, 'escalate_')
-                => new CaseEscalatedStaffNotification($latestDecision),
+            $latestDecision !== null && str_starts_with($latestDecision->decision_type, 'escalate_') => new CaseEscalatedStaffNotification($latestDecision),
             default => new CsamAutoActionStaffNotification($case),
         };
 
         Notification::send($oncall, $notification);
 
-        $entry->update(['status' => 'completed', 'completed_at' => now()]);
+        $this->markCompleted($entry);
     }
 
     public function failed(Throwable $e): void
     {
         report($e);
         ActionLogEntry::query()->where('id', $this->actionLogId)->update([
-            'status'    => 'failed',
+            'status' => 'failed',
             'failed_at' => now(),
         ]);
         Log::error('Moderation notification job permanently failed', [
-            'job'           => static::class,
+            'job' => static::class,
             'action_log_id' => $this->actionLogId,
-            'case_id'       => $this->caseId,
-            'error'         => $e->getMessage(),
+            'case_id' => $this->caseId,
+            'error' => $e->getMessage(),
         ]);
     }
 }
