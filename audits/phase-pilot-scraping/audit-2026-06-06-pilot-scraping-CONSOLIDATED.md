@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 2 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
+- P3 Nice to have: 3 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort)
 
 ---
 
@@ -581,7 +581,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Apply `JitteredTtl::applyJitter()` to cooldown and daily counter TTLs (integer seconds only — see note about `DateTimeInterface` in CONS-18). Combines naturally with the CONS-17 atomic increment fix.
     - **Evidence:** `Cache::add($cooldownKey, 1, self::APIFY_COOLDOWN_SECONDS)` and `now()->addDay()` — neither jittered.
 
-- [ ] **#CONS-32** · P3 · Effort: S — Ad-hoc cache key construction in three files bypasses `CacheKeyGenerator`
+- [x] **#CONS-32** · P3 · Effort: S — Ad-hoc cache key construction in three files bypasses `CacheKeyGenerator`
     - **Where:** `ShopifyController.php:279–281` (`catalogKey()`), `YoutubeThumbnailResolver.php:120–122` (`cacheKey()`), `InstagramController.php:296, 299` (inline key strings)
     - **What to do:** Add `shopifyBrandCatalog()`, `youtubeThumbnailVerdict()`, `instagramCooldown()`, `instagramDailyLimit()` to `CacheKeyGenerator`. Replace inline constructions.
     - **Evidence:** `"yt_thumb:{$videoId}"`, `"platforms:instagram:cooldown:{$user->id}"` etc. — not registered in `CacheKeyGenerator`.

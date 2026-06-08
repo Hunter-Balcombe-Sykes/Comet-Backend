@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -100,6 +101,6 @@ class YoutubeThumbnailResolver
 
     private function cacheKey(string $videoId): string
     {
-        return "yt_thumb:{$videoId}";
+        return CacheKeyGenerator::youtubeThumbnailVerdict($videoId);
     }
 }

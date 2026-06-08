@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\SmartLinks\SafeUrlFetcher;
@@ -155,7 +156,7 @@ class InstagramController extends ApiController
         $dailyCap = (int) config('partna.limits.platforms.instagram.apify_daily_cap', 200);
         $cooldownSeconds = (int) config('partna.limits.platforms.instagram.apify_cooldown_seconds', 600);
 
-        $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+        $dayKey = CacheKeyGenerator::instagramDailyLimit(now()->format('Y-m-d'));
 
         // Atomic daily cap: initialise the counter once (no-op if it already
         // exists, preserving its TTL), then INCR. Cache::increment is atomic, so two
@@ -177,7 +178,7 @@ class InstagramController extends ApiController
         }
 
         // Per-user cooldown: only consume it once a daily slot is secured.
-        $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
+        $cooldownKey = CacheKeyGenerator::instagramCooldown($user->id);
         // Jitter the soft per-user cooldown (±20%) so a synchronised burst of
         // re-connect attempts doesn't all clear at the same wall-clock second.
         if (! Cache::add($cooldownKey, 1, self::applyJitter($cooldownSeconds))) {

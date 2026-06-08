@@ -236,4 +236,26 @@ class CacheKeyGenerator
     {
         return 'design_kits:columns:v'.config('partna.design_kit_columns_version');
     }
+
+    // Platform-integration transient keys — cost-control counters and picker-catalog cache.
+
+    public static function shopifyBrandCatalog(string $brandId): string
+    {
+        return 'platforms.shopify.brands.catalog.'.$brandId;
+    }
+
+    public static function youtubeThumbnailVerdict(string $videoId): string
+    {
+        return "yt_thumb:{$videoId}";
+    }
+
+    public static function instagramCooldown(string $userId): string
+    {
+        return "platforms:instagram:cooldown:{$userId}";
+    }
+
+    public static function instagramDailyLimit(string $date): string
+    {
+        return 'platforms:instagram:apify-daily:'.$date;
+    }
 }

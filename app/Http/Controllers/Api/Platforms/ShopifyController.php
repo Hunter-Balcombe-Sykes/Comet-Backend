@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Http\JsonResponse;
@@ -28,10 +29,6 @@ class ShopifyController extends ApiController
     use JitteredTtl;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
-
-    // Picker-catalog cache key prefix (transient, per-brand, shared across users —
-    // same store = same public catalog). Distinct from the stored connection.
-    private const CATALOG_KEY = 'platforms.shopify.brands';
 
     private const MAX_BRANDS = 5;
 
@@ -230,6 +227,6 @@ class ShopifyController extends ApiController
     /** Per-brand picker-catalog cache key. */
     private function catalogKey(string $id): string
     {
-        return self::CATALOG_KEY.'.catalog.'.$id;
+        return CacheKeyGenerator::shopifyBrandCatalog($id);
     }
 }
