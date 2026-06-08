@@ -32,7 +32,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 1 of 8 complete (CONS-21 parked — standalone)
+- P2 Correctness/data integrity: 2 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
@@ -337,7 +337,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-16** · P2 · Effort: S — `FreshaController::fetchEmployeeServices` swallows all failures silently — hash rotation is invisible to ops
+- [x] **#CONS-16** · P2 · Effort: S — `FreshaController::fetchEmployeeServices` swallows all failures silently — hash rotation is invisible to ops
     - **Where:** `app/Http/Controllers/Api/Platforms/FreshaController.php` — `fetchEmployeeServices()` (all three null-return paths)
     - **Affects:** All users with Fresha per-employee service menus. When Fresha redeploys and rotates `BOOKING_INIT_HASH`, every per-employee service fetch silently returns null and the dashboard falls back to the whole-location menu — no log, no alert.
     - **What to do:**

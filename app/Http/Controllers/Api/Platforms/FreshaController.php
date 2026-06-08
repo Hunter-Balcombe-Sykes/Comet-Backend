@@ -10,6 +10,7 @@ use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Test-mode endpoints for the Fresha integration. Saves a Fresha store URL
@@ -297,16 +298,40 @@ class FreshaController extends ApiController
                 'origin' => 'https://www.fresha.com',
                 'User-Agent' => self::SCRAPE_USER_AGENT,
             ])->timeout(12)->post(self::GRAPHQL_URL, $payload);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            // Surface silent failures so a rotated BOOKING_INIT_HASH/client version
+            // is visible in Nightwatch instead of silently degrading to the
+            // whole-location menu (the documented rotation inevitability).
+            Log::warning('fresha.employee_services.failed', [
+                'reason' => 'exception',
+                'slug' => $slug,
+                'employee_id' => $employeeId,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
 
         if (! $response->ok()) {
+            Log::warning('fresha.employee_services.failed', [
+                'reason' => 'http_error',
+                'slug' => $slug,
+                'employee_id' => $employeeId,
+                'status' => $response->status(),
+            ]);
+
             return null;
         }
 
         $categories = data_get($response->json(), 'data.bookingFlowInitialize.screenServices.categories');
         if (! is_array($categories)) {
+            // Missing categories on a 2xx is the classic hash/version-rotation symptom.
+            Log::warning('fresha.employee_services.failed', [
+                'reason' => 'no_categories',
+                'slug' => $slug,
+                'employee_id' => $employeeId,
+            ]);
+
             return null;
         }
 
