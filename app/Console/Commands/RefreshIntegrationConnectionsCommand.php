@@ -31,11 +31,22 @@ class RefreshIntegrationConnectionsCommand extends Command
             ->get();
 
         $ok = 0;
+        $updated = 0;
         $failed = 0;
         foreach ($connections as $connection) {
             try {
                 $refreshed = $refresher->refresh($connection);
-                $refreshed->last_refresh_status === 'ok' ? $ok++ : $failed++;
+                if ($refreshed->last_refresh_status === 'ok') {
+                    $ok++;
+                    // wasChanged('payload') separates a genuine content update from a
+                    // no-op refresh — refresh() only dirties payload when the fetched
+                    // content actually differs, so ops can see if the cron did useful work.
+                    if ($refreshed->wasChanged('payload')) {
+                        $updated++;
+                    }
+                } else {
+                    $failed++;
+                }
             } catch (\Throwable $e) {
                 // Surface to Nightwatch — the continue-on-error loop otherwise turns
                 // a systemic failure (broken scraper, schema drift) into N silent
@@ -53,7 +64,7 @@ class RefreshIntegrationConnectionsCommand extends Command
             }
         }
 
-        $this->info("Platform connections refreshed: {$ok} ok, {$failed} failed (of {$connections->count()} stale).");
+        $this->info("Platform connections refreshed: {$ok} ok ({$updated} with new content), {$failed} failed (of {$connections->count()} stale).");
 
         return self::SUCCESS;
     }
