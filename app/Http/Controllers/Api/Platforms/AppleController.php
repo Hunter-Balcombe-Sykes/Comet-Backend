@@ -7,8 +7,10 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for Apple Music + Apple Podcasts. One controller, two
 // independent selections (music = latest album + highlights, podcast = latest
@@ -92,31 +94,34 @@ class AppleController extends ApiController
             'albumIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
             'albumIds.*' => ['string', 'max:30'],
         ]);
-        $selection = $this->read($user, self::MUSIC);
-        if (! $selection) {
-            return $this->error('Connect an Apple Music artist first.', 404);
-        }
-        $albums = $this->apple->fetchAlbums(data_get($selection, 'input'));
-        if ($albums === null) {
-            return $this->error('Could not load recent albums.', 502);
-        }
 
-        // Refresh the "Most recent" tile too. This re-fetch is newest-first, so
-        // a release that landed since connect would otherwise leave `latest`
-        // (and the flat back-compat fields) stale while only highlights updated.
-        if (isset($albums[0])) {
-            $latest = $albums[0];
-            $selection['latest'] = $latest;
-            $selection['name'] = $latest['name'];
-            $selection['thumbnail'] = $latest['thumbnail'];
-            $selection['releaseDate'] = $latest['releaseDate'];
-            $selection['link'] = $latest['link'];
-        }
+        return $this->withLock($user, self::MUSIC, function () use ($user, $validated): JsonResponse {
+            $selection = $this->read($user, self::MUSIC);
+            if (! $selection) {
+                return $this->error('Connect an Apple Music artist first.', 404);
+            }
+            $albums = $this->apple->fetchAlbums(data_get($selection, 'input'));
+            if ($albums === null) {
+                return $this->error('Could not load recent albums.', 502);
+            }
 
-        $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
-        $this->put($user, self::MUSIC, $selection);
+            // Refresh the "Most recent" tile too. This re-fetch is newest-first, so
+            // a release that landed since connect would otherwise leave `latest`
+            // (and the flat back-compat fields) stale while only highlights updated.
+            if (isset($albums[0])) {
+                $latest = $albums[0];
+                $selection['latest'] = $latest;
+                $selection['name'] = $latest['name'];
+                $selection['thumbnail'] = $latest['thumbnail'];
+                $selection['releaseDate'] = $latest['releaseDate'];
+                $selection['link'] = $latest['link'];
+            }
 
-        return $this->success($selection);
+            $selection['highlights'] = $this->snapshot($albums, 'collectionId', $validated['albumIds']);
+            $this->put($user, self::MUSIC, $selection);
+
+            return $this->success($selection);
+        });
     }
 
     // ── Podcast ───────────────────────────────────────────────────
@@ -180,30 +185,33 @@ class AppleController extends ApiController
             'episodeIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
             'episodeIds.*' => ['string', 'max:30'],
         ]);
-        $selection = $this->read($user, self::PODCAST);
-        if (! $selection) {
-            return $this->error('Connect an Apple Podcast first.', 404);
-        }
-        $episodes = $this->apple->fetchEpisodes(data_get($selection, 'input'));
-        if ($episodes === null) {
-            return $this->error('Could not load recent episodes.', 502);
-        }
 
-        // Refresh the "Most recent" tile too (see musicHighlights) — a newer
-        // episode published since connect would otherwise leave `latest` stale.
-        if (isset($episodes[0])) {
-            $latest = $episodes[0];
-            $selection['latest'] = $latest;
-            $selection['name'] = $latest['name'];
-            $selection['thumbnail'] = $latest['thumbnail'];
-            $selection['description'] = $latest['description'];
-            $selection['link'] = $latest['link'];
-        }
+        return $this->withLock($user, self::PODCAST, function () use ($user, $validated): JsonResponse {
+            $selection = $this->read($user, self::PODCAST);
+            if (! $selection) {
+                return $this->error('Connect an Apple Podcast first.', 404);
+            }
+            $episodes = $this->apple->fetchEpisodes(data_get($selection, 'input'));
+            if ($episodes === null) {
+                return $this->error('Could not load recent episodes.', 502);
+            }
 
-        $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
-        $this->put($user, self::PODCAST, $selection);
+            // Refresh the "Most recent" tile too (see musicHighlights) — a newer
+            // episode published since connect would otherwise leave `latest` stale.
+            if (isset($episodes[0])) {
+                $latest = $episodes[0];
+                $selection['latest'] = $latest;
+                $selection['name'] = $latest['name'];
+                $selection['thumbnail'] = $latest['thumbnail'];
+                $selection['description'] = $latest['description'];
+                $selection['link'] = $latest['link'];
+            }
 
-        return $this->success($selection);
+            $selection['highlights'] = $this->snapshot($episodes, 'trackId', $validated['episodeIds']);
+            $this->put($user, self::PODCAST, $selection);
+
+            return $this->success($selection);
+        });
     }
 
     // DELETE /api/platforms/apple — clear both. Retained for back-compat;
@@ -235,6 +243,22 @@ class AppleController extends ApiController
     }
 
     // ── internals ────────────────────────────────────────────────
+
+    /**
+     * Per-user, per-platform Redis mutex around a read→mutate→write selection
+     * cycle, mirroring ManagesIntegrationConnection::withConnectionLock. Apple keeps
+     * its own storage (two platforms in one controller), so it locks locally; this
+     * folds into the trait helper if AppleController later adopts the trait (CONS-10).
+     * Returns the callback's JsonResponse, or 423 when another save holds the lock.
+     */
+    private function withLock(User $user, string $platform, callable $callback): JsonResponse
+    {
+        try {
+            return Cache::lock("platforms:{$platform}:lock:{$user->id}", 10)->block(5, $callback);
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+    }
 
     // Read one Apple platform's per-user selection payload (null when none).
     private function read(User $user, string $platform): ?array

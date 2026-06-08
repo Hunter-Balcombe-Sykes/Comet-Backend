@@ -29,7 +29,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Progress
 
-- P1 Launch blockers: 3 of 5 complete
+- P1 Launch blockers: 4 of 5 complete
 - P2 Scale risks: 0 of 4 complete
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
@@ -111,7 +111,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         // ← no lock around the read→mutate→write cycle
         ```
 
-- [ ] **#CONS-4** · P1 · Effort: M — Apple Music / Podcast + YouTube highlight saves have no concurrency guard — concurrent saves silently lose one set of selections
+- [x] **#CONS-4** · P1 · Effort: M — Apple Music / Podcast + YouTube highlight saves have no concurrency guard — concurrent saves silently lose one set of selections
     - **Where:** `app/Http/Controllers/Api/Platforms/AppleController.php` — `musicHighlights()`, `podcastHighlights()`; `app/Http/Controllers/Api/Platforms/YoutubeController.php` — `highlights()`
     - **Affects:** Professionals curating highlights from multiple sessions (two dashboard tabs, rapid repeated saves). A second save overwrites the first silently.
     - **What to do:**

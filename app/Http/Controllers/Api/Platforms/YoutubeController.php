@@ -96,40 +96,43 @@ class YoutubeController extends ApiController
         ]);
 
         $user = $this->currentUser($request);
-        $selection = $this->readConnection($user);
-        if (! $selection) {
-            return $this->error('Connect a YouTube channel first.', 404);
-        }
 
-        $videos = $this->scraper->fetchRecentVideos(data_get($selection, 'handle'));
-        if ($videos === null) {
-            return $this->error('Could not load recent videos for that channel.', 502);
-        }
+        return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
+            $selection = $this->readConnection($user);
+            if (! $selection) {
+                return $this->error('Connect a YouTube channel first.', 404);
+            }
 
-        // Refresh the "Most recent" tile too (mirrors AppleController) — a video
-        // published since connect would otherwise leave `latest` (and the flat
-        // back-compat fields) stale while only the highlights updated.
-        if (isset($videos[0])) {
-            $latest = $videos[0];
-            $selection['latest'] = $latest;
-            $selection['name'] = $latest['name'];
-            $selection['description'] = $latest['description'];
-            $selection['link'] = $latest['link'];
-            $selection['thumbnail'] = $latest['thumbnail'];
-        }
+            $videos = $this->scraper->fetchRecentVideos(data_get($selection, 'handle'));
+            if ($videos === null) {
+                return $this->error('Could not load recent videos for that channel.', 502);
+            }
 
-        // Snapshot the chosen videos in the order the user posted them.
-        $byId = collect($videos)->keyBy('videoId');
-        $selection['highlights'] = collect($validated['videoIds'])
-            ->map(fn (string $id) => $byId->get($id))
-            ->filter()
-            ->take(self::MAX_HIGHLIGHTS)
-            ->values()
-            ->all();
+            // Refresh the "Most recent" tile too (mirrors AppleController) — a video
+            // published since connect would otherwise leave `latest` (and the flat
+            // back-compat fields) stale while only the highlights updated.
+            if (isset($videos[0])) {
+                $latest = $videos[0];
+                $selection['latest'] = $latest;
+                $selection['name'] = $latest['name'];
+                $selection['description'] = $latest['description'];
+                $selection['link'] = $latest['link'];
+                $selection['thumbnail'] = $latest['thumbnail'];
+            }
 
-        $this->writeConnection($user, $selection);
+            // Snapshot the chosen videos in the order the user posted them.
+            $byId = collect($videos)->keyBy('videoId');
+            $selection['highlights'] = collect($validated['videoIds'])
+                ->map(fn (string $id) => $byId->get($id))
+                ->filter()
+                ->take(self::MAX_HIGHLIGHTS)
+                ->values()
+                ->all();
 
-        return $this->success($selection);
+            $this->writeConnection($user, $selection);
+
+            return $this->success($selection);
+        });
     }
 
     // GET /api/platforms/youtube/selection — the authenticated user's saved channel.
