@@ -32,7 +32,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 0 of 8 complete
+- P2 Correctness/data integrity: 1 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
@@ -317,7 +317,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Correctness / data integrity
 
-- [ ] **#CONS-15** · P2 · Effort: M — `PlatformRefresher` never writes `last_refresh_error` — failure reason silently discarded
+- [x] **#CONS-15** · P2 · Effort: M — `PlatformRefresher` never writes `last_refresh_error` — failure reason silently discarded
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` — all four private `*Payload` methods and `refresh()`
     - **Affects:** Operators debugging stale YouTube/Eventbrite/Apple tiles. `last_refresh_status = 'unavailable'` is written but `last_refresh_error` is always NULL, making every failure look identical regardless of cause (network error, empty response, missing payload key, upstream outage).
     - **What to do:**

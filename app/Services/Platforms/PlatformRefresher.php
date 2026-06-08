@@ -30,17 +30,24 @@ class PlatformRefresher
     {
         $payload = $connection->payload ?? [];
 
-        $next = match ($connection->platform) {
+        // Each *Payload method returns {payload: array|null, error: string|null}.
+        // On failure, payload is null and error holds a terse snake_case reason
+        // for Nightwatch/operator forensics.
+        $result = match ($connection->platform) {
             'youtube' => $this->youtubePayload($payload),
             'eventbrite' => $this->eventbritePayload($payload),
             'apple-music' => $this->appleMusicPayload($payload),
             'apple-podcast' => $this->applePodcastPayload($payload),
-            default => null,
+            default => ['payload' => null, 'error' => 'unsupported_platform'],
         };
+
+        $next = $result['payload'];
+        $error = $result['error'];
 
         if ($next === null) {
             $connection->forceFill([
                 'last_refresh_status' => 'unavailable',
+                'last_refresh_error' => $error,
                 'consecutive_failures' => (int) $connection->consecutive_failures + 1,
             ])->saveQuietly();
 
@@ -58,15 +65,18 @@ class PlatformRefresher
         return $connection;
     }
 
-    private function youtubePayload(array $payload): ?array
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null}
+     */
+    private function youtubePayload(array $payload): array
     {
         $handle = $payload['handle'] ?? null;
         if (! $handle) {
-            return null;
+            return ['payload' => null, 'error' => 'missing_handle'];
         }
         $videos = $this->youtube->fetchRecentVideos($handle);
         if (empty($videos)) {
-            return null;
+            return ['payload' => null, 'error' => 'youtube_no_videos'];
         }
         $latest = $videos[0];
 
@@ -74,78 +84,87 @@ class PlatformRefresher
         // auto-latest tile. `latest` is the canonical nested shape the dashboard
         // "Most Recent" tile reads — it MUST survive the refresh (drift caused by
         // reconstructing-from-scratch is the bug this fixes).
-        return [
+        return ['payload' => [
             ...$payload,
             'latest' => $latest,
             'name' => $latest['name'],
             'description' => $latest['description'],
             'link' => $latest['link'],
             'thumbnail' => $latest['thumbnail'],
-        ];
+        ], 'error' => null];
     }
 
-    private function eventbritePayload(array $payload): ?array
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null}
+     */
+    private function eventbritePayload(array $payload): array
     {
         $url = $payload['url'] ?? null;
         if (! $url) {
-            return null;
+            return ['payload' => null, 'error' => 'missing_url'];
         }
         $result = $this->eventbrite->fetchEvents($url);
         if ($result === null) {
-            return null;
+            return ['payload' => null, 'error' => 'eventbrite_fetch_failed'];
         }
         $events = $result['events'];
 
-        return [
+        return ['payload' => [
             'url' => $url,
             'organiser' => $result['organiser'],
             'next' => $events[0] ?? null,
             'upcoming' => $events,
-        ];
+        ], 'error' => null];
     }
 
-    private function appleMusicPayload(array $payload): ?array
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null}
+     */
+    private function appleMusicPayload(array $payload): array
     {
         $input = $payload['input'] ?? null;
         if (! $input) {
-            return null;
+            return ['payload' => null, 'error' => 'missing_input'];
         }
         $albums = $this->apple->fetchAlbums($input);
         if (empty($albums)) {
-            return null;
+            return ['payload' => null, 'error' => 'apple_music_no_albums'];
         }
         $latest = $albums[0];
 
         // Preserve input + curated highlights; refresh only the "most recent" tile.
-        return [
+        return ['payload' => [
             ...$payload,
             'latest' => $latest,
             'name' => $latest['name'],
             'thumbnail' => $latest['thumbnail'],
             'releaseDate' => $latest['releaseDate'],
             'link' => $latest['link'],
-        ];
+        ], 'error' => null];
     }
 
-    private function applePodcastPayload(array $payload): ?array
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null}
+     */
+    private function applePodcastPayload(array $payload): array
     {
         $input = $payload['input'] ?? null;
         if (! $input) {
-            return null;
+            return ['payload' => null, 'error' => 'missing_input'];
         }
         $episodes = $this->apple->fetchEpisodes($input);
         if (empty($episodes)) {
-            return null;
+            return ['payload' => null, 'error' => 'apple_podcast_no_episodes'];
         }
         $latest = $episodes[0];
 
-        return [
+        return ['payload' => [
             ...$payload,
             'latest' => $latest,
             'name' => $latest['name'],
             'thumbnail' => $latest['thumbnail'],
             'description' => $latest['description'],
             'link' => $latest['link'],
-        ];
+        ], 'error' => null];
     }
 }
