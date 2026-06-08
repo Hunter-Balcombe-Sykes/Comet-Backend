@@ -29,7 +29,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Progress
 
-- P1 Launch blockers: 1 of 5 complete
+- P1 Launch blockers: 2 of 5 complete
 - P2 Scale risks: 0 of 4 complete
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
@@ -77,7 +77,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         return [ ...$payload, 'latest' => $latest, ... ];
         ```
 
-- [ ] **#CONS-2** · P1 · Effort: M — Shopify brand-map mutations have no concurrency guard — concurrent saves silently overwrite each other
+- [x] **#CONS-2** · P1 · Effort: M — Shopify brand-map mutations have no concurrency guard — concurrent saves silently overwrite each other
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopifyController.php` — `addBrand()`, `setProducts()`, `removeBrand()`, `updateBrand()`
     - **Affects:** Professionals managing multiple Shopify brands. Two concurrent requests (two browser tabs, a retry) each read a stale `brandMap()`, apply their mutation, and write back — the last write wins and the first is silently discarded. At the cap boundary (`MAX_BRANDS = 5`), two requests at count-4 can both slip the check and produce a 6-brand payload.
     - **What to do:**

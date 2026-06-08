@@ -69,28 +69,32 @@ class ShopifyController extends ApiController
         $brand = $this->scraper->fetchBrand($origin);
         $id = $brand['id'];
 
-        $map = $this->brandMap($user);
-        if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
-            return $this->error('You can connect up to '.self::MAX_BRANDS.' brands.', 422);
-        }
+        // Scrape and URL-parse run outside the lock (slow external HTTP).
+        // Only the read→mutate→write cycle is serialised.
+        return $this->withConnectionLock($user, function () use ($user, $validated, $brand, $id, $origin) {
+            $map = $this->brandMap($user);
+            if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
+                return $this->error('You can connect up to '.self::MAX_BRANDS.' brands.', 422);
+            }
 
-        $discount = array_key_exists('discountCode', $validated)
-            ? trim((string) $validated['discountCode'])
-            : ($map[$id]['discountCode'] ?? '');
+            $discount = array_key_exists('discountCode', $validated)
+                ? trim((string) $validated['discountCode'])
+                : ($map[$id]['discountCode'] ?? '');
 
-        $map[$id] = [
-            'id' => $id,
-            'url' => $origin,
-            'name' => $brand['name'],
-            'currency' => $brand['currency'] ?? null,
-            'favicon' => $brand['favicon'],
-            'logo' => $brand['logo'],
-            'discountCode' => $discount,
-            'products' => $map[$id]['products'] ?? [],
-        ];
-        $this->writeConnection($user, $map);
+            $map[$id] = [
+                'id' => $id,
+                'url' => $origin,
+                'name' => $brand['name'],
+                'currency' => $brand['currency'] ?? null,
+                'favicon' => $brand['favicon'],
+                'logo' => $brand['logo'],
+                'discountCode' => $discount,
+                'products' => $map[$id]['products'] ?? [],
+            ];
+            $this->writeConnection($user, $map);
 
-        return $this->success($map[$id]);
+            return $this->success($map[$id]);
+        });
     }
 
     // PATCH /api/platforms/shopify/brands/{id} — update the discount code.
@@ -101,26 +105,31 @@ class ShopifyController extends ApiController
             'discountCode' => ['present', 'nullable', 'string', 'max:100'],
         ]);
 
-        $map = $this->brandMap($user);
-        if (! isset($map[$id])) {
-            return $this->error('Brand not found.', 404);
-        }
+        return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
+            $map = $this->brandMap($user);
+            if (! isset($map[$id])) {
+                return $this->error('Brand not found.', 404);
+            }
 
-        $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
-        $this->writeConnection($user, $map);
+            $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
+            $this->writeConnection($user, $map);
 
-        return $this->success($map[$id]);
+            return $this->success($map[$id]);
+        });
     }
 
     // DELETE /api/platforms/shopify/brands/{id} — remove a brand.
     public function removeBrand(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $map = $this->brandMap($user);
-        unset($map[$id]);
-        $this->writeConnection($user, $map);
 
-        return $this->success(['brands' => array_values($map)]);
+        return $this->withConnectionLock($user, function () use ($user, $id) {
+            $map = $this->brandMap($user);
+            unset($map[$id]);
+            $this->writeConnection($user, $map);
+
+            return $this->success(['brands' => array_values($map)]);
+        });
     }
 
     // GET /api/platforms/shopify/brands/{id}/products — live products for the picker.
@@ -149,24 +158,28 @@ class ShopifyController extends ApiController
             'productIds.*' => ['string', 'max:50'],
         ]);
 
-        $map = $this->brandMap($user);
-        if (! isset($map[$id])) {
-            return $this->error('Brand not found.', 404);
-        }
+        return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
+            $map = $this->brandMap($user);
+            if (! isset($map[$id])) {
+                return $this->error('Brand not found.', 404);
+            }
 
-        // Prefer the catalog the picker just warmed; only re-scrape if it has
-        // gone cold (a save long after the picker was opened).
-        $catalog = Cache::get($this->catalogKey($id))
-            ?? $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);
-        $all = collect($catalog)->keyBy('productId');
-        $map[$id]['products'] = collect($validated['productIds'])
-            ->map(fn (string $pid) => $all->get($pid))
-            ->filter()
-            ->values()
-            ->all();
-        $this->writeConnection($user, $map);
+            // Prefer the catalog the picker just warmed; only re-scrape if it has
+            // gone cold (a save long after the picker was opened). The catalog key
+            // is per-brand and the picker normally warms it first, so in practice
+            // this is a cache hit and the lock holds for microseconds.
+            $catalog = Cache::get($this->catalogKey($id))
+                ?? $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);
+            $all = collect($catalog)->keyBy('productId');
+            $map[$id]['products'] = collect($validated['productIds'])
+                ->map(fn (string $pid) => $all->get($pid))
+                ->filter()
+                ->values()
+                ->all();
+            $this->writeConnection($user, $map);
 
-        return $this->success($map[$id]);
+            return $this->success($map[$id]);
+        });
     }
 
     // GET /api/platforms/shopify/selection — COMPAT flat view of the primary brand
