@@ -182,11 +182,31 @@ class VerifySupabaseJwt
                         'operation' => __METHOD__,
                         'uid' => $uid,
                     ]);
-                } elseif ($this->revocation->isRevoked($fallbackSessionId)) {
-                    return response()->json([
-                        'message' => 'Session was terminated. Please log in again.',
-                        'code' => 'session_revoked',
-                    ], 401);
+                } else {
+                    // Same fail-open contract as the JWKS path above: isRevoked() is a
+                    // Redis EXISTS layered on an already-verified token. A Redis outage
+                    // here must NOT propagate to the outer catch — there it would be
+                    // mislogged as a verification failure and 401 every valid session
+                    // for the outage's duration. On any throwable, treat the session as
+                    // not-revoked and log distinctly.
+                    try {
+                        $revoked = $this->revocation->isRevoked($fallbackSessionId);
+                    } catch (\Throwable $revocationEx) {
+                        $revoked = false;
+                        Log::warning('Revocation check failed after successful JWT verification', [
+                            'request_id' => $requestId,
+                            'operation' => __METHOD__,
+                            'reason' => $revocationEx->getMessage(),
+                            'kind' => 'revocation_check_failed',
+                        ]);
+                    }
+
+                    if ($revoked) {
+                        return response()->json([
+                            'message' => 'Session was terminated. Please log in again.',
+                            'code' => 'session_revoked',
+                        ], 401);
+                    }
                 }
 
                 try {

@@ -136,13 +136,13 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Capture each video's `$media->path` in `audit.user_deletion_audit` metadata before `forceDelete()` runs. Add a periodic `gdpr:sweep-orphaned-video-artifacts` command that lists the `videos/` prefix on R2 and cross-references against `site.site_media` (with `withTrashed()`). As an immediate fix, increase `$tries` on `DeleteMediaArtifactsJob` and add exponential backoff `[60, 300, 900]`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-09** Redis exception during revocation check swallowed by outer JWKS catch — returns 401 for valid sessions — Lens: `jwt-mfa`
+- [x] **#P1-09** Redis exception during revocation check swallowed by outer JWKS catch — returns 401 for valid sessions — Lens: `jwt-mfa`
     - Where: `app/Http/Middleware/Auth/VerifySupabaseJwt.php:83–88` (revocation check) · `:105–129` (outer catch)
     - What: `isRevoked()` calls `Redis::EXISTS`; a `RedisException` propagates to the outer `try` which logs "JWT JWKS verification failed" (factually wrong) and returns 401 "Invalid token". The immediately-following `setSupabaseContext()` — an identical Redis risk — was correctly given its own inner `try/catch` with fail-open. The revocation call was not. Every authenticated user is locked out for the duration of a Redis outage.
     - Fix: Wrap `$this->revocation->isRevoked($sessionId)` in its own `try/catch(\Throwable)`. On catch: log `['kind' => 'revocation_check_failed']` at `warning` and proceed as if not revoked (fail-open: the token is cryptographically valid; revocation is a best-effort oracle). Mirror the pattern used by the `setSupabaseContext` guard three lines below.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P1-10** Subdomain retry loop aborts outer signup transaction on PostgreSQL — Lens: `transactions`
+- [x] **#P1-10** Subdomain retry loop aborts outer signup transaction on PostgreSQL — Lens: `transactions`
     - Where: `app/Services/User/SiteProvisioningService.php:84–106` (`tryCreateSite`) · `app/Services/User/UserBootstrapService.php:42` (outer `DB::transaction`)
     - What: PostgreSQL aborts the entire transaction-level state on any SQL error. `tryCreateSite` catches the `23505 QueryException` at the PHP level but the underlying PostgreSQL transaction is now in an aborted state. Every subsequent SQL call inside the outer `DB::transaction()` returns `25P02` ("current transaction is aborted"), which re-throws, rolls back the signup, and surfaces as an unhandled exception to the controller. The SQLite test suite (used by CI) does not reproduce this because SQLite does not abort transactions on statement errors.
     - Fix: Wrap the body of `tryCreateSite()` in a nested `DB::transaction()` — Laravel translates nested calls to `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`, isolating the unique-violation from the outer transaction. Keep the existing `catch (QueryException $e)` to handle the savepoint rollback. Add a Pest feature test against pgsql (or a stub throwing `23505`) to prevent regression.
@@ -166,7 +166,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Replace `Location: entry.redirect` with `` Location: `${entry.redirect.replace(/\/$/, '')}${url.pathname}${url.search}` ``. No changes to the Laravel backend required — KV entries always store a bare origin.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P1-14** `site.design_kits` has no Row-Level Security — any authenticated user can read all design tokens via Supabase API — Lens: `rls`
+- [x] **#P1-14** `site.design_kits` has no Row-Level Security — any authenticated user can read all design tokens via Supabase API — Lens: `rls`
     - Where: `supabase/migrations/20260527070000_skeleton_system_cleanup.sql` (table created without `ENABLE ROW LEVEL SECURITY`) · `supabase/config.toml` (`api.schemas` includes `site`)
     - What: Every other tenant-bound table in the `site` schema (`sites`, `blocks`, `site_media`, `services`) has RLS enabled and an owner policy. `design_kits` is the sole exception. The `site` schema is in `api.schemas`, so any valid Supabase JWT can `GET /rest/v1/design_kits` and receive every user's color palettes, typography, button colors, and spacing values.
     - Fix: Add a migration enabling RLS and three policies: owner-full-access (JOIN via `site.sites + core.users WHERE auth_user_id = auth.uid()`), staff-full-access, and anon-SELECT for published sites. Mirror the pattern on `site.sites`. Consider adding `FORCE ROW LEVEL SECURITY` as done for `core.feedback`.
@@ -196,7 +196,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Extend `UserSelfPolicy` (or a new `UserStaffPolicy`) to add staff-facing abilities: `manage(PartnaStaff $actor, User $target): bool { return true; }` with the role-restricted variants for `forceDelete`, `restore`, and `bulkManage`. In each write method resolve `$staff = $request->attributes->get('partna_staff')` and call `$this->authorizeForUser($staff, 'manage', $professional)`.
     - Models: impl=sonnet · review=opus
 
-- [ ] **#P2-04** Any staff role (including `support`) can INSERT/UPDATE/DELETE `core.users` and `site.customers` via Supabase API — Lens: `rls`
+- [x] **#P2-04** Any staff role (including `support`) can INSERT/UPDATE/DELETE `core.users` and `site.customers` via Supabase API — Lens: `rls`
     - Where: `supabase/migrations/20260526000000_baseline_standalone_user.sql` — `users_all_authenticated` policy · `customers_all_authenticated` policy
     - What: Both policies check staff membership via a bare `EXISTS (SELECT 1 FROM core.partna_staff cs WHERE cs.auth_user_id = auth.uid())` in the `WITH CHECK` clause — no role filter. A compromised or rogue `support` account with a direct Supabase JWT can UPDATE any user's profile or DELETE any customer record. `core.partna_staff` itself correctly gates writes on `cs.role = 'admin'`; these two tables do not.
     - Fix: Split each policy into a SELECT policy (any staff) and a write policy (admin-only) by adding `AND cs.role = 'admin'` to the `WITH CHECK` expression. Deliver as a migration using `DROP POLICY ... ; CREATE POLICY ...` pattern.
@@ -314,7 +314,7 @@ Themes that surfaced independently under two or more lens audits:
     - Fix: Add `report($e);` as the first line of `failed()` in both jobs.
     - Models: impl=haiku · review=sonnet
 
-- [ ] **#P2-22** Raw deletion token serialised into Redis job payload — Lens: `queue-jobs`
+- [x] **#P2-22** Raw deletion token serialised into Redis job payload — Lens: `queue-jobs`
     - Where: `app/Jobs/Account/SendAccountDeletionRequestMailJob.php` (constructor `string $rawToken`)
     - What: The `rawToken` is a bearer credential — possession allows confirming account deletion. It is serialised into the Redis queue payload via constructor property promotion and lives there for up to `$backoff[2]` (300 s) per retry. Horizon job snapshots and Redis backup/monitoring tools may retain the value beyond the job lifecycle.
     - Fix: In `AccountDeletionService::request()`, pre-compute `$confirmationUrl` and `$tokenHash` before dispatch. Change the job constructor to accept `string $confirmationUrl` and `string $tokenHash` instead of `string $rawToken`. Use `$this->confirmationUrl` directly in `handle()`; use `$this->tokenHash` in `failed()`. The raw credential is removed from the payload entirely.
@@ -488,7 +488,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P2 — KV & Routing
 
-- [ ] **#P2-45** Professional deletion leaves the KV routing entry permanently live — `RetireSubdomainFromKvJob` is a dead class with zero dispatch sites — Lens: `subdomain-kv`
+- [x] **#P2-45** Professional deletion leaves the KV routing entry permanently live — `RetireSubdomainFromKvJob` is a dead class with zero dispatch sites — Lens: `subdomain-kv`
     - Where: `app/Jobs/Cloudflare/RetireSubdomainFromKvJob.php` (dead class) · `app/Observers/User/UserObserver.php:deleted` (missing dispatch) · `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php` (contradictory comment: "genuine deletes go through RetireSubdomainFromKvJob, NOT this job")
     - What: `UserObserver::deleted` calls only `$this->userCache->invalidateUser(…)` — no KV dispatch. `SyncSubdomainToKvJob::handle()` returns early when `User::find()` is null (soft-deleted models excluded). No code path calls `CloudflareKvService::delete()` on a deleted professional's handle. The weekly `backfill-subdomain-kv` cron is the only recovery, giving a worst-case 7-day window of stale KV routing. Old handles also cannot be cleanly reclaimed by new users during this window.
     - Fix: Delete `RetireSubdomainFromKvJob.php` (zero dispatch sites, made obsolete). In `UserObserver::deleted`, dispatch a new `DeleteSubdomainFromKvJob` (or modify `SyncSubdomainToKvJob` to handle null user by calling `$kv->delete($capturedHandle)`). Remove the contradictory comment from `SyncSubdomainToKvJob`.
@@ -725,7 +725,7 @@ Themes that surfaced independently under two or more lens audits:
 
 ### P3 — RLS
 
-- [ ] **#P3-16** `moderation` schema tables have no Row-Level Security — defence-in-depth gap — Lens: `rls`
+- [x] **#P3-16** `moderation` schema tables have no Row-Level Security — defence-in-depth gap — Lens: `rls`
     - Where: `supabase/migrations/20260528000000_create_moderation_schema.sql` — all five CREATE TABLE statements
     - What: The `moderation` schema is correctly excluded from `api.schemas` and `anon`/`authenticated` roles have no USAGE grant. The risk is purely forward-looking: if `moderation` is ever added to the API schemas or USAGE is granted without also enabling RLS, all case data — reporter PII, case types, decision rationale — would be immediately readable by any authenticated user. The `audit` schema has correct DEFAULT PRIVILEGES locked to SELECT/INSERT; moderation does not.
     - Fix: Add `ALTER TABLE moderation.<table> ENABLE ROW LEVEL SECURITY;` for all five tables. Add staff-only SELECT policies and app_backend-only INSERT/UPDATE policies, mirroring `audit.staff_audit_log`.
@@ -1372,22 +1372,22 @@ The following items touch single-writer KV contracts, schema-wide RLS policies, 
 - [x] **#P1-01** — StaffUserController theme crash fix. Self-contained, targeted. Land before any staff-dashboard QA session.
 - [ ] **#P1-02** — Cloudflare Worker error boundary. Requires Worker deploy; coordinate with edge deploy schedule.
 - [x] **#P1-08** (GDPR-1) — Video R2 orphan strategy. DECIDED (Josh, 2026-06-06): "Both" — ledger sweep (`gdpr:sweep-purged-video-artifacts`, daily) + prefix GC (`media:gc-orphaned-video-artifacts`, weekly) + exponential backoff [60,300,900] on DeleteMediaArtifactsJob.
-- [ ] **#P1-09** (JWT-1) — Redis revocation catch. Auth middleware; opus review required. Do not bundle with JWT-2/3.
-- [ ] **#P1-10** (PROV-1) — PostgreSQL signup savepoint. Load-bearing transaction boundary; opus review. Add pgsql integration test. Do not bundle.
+- [x] **#P1-09** (JWT-1) — Redis revocation catch. Auth middleware; opus review required. Do not bundle with JWT-2/3.
+- [x] **#P1-10** (PROV-1) — PostgreSQL signup savepoint. Load-bearing transaction boundary; opus review. Add pgsql integration test. Do not bundle.
 - [x] **#P1-12** (RATE-2) — Bot protection mode prod guard. Must land before B18.
 - [x] **#P1-13** (KV-1) — Alias 301 path preservation. Single-writer KV / Worker change. Coordinate with Worker deploy.
-- [ ] **#P1-14** (RLS-1) — `design_kits` RLS. Schema-wide RLS migration; opus review. Requires `supabase db push` to both dev and prod.
+- [x] **#P1-14** (RLS-1) — `design_kits` RLS. Schema-wide RLS migration; opus review. Requires `supabase db push` to both dev and prod.
 - [x] **#P2-03** (AUTH-1) — Staff write policy authorization. New policy class required; load-bearing authz change. Must precede B17.
-- [ ] **#P2-04** (RLS-2) — Staff role write scoping on `core.users`. Schema-wide RLS policy migration; opus review.
+- [x] **#P2-04** (RLS-2) — Staff role write scoping on `core.users`. Schema-wide RLS policy migration; opus review.
 - [x] **#P2-05** (RLS-3) — `app_backend` BYPASSRLS reduction. DONE short-term (2026-06-07, migration `20260607000000`): code-verified safe revokes only — UPDATE,DELETE on `moderation.decisions` + `notifications.broadcast_email_receipts`, DELETE-only on `moderation.action_log` (UPDATE kept; 3 jobs mutate dispatch state). Finding's analytics revokes REJECTED — `PurgeRawAnalyticsEvents` deletes those tables for retention. Long-term full BYPASSRLS removal still DEFERRED (L effort, separate task).
 - [x] **#P2-15** (CACHE-1) — `getByAuthId` nullable method fix. Self-contained; touches every auth request path.
-- [ ] **#P2-22** (QUEUE-6) — Raw deletion token in job payload. Restructures `AccountDeletionService::request()` + job constructor; load-bearing PII change; opus review.
+- [x] **#P2-22** (QUEUE-6) — Raw deletion token in job payload. Restructures `AccountDeletionService::request()` + job constructor; load-bearing PII change; opus review.
 - [x] **#P2-35** (IDOR-3) — X-Site-Subdomain trust. DONE (2026-06-08): topology-agnostic app-layer fix — `resolveSiteSubdomain` now derives the tenant from a trusted Origin (genuine `<handle>.public_domain`, non-reserved label) over the spoofable header, closing the browser-driven cross-tenant vector. Worker-strip rejected (no Worker fronts api.partna.au); "prefer Host" rejected (api host has no tenant subdomain). Defence-in-depth — non-browser clients still need published-site check + bot-protection (both already present). Analytics already mitigated via separate site_id↔subdomain cross-check.
 - [x] **#P2-38** (JOB-1) — Deletion mail idempotency. Requires Supabase migration (`deletion_mail_sent_at` column on `core.users`); do not bundle with other migrations.
 - [x] **#P2-39** (MIGR-2) — Index inside BEGIN/COMMIT. Requires creating a sibling migration file; coordinate with migration sequence.
-- [ ] **#P2-45** (KV-2) — Professional deletion clears KV entry. Single-writer KV contract; new job or service method required; opus review.
+- [x] **#P2-45** (KV-2) — Professional deletion clears KV entry. Single-writer KV contract; new job or service method required; opus review.
 - [x] **#P2-56** (NPL-1) — Unbounded subscriber CSV export [@10k]. DONE (2026-06-07): `->limit(config('partna.export.max_rows'))` on both user + staff export controllers; `X-Export-Truncated: 1` header when capped. Cap value = 50,000 (env `PARTNA_EXPORT_MAX_ROWS`), generous so no realistic list truncates.
-- [ ] **#P3-16** (RLS-4) — Moderation schema RLS. Schema-wide RLS policies on five tables; opus review. Low urgency (`moderation` not in `api.schemas`) but delivers defence-in-depth.
+- [x] **#P3-16** (RLS-4) — Moderation schema RLS. Schema-wide RLS policies on five tables; opus review. Low urgency (`moderation` not in `api.schemas`) but delivers defence-in-depth.
 
 ---
 
