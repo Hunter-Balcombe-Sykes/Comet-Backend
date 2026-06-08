@@ -57,7 +57,7 @@ class InstagramController extends ApiController
             return $budgetError;
         }
 
-        $profile = $this->scraper->fetchProfile($username);
+        $profile = $this->scraper->fetchProfile($username, $user->id);
         if (! $profile) {
             return $this->error('Could not fetch that Instagram profile (private, not found, or scraper error).', 502);
         }
@@ -76,12 +76,14 @@ class InstagramController extends ApiController
     // urls (LIVE, un-mirrored) + profile, for the manual picker.
     public function posts(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+
         $username = $this->validateUsername($request);
         if ($username instanceof JsonResponse) {
             return $username;
         }
 
-        $profile = $this->scraper->fetchProfile($username);
+        $profile = $this->scraper->fetchProfile($username, $user->id);
         if (! $profile) {
             return $this->error('Could not fetch that Instagram profile.', 502);
         }
@@ -109,7 +111,7 @@ class InstagramController extends ApiController
             return $username;
         }
 
-        $profile = $this->scraper->fetchProfile($username);
+        $profile = $this->scraper->fetchProfile($username, $user->id);
         if (! $profile) {
             return $this->error('Could not fetch that Instagram profile.', 502);
         }

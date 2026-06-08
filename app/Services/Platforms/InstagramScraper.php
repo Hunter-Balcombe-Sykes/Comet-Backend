@@ -22,7 +22,11 @@ class InstagramScraper extends PlatformScraper
 
     // Run the profile scraper, returning the first dataset item (the profile,
     // with latestPosts) or null on any failure / missing token.
-    public function fetchProfile(string $username): ?array
+    //
+    // $userId is threaded for log correlation. platform_connection_id is
+    // intentionally not threaded: the connection row is written only AFTER a
+    // successful scrape, so it doesn't exist at log time.
+    public function fetchProfile(string $username, ?string $userId = null): ?array
     {
         $token = config('services.apify.token');
         if (! $token) {
@@ -37,7 +41,7 @@ class InstagramScraper extends PlatformScraper
                     ['usernames' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
                 );
         } catch (Throwable $e) {
-            Log::warning('instagram.apify.threw', ['username' => $username, 'error' => $e->getMessage()]);
+            Log::warning('instagram.apify.threw', ['username' => $username, 'user_id' => $userId, 'error' => $e->getMessage()]);
 
             return null;
         }
@@ -46,6 +50,7 @@ class InstagramScraper extends PlatformScraper
         if (! $response->successful()) {
             Log::warning('instagram.apify.not_ok', [
                 'username' => $username,
+                'user_id' => $userId,
                 'status' => $response->status(),
             ]);
 
@@ -56,6 +61,7 @@ class InstagramScraper extends PlatformScraper
         if (! is_array($items) || empty($items) || ! is_array($items[0])) {
             Log::warning('instagram.apify.bad_items', [
                 'username' => $username,
+                'user_id' => $userId,
                 'type' => gettype($items),
                 'count' => is_array($items) ? count($items) : 0,
             ]);
