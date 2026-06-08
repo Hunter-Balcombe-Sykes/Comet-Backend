@@ -29,7 +29,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Progress
 
-- P1 Launch blockers: 0 of 5 complete
+- P1 Launch blockers: 1 of 5 complete
 - P2 Scale risks: 0 of 4 complete
 - P2 Security & privacy: 0 of 5 complete
 - P2 Correctness/data integrity: 0 of 8 complete
@@ -41,7 +41,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Launch blockers (P1)
 
-- [ ] **#CONS-1** · P1 · Effort: S — YouTube cron strips `latest` key — "Most Recent" tile blanks after first nightly refresh
+- [x] **#CONS-1** · P1 · Effort: S — YouTube cron strips `latest` key — "Most Recent" tile blanks after first nightly refresh
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` — `youtubePayload()` return array (lines 71–82)
     - **Affects:** Every professional with a YouTube connection. The first nightly `integrations:refresh` cron after they connect strips the `payload['latest']` key, blanking the dashboard "Most Recent" tile. The flat back-compat fields (`name`, `description`, `link`, `thumbnail`) survive; the canonical nested key does not. Apple Music and Apple Podcast refreshers are unaffected — both use `...$payload` spread which preserves `latest` implicitly.
     - **What to do:**

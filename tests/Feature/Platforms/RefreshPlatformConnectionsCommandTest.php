@@ -47,6 +47,8 @@ it('refreshes a stale YouTube connection to the new latest video, preserving hig
     expect($conn->payload['name'])->toBe('New Video');
     expect($conn->payload['highlights'])->toHaveCount(1);   // curated picks preserved
     expect($conn->last_refresh_status)->toBe('ok');
+    expect($conn->payload['latest'])->toHaveKey('videoId');
+    expect($conn->payload['latest']['videoId'])->toBe('v9');   // the new video, not the old flat fields
 });
 
 it('does not touch non-refreshable platforms (Instagram is never queried)', function () {

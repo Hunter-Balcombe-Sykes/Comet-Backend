@@ -70,15 +70,17 @@ class PlatformRefresher
         }
         $latest = $videos[0];
 
+        // Preserve handle + curated highlights via spread; refresh only the
+        // auto-latest tile. `latest` is the canonical nested shape the dashboard
+        // "Most Recent" tile reads — it MUST survive the refresh (drift caused by
+        // reconstructing-from-scratch is the bug this fixes).
         return [
-            'handle' => $handle,
+            ...$payload,
+            'latest' => $latest,
             'name' => $latest['name'],
             'description' => $latest['description'],
             'link' => $latest['link'],
             'thumbnail' => $latest['thumbnail'],
-            // User-chosen highlights are preserved — the cron only refreshes the
-            // auto-latest tile, not the curated picks.
-            'highlights' => $payload['highlights'] ?? [],
         ];
     }
 
