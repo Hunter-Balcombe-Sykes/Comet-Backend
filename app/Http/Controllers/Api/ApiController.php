@@ -21,6 +21,19 @@ abstract class ApiController extends Controller
     }
 
     /**
+     * Return a success JSON response with a public CDN cache header.
+     *
+     * Same body shape as success() — for unauthenticated, aggressively cacheable
+     * config endpoints, so they go through the standard helper rather than
+     * hand-rolling response()->json()->header().
+     */
+    protected function successCached($data = null, int $maxAge = 3600): JsonResponse
+    {
+        return response()->json($data)
+            ->header('Cache-Control', "public, max-age={$maxAge}");
+    }
+
+    /**
      * Return error response with message.
      */
     protected function error(string $message, int $status = 400, array $errors = []): JsonResponse

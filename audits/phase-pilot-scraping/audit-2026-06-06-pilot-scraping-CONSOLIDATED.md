@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 5 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P3 Nice to have: 6 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -606,7 +606,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Add `it('keeps an event with no dates at all')` — seed payload with both dates null alongside a past event; assert dateless event survives while past event is dropped.
     - **Evidence:** `$end = $e['endDate'] ?? $e['startDate'] ?? null; return $end === null || $end >= $now;` — null-both path is intentional but unasserted.
 
-- [ ] **#CONS-37** · P3 · Effort: S — `PublicConfigController` bypasses `ApiController::success()` envelope — inconsistent response shape for frontend
+- [x] **#CONS-37** · P3 · Effort: S — `PublicConfigController` bypasses `ApiController::success()` envelope — inconsistent response shape for frontend
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicConfigController.php:44–49, 63–68`
     - **What to do:** Add `successCached(array $data, int $maxAge = 3600): JsonResponse` helper on `ApiController`. Replace two `response()->json()->header()` calls.
     - **Evidence:** `return response()->json([...])->header('Cache-Control', 'public, max-age=3600');` — raw response bypasses `success()` envelope used everywhere else.

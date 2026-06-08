@@ -35,12 +35,10 @@ class PublicConfigController extends ApiController
      */
     public function socialPlatforms(): JsonResponse
     {
-        return response()
-            ->json([
-                'platforms' => $this->normalizer->getPublicRegistry(),
-                'categories' => config('partna.link_categories', []),
-            ])
-            ->header('Cache-Control', 'public, max-age=3600');
+        return $this->successCached([
+            'platforms' => $this->normalizer->getPublicRegistry(),
+            'categories' => config('partna.link_categories', []),
+        ]);
     }
 
     /**
@@ -58,10 +56,8 @@ class PublicConfigController extends ApiController
      */
     public function integrations(): JsonResponse
     {
-        return response()
-            ->json([
-                'googleMapsApiKey' => config('services.google_maps.api_key'),
-            ])
-            ->header('Cache-Control', 'public, max-age=3600');
+        return $this->successCached([
+            'googleMapsApiKey' => config('services.google_maps.api_key'),
+        ]);
     }
 }
