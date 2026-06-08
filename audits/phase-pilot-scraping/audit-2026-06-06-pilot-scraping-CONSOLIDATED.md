@@ -34,7 +34,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
-- P2 Test coverage: 1 of 3 complete
+- P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
 - P3 Nice to have: 0 of 14 complete
 
 ---
@@ -544,7 +544,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
             WHERE deleted_at IS NULL;
         ```
 
-- [ ] **#CONS-28** · P2 · Effort: S — `RefreshIntegrationConnectionsCommand` failure path is untested — `consecutive_failures` increment logic never exercised
+- [x] **#CONS-28** · P2 · Effort: S — `RefreshIntegrationConnectionsCommand` failure path is untested — `consecutive_failures` increment logic never exercised
     - **Where:** `app/Services/Platforms/PlatformRefresher.php:43–49`; `app/Console/Commands/RefreshIntegrationConnectionsCommand.php:50–57`; `tests/Feature/Platforms/RefreshPlatformConnectionsCommandTest.php` (happy path only)
     - **Affects:** Cron observability — the `consecutive_failures` counter exists to detect persistent scrape failures, but its increment logic has never been exercised. A silent bug preventing the counter from advancing would be invisible.
     - **What to do:**
