@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
+use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
@@ -17,9 +18,12 @@ use Illuminate\Http\Request;
 class YoutubeController extends ApiController
 {
     use ManagesIntegrationConnection;
+    use RefreshesLatestTile;
     use ResolveCurrentUser;
 
     private const MAX_HIGHLIGHTS = 5;
+
+    private const FLAT_TILE_FIELDS = ['name', 'description', 'link', 'thumbnail'];
 
     public function __construct(private readonly YoutubeScraper $scraper) {}
 
@@ -58,10 +62,7 @@ class YoutubeController extends ApiController
             // Flat fields retained for partna-pages + back-compat. The nested
             // `latest` is the canonical shape (same as a highlight item) and is
             // what the dashboard reads to render the "Most recent" tile.
-            'name' => $latest['name'],
-            'description' => $latest['description'],
-            'link' => $latest['link'],
-            'thumbnail' => $latest['thumbnail'],
+            ...$this->flatTileFields($latest, self::FLAT_TILE_FIELDS),
             'latest' => $latest,
             'highlights' => $highlights,
         ];
@@ -112,12 +113,7 @@ class YoutubeController extends ApiController
             // published since connect would otherwise leave `latest` (and the flat
             // back-compat fields) stale while only the highlights updated.
             if (isset($videos[0])) {
-                $latest = $videos[0];
-                $selection['latest'] = $latest;
-                $selection['name'] = $latest['name'];
-                $selection['description'] = $latest['description'];
-                $selection['link'] = $latest['link'];
-                $selection['thumbnail'] = $latest['thumbnail'];
+                $selection = $this->refreshLatestTile($selection, $videos[0], self::FLAT_TILE_FIELDS);
             }
 
             // Snapshot the chosen videos in the order the user posted them.

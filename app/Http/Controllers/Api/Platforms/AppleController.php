@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -24,6 +25,7 @@ use Illuminate\Support\Facades\Cache;
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
+    use RefreshesLatestTile;
     use ResolveCurrentUser;
 
     // Apple Music + Podcasts are independent platform values (own CHECK enum
@@ -173,7 +175,7 @@ class AppleController extends ApiController
             'input' => $input,
             // Flat fields for partna-pages + back-compat; nested `latest` is the
             // canonical shape the dashboard reads for the "Most recent" tile.
-            ...$this->flatTile($latest, $cfg['flatFields']),
+            ...$this->flatTileFields($latest, $cfg['flatFields']),
             'latest' => $latest,
             'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
         ];
@@ -223,8 +225,7 @@ class AppleController extends ApiController
             // connect would otherwise leave `latest` (and the flat back-compat fields)
             // stale while only highlights updated.
             if (isset($items[0])) {
-                $selection['latest'] = $items[0];
-                $selection = array_merge($selection, $this->flatTile($items[0], $cfg['flatFields']));
+                $selection = $this->refreshLatestTile($selection, $items[0], $cfg['flatFields']);
             }
 
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
@@ -239,19 +240,6 @@ class AppleController extends ApiController
         $this->forgetOne($this->currentUser($request), $platform);
 
         return $this->success([$responseKey => null]);
-    }
-
-    // ── Flat-tile helper ──────────────────────────────────────────
-
-    /** Flat back-compat tile fields copied verbatim from a latest item. */
-    private function flatTile(array $latest, array $flatFields): array
-    {
-        $out = [];
-        foreach ($flatFields as $f) {
-            $out[$f] = $latest[$f];
-        }
-
-        return $out;
     }
 
     // ── internals ────────────────────────────────────────────────

@@ -35,7 +35,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 7 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P3 Nice to have: 8 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -621,7 +621,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Extract a private generic method per operation accepting the platform constant, scraper callable, and platform-specific field names. Keep public methods as one-line adapters.
     - **Technical:** The `latest` key drift (CONS-1) illustrates the failure mode: a fix applied to one pair member that misses the sibling. Five 8–20-line pairs is past the "three similar lines" threshold.
 
-- [ ] **#CONS-40** · P3 · Effort: S — "Refresh most-recent tile" block copy-pasted across three controllers — the same structural gap that produced CONS-1
+- [x] **#CONS-40** · P3 · Effort: S — "Refresh most-recent tile" block copy-pasted across three controllers — the same structural gap that produced CONS-1
     - **Where:** `AppleController.php` — `musicHighlights()`, `podcastHighlights()`; `YoutubeController.php` — `highlights()`; comments in each explicitly acknowledge the mirroring
     - **What to do:** Extract a private `refreshLatestTile(array &$selection, array $items, string $backCompatField): void` method, or a trait method on `ManagesIntegrationConnection`.
     - **Technical:** `PlatformRefresher::youtubePayload()` reimplements this same pattern in a fourth location without a shared reference — the absence of a canonical helper was the root cause of CONS-1.
