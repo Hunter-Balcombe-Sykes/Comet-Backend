@@ -31,7 +31,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
-- P2 Security & privacy: 0 of 5 complete
+- P2 Security & privacy: 1 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 0 of 8 complete
 - P2 Observability: 0 of 3 complete
 - P2 Test coverage: 0 of 3 complete
@@ -262,7 +262,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         ])->values())
         ```
 
-- [ ] **#CONS-12** · P2 · Effort: S — `InstagramScraper` logs the raw Apify response body (up to 800 bytes of potential Instagram PII)
+- [x] **#CONS-12** · P2 · Effort: S — `InstagramScraper` logs the raw Apify response body (up to 800 bytes of potential Instagram PII)
     - **Where:** `app/Services/Platforms/InstagramScraper.php:40–44` — `not_ok` log branch
     - **Affects:** Nightwatch log aggregator. Apify error responses can echo back scraped Instagram profile data (full name, bio excerpt, post captions). GDPR Article 5(1)(c) data-minimisation principle applies to log storage.
     - **What to do:**

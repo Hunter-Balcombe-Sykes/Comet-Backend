@@ -47,7 +47,6 @@ class InstagramScraper extends PlatformScraper
             Log::warning('instagram.apify.not_ok', [
                 'username' => $username,
                 'status' => $response->status(),
-                'body' => mb_substr($response->body(), 0, 800),
             ]);
 
             return null;
