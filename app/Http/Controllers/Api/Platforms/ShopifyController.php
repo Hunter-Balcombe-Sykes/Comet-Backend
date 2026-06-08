@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
+use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,7 @@ use Illuminate\Support\Facades\Cache;
 // keeps rendering the Shop card until the skeleton is reworked for multi-brand.
 class ShopifyController extends ApiController
 {
+    use JitteredTtl;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -143,7 +145,9 @@ class ShopifyController extends ApiController
         $products = $this->scraper->fetchProducts($map[$id]['url'], $map[$id]['currency'] ?? null);
         // Warm a short-lived catalog cache so the immediately-following PUT
         // /selection reuses these products instead of re-scraping the whole store.
-        Cache::put($this->catalogKey($id), $products, now()->addMinutes(self::CATALOG_TTL_MINUTES));
+        // Jittered TTL (integer seconds — DateTimeInterface bypasses jitter) so
+        // concurrent cold misses at the boundary don't all re-scrape the store at once.
+        Cache::put($this->catalogKey($id), $products, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
 
         return $this->success(['products' => $products]);
     }
