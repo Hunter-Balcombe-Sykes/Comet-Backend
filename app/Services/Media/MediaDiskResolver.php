@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\Log;
  *
  * Resolution order:
  *  1. If any PARTNA_MEDIA_DISK / SIDEST_MEDIA_DISK superglobal is present,
- *     trust config('partna.media_disk') — config was populated from the env.
+ *     return that probed value directly — the cached config may predate the
+ *     runtime-injected env var and must not be trusted over the live probe.
  *  2. If config is still the sentinel value 'media' and filesystems.default
  *     is an S3-backed disk, fall back to that disk and log a warning.
  *  3. Otherwise return the configured value as-is.
@@ -32,7 +33,7 @@ final class MediaDiskResolver
         $explicit = $_ENV['PARTNA_MEDIA_DISK'] ?? $_SERVER['PARTNA_MEDIA_DISK']
             ?? $_ENV['SIDEST_MEDIA_DISK'] ?? $_SERVER['SIDEST_MEDIA_DISK'] ?? null;
         if (is_string($explicit) && trim($explicit) !== '') {
-            return $configured;
+            return trim($explicit);
         }
 
         if ($configured === 'media') {

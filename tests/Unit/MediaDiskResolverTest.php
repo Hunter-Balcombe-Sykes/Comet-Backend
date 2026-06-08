@@ -40,15 +40,17 @@ afterEach(function () {
     }
 });
 
-it('returns the configured disk when PARTNA_MEDIA_DISK env var is present', function () {
-    config(['partna.media_disk' => 'my-r2']);
+it('returns the probed env value when PARTNA_MEDIA_DISK is set and config is the stale sentinel', function () {
+    // Simulates Laravel Cloud: config was cached before the env var was injected,
+    // so config('partna.media_disk') is still 'media' while $_ENV has the real disk.
+    config(['partna.media_disk' => 'media']);
     $_ENV['PARTNA_MEDIA_DISK'] = 'my-r2';
 
     expect(MediaDiskResolver::resolve())->toBe('my-r2');
 });
 
-it('returns the configured disk when SIDEST_MEDIA_DISK legacy env var is present', function () {
-    config(['partna.media_disk' => 'legacy-r2']);
+it('returns the probed env value when SIDEST_MEDIA_DISK legacy var is set and config is the stale sentinel', function () {
+    config(['partna.media_disk' => 'media']);
     $_ENV['SIDEST_MEDIA_DISK'] = 'legacy-r2';
 
     expect(MediaDiskResolver::resolve())->toBe('legacy-r2');
@@ -71,7 +73,7 @@ it('falls back to filesystems.default when media disk is unconfigured and defaul
         ->once()
         ->with(
             'PARTNA_MEDIA_DISK not set (legacy fallback: SIDEST_MEDIA_DISK); using filesystems.default disk for media operations.',
-            \Mockery::subset(['fallback_disk' => 'r2-cloud'])
+            Mockery::subset(['fallback_disk' => 'r2-cloud'])
         );
 
     expect(MediaDiskResolver::resolve())->toBe('r2-cloud');

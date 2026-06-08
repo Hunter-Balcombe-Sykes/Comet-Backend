@@ -21,7 +21,7 @@
 ## Progress
 
 - P1 High: 0 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 1 of 4 complete
 - P3 Low: 0 of 17 complete
 
 ---
@@ -82,7 +82,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEM-2** · P2 — `MediaDiskResolver` returns stale config value instead of probed runtime env var
+- [x] **#SEM-2** · P2 — `MediaDiskResolver` returns stale config value instead of probed runtime env var
     - **Where:** app/Services/Media/MediaDiskResolver.php:39-42
     - **Affects:** Any deployment where `PARTNA_MEDIA_DISK` is added or changed as a runtime env injection without a config-cache rebuild — all image and video uploads silently route to the wrong disk (the `'media'` sentinel) instead of the intended R2 bucket.
     - **Effort:** S (~5 min)
