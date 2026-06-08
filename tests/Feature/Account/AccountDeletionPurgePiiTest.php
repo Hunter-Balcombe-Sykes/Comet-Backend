@@ -48,7 +48,7 @@ function seedPurgePiiUser(string $originalEmail): array
         'updated_at'            => now()->toIso8601String(),
     ]);
 
-    // Audit snapshot written before pseudonymisation — resolvePurgeEmail() reads this.
+    // Audit snapshot written before pseudonymisation — resolveDeletedAccountEmail() reads this.
     DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
         'id'                          => (string) Str::uuid(),
         'user_id'                     => $id,

@@ -12,6 +12,7 @@ use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
+use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,8 @@ use Illuminate\Support\Str;
 // from PurgeSoftDeleted command for hard-delete after grace period.
 class AccountDeletionService
 {
+    use ResolvesDeletedEmail;
+
     /**
      * Initiate a deletion request. Checks preconditions, stores hashed token,
      * queues the confirmation email. Token write + job dispatch + audit log
@@ -522,7 +525,7 @@ class AccountDeletionService
         // Step 3b: resolve pre-pseudonymisation email for email-keyed erasure.
         // executeConfirmation() pseudonymises primary_email before purge runs —
         // the original is preserved in the deletion audit snapshot.
-        $lookupEmail = $this->resolvePurgeEmail($professional);
+        $lookupEmail = $this->resolveDeletedAccountEmail($professional);
 
         // Step 3c–3g: erase PII from surfaces the DB cascade won't reach.
         // Each step is independently fault-tolerant — a failure must not block forceDelete.
@@ -569,35 +572,6 @@ class AccountDeletionService
         ]);
 
         return true;
-    }
-
-    /**
-     * Resolve the pre-pseudonymisation email from the deletion audit snapshot.
-     *
-     * executeConfirmation() pseudonymises primary_email before purge() runs —
-     * the original is captured in EVENT_CONFIRMED/REQUESTED audit rows written
-     * before the pseudonymise step. Mirrors DataExportPayloadBuilder::resolveLookupEmail().
-     */
-    private function resolvePurgeEmail(User $professional): ?string
-    {
-        $email = $professional->primary_email;
-        if ($email !== null && str_starts_with($email, 'deleted+')) {
-            $snapshot = DB::connection('pgsql')
-                ->table('audit.user_deletion_audit')
-                ->where('user_id', $professional->id)
-                ->whereIn('event', [
-                    UserDeletionAuditEntry::EVENT_REQUESTED,
-                    UserDeletionAuditEntry::EVENT_CONFIRMED,
-                    UserDeletionAuditEntry::EVENT_ADMIN_INITIATED,
-                ])
-                ->orderByDesc('created_at')
-                ->value('professional_email_snapshot');
-            if (is_string($snapshot) && $snapshot !== '') {
-                return $snapshot;
-            }
-        }
-
-        return $email;
     }
 
     /**

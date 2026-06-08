@@ -350,6 +350,118 @@ it('falls back to deletion_audit email_snapshot when primary_email has been pseu
     expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
 });
 
+// SEM-3 regression: the old resolveLookupEmail was missing EVENT_CONFIRMED and sorted ASC,
+// causing admin-initiated deletions (confirmed row, no requested row) to produce null → empty DSAR.
+it('SEM-3: resolves email from confirmed-only audit row (admin-initiated deletion, no requested row)', function () {
+    // An admin-initiated deletion writes EVENT_ADMIN_INITIATED then EVENT_CONFIRMED
+    // without a preceding EVENT_REQUESTED. The old resolveLookupEmail excluded
+    // EVENT_CONFIRMED entirely — this test proves the shared trait handles it.
+    $proId = (string) Str::uuid();
+    $pro = seedProForPayload($proId, 'deleted+'.$proId.'@partna.au');
+
+    DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'confirmed',       // EVENT_CONFIRMED — the only row present
+            'actor_type' => 'professional',
+            'created_at' => '2026-04-12T00:00:00Z',
+        ],
+    ]);
+
+    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'name' => 'Jane Owner',
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'phone' => '+61400000001',
+        'applicant_type' => 'professional',
+        'industry' => 'mens_grooming',
+        'pilot_program_opt_in' => 1,
+        'consent_source' => 'waitlist_form',
+        'last_submitted_at' => '2026-02-01T00:00:00Z',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($proId);
+
+    // If SEM-3 regresses, confirmed-only rows return null snapshot → empty waitlist.
+    expect($payload['waitlist'])->toHaveCount(1);
+    expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
+});
+
+it('SEM-3: resolveDeletedAccountEmail returns most-recent snapshot when multiple audit rows exist (DESC order)', function () {
+    // The old resolveLookupEmail used orderBy ASC — if the most recent snapshot
+    // is the most complete one (e.g. confirmed row overrides a stale requested
+    // row), DESC is correct. This test seeds two rows with different emails to
+    // prove DESC wins.
+    $proId = (string) Str::uuid();
+    $pro = seedProForPayload($proId, 'deleted+'.$proId.'@partna.au');
+
+    DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'old-jane@example.com',
+            'event' => 'requested',
+            'actor_type' => 'professional',
+            'created_at' => '2026-04-10T00:00:00Z',   // earlier
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'confirmed',
+            'actor_type' => 'professional',
+            'created_at' => '2026-04-12T00:00:00Z',   // later — should win
+        ],
+    ]);
+
+    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'name' => 'Jane Final',
+            'email' => 'jane@example.com',
+            'email_lc' => 'jane@example.com',
+            'phone' => '+61400000001',
+            'applicant_type' => 'professional',
+            'industry' => 'mens_grooming',
+            'pilot_program_opt_in' => 1,
+            'consent_source' => 'waitlist_form',
+            'last_submitted_at' => '2026-02-01T00:00:00Z',
+            'created_at' => '2026-02-01T00:00:00Z',
+            'updated_at' => '2026-02-01T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'name' => 'Jane Old',
+            'email' => 'old-jane@example.com',
+            'email_lc' => 'old-jane@example.com',
+            'phone' => '+61400000002',
+            'applicant_type' => 'professional',
+            'industry' => 'mens_grooming',
+            'pilot_program_opt_in' => 0,
+            'consent_source' => 'waitlist_form',
+            'last_submitted_at' => '2026-01-01T00:00:00Z',
+            'created_at' => '2026-01-01T00:00:00Z',
+            'updated_at' => '2026-01-01T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($proId);
+
+    // DESC order means the confirmed row (jane@example.com, 2026-04-12) wins.
+    // If ASC regresses, the waitlist would return 'old-jane@example.com' instead.
+    expect($payload['waitlist'])->toHaveCount(1);
+    expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
+    expect($payload['waitlist'][0]['name'])->toBe('Jane Final');
+});
+
 it('exports notifications.messages and notifications.receipts addressed to the user', function () {
     $pro = seedProForPayload((string) Str::uuid());
     $otherId = (string) Str::uuid();

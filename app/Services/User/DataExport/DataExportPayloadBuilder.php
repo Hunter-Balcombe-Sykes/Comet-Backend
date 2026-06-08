@@ -3,6 +3,7 @@
 namespace App\Services\User\DataExport;
 
 use App\Models\Core\User\User;
+use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\DB;
 // stream() + DataExportZipWriter::writeStreaming().
 class DataExportPayloadBuilder
 {
+    use ResolvesDeletedEmail;
+
     private const SCHEMA_VERSION = 1;
 
     private const PII_DISCLOSURE = 'This export contains personally identifiable information (PII) you collected from your customers via Partna (booking history, enquiries, email subscriptions). Handle in accordance with applicable privacy law.';
@@ -42,35 +45,6 @@ class DataExportPayloadBuilder
     }
 
     /**
-     * Resolve the user's original (pre-pseudonymisation) email for email_lc
-     * lookups against waitlist and global email_subscriptions.
-     *
-     * AccountDeletionService::pseudonymiseAccountPii() rewrites primary_email
-     * to "deleted+{id}@partna.au" before hard-delete. A DSAR run during the
-     * 30-day grace period — or any staff-initiated export against a
-     * soft-deleted user — must still surface the user's original waitlist row
-     * and global subscriptions. We fall back to the email snapshot stored in
-     * audit.user_deletion_audit (written before pseudonymisation).
-     */
-    private function resolveLookupEmail(User $professional): ?string
-    {
-        $email = $professional->primary_email;
-        if ($email !== null && str_starts_with($email, 'deleted+')) {
-            $snapshot = DB::connection('pgsql')
-                ->table('audit.user_deletion_audit')
-                ->where('user_id', $professional->id)
-                ->whereIn('event', ['requested', 'admin_initiated'])
-                ->orderBy('created_at')
-                ->value('professional_email_snapshot');
-            if (is_string($snapshot) && $snapshot !== '') {
-                return $snapshot;
-            }
-        }
-
-        return $email;
-    }
-
-    /**
      * Build the full payload for a single professional, materialised in memory.
      *
      * Prefer stream() for production exports — this entry point exists for
@@ -82,7 +56,7 @@ class DataExportPayloadBuilder
     public function build(string $userId): array
     {
         $professional = $this->loadUser($userId);
-        $lookupEmail = $this->resolveLookupEmail($professional);
+        $lookupEmail = $this->resolveDeletedAccountEmail($professional);
         $siteId = DB::connection('pgsql')
             ->table('site.sites')
             ->where('user_id', $userId)
@@ -147,7 +121,7 @@ class DataExportPayloadBuilder
     public function stream(string $userId): Generator
     {
         $professional = $this->loadUser($userId);
-        $lookupEmail = $this->resolveLookupEmail($professional);
+        $lookupEmail = $this->resolveDeletedAccountEmail($professional);
         $siteId = DB::connection('pgsql')
             ->table('site.sites')
             ->where('user_id', $userId)

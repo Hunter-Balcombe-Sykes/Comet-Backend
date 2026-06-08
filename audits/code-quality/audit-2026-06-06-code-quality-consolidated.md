@@ -21,7 +21,7 @@
 ## Progress
 
 - P1 High: 0 of 1 complete
-- P2 Medium: 1 of 4 complete
+- P2 Medium: 2 of 4 complete
 - P3 Low: 0 of 17 complete
 
 ---
@@ -105,7 +105,7 @@
         }
         ```
 
-- [ ] **#SEM-3** · P2 — GDPR email-resolution methods in data-export and deletion paths have diverged in event filter and sort order
+- [x] **#SEM-3** · P2 — GDPR email-resolution methods in data-export and deletion paths have diverged in event filter and sort order
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php (`resolveLookupEmail`, ~line 62) vs app/Services/User/AccountDeletionService.php (`resolvePurgeEmail`, ~line 300)
     - **Affects:** GDPR data-subject access requests (DSARs) triggered during the 30-day deletion grace period — the data-export path may fail to surface the user's original email for waitlist rows and global email subscriptions, producing an incomplete Article 15 export.
     - **Effort:** S (~1h)
