@@ -22,7 +22,7 @@
 
 - P1 High: 0 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 3 of 17 complete
+- P3 Low: 4 of 17 complete
 
 ---
 
@@ -268,7 +268,7 @@
         'is_read' => $this->status?->value !== 'new',
         ```
 
-- [ ] **#SEM-10** · P3 — `SendEnquiryNotificationJob` stamp is outside the lock, making the at-most-once comment incorrect
+- [x] **#SEM-10** · P3 — `SendEnquiryNotificationJob` stamp is outside the lock, making the at-most-once comment incorrect
     - **Where:** app/Jobs/Notifications/SendEnquiryNotificationJob.php — `lockForUpdate` block and the `email_sent_at` stamp at line 105
     - **Affects:** Professional inbox — when a job is killed near the 30s timeout (before the stamp), the enquiry row never receives `email_sent_at`, so the retry sees `null` and sends a duplicate notification email to the professional.
     - **Effort:** S (~0.5–1h)

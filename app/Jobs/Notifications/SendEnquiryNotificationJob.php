@@ -46,9 +46,7 @@ class SendEnquiryNotificationJob implements ShouldQueue
 
     public function handle(): void
     {
-        // Lock the enquiry row so two concurrent workers (retry overlapping with the
-        // original, or Horizon scale-out) can't both see email_sent_at = null and
-        // both deliver the email. Mirrors SendTransactionalNotificationEmailJob.
+        // Lock + idempotency check in one transaction (mirrors SendEnquiryConfirmationJob).
         $enquiry = DB::transaction(function () {
             $e = Enquiry::query()->lockForUpdate()->find($this->enquiryId);
             if ($e === null) {
@@ -57,6 +55,15 @@ class SendEnquiryNotificationJob implements ShouldQueue
             if ($e->email_sent_at !== null) {
                 return false;
             }
+
+            // Stamp the idempotency flag while the row lock is still held so the
+            // check-and-set is atomic. A concurrent worker (Horizon scale-out or a
+            // retry) then reads the committed timestamp and bails instead of
+            // double-sending. The mail send happens AFTER this commit, never inside
+            // the lock. This is a deliberate at-most-once choice: if the send later
+            // throws, the retry skips it (no double-send) rather than guaranteeing
+            // delivery — permanent failures surface via report() in failed().
+            $e->forceFill(['email_sent_at' => now()])->saveQuietly();
 
             return $e;
         });
@@ -100,9 +107,8 @@ class SendEnquiryNotificationJob implements ShouldQueue
             return;
         }
 
+        // email_sent_at was already stamped atomically under the lock above.
         Mail::to(trim($notificationEmail))->send(new SiteEnquiryNotification($enquiry));
-
-        $enquiry->forceFill(['email_sent_at' => now()])->saveQuietly();
     }
 
     public function failed(\Throwable $e): void

@@ -2,10 +2,12 @@
 
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Mail\SiteEnquiryNotification;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -117,29 +119,63 @@ it('handle: no-ops with a warning when notification_email has been cleared from 
     );
 });
 
+// SEM-10: email_sent_at must be stamped INSIDE the lock transaction, before the
+// mail send. If the send throws, the stamp must already be committed so that a
+// Horizon retry bails at the idempotency guard instead of double-sending.
+it('handle: stamps email_sent_at before the send so a failed send is not retried into a double-send', function () {
+    [$enquiryId, $blockId] = seedEnquiryAndBlock();
+
+    // Simulate a transient SMTP failure. The idempotency flag must already be
+    // committed (stamped under lockForUpdate) before Mail::to() is called — so
+    // the throw lands after the stamp and the DB row reflects the claim.
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
+
+    expect(fn () => (new SendEnquiryNotificationJob($enquiryId, $blockId))->handle())
+        ->toThrow(RuntimeException::class);
+
+    $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
+    expect($row->email_sent_at)->not->toBeNull();
+});
+
+// SEM-10: idempotency — a second handle() call after a successful first send
+// must not trigger a second mail send.
+it('handle: does not resend when email_sent_at is already set (idempotency)', function () {
+    Mail::fake();
+    [$enquiryId, $blockId] = seedEnquiryAndBlock();
+
+    $job = new SendEnquiryNotificationJob($enquiryId, $blockId);
+    $job->handle(); // first run — sends and stamps
+
+    Mail::assertSent(SiteEnquiryNotification::class, 1);
+
+    $job->handle(); // second run — idempotency guard fires, no second send
+
+    Mail::assertSent(SiteEnquiryNotification::class, 1);
+});
+
 // B3/P1-10: failed() must not leak the notification_email — it's not even on the
 // job any more, but make sure the log shape is documented in a test.
 it('failed: log context carries UUIDs only (no notification_email)', function () {
     Log::spy();
 
-    $exception = new \RuntimeException('mailer down');
+    $exception = new RuntimeException('mailer down');
 
     // Bind a noop exception handler so report() in failed() doesn't propagate.
-    app()->bind(\Illuminate\Contracts\Debug\ExceptionHandler::class, fn () => new class implements \Illuminate\Contracts\Debug\ExceptionHandler
+    app()->bind(ExceptionHandler::class, fn () => new class implements ExceptionHandler
     {
-        public function report(\Throwable $e): void {}
+        public function report(Throwable $e): void {}
 
-        public function shouldReport(\Throwable $e): bool
+        public function shouldReport(Throwable $e): bool
         {
             return false;
         }
 
-        public function render($request, \Throwable $e): \Symfony\Component\HttpFoundation\Response
+        public function render($request, Throwable $e): Response
         {
-            return new \Symfony\Component\HttpFoundation\Response;
+            return new Response;
         }
 
-        public function renderForConsole($output, \Throwable $e): void {}
+        public function renderForConsole($output, Throwable $e): void {}
     });
 
     (new SendEnquiryNotificationJob('enq-id-1', 'block-id-1'))->failed($exception);
