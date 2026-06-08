@@ -37,6 +37,10 @@ class RefreshIntegrationConnectionsCommand extends Command
                 $refreshed = $refresher->refresh($connection);
                 $refreshed->last_refresh_status === 'ok' ? $ok++ : $failed++;
             } catch (\Throwable $e) {
+                // Surface to Nightwatch — the continue-on-error loop otherwise turns
+                // a systemic failure (broken scraper, schema drift) into N silent
+                // warnings + a healthy-looking summary, with zero exception events.
+                report($e);
                 $failed++;
                 Log::warning('integrations:refresh failed for a connection', [
                     'platform_connection_id' => $connection->id,

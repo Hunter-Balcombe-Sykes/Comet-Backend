@@ -33,7 +33,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 - P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
-- P2 Observability: 1 of 3 complete
+- P2 Observability: 2 of 3 complete
 - P2 Test coverage: 0 of 3 complete
 - P3 Nice to have: 0 of 14 complete
 
@@ -478,7 +478,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-24** · P2 · Effort: S — `RefreshIntegrationConnectionsCommand` per-connection catch swallows Throwable without Nightwatch visibility
+- [x] **#CONS-24** · P2 · Effort: S — `RefreshIntegrationConnectionsCommand` per-connection catch swallows Throwable without Nightwatch visibility
     - **Where:** `app/Console/Commands/RefreshIntegrationConnectionsCommand.php:39–45`
     - **Affects:** The daily `integrations:refresh` cron. A systemic failure (broken scraper, schema mismatch) increments `$failed` and writes a warning log but produces no Nightwatch exception event — the cron appears healthy while 300 connections silently error.
     - **What to do:**
