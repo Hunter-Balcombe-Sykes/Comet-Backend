@@ -31,11 +31,13 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 4 of 4 complete
-- P2 Security & privacy: 3 of 5 complete (CONS-11 done — public payload allowlist; CONS-10 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 8 of 8 complete (CONS-21 done — Instagram R2 cleanup)
+- P2 Security & privacy: 5 of 5 complete
+- P2 Correctness/data integrity: 8 of 8 complete
 - P2 Observability: 3 of 3 complete
-- P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 10 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P2 Test coverage: 3 of 3 complete
+- P3 Nice to have: 14 of 14 complete
+
+**All 41 findings complete.**
 
 ---
 
