@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectEventbriteRequest;
+use App\Http\Resources\Platforms\EventbriteConnectionResource;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -53,7 +54,7 @@ class EventbriteController extends ApiController
         ];
         $this->writeConnection($user, $selection);
 
-        return $this->success($selection);
+        return $this->success((new EventbriteConnectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/eventbrite/selection — the authenticated user's saved
@@ -67,7 +68,9 @@ class EventbriteController extends ApiController
             return $this->success(['selection' => null]);
         }
 
-        return $this->success(['selection' => $this->filterPastEvents($selection)]);
+        return $this->success([
+            'selection' => (new EventbriteConnectionResource($this->filterPastEvents($selection)))->resolve(),
+        ]);
     }
 
     // DELETE /api/platforms/eventbrite — clear the authenticated user's connection.

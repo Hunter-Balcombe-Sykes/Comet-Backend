@@ -3,6 +3,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Str;
 
@@ -159,4 +160,49 @@ it('apple music + podcast connect return their per-platform flat fields', functi
             'latest' => ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
             'highlights' => [],
         ]);
+});
+
+// ── Eventbrite (EventbriteConnectionResource) ────────────────────────────────
+
+it('eventbrite connect returns {url,organiser,next,upcoming} with events verbatim', function () {
+    $user = platformContractUser('eb1');
+    $this->mock(EventbriteScraper::class, function ($m) {
+        $m->shouldReceive('normalizeOrgUrl')->andReturn('https://www.eventbrite.com/o/acme-1');
+        $m->shouldReceive('fetchEvents')->andReturn([
+            'organiser' => 'Acme',
+            'events' => [['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00']],
+        ]);
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => 'https://www.eventbrite.com/o/acme-1'])
+        ->assertOk()
+        ->assertExactJson([
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => ['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00'],
+            'upcoming' => [['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00']],
+        ]);
+});
+
+it('eventbrite selection filters past events AND strips unknown keys', function () {
+    $user = platformContractUser('eb2');
+    seedPlatformConnection($user, 'eventbrite', [
+        'url' => 'https://www.eventbrite.com/o/acme-1',
+        'organiser' => 'Acme',
+        'next' => ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
+        'upcoming' => [
+            ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
+            ['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00'],
+        ],
+        '_internal' => 'leak',
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/eventbrite/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => [
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => ['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00'],
+            'upcoming' => [['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00']],
+        ]]);
 });
