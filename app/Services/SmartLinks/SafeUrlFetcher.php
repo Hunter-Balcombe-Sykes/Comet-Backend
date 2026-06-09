@@ -2,6 +2,8 @@
 
 namespace App\Services\SmartLinks;
 
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -67,6 +69,111 @@ class SafeUrlFetcher
         }
 
         throw new SafeUrlException("Too many redirects fetching {$url}");
+    }
+
+    /**
+     * Fetch multiple URLs concurrently with the same SSRF guarantees as fetch().
+     *
+     * Each URL is pre-validated (scheme + public-IP check). The initial GETs fire
+     * concurrently via Http::pool with redirects disabled. Any 3xx response is then
+     * resolved + re-validated and followed in a second concurrent pass. This two-pass
+     * approach caps redirect chains to MAX_REDIRECTS total hops per URL (matching the
+     * serial fetch() contract) while keeping the bulk of I/O parallel.
+     *
+     * URLs that fail validation or exceed MAX_REDIRECTS are silently dropped (null) —
+     * unlike fetch(), which throws. Callers needing a hard failure per URL use fetch().
+     *
+     * @param  array<string>  $urls  Original URLs to fetch (duplicates are de-duped).
+     * @param  array<string,string>  $headers  Additional HTTP headers to include.
+     * @return array<string, array{status:int, body:string, finalUrl:string, contentType:string}|null>
+     *                                                                                                 Keyed by original URL; null if skipped/failed.
+     */
+    public function fetchMany(array $urls, array $headers = []): array
+    {
+        if ($urls === []) {
+            return [];
+        }
+
+        $mergedHeaders = array_merge([
+            'User-Agent' => self::USER_AGENT,
+            'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
+        ], $headers);
+
+        // Results keyed by original URL; populated as each URL resolves.
+        $results = array_fill_keys($urls, null);
+
+        // Map original URL → current URL being fetched (tracks redirect target per URL).
+        $pending = [];
+        foreach ($urls as $original) {
+            try {
+                $this->assertSafe($original);
+                $pending[$original] = ['current' => $original, 'hops' => 0];
+            } catch (SafeUrlException) {
+                // Pre-validation failed — leave null in results.
+            }
+        }
+
+        // Up to MAX_REDIRECTS rounds; each round issues all still-pending URLs in one pool batch.
+        while ($pending !== []) {
+            $originals = array_keys($pending);
+            $currentUrls = array_column($pending, 'current');
+
+            // Fire all current URLs in one concurrent pool; key by index to map back.
+            $responses = Http::pool(fn (Pool $pool) => array_map(
+                fn (int $i, string $url) => $pool->as((string) $i)
+                    ->timeout(self::TIMEOUT_SECONDS)
+                    ->withHeaders($mergedHeaders)
+                    ->withoutRedirecting()
+                    ->get($url),
+                array_keys($currentUrls),
+                $currentUrls,
+            ));
+
+            $nextPending = [];
+            foreach ($originals as $i => $original) {
+                $response = $responses[(string) $i] ?? null;
+                if (! ($response instanceof Response)) {
+                    // Connection error — drop this URL.
+                    continue;
+                }
+
+                $status = $response->status();
+
+                if ($status >= 300 && $status < 400 && $response->header('Location')) {
+                    // 3xx: resolve and re-validate the redirect target before following.
+                    $location = $response->header('Location');
+                    $next = $this->resolveRedirect($pending[$original]['current'], $location);
+                    $hops = $pending[$original]['hops'] + 1;
+
+                    if ($hops > self::MAX_REDIRECTS) {
+                        // Too many hops — drop this URL.
+                        continue;
+                    }
+
+                    try {
+                        // SSRF re-validation: every redirect target must also resolve to a
+                        // public IP. This prevents an allow-listed host from 30x-redirecting
+                        // to an internal address (open-redirect SSRF).
+                        $this->assertSafe($next);
+                        $nextPending[$original] = ['current' => $next, 'hops' => $hops];
+                    } catch (SafeUrlException) {
+                        // Redirect target failed SSRF check — drop silently.
+                    }
+                } else {
+                    // Terminal response (2xx, 4xx, 5xx) — record it.
+                    $results[$original] = [
+                        'status' => $status,
+                        'body' => $response->body(),
+                        'finalUrl' => $pending[$original]['current'],
+                        'contentType' => (string) $response->header('Content-Type'),
+                    ];
+                }
+            }
+
+            $pending = $nextPending;
+        }
+
+        return $results;
     }
 
     /** Resolve a (possibly relative) redirect Location against the current URL. */

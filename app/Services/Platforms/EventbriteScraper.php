@@ -43,10 +43,24 @@ class EventbriteScraper extends PlatformScraper
         preg_match_all('~https://www\.eventbrite\.[a-z.]+/e/[a-z0-9-]+~i', $page['body'], $m);
         $eventUrls = array_values(array_unique($m[0]));
 
-        // Fetch a few extra (some may be past / unparseable), parse each event's JSON-LD.
+        // Fetch a few extra (some may be past / unparseable). All detail pages are
+        // independent of each other, so we fetch them concurrently — one pool
+        // round-trip instead of up to (limit+3) serial DNS+TLS+HTTP round-trips.
+        // fetchMany() preserves the same SSRF guarantees as the serial fetch() path:
+        // every URL is pre-validated (scheme + public-IP check) and any 3xx redirect
+        // target is re-validated before following, so a compromised/spoofed Eventbrite
+        // URL cannot redirect us to an internal address.
+        $batch = array_slice($eventUrls, 0, $limit + 3);
+        $responses = $this->fetcher->fetchMany($batch, $headers);
+
+        // Parse each returned body's JSON-LD (CPU-bound; done sequentially).
         $events = [];
-        foreach (array_slice($eventUrls, 0, $limit + 3) as $url) {
-            $event = $this->fetchEvent($url, $headers);
+        foreach ($batch as $url) {
+            $res = $responses[$url] ?? null;
+            if ($res === null) {
+                continue;
+            }
+            $event = $this->parseEvent($res, $url);
             if ($event) {
                 $events[] = $event;
             }
@@ -97,11 +111,14 @@ class EventbriteScraper extends PlatformScraper
     }
 
     /**
-     * @return array{name:?string, venue:?string, location:?string, startDate:?string, price:?string, availability:?string, image:?string, link:string}|null
+     * Parse a single event-detail page response into a structured event array.
+     * Called after the concurrent fetch; $res is the array returned by fetchMany.
+     *
+     * @param  array{status:int, body:string, finalUrl:string, contentType:string}  $res
+     * @return array{name:?string, venue:?string, location:?string, startDate:?string, endDate:?string, price:?string, availability:?string, image:?string, link:string}|null
      */
-    private function fetchEvent(string $url, array $headers): ?array
+    private function parseEvent(array $res, string $url): ?array
     {
-        $res = $this->fetcher->fetch($url, $headers);
         if ($res['status'] !== 200) {
             return null;
         }
