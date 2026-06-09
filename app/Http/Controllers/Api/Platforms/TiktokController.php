@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectTiktokRequest;
+use App\Http\Resources\Platforms\LinkConnectionResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -41,13 +42,15 @@ class TiktokController extends ApiController
         ];
         $this->writeConnection($user, $selection);
 
-        return $this->success($selection);
+        return $this->success((new LinkConnectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/tiktok/selection — the authenticated user's saved link.
     public function selection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+        $payload = $this->readConnection($this->currentUser($request));
+
+        return $this->success(['selection' => $payload ? (new LinkConnectionResource($payload))->resolve() : null]);
     }
 
     // DELETE /api/platforms/tiktok — clear the authenticated user's connection.
