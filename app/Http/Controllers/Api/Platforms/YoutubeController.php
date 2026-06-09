@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectYoutubeRequest;
 use App\Http\Requests\Platforms\SaveYoutubeHighlightsRequest;
+use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -68,7 +69,7 @@ class YoutubeController extends ApiController
         ];
         $this->writeConnection($user, $selection);
 
-        return $this->success($selection);
+        return $this->success((new YoutubeConnectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/youtube/recent — the last 15 videos for the highlights picker.
@@ -124,14 +125,16 @@ class YoutubeController extends ApiController
 
             $this->writeConnection($user, $selection);
 
-            return $this->success($selection);
+            return $this->success((new YoutubeConnectionResource($selection))->resolve());
         });
     }
 
     // GET /api/platforms/youtube/selection — the authenticated user's saved channel.
     public function selection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+        $payload = $this->readConnection($this->currentUser($request));
+
+        return $this->success(['selection' => $payload ? (new YoutubeConnectionResource($payload))->resolve() : null]);
     }
 
     // DELETE /api/platforms/youtube — clear the authenticated user's connection.

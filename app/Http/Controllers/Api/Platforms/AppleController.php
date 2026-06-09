@@ -10,6 +10,8 @@ use App\Http\Requests\Platforms\ConnectAppleMusicRequest;
 use App\Http\Requests\Platforms\ConnectApplePodcastRequest;
 use App\Http\Requests\Platforms\SaveAppleMusicHighlightsRequest;
 use App\Http\Requests\Platforms\SaveApplePodcastHighlightsRequest;
+use App\Http\Resources\Platforms\AppleMusicConnectionResource;
+use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use Illuminate\Http\JsonResponse;
@@ -202,14 +204,15 @@ class AppleController extends ApiController
         ];
         $this->writeConnection($user, $selection);
 
-        return $this->success($selection);
+        return $this->success($this->wrapAppleSelection($cfg['platform'], $selection));
     }
 
     private function selectionFor(Request $request, string $platform): JsonResponse
     {
         $this->activePlatform = $platform;
+        $payload = $this->readConnection($this->currentUser($request));
 
-        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+        return $this->success(['selection' => $payload ? $this->wrapAppleSelection($platform, $payload) : null]);
     }
 
     private function recentFor(Request $request, array $cfg): JsonResponse
@@ -254,7 +257,7 @@ class AppleController extends ApiController
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
             $this->writeConnection($user, $selection);
 
-            return $this->success($selection);
+            return $this->success($this->wrapAppleSelection($cfg['platform'], $selection));
         });
     }
 
@@ -277,6 +280,17 @@ class AppleController extends ApiController
         $existing = $this->readConnection($user);
 
         return data_get($existing, 'input') === $input ? data_get($existing, 'highlights', []) : [];
+    }
+
+    /** Resolve the selection array through the platform-appropriate tile Resource. */
+    private function wrapAppleSelection(string $platform, array $selection): array
+    {
+        $resource = match ($platform) {
+            self::PODCAST => new ApplePodcastConnectionResource($selection),
+            self::MUSIC => new AppleMusicConnectionResource($selection),
+        };
+
+        return $resource->resolve();
     }
 
     // Snapshot the chosen items (by $idField) in the order the user posted them, capped.
