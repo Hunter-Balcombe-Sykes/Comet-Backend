@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddShopifyBrandRequest;
 use App\Http\Requests\Platforms\SetShopifyProductsRequest;
 use App\Http\Requests\Platforms\UpdateShopifyBrandRequest;
+use App\Http\Resources\Platforms\ShopifyBrandResource;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
@@ -49,7 +50,9 @@ class ShopifyController extends ApiController
     // GET /api/platforms/shopify/brands — all connected brands.
     public function brands(Request $request): JsonResponse
     {
-        return $this->success(['brands' => $this->allBrands($this->currentUser($request))]);
+        return $this->success([
+            'brands' => ShopifyBrandResource::collection($this->allBrands($this->currentUser($request)))->resolve(),
+        ]);
     }
 
     // POST /api/platforms/shopify/brands — add (or refresh) a brand. Resolves the
@@ -92,7 +95,7 @@ class ShopifyController extends ApiController
             ];
             $this->writeConnection($user, $map);
 
-            return $this->success($map[$id]);
+            return $this->success((new ShopifyBrandResource($map[$id]))->resolve());
         });
     }
 
@@ -111,7 +114,7 @@ class ShopifyController extends ApiController
             $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
             $this->writeConnection($user, $map);
 
-            return $this->success($map[$id]);
+            return $this->success((new ShopifyBrandResource($map[$id]))->resolve());
         });
     }
 
@@ -125,7 +128,7 @@ class ShopifyController extends ApiController
             unset($map[$id]);
             $this->writeConnection($user, $map);
 
-            return $this->success(['brands' => array_values($map)]);
+            return $this->success(['brands' => ShopifyBrandResource::collection(array_values($map))->resolve()]);
         });
     }
 
@@ -174,7 +177,7 @@ class ShopifyController extends ApiController
                 ->all();
             $this->writeConnection($user, $map);
 
-            return $this->success($map[$id]);
+            return $this->success((new ShopifyBrandResource($map[$id]))->resolve());
         });
     }
 
