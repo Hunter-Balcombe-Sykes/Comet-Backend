@@ -449,3 +449,38 @@ describe('Form Request validation returns 422', function () {
             ->assertStatus(422);
     });
 });
+
+// ── 8. Middleware-level pending-deletion read-only on integration routes ──────
+//
+// EnforcePendingDeletionReadOnly is applied to the integration route group (same
+// stack as the main user API) so a pending-deletion write is blocked at the HTTP
+// edge with the cancel-prompt body (pending_deletion + deletes_at), consistent
+// with the rest of the app. The policy gate remains as defense-in-depth for
+// non-HTTP and future by-UUID paths.
+
+describe('middleware-level pending-deletion read-only', function () {
+    it('blocks an integration write with the pending_deletion cancel-prompt body (423)', function () {
+        $user = makePendingDeletion(authzUser('mw-pd-eventbrite'));
+
+        actingAsUser($user)
+            ->postJson('/api/platforms/eventbrite/connect', ['url' => 'https://www.eventbrite.com/o/acme-1'])
+            ->assertStatus(423)
+            ->assertJsonPath('pending_deletion', true);
+    });
+
+    it('lets a pending-deletion user keep reading an integration GET (200)', function () {
+        $user = authzUser('mw-pd-read');
+        IntegrationConnection::create([
+            'user_id' => $user->id,
+            'platform' => 'eventbrite',
+            'resource_id' => 'eventbrite',
+            'payload' => ['url' => 'https://www.eventbrite.com/o/acme-1', 'organiser' => 'Acme', 'upcoming' => []],
+            'is_active' => true,
+        ]);
+        $user = makePendingDeletion($user);
+
+        actingAsUser($user)
+            ->getJson('/api/platforms/eventbrite/selection')
+            ->assertOk();
+    });
+});

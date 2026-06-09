@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\ShopifyController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
+use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
 
 // Per-user integration endpoints. Each controller is a per-platform adapter
@@ -17,8 +18,15 @@ use Illuminate\Support\Facades\Route;
 // /integrations). Promotion plan documented in FreshaController.
 
 $registerIntegrationRoutes = function (string $base): void {
+    // Same stack as the main user API group (routes/api/user.php): pending-deletion
+    // accounts are read-only here too, blocked at the HTTP edge with the cancel-prompt
+    // body. Order matters — user.api resolves the professional BEFORE
+    // EnforcePendingDeletionReadOnly inspects its status. The IntegrationConnectionPolicy
+    // gate stays as defense-in-depth for non-HTTP and future by-UUID paths.
+    $middleware = ['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'];
+
     Route::prefix("{$base}/fresha")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [FreshaController::class, 'connect']);
             Route::get('/team', [FreshaController::class, 'team']);
@@ -31,7 +39,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/shopify")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::get('/brands', [ShopifyController::class, 'brands']);
             Route::post('/brands', [ShopifyController::class, 'addBrand']);
@@ -44,7 +52,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/instagram")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [InstagramController::class, 'connect']);
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
@@ -55,7 +63,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/youtube")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [YoutubeController::class, 'connect']);
             Route::get('/recent', [YoutubeController::class, 'recent']);
@@ -65,7 +73,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/apple")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/music/connect', [AppleController::class, 'connectMusic']);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
@@ -81,7 +89,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/tiktok")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [TiktokController::class, 'connect']);
             Route::get('/selection', [TiktokController::class, 'selection']);
@@ -89,7 +97,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/facebook")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [FacebookController::class, 'connect']);
             Route::get('/selection', [FacebookController::class, 'selection']);
@@ -97,7 +105,7 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     Route::prefix("{$base}/eventbrite")
-        ->middleware(['user.api', 'throttle:authenticated'])
+        ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [EventbriteController::class, 'connect']);
             Route::get('/selection', [EventbriteController::class, 'selection']);
