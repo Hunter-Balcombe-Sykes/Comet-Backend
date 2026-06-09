@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
@@ -40,6 +41,8 @@ class PublicIntegrationController extends ApiController
 
         // Grouped by platform → list of {resourceId, payload, lastRefreshedAt}.
         // Most platforms have one connection; Shopify can have up to five brands.
+        // The payload is allowlisted per platform by the Resource — internal keys
+        // (e.g. Instagram's `_folder`) never reach this public, CDN-cached wire.
         $platforms = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
@@ -48,11 +51,7 @@ class PublicIntegrationController extends ApiController
             ->orderBy('created_at')
             ->get(['platform', 'resource_id', 'payload', 'last_refreshed_at'])
             ->groupBy('platform')
-            ->map(fn ($rows) => $rows->map(fn (IntegrationConnection $r) => [
-                'resourceId' => $r->resource_id,
-                'payload' => $r->payload,
-                'lastRefreshedAt' => $r->last_refreshed_at?->toIso8601String(),
-            ])->values())
+            ->map(fn ($rows) => PublicIntegrationConnectionResource::collection($rows->values())->resolve())
             ->toArray();
 
         return $this->success(['data' => ['platforms' => $platforms]]);
