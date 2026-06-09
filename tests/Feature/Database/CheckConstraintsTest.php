@@ -152,3 +152,35 @@ it('feature_flag_overrides_scope_xor constraint exists and is validated', functi
     }
     assertCheckConstraintExists('core', 'feature_flag_overrides', 'feature_flag_overrides_scope_xor');
 });
+
+// ─── site.platform_connections (CONS-27) ─────────────────────────────────────
+// The platform allow-list CHECK and the dedup partial-unique index were never
+// covered by a test; a migration refactor that silently dropped either would
+// pass CI. These assert both still exist on the real schema.
+
+it('platform_connections_platform_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'platform_connections', 'platform_connections_platform_check');
+});
+
+it('platform_connections unique-active partial index exists and is UNIQUE + partial', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
+    }
+
+    $row = DB::selectOne(
+        'SELECT indexdef FROM pg_indexes
+          WHERE schemaname = ? AND tablename = ? AND indexname = ?',
+        ['site', 'platform_connections', 'idx_platform_connections_unique_active']
+    );
+
+    expect($row)->not->toBeNull(
+        'Expected partial unique index [idx_platform_connections_unique_active] to exist but it was not found.'
+    );
+    // Guard the two properties that enforce "one active row per (user, platform, resource)":
+    // UNIQUE (the dedup) and the partial WHERE deleted_at IS NULL (so soft-deleted rows don't collide).
+    expect($row->indexdef)->toContain('UNIQUE');
+    expect($row->indexdef)->toContain('WHERE');
+});

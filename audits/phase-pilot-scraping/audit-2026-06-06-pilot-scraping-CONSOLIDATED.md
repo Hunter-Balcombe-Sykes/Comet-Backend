@@ -279,7 +279,8 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         ]);
         ```
 
-- [ ] **#CONS-13** · P2 · Effort: S — Missing RLS on `site.platform_connections`
+- [x] **#CONS-13** · P2 · Effort: S — Missing RLS on `site.platform_connections`
+    - **Status (2026-06-09):** DONE in `supabase/migrations/20260609000000_harden_platform_connections.sql`. Adapted from the finding's literal `current_setting('app.actor_id')::uuid` (this app sets no such GUC): used the real `site.*` convention — `ENABLE ROW LEVEL SECURITY` + a single `app_backend FOR ALL` policy. Minimal default-deny (backend-only table; `app_backend` has BYPASSRLS, so the app path is unaffected and every other role sees zero rows), closing the direct-Supabase-Studio / raw-query gap.
     - **Where:** `supabase/migrations/20260602150238_create_platform_connections.sql`
     - **Affects:** Defense-in-depth. If any Supabase Studio query, admin tool, or future route bypasses the application's policy layer, all rows are visible without tenant scoping. The application's `IntegrationConnectionPolicy` handles authenticated paths; RLS closes the Supabase Studio / raw-query gap.
     - **What to do:**
@@ -530,7 +531,8 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         // No test exercises this path
         ```
 
-- [ ] **#CONS-27** · P2 · Effort: S — Migration CHECK constraint and UNIQUE partial index have no DB-level rejection tests
+- [x] **#CONS-27** · P2 · Effort: S — Migration CHECK constraint and UNIQUE partial index have no DB-level rejection tests
+    - **Status (2026-06-09):** DONE in `tests/Feature/Database/CheckConstraintsTest.php`. Adapted: the SQLite test stand-in (`tests/Pest.php`) builds a constraint-free copy of the table, so the finding's "insert bad row → expect exception" would pass against nothing. Followed the file's existing precedent instead — Postgres-only presence/validation checks (`pg_constraint` for `platform_connections_platform_check`; `pg_indexes` for the `idx_platform_connections_unique_active` UNIQUE+partial index), both skipping on SQLite. This is what actually catches a future migration silently dropping either guard.
     - **Where:** `supabase/migrations/20260602150238_create_platform_connections.sql:17–20` (CHECK), `:36–38` (UNIQUE index)
     - **Affects:** Data integrity. An invalid `platform` value or a duplicate active `(user_id, platform, resource_id)` triple is blocked at the DB layer, but that guard has never been verified by a test. A future migration refactor that inadvertently drops the CHECK would pass CI.
     - **What to do:**
@@ -565,7 +567,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## P3 — Nice to have
 
-- [ ] **#CONS-29** · P3 · Effort: S — UUID primary key on `site.platform_connections` has no DB-side default
+- [x] **#CONS-29** · P3 · Effort: S — UUID primary key on `site.platform_connections` has no DB-side default
     - **Where:** `supabase/migrations/20260602150238_create_platform_connections.sql:1`
     - **Affects:** Raw SQL inserts and admin scripts that bypass Eloquent.
     - **What to do:** Add migration: `ALTER TABLE site.platform_connections ALTER COLUMN id SET DEFAULT gen_random_uuid();`
@@ -591,7 +593,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** Move `BOOKING_INIT_HASH` and `FRESHA_CLIENT_VERSION` to `config/services.php` under `fresha`. Add `FRESHA_BOOKING_INIT_HASH` / `FRESHA_CLIENT_VERSION` to `.env.example` with rotation cadence note.
     - **Evidence:** Code comment: "rotate when they redeploy" — yet values are `private const` class constants.
 
-- [ ] **#CONS-34** · P3 · Effort: S — `created_at`/`updated_at` have no `DEFAULT now()` on `site.platform_connections`
+- [x] **#CONS-34** · P3 · Effort: S — `created_at`/`updated_at` have no `DEFAULT now()` on `site.platform_connections`
     - **Where:** `supabase/migrations/20260602150238_create_platform_connections.sql`
     - **What to do:** `ALTER TABLE site.platform_connections ALTER COLUMN created_at SET DEFAULT now(), ALTER COLUMN updated_at SET DEFAULT now();`
     - **Evidence:** `created_at timestamptz, updated_at timestamptz,` — no DEFAULT clause.
