@@ -206,3 +206,43 @@ it('eventbrite selection filters past events AND strips unknown keys', function 
             'upcoming' => [['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00']],
         ]]);
 });
+
+// ── Instagram (InstagramConnectionResource — drops internal _folder) ──────────
+
+it('instagram selection drops the internal _folder key', function () {
+    $user = platformContractUser('ig1');
+    seedPlatformConnection($user, 'instagram', [
+        'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => 'https://media.partna.au/p/profile.jpg',
+        'businessCategory' => null, 'followersCount' => 10, 'postsCount' => 3,
+        'mode' => 'manual', 'images' => ['https://media.partna.au/p/img-0.jpg'], 'imagesDropped' => 0,
+        '_folder' => 'platforms/instagram/123', // internal — must NOT be emitted
+    ]);
+
+    $selection = actingAsUser($user)->getJson('/api/platforms/instagram/selection')
+        ->assertOk()
+        ->json('selection');
+
+    expect($selection)->not->toHaveKey('_folder');
+    expect($selection)->toEqual([
+        'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => 'https://media.partna.au/p/profile.jpg',
+        'businessCategory' => null, 'followersCount' => 10, 'postsCount' => 3,
+        'mode' => 'manual', 'images' => ['https://media.partna.au/p/img-0.jpg'], 'imagesDropped' => 0,
+    ]);
+});
+
+it('instagram connectStatus ready payload drops _folder', function () {
+    $user = platformContractUser('ig2');
+    seedPlatformConnection($user, 'instagram', [
+        'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => null,
+        'businessCategory' => null, 'followersCount' => 0, 'postsCount' => 0,
+        'mode' => 'automatic', 'images' => [], 'imagesDropped' => 0,
+        '_folder' => 'platforms/instagram/123',
+    ]);
+
+    $body = actingAsUser($user)->getJson('/api/platforms/instagram/connect/status')
+        ->assertOk()
+        ->json();
+
+    expect($body['status'])->toBe('ready');
+    expect($body['connection'])->not->toHaveKey('_folder');
+});

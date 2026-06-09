@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\SaveInstagramSelectionRequest;
+use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -123,7 +124,9 @@ class InstagramController extends ApiController
         if ($status === 'ok') {
             return $this->success([
                 'status' => 'ready',
-                'connection' => $connection->payload,
+                'connection' => $connection->payload
+                    ? (new InstagramConnectionResource($connection->payload))->resolve()
+                    : null,
             ]);
         }
 
@@ -185,13 +188,15 @@ class InstagramController extends ApiController
         $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images, count($chosen) - count($images));
         $this->writeConnection($user, $selection);
 
-        return $this->success($selection);
+        return $this->success((new InstagramConnectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/instagram/selection — the authenticated user's saved selection.
     public function selection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
+        $payload = $this->readConnection($this->currentUser($request));
+
+        return $this->success(['selection' => $payload ? (new InstagramConnectionResource($payload))->resolve() : null]);
     }
 
     // DELETE /api/platforms/instagram — clear the authenticated user's connection.
