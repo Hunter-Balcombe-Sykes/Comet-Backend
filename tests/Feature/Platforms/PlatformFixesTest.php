@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
@@ -8,6 +9,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -302,8 +304,7 @@ it('returns busy 429 when the daily Apify cap is reached without locking the use
 
 it('allows a connect attempt after the daily cap resets when no cooldown was set', function () {
     config(['services.apify.token' => 'test-token']);
-    Storage::fake('media');
-    Http::fake(['*' => Http::response('img-bytes', 200)]);
+    Queue::fake();
 
     $user = fbActingUser();
     $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
@@ -313,35 +314,45 @@ it('allows a connect attempt after the daily cap resets when no cooldown was set
     Cache::forget($dayKey);
     expect(Cache::has($cooldownKey))->toBeFalse();
 
-    $this->mock(InstagramScraper::class, function ($m) {
-        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Test', 'followersCount' => 5, 'postsCount' => 2]);
-        $m->shouldReceive('recentCoverImages')->andReturn([]);
-        $m->shouldReceive('profilePicUrl')->andReturn(null);
-    });
-
-    // Should succeed — no cooldown was set by the prior cap 429.
+    // Should succeed (202) — the scrape now runs in the job, not here.
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'testuser'])
-        ->assertOk();
+        ->assertStatus(202);
 });
 
 // Instagram: failed image mirrors are surfaced (imagesDropped) instead of
-// silently saving fewer images than the user picked.
+// silently saving fewer images than the user picked. This is now enforced in
+// InstagramConnectJob (the async path) — tested directly on the job.
 
-it('surfaces dropped Instagram images when mirroring fails', function () {
-    config(['services.apify.token' => 'test-token']); // pass the validateUsername guard
-    Http::fake(['*' => Http::response('', 500)]);      // every image mirror fails
+it('surfaces dropped Instagram images when mirroring fails (job-level)', function () {
+    Storage::fake('media');
+    // Every CDN request fails — mirrors should all be dropped.
+    Http::fake(['*' => Http::response('', 500)]);
 
-    $this->mock(InstagramScraper::class, function ($m) {
-        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Jane', 'businessCategoryName' => null]);
-        $m->shouldReceive('recentCoverImages')->andReturn([
-            'https://cdn.ig/1.jpg', 'https://cdn.ig/2.jpg', 'https://cdn.ig/3.jpg',
+    $user = fbActingUser();
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')
+        ->andReturn(['fullName' => 'Jane', 'businessCategoryName' => null]);
+    $scraper->shouldReceive('recentCoverImages')
+        ->andReturn([
+            'https://scontent.cdninstagram.com/1.jpg',
+            'https://scontent.cdninstagram.com/2.jpg',
+            'https://scontent.cdninstagram.com/3.jpg',
         ]);
-        $m->shouldReceive('profilePicUrl')->andReturn('https://cdn.ig/pic.jpg');
-    });
+    $scraper->shouldReceive('profilePicUrl')->andReturn(null);
 
-    $res = actingAsUser(fbActingUser())->postJson('/api/platforms/instagram/connect', ['username' => 'jane']);
+    $job = new InstagramConnectJob($user->id, 'jane', $connection->id);
+    $job->handle($scraper);
 
-    $res->assertOk();
-    expect($res->json('images'))->toHaveCount(0);   // all mirrors failed
-    expect($res->json('imagesDropped'))->toBe(3);   // ...and that's surfaced, not hidden
+    $connection->refresh();
+    expect($connection->payload['images'])->toHaveCount(0);   // all mirrors failed
+    expect($connection->payload['imagesDropped'])->toBe(3);   // ...and that's surfaced
 });

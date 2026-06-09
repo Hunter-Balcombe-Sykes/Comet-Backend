@@ -1,14 +1,14 @@
 <?php
 
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
-use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -69,25 +69,21 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
 });
 
-it('requires auth, connects per-user, and rate-limits re-connect on Instagram', function () {
+it('requires auth, queues connect per-user (202), and rate-limits re-connect on Instagram', function () {
     $this->getJson('/api/platforms/instagram/selection')->assertUnauthorized();
 
     $user = scraperUser('iguser');
     config(['services.apify.token' => 'test-token']);
-    Storage::fake('media');
-    Http::fake(['*' => Http::response('img-bytes', 200)]);
 
-    $this->mock(InstagramScraper::class, function ($m) {
-        $m->shouldReceive('fetchProfile')->andReturn(['fullName' => 'Ig User', 'followersCount' => 10, 'postsCount' => 3]);
-        $m->shouldReceive('recentCoverImages')->andReturn(['https://cdn.example/1.jpg', 'https://cdn.example/2.jpg']);
-        $m->shouldReceive('profilePicUrl')->andReturn('https://cdn.example/p.jpg');
-    });
+    Queue::fake();
 
+    // connect() now returns 202 immediately and dispatches the job — no scraper call in the HTTP layer.
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'iguser'])
-        ->assertOk()
-        ->assertJsonPath('mode', 'automatic');
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending');
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeTrue();
+    Queue::assertPushed(InstagramConnectJob::class);
 
     // Pilot cost guard: an immediate second connect is rate-limited (429).
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'iguser'])

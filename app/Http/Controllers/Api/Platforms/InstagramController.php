@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\InstagramConnectJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
@@ -16,13 +18,13 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-// Test-mode endpoints for the Instagram integration. Two modes, identical output
-// shape (a mirrored images[] + a `mode` tag):
-//   automatic — connect() scrapes and takes the 8 most-recent post covers.
-//   manual    — posts() lists recent posts + their images for the picker;
-//               saveSelection() mirrors the chosen images.
-// Scraping lives in App\Services\Platforms\InstagramScraper; mirroring to the R2
-// `media` disk stays here (IG CDN urls expire, so we re-host the chosen images).
+// Instagram integration endpoints. Two connect modes, same final payload shape
+// (mirrored images[] + `mode` tag):
+//   automatic — connect() queues a background job that scrapes and mirrors up to
+//               8 most-recent post covers; responds 202 immediately.
+//   manual    — posts() lists recent posts for the picker; saveSelection() mirrors
+//               the chosen images synchronously (user-driven, bounded set).
+// Scraping lives in InstagramScraper; heavy mirroring in InstagramConnectJob.
 class InstagramController extends ApiController
 {
     use JitteredTtl;
@@ -46,7 +48,9 @@ class InstagramController extends ApiController
         return 'instagram';
     }
 
-    // POST /api/platforms/instagram/connect — AUTOMATIC: scrape, mirror 8 covers, store.
+    // POST /api/platforms/instagram/connect — AUTOMATIC: queue a scrape + mirror
+    // job and return 202 immediately. The cooldown guard runs HERE (not in the job)
+    // so rapid re-connects are throttled before anything is queued.
     public function connect(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -60,19 +64,62 @@ class InstagramController extends ApiController
             return $budgetError;
         }
 
-        $profile = $this->scraper->fetchProfile($username, $user->id);
-        if (! $profile) {
-            return $this->error('Could not fetch that Instagram profile (private, not found, or scraper error).', 502);
+        // Write a pending placeholder so the status endpoint can respond before
+        // the job runs. updateOrCreate so a re-connect replaces any prior row.
+        $connection = IntegrationConnection::updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'platform' => $this->platform(),
+                'resource_id' => $this->defaultResourceId(),
+            ],
+            [
+                'payload' => null,
+                'is_active' => false,
+                'last_refreshed_at' => null,
+                'last_refresh_status' => 'pending',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+
+        InstagramConnectJob::dispatch($user->id, $username, $connection->id);
+
+        return $this->success([
+            'status' => 'pending',
+            'statusUrl' => url('/api/integrations/instagram/connect/status'),
+        ], 202);
+    }
+
+    // GET /api/platforms/instagram/connect/status — poll endpoint for the automatic
+    // connect flow. Returns pending / ready (with payload) / failed. 404 when no
+    // connection exists for the caller.
+    public function connectStatus(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $connection = $this->connectionFor($user);
+
+        if (! $connection) {
+            return $this->error('No Instagram connection found.', 404);
         }
 
-        $folder = 'platforms/instagram/'.now()->timestamp;
-        $coverUrls = $this->scraper->recentCoverImages($profile, self::AUTO_IMAGE_COUNT);
-        $images = $this->mirrorAll($coverUrls, $folder);
+        $status = $connection->last_refresh_status;
 
-        $selection = $this->buildSelection($username, $profile, $folder, 'automatic', $images, count($coverUrls) - count($images));
-        $this->writeConnection($user, $selection);
+        if ($status === 'ok') {
+            return $this->success([
+                'status' => 'ready',
+                'connection' => $connection->payload,
+            ]);
+        }
 
-        return $this->success($selection);
+        if ($status === 'pending') {
+            return $this->success(['status' => 'pending']);
+        }
+
+        // 'unavailable', 'error', or any other terminal failure state.
+        return $this->success([
+            'status' => 'failed',
+            'error' => $connection->last_refresh_error,
+        ]);
     }
 
     // GET /api/platforms/instagram/posts?username=X — recent posts + their image
