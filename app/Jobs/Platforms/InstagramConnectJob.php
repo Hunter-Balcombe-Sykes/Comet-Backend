@@ -98,6 +98,10 @@ class InstagramConnectJob implements ShouldQueue
             'mode' => 'automatic',
             'images' => $images,
             'imagesDropped' => count($coverUrls) - count($images),
+            // Internal: R2 prefix these mirrored files live under, so the observer
+            // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
+            // public endpoint by PublicIntegrationConnectionResource.
+            '_folder' => $folder,
         ];
 
         $connection->update([
