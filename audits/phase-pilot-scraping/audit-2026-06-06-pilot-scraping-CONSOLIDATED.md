@@ -30,7 +30,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 ## Progress
 
 - P1 Launch blockers: 5 of 5 complete
-- P2 Scale risks: 1 of 4 complete (CONS-6, CONS-7, CONS-8 parked — standalone)
+- P2 Scale risks: 4 of 4 complete
 - P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
 - P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
 - P2 Observability: 3 of 3 complete
@@ -151,7 +151,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Scale risks
 
-- [ ] **#CONS-6** · P2 · Effort: M — `InstagramController::connect` blocks a PHP-FPM worker for up to 150 seconds
+- [x] **#CONS-6** · P2 · Effort: M — `InstagramController::connect` blocks a PHP-FPM worker for up to 150 seconds
     - **Where:** `app/Services/Platforms/InstagramScraper.php:31` (110s Apify timeout); `app/Http/Controllers/Api/Platforms/InstagramController.php:68–73` (`mirrorAll` serial loop)
     - **Affects:** All API traffic — connecting Instagram synchronously blocks one worker thread for the full Apify runtime (5–110s) plus serial image mirroring (~2–5s × 8 images). Three concurrent Instagram connects can saturate a small worker pool.
     - **What to do:**
@@ -168,7 +168,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         // then: serial mirrorAll loop (~5s × 8 images)
         ```
 
-- [ ] **#CONS-7** · P2 · Effort: M — `EventbriteScraper::fetchEvents` fetches event detail pages serially (up to 11 sequential HTTP round-trips)
+- [x] **#CONS-7** · P2 · Effort: M — `EventbriteScraper::fetchEvents` fetches event detail pages serially (up to 11 sequential HTTP round-trips)
     - **Where:** `app/Services/Platforms/EventbriteScraper.php:55–59`
     - **Affects:** Daily `integrations:refresh` cron and every Eventbrite connect. At 8 serial events × 1–3s RTT each, one organiser refresh takes 8–24s. At 100 Eventbrite users, serial fetching extends cron runtime by up to 40 minutes.
     - **What to do:**
@@ -184,7 +184,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-8** · P2 · Effort: M — All Cloudflare and cache-warm jobs share the `default` queue — no isolation from user-facing work
+- [x] **#CONS-8** · P2 · Effort: M — All Cloudflare and cache-warm jobs share the `default` queue — no isolation from user-facing work
     - **Where:** `app/Jobs/Cache/WarmPublicSiteCacheJob.php:44`, `app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:40`, `app/Jobs/Cloudflare/RetireSubdomainFromKvJob.php:20`, `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:30`
     - **Affects:** Queue throughput at scale — a burst of platform-connection writes dispatches multiple `CloudflareCachePurgeJob`s onto `default`, competing for worker slots with notification dispatch.
     - **What to do:**
