@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ConnectEventbriteRequest;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,11 +28,11 @@ class EventbriteController extends ApiController
     }
 
     // POST /api/platforms/eventbrite/connect — store the next + upcoming events for the user.
-    public function connect(Request $request): JsonResponse
+    public function connect(ConnectEventbriteRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate(['url' => ['required', 'string', 'max:500']]);
+        $validated = $request->validated();
 
         $orgUrl = $this->scraper->normalizeOrgUrl($validated['url']);
         if (! $orgUrl) {

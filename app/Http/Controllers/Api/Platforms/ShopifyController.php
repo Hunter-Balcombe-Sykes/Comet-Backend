@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\AddShopifyBrandRequest;
+use App\Http\Requests\Platforms\SetShopifyProductsRequest;
+use App\Http\Requests\Platforms\UpdateShopifyBrandRequest;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
@@ -52,13 +55,10 @@ class ShopifyController extends ApiController
     // POST /api/platforms/shopify/brands — add (or refresh) a brand. Resolves the
     // brand profile, dedups by canonical id, caps at MAX_BRANDS, stores with the
     // brand's existing products preserved (empty on first add).
-    public function addBrand(Request $request): JsonResponse
+    public function addBrand(AddShopifyBrandRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'url' => ['required', 'string', 'max:500', 'url'],
-            'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
-        ]);
+        $validated = $request->validated();
 
         $origin = $this->scraper->originOf($validated['url']);
         if (! $origin) {
@@ -97,12 +97,10 @@ class ShopifyController extends ApiController
     }
 
     // PATCH /api/platforms/shopify/brands/{id} — update the discount code.
-    public function updateBrand(Request $request, string $id): JsonResponse
+    public function updateBrand(UpdateShopifyBrandRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'discountCode' => ['present', 'nullable', 'string', 'max:100'],
-        ]);
+        $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
             $map = $this->brandMap($user);
@@ -151,13 +149,10 @@ class ShopifyController extends ApiController
 
     // PUT /api/platforms/shopify/brands/{id}/selection — snapshot the chosen
     // products (re-fetched live, order preserved). Callable any time.
-    public function setProducts(Request $request, string $id): JsonResponse
+    public function setProducts(SetShopifyProductsRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $validated = $request->validate([
-            'productIds' => ['present', 'array', 'max:250'],
-            'productIds.*' => ['string', 'max:50'],
-        ]);
+        $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
             $map = $this->brandMap($user);

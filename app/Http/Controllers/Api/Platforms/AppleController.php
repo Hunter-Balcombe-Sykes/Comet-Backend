@@ -3,15 +3,17 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Models\Core\Site\IntegrationConnection;
+use App\Http\Requests\Platforms\ConnectAppleMusicRequest;
+use App\Http\Requests\Platforms\ConnectApplePodcastRequest;
+use App\Http\Requests\Platforms\SaveAppleMusicHighlightsRequest;
+use App\Http\Requests\Platforms\SaveApplePodcastHighlightsRequest;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 // Test-mode endpoints for Apple Music + Apple Podcasts. One controller, two
 // independent selections (music = latest album + highlights, podcast = latest
@@ -25,6 +27,7 @@ use Illuminate\Support\Facades\Cache;
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
+    use ManagesIntegrationConnection;
     use RefreshesLatestTile;
     use ResolveCurrentUser;
 
@@ -37,14 +40,27 @@ class AppleController extends ApiController
 
     private const MAX_HIGHLIGHTS = 5;
 
+    // Per-request mutable platform selector. Every generic op sets this property
+    // as its first line before any trait call. Safe because Laravel resolves a
+    // fresh controller instance per request — no cross-request state bleed.
+    private string $activePlatform = self::MUSIC;
+
     public function __construct(private readonly AppleSearch $apple) {}
+
+    // The trait's abstract platform() contract, satisfied dynamically.
+    // Apple uses one controller for two platforms, so $activePlatform is set
+    // at the top of each action before any trait method is called.
+    protected function platform(): string
+    {
+        return $this->activePlatform;
+    }
 
     // ── Music ────────────────────────────────────────────────────
 
     // POST /api/platforms/apple/music/connect
-    public function connectMusic(Request $request): JsonResponse
+    public function connectMusic(ConnectAppleMusicRequest $request): JsonResponse
     {
-        return $this->connectFor($request, $this->musicConfig());
+        return $this->connectFor($request, $this->musicConfig(), $request->validated());
     }
 
     // GET /api/platforms/apple/music/selection
@@ -60,17 +76,17 @@ class AppleController extends ApiController
     }
 
     // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
-    public function musicHighlights(Request $request): JsonResponse
+    public function musicHighlights(SaveAppleMusicHighlightsRequest $request): JsonResponse
     {
-        return $this->highlightsFor($request, $this->musicConfig());
+        return $this->highlightsFor($request, $this->musicConfig(), $request->validated());
     }
 
     // ── Podcast ───────────────────────────────────────────────────
 
     // POST /api/platforms/apple/podcast/connect
-    public function connectPodcast(Request $request): JsonResponse
+    public function connectPodcast(ConnectApplePodcastRequest $request): JsonResponse
     {
-        return $this->connectFor($request, $this->podcastConfig());
+        return $this->connectFor($request, $this->podcastConfig(), $request->validated());
     }
 
     // GET /api/platforms/apple/podcast/selection
@@ -86,9 +102,9 @@ class AppleController extends ApiController
     }
 
     // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
-    public function podcastHighlights(Request $request): JsonResponse
+    public function podcastHighlights(SaveApplePodcastHighlightsRequest $request): JsonResponse
     {
-        return $this->highlightsFor($request, $this->podcastConfig());
+        return $this->highlightsFor($request, $this->podcastConfig(), $request->validated());
     }
 
     // DELETE /api/platforms/apple — clear both. Retained for back-compat;
@@ -96,8 +112,11 @@ class AppleController extends ApiController
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->forgetOne($user, self::MUSIC);
-        $this->forgetOne($user, self::PODCAST);
+        // Gate runs per-platform so each delete ability fires independently.
+        foreach ([self::MUSIC, self::PODCAST] as $platform) {
+            $this->activePlatform = $platform;
+            $this->forgetConnection($user);
+        }
 
         return $this->success(['music' => null, 'podcast' => null]);
     }
@@ -159,10 +178,12 @@ class AppleController extends ApiController
 
     // ── Generic operations ────────────────────────────────────────
 
-    private function connectFor(Request $request, array $cfg): JsonResponse
+    // $validated is the pre-validated input (from the typed Form Request on the
+    // public action). The helper no longer calls $request->validate().
+    private function connectFor(Request $request, array $cfg, array $validated): JsonResponse
     {
+        $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
-        $validated = $request->validate([$cfg['inputField'] => ['required', 'string', 'max:200']]);
         $input = trim($validated[$cfg['inputField']]);
 
         $items = ($cfg['fetch'])($input);
@@ -179,19 +200,22 @@ class AppleController extends ApiController
             'latest' => $latest,
             'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
         ];
-        $this->put($user, $cfg['platform'], $selection);
+        $this->writeConnection($user, $selection);
 
         return $this->success($selection);
     }
 
     private function selectionFor(Request $request, string $platform): JsonResponse
     {
-        return $this->success(['selection' => $this->read($this->currentUser($request), $platform)]);
+        $this->activePlatform = $platform;
+
+        return $this->success(['selection' => $this->readConnection($this->currentUser($request))]);
     }
 
     private function recentFor(Request $request, array $cfg): JsonResponse
     {
-        $input = data_get($this->read($this->currentUser($request), $cfg['platform']), 'input');
+        $this->activePlatform = $cfg['platform'];
+        $input = data_get($this->readConnection($this->currentUser($request)), 'input');
         if (! $input) {
             return $this->error($cfg['connectFirst'], 404);
         }
@@ -203,16 +227,15 @@ class AppleController extends ApiController
         return $this->success([$cfg['recentKey'] => $items]);
     }
 
-    private function highlightsFor(Request $request, array $cfg): JsonResponse
+    // $validated is the pre-validated input (from the typed Form Request on the
+    // public action). The helper no longer calls $request->validate().
+    private function highlightsFor(Request $request, array $cfg, array $validated): JsonResponse
     {
+        $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
-        $validated = $request->validate([
-            $cfg['idsField'] => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
-            $cfg['idsField'].'.*' => ['string', 'max:30'],
-        ]);
 
-        return $this->withLock($user, $cfg['platform'], function () use ($user, $cfg, $validated): JsonResponse {
-            $selection = $this->read($user, $cfg['platform']);
+        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated): JsonResponse {
+            $selection = $this->readConnection($user);
             if (! $selection) {
                 return $this->error($cfg['connectFirst'], 404);
             }
@@ -229,7 +252,7 @@ class AppleController extends ApiController
             }
 
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
-            $this->put($user, $cfg['platform'], $selection);
+            $this->writeConnection($user, $selection);
 
             return $this->success($selection);
         });
@@ -237,67 +260,21 @@ class AppleController extends ApiController
 
     private function forgetFor(Request $request, string $platform, string $responseKey): JsonResponse
     {
-        $this->forgetOne($this->currentUser($request), $platform);
+        $this->activePlatform = $platform;
+        $this->forgetConnection($this->currentUser($request));
 
         return $this->success([$responseKey => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
 
-    /**
-     * Per-user, per-platform Redis mutex around a read→mutate→write selection
-     * cycle, mirroring ManagesIntegrationConnection::withConnectionLock. Apple keeps
-     * its own storage (two platforms in one controller), so it locks locally; this
-     * folds into the trait helper if AppleController later adopts the trait (CONS-10).
-     * Returns the callback's JsonResponse, or 423 when another save holds the lock.
-     */
-    private function withLock(User $user, string $platform, callable $callback): JsonResponse
-    {
-        try {
-            return Cache::lock("platforms:{$platform}:lock:{$user->id}", 10)->block(5, $callback);
-        } catch (LockTimeoutException) {
-            return $this->error('Another change is still saving — please retry in a moment.', 423);
-        }
-    }
-
-    // Read one Apple platform's per-user selection payload (null when none).
-    private function read(User $user, string $platform): ?array
-    {
-        return $user->integrationConnections()
-            ->where('platform', $platform)
-            ->where('resource_id', $platform)
-            ->first()?->payload;
-    }
-
-    // Upsert one Apple platform's per-user selection. Goes through the model so
-    // IntegrationConnectionObserver fires and purges the sitepage edge cache.
-    private function put(User $user, string $platform, array $data): void
-    {
-        IntegrationConnection::updateOrCreate(
-            ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $platform],
-            [
-                'payload' => $data,
-                'is_active' => true,
-                'last_refreshed_at' => now(),
-                'last_refresh_status' => 'ok',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
-        );
-    }
-
-    private function forgetOne(User $user, string $platform): void
-    {
-        $user->integrationConnections()
-            ->where('platform', $platform)
-            ->where('resource_id', $platform)
-            ->first()?->delete();
-    }
-
     // Preserve existing highlights only when reconnecting the SAME input.
     private function keptHighlights(User $user, string $platform, string $input): array
     {
-        $existing = $this->read($user, $platform);
+        // Temporarily set activePlatform for the read; reset is implicit since
+        // connectFor already set it before calling this.
+        $this->activePlatform = $platform;
+        $existing = $this->readConnection($user);
 
         return data_get($existing, 'input') === $input ? data_get($existing, 'highlights', []) : [];
     }

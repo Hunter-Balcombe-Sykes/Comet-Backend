@@ -221,7 +221,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 ## Security & privacy
 
-- [ ] **#CONS-10** · P2 · Effort: L — Platform controllers never invoke `IntegrationConnectionPolicy` via `authorizeForUser` — `denyIfPendingDeletion` never runs
+- [x] **#CONS-10** · P2 · Effort: L — Platform controllers never invoke `IntegrationConnectionPolicy` via `authorizeForUser` — `denyIfPendingDeletion` never runs
     - **Where:** `app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php` — `connectionFor()`, `writeConnection()`, `forgetConnection()`; all 8 platform controllers that use the trait; `AppleController` private helpers that bypass the trait entirely
     - **Affects:** Authorization auditability. The `denyIfPendingDeletion()` policy method never executes — a professional whose account is pending deletion can still write platform connections. The 404-not-403 contract is also never enforced via the policy gate on write paths.
     - **What to do:**
@@ -596,7 +596,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **What to do:** `ALTER TABLE site.platform_connections ALTER COLUMN created_at SET DEFAULT now(), ALTER COLUMN updated_at SET DEFAULT now();`
     - **Evidence:** `created_at timestamptz, updated_at timestamptz,` — no DEFAULT clause.
 
-- [ ] **#CONS-35** · P3 · Effort: S — Platform controllers use inline `$request->validate()` instead of Form Request classes
+- [x] **#CONS-35** · P3 · Effort: S — Platform controllers use inline `$request->validate()` instead of Form Request classes
     - **Where:** `AppleController`, `EventbriteController`, `FreshaController`, `InstagramController`, `ShopifyController`, `TiktokController`, `YoutubeController` — all action methods
     - **What to do:** Extract validation rules into Form Request classes. The Form Request `authorize()` method is the canonical home for `authorizeForUser` calls (CONS-10), so creating these classes bundles both fixes.
     - **Evidence:** `$validated = $request->validate(['artist' => ['required', 'string', 'max:200']]);` — representative of pattern across all controllers.

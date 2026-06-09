@@ -43,15 +43,47 @@ trait ManagesIntegrationConnection
 
     protected function connectionFor(User $user, ?string $resourceId = null): ?IntegrationConnection
     {
-        return $user->integrationConnections()
+        $connection = $user->integrationConnections()
             ->where('platform', $this->platform())
             ->where('resource_id', $resourceId ?? $this->defaultResourceId())
             ->first();
+
+        // Gate read access — null rows are left as-is (preserves the "not found"
+        // contract; no throw on absent connections). A found row is checked against
+        // the policy's view() ability (pure ownership, no pending-deletion guard).
+        if ($connection) {
+            $this->authorizeForUser($user, 'view', $connection);
+        }
+
+        return $connection;
     }
 
-    /** Upsert the selection payload for one resource; returns the row. */
+    /**
+     * Upsert the selection payload for one resource; returns the row.
+     *
+     * Authorization: resolves whether this is a create (new row) or update
+     * (existing row) before the upsert so the correct ability fires. Both
+     * abilities run denyIfPendingDeletion; update additionally enforces ownership.
+     */
     protected function writeConnection(User $user, array $payload, ?string $resourceId = null): IntegrationConnection
     {
+        // Determine create vs. update before the upsert so the correct ability fires.
+        $existing = $this->connectionFor($user, $resourceId);
+        if ($existing) {
+            // connectionFor already ran 'view' (ownership check); run 'update' for
+            // the pending-deletion guard on top of ownership.
+            $this->authorizeForUser($user, 'update', $existing);
+        } else {
+            // No row yet — gate with a skeleton so the policy can check ownership
+            // and pending-deletion without a real DB row.
+            $skeleton = new IntegrationConnection([
+                'user_id' => $user->id,
+                'platform' => $this->platform(),
+                'resource_id' => $resourceId ?? $this->defaultResourceId(),
+            ]);
+            $this->authorizeForUser($user, 'create', $skeleton);
+        }
+
         return IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
@@ -75,10 +107,21 @@ trait ManagesIntegrationConnection
         return $this->connectionFor($user, $resourceId)?->payload;
     }
 
-    /** Soft-delete one resource (or the default single selection). */
+    /**
+     * Soft-delete one resource (or the default single selection).
+     *
+     * Authorization: only runs 'delete' when a row exists (same null-preserving
+     * pattern as connectionFor). The policy's delete() delegates to update(),
+     * so both ownership and pending-deletion are checked.
+     */
     protected function forgetConnection(User $user, ?string $resourceId = null): void
     {
-        $this->connectionFor($user, $resourceId)?->delete();
+        // connectionFor already ran 'view'; re-gate with 'delete' for the write-side check.
+        $connection = $this->connectionFor($user, $resourceId);
+        if ($connection) {
+            $this->authorizeForUser($user, 'delete', $connection);
+            $connection->delete();
+        }
     }
 
     /**

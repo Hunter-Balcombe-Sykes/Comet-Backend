@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ConnectTiktokRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,11 +24,11 @@ class TiktokController extends ApiController
     }
 
     // POST /api/platforms/tiktok/connect — store the profile link for the user.
-    public function connect(Request $request): JsonResponse
+    public function connect(ConnectTiktokRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
+        $validated = $request->validated();
 
         $username = $this->normalizeUsername($validated['username']);
         if ($username === '') {

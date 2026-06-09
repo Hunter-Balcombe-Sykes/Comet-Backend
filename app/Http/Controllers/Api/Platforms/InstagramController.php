@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\SaveInstagramSelectionRequest;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -62,6 +63,21 @@ class InstagramController extends ApiController
 
         if ($budgetError = $this->guardApifyBudget($user)) {
             return $budgetError;
+        }
+
+        // Gate the placeholder write: determine create vs. update so the correct
+        // policy ability fires. This is a direct write (not via writeConnection)
+        // because the placeholder shape differs from a normal selection row.
+        $existing = $this->connectionFor($user);
+        if ($existing) {
+            $this->authorizeForUser($user, 'update', $existing);
+        } else {
+            $skeleton = new IntegrationConnection([
+                'user_id' => $user->id,
+                'platform' => $this->platform(),
+                'resource_id' => $this->defaultResourceId(),
+            ]);
+            $this->authorizeForUser($user, 'create', $skeleton);
         }
 
         // Write a pending placeholder so the status endpoint can respond before
@@ -148,14 +164,10 @@ class InstagramController extends ApiController
     }
 
     // POST /api/platforms/instagram/selection — MANUAL: mirror the chosen images, store.
-    public function saveSelection(Request $request): JsonResponse
+    public function saveSelection(SaveInstagramSelectionRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $request->validate([
-            'images' => ['present', 'array', 'max:'.self::MAX_MANUAL_IMAGES],
-            'images.*' => ['string', 'url', 'max:2000'],
-        ]);
         $username = $this->validateUsername($request);
         if ($username instanceof JsonResponse) {
             return $username;

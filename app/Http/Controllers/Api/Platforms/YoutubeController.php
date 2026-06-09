@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ConnectYoutubeRequest;
+use App\Http\Requests\Platforms\SaveYoutubeHighlightsRequest;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,13 +35,11 @@ class YoutubeController extends ApiController
     }
 
     // POST /api/platforms/youtube/connect — store the auto-latest video for the user.
-    public function connect(Request $request): JsonResponse
+    public function connect(ConnectYoutubeRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate([
-            'channel' => ['required', 'string', 'max:200'],
-        ]);
+        $validated = $request->validated();
 
         $handle = $this->scraper->normalizeHandle($validated['channel']);
         if ($handle === '') {
@@ -89,12 +89,9 @@ class YoutubeController extends ApiController
 
     // POST /api/platforms/youtube/highlights — snapshot up to 5 chosen videos
     // (by videoId, from the last 15) into the saved selection. An empty list clears them.
-    public function highlights(Request $request): JsonResponse
+    public function highlights(SaveYoutubeHighlightsRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'videoIds' => ['present', 'array', 'max:'.self::MAX_HIGHLIGHTS],
-            'videoIds.*' => ['string', 'max:30'],
-        ]);
+        $validated = $request->validated();
 
         $user = $this->currentUser($request);
 

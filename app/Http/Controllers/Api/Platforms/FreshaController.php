@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ConnectFreshaRequest;
+use App\Http\Requests\Platforms\FreshaEmployeeServicesRequest;
+use App\Http\Requests\Platforms\SaveFreshaSelectionRequest;
+use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
 use App\Models\Core\User\User;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
@@ -61,13 +65,11 @@ class FreshaController extends ApiController
     }
 
     // POST /api/platforms/fresha/connect
-    public function connect(Request $request): JsonResponse
+    public function connect(ConnectFreshaRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate([
-            'url' => ['required', 'string', 'max:500', 'regex:'.self::URL_PATTERN],
-        ]);
+        $validated = $request->validated();
 
         $url = $this->stripLocale($validated['url']);
         // Preserve any existing selection (re-connecting the same store keeps the
@@ -101,13 +103,11 @@ class FreshaController extends ApiController
     // POST /api/platforms/fresha/selection — save which team member is "you"
     // plus the current service menu. Re-scrapes the saved URL so the stored
     // blob is server-authoritative (not whatever the client happened to hold).
-    public function saveSelection(Request $request): JsonResponse
+    public function saveSelection(SaveFreshaSelectionRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate([
-            'employeeId' => ['required', 'string', 'max:50'],
-        ]);
+        $validated = $request->validated();
 
         $url = $this->freshaUrl($user);
         if (! $url) {
@@ -148,11 +148,9 @@ class FreshaController extends ApiController
 
     // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee
     // menu for the dashboard preview (before saving). Same fallback as above.
-    public function employeeServices(Request $request): JsonResponse
+    public function employeeServices(FreshaEmployeeServicesRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'employeeId' => ['required', 'string', 'max:50'],
-        ]);
+        $validated = $request->validated();
 
         $url = $this->freshaUrl($this->currentUser($request));
         if (! $url) {
@@ -179,14 +177,11 @@ class FreshaController extends ApiController
     // selection so the dashboard swaps state in place. (partna-pages filters the
     // services list by hiddenServiceIds at render time — the public payload is
     // shipped verbatim, so the hidden list is curation, not a privacy boundary.)
-    public function setServiceVisibility(Request $request): JsonResponse
+    public function setServiceVisibility(SetFreshaServiceVisibilityRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate([
-            'serviceId' => ['required', 'string', 'max:50'],
-            'hidden' => ['required', 'boolean'],
-        ]);
+        $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
             $payload = $this->readConnection($user);

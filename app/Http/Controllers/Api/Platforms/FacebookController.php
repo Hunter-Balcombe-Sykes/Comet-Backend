@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ConnectFacebookRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -22,11 +23,11 @@ class FacebookController extends ApiController
     }
 
     // POST /api/platforms/facebook/connect — store the profile link for the user.
-    public function connect(Request $request): JsonResponse
+    public function connect(ConnectFacebookRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
+        $validated = $request->validated();
 
         $selection = $this->normalize($validated['username']);
         // Empty username is only valid for numeric profile.php links and legacy
