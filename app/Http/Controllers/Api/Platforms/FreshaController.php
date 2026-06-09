@@ -9,6 +9,7 @@ use App\Http\Requests\Platforms\ConnectFreshaRequest;
 use App\Http\Requests\Platforms\FreshaEmployeeServicesRequest;
 use App\Http\Requests\Platforms\SaveFreshaSelectionRequest;
 use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
+use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Models\Core\User\User;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
@@ -143,7 +144,7 @@ class FreshaController extends ApiController
         ];
         $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
 
-        return $this->success($selection);
+        return $this->success((new FreshaSelectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee
@@ -168,7 +169,11 @@ class FreshaController extends ApiController
     // reads this; the dashboard reads it to restore its "saved" state on load).
     public function selection(Request $request): JsonResponse
     {
-        return $this->success(['selection' => data_get($this->readConnection($this->currentUser($request)), 'selection')]);
+        $selection = data_get($this->readConnection($this->currentUser($request)), 'selection');
+
+        return $this->success([
+            'selection' => is_array($selection) ? (new FreshaSelectionResource($selection))->resolve() : null,
+        ]);
     }
 
     // POST /api/platforms/fresha/service-visibility — show/hide one service on the
@@ -213,7 +218,7 @@ class FreshaController extends ApiController
             $selection['hiddenServiceIds'] = $hidden;
             $this->writeConnection($user, ['url' => data_get($payload, 'url'), 'selection' => $selection]);
 
-            return $this->success($selection);
+            return $this->success((new FreshaSelectionResource($selection))->resolve());
         });
     }
 

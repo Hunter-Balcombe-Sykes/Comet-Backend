@@ -291,3 +291,49 @@ it('shopify brands list strips unknown per-brand keys', function () {
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'products' => [],
         ]]]);
 });
+
+// ── Fresha (FreshaSelectionResource) ─────────────────────────────────────────
+
+it('fresha selection wraps the nested selection blob and strips unknown keys', function () {
+    $user = platformContractUser('fr1');
+    seedPlatformConnection($user, 'fresha', [
+        'url' => 'https://www.fresha.com/a/acme',
+        'selection' => [
+            'url' => 'https://www.fresha.com/a/acme',
+            'storeName' => 'Acme',
+            'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
+            'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+            'hiddenServiceIds' => [],
+            '_internal' => 'leak',
+        ],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => [
+            'url' => 'https://www.fresha.com/a/acme',
+            'storeName' => 'Acme',
+            'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
+            'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+            'hiddenServiceIds' => [],
+        ]]);
+});
+
+it('fresha service-visibility returns the wrapped selection shape', function () {
+    $user = platformContractUser('fr2');
+    seedPlatformConnection($user, 'fresha', [
+        'url' => 'https://www.fresha.com/a/acme',
+        'selection' => [
+            'url' => 'https://www.fresha.com/a/acme', 'storeName' => 'Acme',
+            'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo'],
+            'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+            'hiddenServiceIds' => [],
+        ],
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/fresha/service-visibility', ['serviceId' => 's:1', 'hidden' => true])
+        ->assertOk()
+        ->assertJsonPath('hiddenServiceIds', ['s:1'])
+        ->assertJsonPath('storeName', 'Acme')
+        ->assertJsonPath('employee.employeeId', 'e1');
+});
