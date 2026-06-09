@@ -2,8 +2,8 @@
 
 namespace App\Jobs\Cache;
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
@@ -48,10 +48,10 @@ class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         public string $subdomain
     ) {
-        // Use the 'default' queue so standard workers pick this up automatically.
-        // Previously dispatched to 'cache', a named queue that may not be consumed
-        // in all worker deployments, which would silently prevent cache warming.
-        $this->onQueue('default');
+        // Isolated on its own queue so a burst of cache-warm dispatches after a
+        // publish event doesn't compete with user-facing notifications or mail.
+        // Workers are configured in config/horizon.php under supervisor-cache-warm.
+        $this->onQueue('cache-warm');
     }
 
     public function handle(

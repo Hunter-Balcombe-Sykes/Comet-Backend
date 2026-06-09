@@ -15,7 +15,7 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([5, 15, 60])
         ->and($job->timeout)->toBe(15)
-        ->and($job->queue)->toBe('default');
+        ->and($job->queue)->toBe('cloudflare');
 });
 
 it('delegates to CloudflarePurgeService::purgeHandle with the lowered handle', function () {

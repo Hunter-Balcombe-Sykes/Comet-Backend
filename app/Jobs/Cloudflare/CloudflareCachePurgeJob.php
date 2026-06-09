@@ -50,7 +50,9 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly string $handle)
     {
-        $this->onQueue('default');
+        // Isolated from user-facing work so a burst of site mutations can't
+        // delay notifications or mail delivery.
+        $this->onQueue('cloudflare');
     }
 
     public function handle(CloudflarePurgeService $purge): void

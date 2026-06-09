@@ -24,10 +24,10 @@ it('calls warmSiteCache with a lowercased subdomain', function () {
     $job->handle($siteCache, $cacheLock, $builder);
 });
 
-it('runs on the default queue', function () {
+it('runs on the cache-warm queue', function () {
     $job = new WarmPublicSiteCacheJob('my-site');
 
-    expect($job->queue)->toBe('default');
+    expect($job->queue)->toBe('cache-warm');
 });
 
 it('can be dispatched via Queue::fake', function () {
@@ -59,7 +59,7 @@ it('has a timeout of 10', function () {
 });
 
 it('calls report() on failure', function () {
-    $e = new \RuntimeException('cache warm error');
+    $e = new RuntimeException('cache warm error');
     $job = new WarmPublicSiteCacheJob('my-site');
     $job->failed($e); // Should not throw
 })->throwsNoExceptions();

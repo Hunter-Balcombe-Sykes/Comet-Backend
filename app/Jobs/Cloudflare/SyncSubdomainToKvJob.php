@@ -52,7 +52,9 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
      */
     public function __construct(public readonly string $userId, public readonly ?string $capturedHandle = null)
     {
-        $this->onQueue('default');
+        // Isolated from user-facing work so a burst of platform-connection writes
+        // can't delay notifications or mail delivery.
+        $this->onQueue('cloudflare');
     }
 
     public function uniqueId(): string
