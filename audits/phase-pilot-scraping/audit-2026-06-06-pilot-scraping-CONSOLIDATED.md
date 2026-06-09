@@ -31,11 +31,11 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
 
 - P1 Launch blockers: 5 of 5 complete
 - P2 Scale risks: 4 of 4 complete
-- P2 Security & privacy: 2 of 5 complete (CONS-10, CONS-11 parked — standalone; CONS-13 parked — DB migration)
-- P2 Correctness/data integrity: 7 of 8 complete (CONS-21 parked — standalone)
+- P2 Security & privacy: 3 of 5 complete (CONS-11 done — public payload allowlist; CONS-10 parked — standalone; CONS-13 parked — DB migration)
+- P2 Correctness/data integrity: 8 of 8 complete (CONS-21 done — Instagram R2 cleanup)
 - P2 Observability: 3 of 3 complete
 - P2 Test coverage: 2 of 3 complete (CONS-27 parked — SQLite harness lacks the CHECK + partial unique index the finding asserts; needs a shared-schema decision)
-- P3 Nice to have: 9 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 parked — L effort; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
+- P3 Nice to have: 9 of 14 complete (CONS-29, CONS-34 parked — DB migrations; CONS-38 partial — public allowlist landed with CONS-11, authenticated-controller rollout deferred to its own PR; CONS-35 parked — really L, bundle with CONS-10's PR per the finding)
 
 ---
 
@@ -244,7 +244,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         }
         ```
 
-- [ ] **#CONS-11** · P2 · Effort: M — `PublicIntegrationController` returns raw `payload` JSONB without a Resource allowlist — future internal keys become public automatically
+- [x] **#CONS-11** · P2 · Effort: M — `PublicIntegrationController` returns raw `payload` JSONB without a Resource allowlist — future internal keys become public automatically
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:52–61`
     - **Affects:** All sitepage visitors (unauthenticated). The full `payload` JSONB blob is served verbatim with CDN caching. Any field added by a developer (internal reference IDs, scraper metadata, the `_folder` key from CONS-21's Instagram R2 fix) silently becomes part of the public API contract. Violates Partna's Resource-class architecture mandate.
     - **What to do:**
@@ -420,7 +420,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
         $apiBase = rtrim((string) config('app.url', ''), '/');  // ← config-driven
         ```
 
-- [ ] **#CONS-21** · P2 · Effort: M — Instagram mirrored images are never deleted when a connection is removed or purged (R2 storage leak)
+- [x] **#CONS-21** · P2 · Effort: M — Instagram mirrored images are never deleted when a connection is removed or purged (R2 storage leak)
     - **Where:** `app/Http/Controllers/Api/Platforms/InstagramController.php` — `forget()`; `app/Observers/Core/IntegrationConnectionObserver.php` — `deleted()`
     - **Affects:** R2 storage costs. Every connect/disconnect cycle leaves a `platforms/instagram/{timestamp}/` folder of orphaned image and profile-picture files in object storage indefinitely.
     - **What to do:**
@@ -612,6 +612,7 @@ Adjudicators also dropped 3 DeepSeek false positives: `integrations:refresh` alr
     - **Evidence:** `return response()->json([...])->header('Cache-Control', 'public, max-age=3600');` — raw response bypasses `success()` envelope used everywhere else.
 
 - [ ] **#CONS-38** · P3 · Effort: L — Platform controllers return hand-assembled arrays without Resource classes — no canonical field allowlist per platform
+    - **Status (2026-06-09):** PARTIAL. The public-endpoint half landed with CONS-11 — `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php` is the canonical per-platform PUBLIC allowlist. Remaining: wrap the 8 authenticated controllers' connect/highlights/saveSelection responses in Resource classes (P3, touches the live dashboard contract — own PR). Note: CONS-21 R2 cleanup leaves ONE documented residual — a manual→automatic mode switch orphans the manual folder (the async placeholder null-write erases the folder reference before the new folder is known); rare, low-severity, like the pre-`_folder` legacy folders.
     - **Where:** All 8 platform controllers — connect/highlights/saveSelection response arrays
     - **What to do:** Create per-platform Resource classes under `app/Http/Resources/Platforms/`. Each Resource's `toArray()` becomes the canonical allowlist. Reuse from the public endpoint (CONS-11) via `$this->when(...)` guards.
     - **Evidence:** Eight controllers each define their own response shape inline with no shared contract. Same structural gap that let `latest` drift (CONS-1).
