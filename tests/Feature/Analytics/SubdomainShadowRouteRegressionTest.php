@@ -18,24 +18,7 @@ beforeEach(function (): void {
     setupBlocksTable();
     setupLinkClicksTable();
 
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
-        id TEXT PRIMARY KEY,
-        site_id TEXT NULL,
-        user_id TEXT NULL,
-        session_id TEXT NULL,
-        visitor_id TEXT NULL,
-        occurred_at TEXT NULL,
-        ip_hash TEXT NULL,
-        user_agent TEXT NULL,
-        referrer TEXT NULL,
-        utm_source TEXT NULL,
-        utm_medium TEXT NULL,
-        utm_campaign TEXT NULL,
-        country_code TEXT NULL,
-        device_type TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    setupSiteVisitsTable();
 });
 
 it('does not register a subdomain-scoped pageview or click route', function (): void {

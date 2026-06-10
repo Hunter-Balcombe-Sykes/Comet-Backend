@@ -12,8 +12,13 @@ trait DetectsClientInfo
      */
     protected function detectCountryCode(Request $request): ?string
     {
+        // X-Visitor-Country first: sitepage beacons arrive via the partna-pages
+        // Worker proxy, so CF-IPCountry on THIS request reflects the Worker's
+        // egress, not the visitor. The middleware forwards the original
+        // request.cf country/region under X-Visitor-* headers.
         $code =
-            $request->header('CF-IPCountry') // Cloudflare
+            $request->header('X-Visitor-Country')
+            ?? $request->header('CF-IPCountry') // Cloudflare
             ?? $request->header('CloudFront-Viewer-Country') // AWS CloudFront
             ?? $request->header('X-Vercel-IP-Country'); // Vercel
 
@@ -96,5 +101,28 @@ trait DetectsClientInfo
         }
 
         return 'desktop';
+    }
+
+    /**
+     * Detect the ISO-3166-2 region suffix (e.g. NSW, VIC for AU) from the
+     * partna-pages proxy header or Cloudflare's managed-transform header.
+     */
+    protected function detectRegionCode(Request $request): ?string
+    {
+        $code =
+            $request->header('X-Visitor-Region')
+            ?? $request->header('CF-Region-Code');
+
+        if (! is_string($code)) {
+            return null;
+        }
+
+        $code = strtoupper(trim($code));
+
+        if (! preg_match('/^[A-Z0-9]{1,3}$/', $code)) {
+            return null;
+        }
+
+        return $code;
     }
 }

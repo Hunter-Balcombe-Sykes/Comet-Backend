@@ -1125,6 +1125,7 @@ function setupSiteVisitsTable(): void
         user_agent TEXT NULL,
         device_type TEXT NULL,
         country_code TEXT NULL,
+        region_code TEXT NULL,
         referrer TEXT NULL,
         utm_source TEXT NULL,
         utm_medium TEXT NULL,
@@ -1154,6 +1155,37 @@ function setupLinkClicksTable(): void
         utm_source TEXT NULL,
         utm_medium TEXT NULL,
         utm_campaign TEXT NULL,
+        url TEXT NULL,
+        platform TEXT NULL,
+        product_id TEXT NULL,
+        product_title TEXT NULL,
+        section_key TEXT NULL,
+        label TEXT NULL,
+        country_code TEXT NULL,
+        region_code TEXT NULL,
+        device_type TEXT NULL,
+        created_at TEXT NULL
+    )');
+}
+
+/**
+ * analytics.site_sessions — v2 session heartbeats (live-now + avg duration).
+ */
+function setupSiteSessionsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        site_id TEXT NULL,
+        visitor_id TEXT NULL,
+        started_at TEXT NULL,
+        last_seen_at TEXT NULL,
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        country_code TEXT NULL,
+        region_code TEXT NULL,
+        device_type TEXT NULL,
+        referrer TEXT NULL,
         created_at TEXT NULL
     )');
 }

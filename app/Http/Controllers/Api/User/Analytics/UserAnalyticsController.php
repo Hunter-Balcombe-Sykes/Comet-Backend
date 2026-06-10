@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api\User\Analytics;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Analytics\AnalyticsCacheService;
+use App\Services\Analytics\AnalyticsQueryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -16,10 +17,13 @@ use Throwable;
 // All query, cache, and composition logic lives in AnalyticsCacheService.
 class UserAnalyticsController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
-    public function __construct(private readonly AnalyticsCacheService $analytics) {}
+    public function __construct(
+        private readonly AnalyticsCacheService $analytics,
+        private readonly AnalyticsQueryService $queries,
+    ) {}
 
     public function summary(Request $request): JsonResponse
     {
@@ -93,5 +97,19 @@ class UserAnalyticsController extends ApiController
         );
 
         return $this->success($data);
+    }
+
+    /**
+     * Live-now count: sessions with a heartbeat in the last 75s. Deliberately
+     * bypasses the summary cache (which holds up to 5min); the dashboard polls
+     * this every ~15s while the analytics page is visible.
+     */
+    public function live(Request $request): JsonResponse
+    {
+        $professional = $this->currentUser($request);
+
+        return $this->success([
+            'live_visitors' => $this->queries->liveVisitors($professional->id),
+        ]);
     }
 }

@@ -127,6 +127,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
 
         // View Analytics
         Route::get('/analytics', [UserAnalyticsController::class, 'summary']);
+        Route::get('/analytics/live', [UserAnalyticsController::class, 'live']);
 
         // Links
         Route::get('/links', [UserLinkBlockController::class, 'index']);
