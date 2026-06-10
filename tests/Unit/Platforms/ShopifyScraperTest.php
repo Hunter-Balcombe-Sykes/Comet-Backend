@@ -12,7 +12,7 @@ afterEach(function () {
 function shopifyScraperWith(string $html, string $meta = '{"id":1,"name":"Shop","currency":"USD"}'): ShopifyScraper
 {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->andReturnUsing(function (string $url, array $headers = []) use ($html, $meta) {
+    $fetcher->shouldReceive('tryFetch')->andReturnUsing(function (string $url, array $headers = []) use ($html, $meta) {
         return str_contains($url, '/meta.json')
             ? ['status' => 200, 'body' => $meta]
             : ['status' => 200, 'body' => $html];

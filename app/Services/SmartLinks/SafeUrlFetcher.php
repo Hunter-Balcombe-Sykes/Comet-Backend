@@ -72,6 +72,26 @@ class SafeUrlFetcher
     }
 
     /**
+     * fetch(), but transport-level failures (unresolvable host, SSRF
+     * rejection, timeout, refused connection) return null instead of
+     * throwing — the same swallow semantics fetchMany() applies per URL.
+     * HTTP error statuses (403/404/500…) still return the response array.
+     *
+     * The platform scrapers use this: a user-pasted URL that doesn't resolve
+     * is "platform unavailable", not an application error.
+     *
+     * @return array{status:int, body:string, finalUrl:string, contentType:string}|null
+     */
+    public function tryFetch(string $url, array $headers = []): ?array
+    {
+        try {
+            return $this->fetch($url, $headers);
+        } catch (SafeUrlException|\Illuminate\Http\Client\ConnectionException) {
+            return null;
+        }
+    }
+
+    /**
      * Fetch multiple URLs concurrently with the same SSRF guarantees as fetch().
      *
      * Each URL is pre-validated (scheme + public-IP check). The initial GETs fire

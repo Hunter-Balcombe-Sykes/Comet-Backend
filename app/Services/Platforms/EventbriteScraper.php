@@ -33,8 +33,8 @@ class EventbriteScraper extends PlatformScraper
     {
         $headers = ['User-Agent' => self::USER_AGENT];
 
-        $page = $this->fetcher->fetch($orgUrl, $headers);
-        if ($page['status'] !== 200) {
+        $page = $this->fetcher->tryFetch($orgUrl, $headers);
+        if ($page === null || $page['status'] !== 200) {
             return null;
         }
         $organiser = $this->orgName($page['body']);
@@ -119,7 +119,7 @@ class EventbriteScraper extends PlatformScraper
      */
     private function parseEvent(array $res, string $url): ?array
     {
-        if ($res['status'] !== 200) {
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
 

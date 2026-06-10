@@ -31,8 +31,8 @@ class BandcampScraper extends PlatformScraper
      */
     public function fetchProfile(string $origin, int $limit = 24): ?array
     {
-        $res = $this->fetcher->fetch($origin.'/music', ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($origin.'/music', ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $html = $res['body'];

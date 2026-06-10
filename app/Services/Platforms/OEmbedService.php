@@ -20,8 +20,8 @@ class OEmbedService extends PlatformScraper
      */
     public function resolve(string $oembedEndpoint): ?array
     {
-        $res = $this->fetcher->fetch($oembedEndpoint, ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json']);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($oembedEndpoint, ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json']);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
 

@@ -40,7 +40,7 @@ class ShopifyScraper extends PlatformScraper
             ? (string) $rawId
             : preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
 
-        $home = $this->fetcher->fetch($origin.'/', ['User-Agent' => self::USER_AGENT]);
+        $home = $this->fetcher->tryFetch($origin.'/', ['User-Agent' => self::USER_AGENT]);
         $html = $home['status'] === 200 ? $home['body'] : '';
 
         $name = data_get($meta, 'name');
@@ -68,9 +68,9 @@ class ShopifyScraper extends PlatformScraper
      */
     public function fetchProducts(string $origin, ?string $defaultCurrency = null): array
     {
-        $response = $this->fetcher->fetch($origin.'/products.json?limit=250', ['User-Agent' => self::USER_AGENT]);
+        $response = $this->fetcher->tryFetch($origin.'/products.json?limit=250', ['User-Agent' => self::USER_AGENT]);
 
-        if ($response['status'] !== 200) {
+        if ($response === null || $response['status'] !== 200) {
             abort(502, "Shopify returned HTTP {$response['status']} for /products.json — the store may have it disabled.");
         }
 
@@ -110,8 +110,8 @@ class ShopifyScraper extends PlatformScraper
 
     private function json(string $url): ?array
     {
-        $res = $this->fetcher->fetch($url, ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $data = json_decode($res['body'], true);

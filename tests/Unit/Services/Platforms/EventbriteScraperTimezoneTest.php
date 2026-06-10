@@ -57,7 +57,7 @@ it('retains a future event expressed in a negative-UTC-offset timezone', functio
     $eventUrl = 'https://www.eventbrite.com/e/test-event-123';
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse(orgPageHtml($eventUrl)));
     // Event detail pages are now fetched concurrently via fetchMany.
@@ -83,7 +83,7 @@ it('excludes a past event expressed in a negative-UTC-offset timezone', function
     $eventUrl = 'https://www.eventbrite.com/e/past-event-456';
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse(orgPageHtml($eventUrl)));
     $fetcher->shouldReceive('fetchMany')
@@ -115,7 +115,7 @@ it('keeps future and drops past when both carry negative-UTC-offset timestamps',
     $orgBody = orgPageHtml($futureUrl)."\n".orgPageHtml($pastUrl);
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse($orgBody));
     // Both event URLs arrive in one fetchMany call (order matches URL appearance on the page).
@@ -144,7 +144,7 @@ it('tolerates events with a missing startDate without throwing', function () {
     $html = '<html><body><script type="application/ld+json">'.json_encode($node).'</script></body></html>';
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse(orgPageHtml($eventUrl)));
     $fetcher->shouldReceive('fetchMany')
@@ -170,7 +170,7 @@ it('fetches all event detail pages in a single concurrent fetchMany call', funct
     $orgBody = implode("\n", array_map(fn ($u) => "<a href=\"{$u}\">{$u}</a>", $urls));
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->once()  // org page: exactly 1 serial fetch
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse($orgBody));
@@ -198,7 +198,7 @@ it('silently drops an event whose URL resolves to a private address', function (
     $orgBody = "<a href=\"{$safeUrl}\">{$safeUrl}</a><a href=\"{$ssrfUrl}\">{$ssrfUrl}</a>";
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with($orgUrl, Mockery::any())
         ->andReturn(fakeResponse($orgBody));
     // fetchMany returns null for the SSRF URL (as SafeUrlFetcher does when validation fails).

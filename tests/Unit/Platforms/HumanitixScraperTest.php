@@ -9,7 +9,7 @@ afterEach(function () {
 
 it('resolves host URLs directly without fetching', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldNotReceive('fetch');
+    $fetcher->shouldNotReceive('tryFetch');
     $scraper = new HumanitixScraper($fetcher);
 
     expect($scraper->resolveHostUrl('https://events.humanitix.com/host/Sleepless-Festival?x=1'))
@@ -21,7 +21,7 @@ it('resolves host URLs directly without fetching', function () {
 
 it('resolves an event URL to its host page by reading the event page', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')
+    $fetcher->shouldReceive('tryFetch')
         ->with('https://events.humanitix.com/some-festival-2026', Mockery::any())
         ->andReturn(['status' => 200, 'body' => '<a href="/host/some-festival">Host</a>', 'finalUrl' => 'x', 'contentType' => 'text/html']);
     $scraper = new HumanitixScraper($fetcher);
@@ -56,7 +56,7 @@ it('parses events straight off the host page JSON-LD', function () {
         .'<script type="application/ld+json">'.$ld.'</script></head><body></body></html>';
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->once()->andReturn(['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html']);
+    $fetcher->shouldReceive('tryFetch')->once()->andReturn(['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html']);
     $scraper = new HumanitixScraper($fetcher);
 
     $result = $scraper->fetchEvents('https://events.humanitix.com/host/acme');
@@ -77,7 +77,7 @@ it('parses events straight off the host page JSON-LD', function () {
 
 it('returns null when the host page is unreachable', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->andReturn(['status' => 503, 'body' => '', 'finalUrl' => 'x', 'contentType' => '']);
+    $fetcher->shouldReceive('tryFetch')->andReturn(['status' => 503, 'body' => '', 'finalUrl' => 'x', 'contentType' => '']);
 
     expect((new HumanitixScraper($fetcher))->fetchEvents('https://events.humanitix.com/host/acme'))->toBeNull();
 });

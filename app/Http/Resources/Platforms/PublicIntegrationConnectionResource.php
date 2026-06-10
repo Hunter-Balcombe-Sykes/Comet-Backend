@@ -35,11 +35,20 @@ class PublicIntegrationConnectionResource extends ApiResource
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        'deezer' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights'],
+        'mixcloud' => ['url', 'username', 'name', 'thumbnail', 'followers', 'embedUrl', 'latest', 'items'],
+        'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
+        'twitch' => ['url', 'login', 'name', 'image', 'description'],
+        'podcast' => ['url', 'name', 'thumbnail', 'description', 'link', 'latest', 'episodes'],
+        'pinterest' => ['url', 'username', 'name', 'image', 'followers', 'latest', 'items'],
         'skool' => ['url', 'name', 'image', 'description'],
-        'ticketek' => ['url', 'label'],
-        'square' => ['url', 'label'],
-        'timely' => ['url', 'label'],
+        'booksy' => ['url', 'name', 'image', 'rating', 'reviewCount', 'address'],
+        'calendly' => ['url', 'slug', 'name', 'image', 'description', 'eventTypes'],
+        'quandoo' => ['url', 'name', 'image', 'rating', 'bestRating', 'reviewCount', 'cuisines', 'address'],
+        'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
+        'google-business' => ['url', 'name', 'lat', 'lng'],
         // shop: payload is a brand-keyed MAP, filtered per brand object (below).
     ];
 

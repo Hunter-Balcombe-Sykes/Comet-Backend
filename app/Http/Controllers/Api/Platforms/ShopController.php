@@ -12,9 +12,11 @@ use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
+use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
+use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,8 +24,8 @@ use Illuminate\Support\Facades\Cache;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
 // A user connects up to 5 stores by URL alone; ShopProviderDetector works out
-// whether each one is Shopify, WooCommerce, or a generic storefront with
-// Product JSON-LD — the user never chooses. Each brand carries its provider,
+// whether each one is Shopify, WooCommerce, Squarespace, Big Cartel, or a
+// generic storefront with Product JSON-LD — the user never chooses. Each brand carries its provider,
 // profile (name/favicon/logo), discount code, and chosen products, stored as
 // one brand-keyed map on the single 'shop' connection row.
 //
@@ -48,6 +50,8 @@ class ShopController extends ApiController
         private readonly ShopProviderDetector $detector,
         private readonly ShopifyScraper $shopify,
         private readonly WooCommerceScraper $woocommerce,
+        private readonly SquarespaceScraper $squarespace,
+        private readonly BigCartelScraper $bigcartel,
         private readonly GenericShopScraper $generic,
     ) {}
 
@@ -237,6 +241,8 @@ class ShopController extends ApiController
     {
         return match ($detected['provider']) {
             ShopProviderDetector::PROVIDER_WOOCOMMERCE => [$this->woocommerce->fetchBrand($detected['origin']), null],
+            ShopProviderDetector::PROVIDER_SQUARESPACE => [$this->squarespace->fetchBrand($detected['sourceUrl']), null],
+            ShopProviderDetector::PROVIDER_BIGCARTEL => [$detected['store'], null],
             ShopProviderDetector::PROVIDER_GENERIC => [$detected['page']['brand'], $detected['page']['products']],
             default => [$this->shopify->fetchBrand($detected['origin']), null],
         };
@@ -247,6 +253,10 @@ class ShopController extends ApiController
     {
         return match ($brand['provider'] ?? 'shopify') {
             ShopProviderDetector::PROVIDER_WOOCOMMERCE => $this->woocommerce->fetchProducts($brand['url']),
+            ShopProviderDetector::PROVIDER_SQUARESPACE => $this->squarespace->fetchProducts($brand['sourceUrl'] ?? $brand['url']),
+            ShopProviderDetector::PROVIDER_BIGCARTEL => ($account = $this->bigcartel->accountFromUrl($brand['url']))
+                ? $this->bigcartel->fetchProducts($account, $brand['currency'] ?? null)
+                : [],
             ShopProviderDetector::PROVIDER_GENERIC => $this->generic->fetchPage($brand['sourceUrl'] ?? $brand['url'])['products'] ?? [],
             default => $this->shopify->fetchProducts($brand['url'], $brand['currency'] ?? null),
         };

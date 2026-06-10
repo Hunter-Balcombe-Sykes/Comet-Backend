@@ -37,8 +37,8 @@ class SkoolScraper extends PlatformScraper
     public function fetchCommunity(string $canonicalUrl): ?array
     {
         foreach ([$canonicalUrl.'/about', $canonicalUrl] as $candidate) {
-            $res = $this->fetcher->fetch($candidate, ['User-Agent' => self::USER_AGENT]);
-            if ($res['status'] !== 200) {
+            $res = $this->fetcher->tryFetch($candidate, ['User-Agent' => self::USER_AGENT]);
+            if ($res === null || $res['status'] !== 200) {
                 continue;
             }
 

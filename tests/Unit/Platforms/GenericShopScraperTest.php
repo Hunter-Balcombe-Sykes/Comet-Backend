@@ -10,7 +10,7 @@ afterEach(function () {
 function genericScraperWith(string $html, int $status = 200): GenericShopScraper
 {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->andReturn([
+    $fetcher->shouldReceive('tryFetch')->andReturn([
         'status' => $status, 'body' => $html, 'finalUrl' => 'https://shop.example/store', 'contentType' => 'text/html',
     ]);
 

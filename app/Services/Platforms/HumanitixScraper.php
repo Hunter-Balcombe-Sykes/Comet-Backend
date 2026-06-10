@@ -36,7 +36,7 @@ class HumanitixScraper extends PlatformScraper
         // An event page → find the host link on it.
         if (preg_match('~^https?://events\.humanitix\.com/([a-z0-9-]+)~i', $input, $m)
             && ! in_array(strtolower($m[1]), self::NON_EVENT_SLUGS, true)) {
-            $res = $this->fetcher->fetch('https://events.humanitix.com/'.strtolower($m[1]), ['User-Agent' => self::USER_AGENT]);
+            $res = $this->fetcher->tryFetch('https://events.humanitix.com/'.strtolower($m[1]), ['User-Agent' => self::USER_AGENT]);
             if ($res['status'] === 200
                 && preg_match('~href="(?:https://events\.humanitix\.com)?/host/([a-z0-9-]+)~i', $res['body'], $h)) {
                 return 'https://events.humanitix.com/host/'.strtolower($h[1]);
@@ -55,8 +55,8 @@ class HumanitixScraper extends PlatformScraper
     {
         $headers = ['User-Agent' => self::USER_AGENT];
 
-        $page = $this->fetcher->fetch($hostUrl, $headers);
-        if ($page['status'] !== 200) {
+        $page = $this->fetcher->tryFetch($hostUrl, $headers);
+        if ($page === null || $page['status'] !== 200) {
             return null;
         }
         $organiser = $this->hostName($page['body']);

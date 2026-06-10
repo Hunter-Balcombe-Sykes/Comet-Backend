@@ -11,7 +11,7 @@ afterEach(function () {
 function wooScraperWith(array $routes): WooCommerceScraper
 {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->andReturnUsing(function (string $url) use ($routes) {
+    $fetcher->shouldReceive('tryFetch')->andReturnUsing(function (string $url) use ($routes) {
         foreach ($routes as $needle => $response) {
             if (str_contains($url, $needle)) {
                 return $response;
