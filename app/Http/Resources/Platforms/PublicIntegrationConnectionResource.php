@@ -29,14 +29,27 @@ class PublicIntegrationConnectionResource extends ApiResource
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
         'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'link', 'latest', 'highlights'],
         'eventbrite' => ['url', 'organiser', 'next', 'upcoming'],
+        'humanitix' => ['url', 'organiser', 'next', 'upcoming'],
         'facebook' => ['username', 'url'],
         'tiktok' => ['username', 'url'],
         'fresha' => ['url', 'selection'],
-        // shopify: payload is a brand-keyed MAP, filtered per brand object (below).
+        'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights'],
+        'skool' => ['url', 'name', 'image', 'description'],
+        'ticketek' => ['url', 'label'],
+        'square' => ['url', 'label'],
+        'timely' => ['url', 'label'],
+        // shop: payload is a brand-keyed MAP, filtered per brand object (below).
     ];
 
-    /** Public fields of a single Shopify brand object inside the brand-keyed map. */
-    private const SHOPIFY_BRAND_ALLOWLIST = ['id', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'products'];
+    /**
+     * Public fields of a single shop brand object inside the brand-keyed map.
+     * `provider` (shopify / woocommerce / generic) drives sitepage URL +
+     * discount handling; products pass through verbatim (each carries `url`).
+     * `sourceUrl` stays private — it is a re-scrape input, not a public field.
+     */
+    private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'products'];
 
     /**
      * @return array{resourceId: ?string, payload: mixed, lastRefreshedAt: ?string}
@@ -58,11 +71,13 @@ class PublicIntegrationConnectionResource extends ApiResource
             return $payload;
         }
 
-        if ($platform === 'shopify') {
-            // Brand-keyed map: allowlist each brand object's fields, keys preserved.
+        if ($platform === 'shop') {
+            // Brand-keyed map: allowlist each brand object's fields, keys
+            // preserved. Brands stored before the provider field existed are
+            // Shopify (the only provider back then).
             return array_map(
                 fn ($brand) => is_array($brand)
-                    ? array_intersect_key($brand, array_flip(self::SHOPIFY_BRAND_ALLOWLIST))
+                    ? array_intersect_key(['provider' => 'shopify', ...$brand], array_flip(self::SHOP_BRAND_ALLOWLIST))
                     : $brand,
                 $payload,
             );

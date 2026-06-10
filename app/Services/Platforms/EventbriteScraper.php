@@ -172,30 +172,6 @@ class EventbriteScraper extends PlatformScraper
         return preg_replace('~^(https?://)www\.eventbrite\.[a-z.]+(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
     }
 
-    // Flatten every <script type="application/ld+json"> block (expanding @graph)
-    // into one list of nodes.
-    private function jsonLdNodes(string $html): array
-    {
-        $nodes = [];
-        if (preg_match_all('~<script type="application/ld\+json">(.+?)</script>~s', $html, $m)) {
-            foreach ($m[1] as $block) {
-                $data = json_decode(trim($block), true);
-                if (! is_array($data)) {
-                    continue;
-                }
-                if (isset($data['@graph']) && is_array($data['@graph'])) {
-                    $nodes = array_merge($nodes, $data['@graph']);
-                } elseif (array_is_list($data)) {
-                    $nodes = array_merge($nodes, $data);
-                } else {
-                    $nodes[] = $data;
-                }
-            }
-        }
-
-        return $nodes;
-    }
-
     // AggregateOffer → a display string. "Free", "AUD 20.00", or "AUD 20.00 – 50.00".
     private function formatPrice(array $offers): ?string
     {

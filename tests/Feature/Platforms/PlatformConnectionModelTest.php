@@ -27,7 +27,7 @@ it('persists a per-user platform connection with a jsonb payload', function () {
 
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shopify',
+        'platform' => 'shop',
         'resource_id' => 'brand-abc',
         'payload' => ['brandName' => 'Acme', 'productIds' => ['p1', 'p2']],
         'last_refresh_status' => 'ok',
@@ -79,7 +79,7 @@ it('purges the sitepage edge cache when a connection is written', function () {
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shopify',
+        'platform' => 'shop',
         'resource_id' => 'b1',
         'payload' => [],
     ]);

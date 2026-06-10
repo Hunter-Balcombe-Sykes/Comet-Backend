@@ -4,7 +4,7 @@ namespace App\Http\Requests\Platforms;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class SetShopifyProductsRequest extends FormRequest
+class SetShopProductsRequest extends FormRequest
 {
     // Authorization is handled at the trait chokepoint, not here.
     public function authorize(): bool

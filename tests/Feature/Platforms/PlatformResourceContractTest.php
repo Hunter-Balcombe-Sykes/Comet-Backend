@@ -248,12 +248,13 @@ it('instagram connectStatus ready payload drops _folder', function () {
     expect($body['connection'])->not->toHaveKey('_folder');
 });
 
-// ── Shopify (ShopifyBrandResource — single object + collection) ───────────────
+// ── Shop (ShopBrandResource — single object + collection; provider-agnostic) ──
 
 it('shopify addBrand returns the canonical brand object shape', function () {
     $user = platformContractUser('sh1');
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
+        $m->shouldReceive('probe')->andReturn(true);
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'brand-1', 'name' => 'Brand', 'currency' => 'AUD',
             'favicon' => 'https://b/favicon.ico', 'logo' => 'https://b/logo.png',
@@ -264,6 +265,7 @@ it('shopify addBrand returns the canonical brand object shape', function () {
         ->assertOk()
         ->assertExactJson([
             'id' => 'brand-1',
+            'provider' => 'shopify',
             'url' => 'https://b.example.com',
             'name' => 'Brand',
             'currency' => 'AUD',
@@ -276,7 +278,7 @@ it('shopify addBrand returns the canonical brand object shape', function () {
 
 it('shopify brands list strips unknown per-brand keys', function () {
     $user = platformContractUser('sh2');
-    seedPlatformConnection($user, 'shopify', [
+    seedPlatformConnection($user, 'shop', [
         'brand-1' => [
             'id' => 'brand-1', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'products' => [],
@@ -287,7 +289,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
     actingAsUser($user)->getJson('/api/platforms/shopify/brands')
         ->assertOk()
         ->assertExactJson(['brands' => [[
-            'id' => 'brand-1', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
+            'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'products' => [],
         ]]]);
 });

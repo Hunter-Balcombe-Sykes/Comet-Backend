@@ -56,8 +56,8 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shopify',
-        'resource_id' => 'shopify',
+        'platform' => 'shop',
+        'resource_id' => 'shop',
         'payload' => [
             'brand-123' => [
                 'id' => 'brand-123',
@@ -77,10 +77,55 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
 
     $brand = $this->getJson('/api/public/profiles/allow2/integrations')
         ->assertOk()
-        ->json('data.platforms.shopify.0.payload.brand-123');
+        ->json('data.platforms.shop.0.payload.brand-123');
 
     expect($brand['name'])->toBe('Example Shop');
     expect($brand)->toHaveKey('discountCode'); // kept — current public contract is a pass-through
     expect($brand)->toHaveKey('products');
+    expect($brand['provider'])->toBe('shopify'); // legacy brands default to shopify
     expect($brand)->not->toHaveKey('_internalRef');
+});
+
+it('allowlists the new v2 platforms on the public endpoint', function () {
+    $user = allowlistUser('allow9');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'spotify',
+        'resource_id' => 'spotify',
+        'payload' => [
+            'url' => 'https://open.spotify.com/artist/abc',
+            'name' => 'Artist',
+            'thumbnail' => 'https://i.scdn.co/t.jpg',
+            'embedUrl' => 'https://open.spotify.com/embed/artist/abc',
+            'link' => 'https://open.spotify.com/artist/abc',
+            '_scratch' => 'internal', // not on the allowlist — must be stripped
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'ticketek',
+        'resource_id' => 'ticketek',
+        'payload' => ['url' => 'https://premier.ticketek.com.au/x', 'label' => 'Tour', '_junk' => 'x'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $platforms = $this->getJson('/api/public/profiles/allow9/integrations')
+        ->assertOk()
+        ->json('data.platforms');
+
+    expect($platforms['spotify'][0]['payload'])->toBe([
+        'url' => 'https://open.spotify.com/artist/abc',
+        'name' => 'Artist',
+        'thumbnail' => 'https://i.scdn.co/t.jpg',
+        'embedUrl' => 'https://open.spotify.com/embed/artist/abc',
+        'link' => 'https://open.spotify.com/artist/abc',
+    ]);
+    expect($platforms['ticketek'][0]['payload'])->toBe([
+        'url' => 'https://premier.ticketek.com.au/x',
+        'label' => 'Tour',
+    ]);
 });
