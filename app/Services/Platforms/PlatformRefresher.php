@@ -19,12 +19,18 @@ use Illuminate\Support\Facades\Log;
 // changed for the sitepage).
 class PlatformRefresher
 {
-    public const REFRESHABLE = ['youtube', 'eventbrite', 'apple-music', 'apple-podcast'];
+    public const REFRESHABLE = [
+        'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
+        'bandcamp', 'spotify', 'soundcloud',
+    ];
 
     public function __construct(
         private readonly YoutubeScraper $youtube,
         private readonly EventbriteScraper $eventbrite,
+        private readonly HumanitixScraper $humanitix,
         private readonly AppleSearch $apple,
+        private readonly BandcampScraper $bandcamp,
+        private readonly OEmbedService $oembed,
     ) {}
 
     public function refresh(IntegrationConnection $connection): IntegrationConnection
@@ -38,8 +44,12 @@ class PlatformRefresher
         $result = match ($connection->platform) {
             'youtube' => $this->youtubePayload($payload),
             'eventbrite' => $this->eventbritePayload($payload),
+            'humanitix' => $this->humanitixPayload($payload),
             'apple-music' => $this->appleMusicPayload($payload),
             'apple-podcast' => $this->applePodcastPayload($payload),
+            'bandcamp' => $this->bandcampPayload($payload),
+            'spotify' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify'),
+            'soundcloud' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud'),
             default => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
 
@@ -129,6 +139,81 @@ class PlatformRefresher
             'organiser' => $result['organiser'],
             'next' => $events[0] ?? null,
             'upcoming' => $events,
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function humanitixPayload(array $payload): array
+    {
+        $url = $payload['url'] ?? null;
+        if (! $url) {
+            return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
+        }
+        $result = $this->humanitix->fetchEvents($url);
+        if ($result === null) {
+            return ['payload' => null, 'error' => 'humanitix_fetch_failed', 'status' => 'unavailable'];
+        }
+        $events = $result['events'];
+
+        return ['payload' => [
+            'url' => $url,
+            'organiser' => $result['organiser'],
+            'next' => $events[0] ?? null,
+            'upcoming' => $events,
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function bandcampPayload(array $payload): array
+    {
+        $url = $payload['url'] ?? null;
+        if (! $url) {
+            return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
+        }
+        $profile = $this->bandcamp->fetchProfile($url);
+        if ($profile === null || $profile['items'] === []) {
+            return ['payload' => null, 'error' => 'bandcamp_no_releases', 'status' => 'unavailable'];
+        }
+        $latest = $profile['items'][0];
+
+        // Preserve url + curated highlights; refresh the artist name and the
+        // auto-latest tile (flat fields mirror the connect shape).
+        return ['payload' => [
+            ...$payload,
+            'artist' => $profile['name'] ?? ($payload['artist'] ?? null),
+            'latest' => $latest,
+            'name' => $latest['name'],
+            'thumbnail' => $latest['thumbnail'] ?? $profile['thumbnail'],
+            'link' => $latest['link'],
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * Spotify / SoundCloud share the oEmbed re-resolve: name + artwork can
+     * change upstream; the link + embed URL are stable.
+     *
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function musicEmbedPayload(array $payload, callable $endpointFor, string $platform): array
+    {
+        $link = $payload['link'] ?? $payload['url'] ?? null;
+        if (! $link) {
+            return ['payload' => null, 'error' => 'missing_key: link', 'status' => 'error'];
+        }
+        $resolved = $this->oembed->resolve($endpointFor($link));
+        if ($resolved === null) {
+            return ['payload' => null, 'error' => "{$platform}_oembed_failed", 'status' => 'unavailable'];
+        }
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $resolved['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $resolved['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'embedUrl' => $resolved['embedUrl'] ?? ($payload['embedUrl'] ?? null),
         ], 'error' => null, 'status' => 'ok'];
     }
 

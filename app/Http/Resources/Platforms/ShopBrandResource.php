@@ -6,17 +6,18 @@ use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
 
 /**
- * One Shopify brand object inside the multi-brand map. Used both singly
- * (addBrand/updateBrand/setProducts) and as a collection (brands/removeBrand).
- * Shopify is the only multi-resource platform, so the brand is the sub-resource
- * (mirrors PublicIntegrationConnectionResource::SHOPIFY_BRAND_ALLOWLIST).
+ * One shop brand object inside the multi-brand map (formerly
+ * ShopifyBrandResource — the shop integration is provider-agnostic now). Used
+ * both singly (addBrand/updateBrand/setProducts) and as a collection
+ * (brands/removeBrand). Shop is the only multi-resource platform, so the brand
+ * is the sub-resource (mirrors PublicIntegrationConnectionResource's
+ * SHOP_BRAND_ALLOWLIST).
  *
  * `$this->resource` is one brand ARRAY. `products[]` are scraped product
- * objects passed through verbatim. `id` is string-cast per the ApiResource
- * house contract (the brand id is already a string, so this is a no-op that
- * keeps the type stable).
+ * objects passed through verbatim (each carries an absolute `url`).
+ * `provider` defaults to shopify for brands stored before the field existed.
  */
-class ShopifyBrandResource extends ApiResource
+class ShopBrandResource extends ApiResource
 {
     /**
      * @return array<string, mixed>
@@ -25,6 +26,7 @@ class ShopifyBrandResource extends ApiResource
     {
         return [
             'id' => (string) ($this->resource['id'] ?? ''),
+            'provider' => $this->resource['provider'] ?? 'shopify',
             'url' => $this->resource['url'] ?? null,
             'name' => $this->resource['name'] ?? null,
             'currency' => $this->resource['currency'] ?? null,

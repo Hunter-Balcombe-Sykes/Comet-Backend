@@ -20,15 +20,15 @@ function makePublicUser(string $handle): User
 
 it("returns a handle's platform connections grouped by platform", function () {
     $user = makePublicUser('jane');
-    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
-    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shopify', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
     IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'org1', 'payload' => ['organiser' => 'Acme']]);
 
     $res = $this->getJson('/api/public/profiles/jane/platforms');
 
     $res->assertOk();
-    expect($res->json('data.platforms.shopify'))->toHaveCount(2);
-    expect($res->json('data.platforms.shopify.0.payload.name'))->toBe('Store A'); // sort_order 0 first
+    expect($res->json('data.platforms.shop'))->toHaveCount(2);
+    expect($res->json('data.platforms.shop.0.payload.name'))->toBe('Store A'); // sort_order 0 first
     expect($res->json('data.platforms.eventbrite.0.payload.organiser'))->toBe('Acme');
 });
 

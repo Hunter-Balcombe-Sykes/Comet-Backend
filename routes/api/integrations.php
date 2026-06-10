@@ -1,12 +1,20 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\AppleController;
+use App\Http\Controllers\Api\Platforms\BandcampController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
+use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
-use App\Http\Controllers\Api\Platforms\ShopifyController;
+use App\Http\Controllers\Api\Platforms\ShopController;
+use App\Http\Controllers\Api\Platforms\SkoolController;
+use App\Http\Controllers\Api\Platforms\SoundcloudController;
+use App\Http\Controllers\Api\Platforms\SpotifyController;
+use App\Http\Controllers\Api\Platforms\SquareController;
+use App\Http\Controllers\Api\Platforms\TicketekController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
+use App\Http\Controllers\Api\Platforms\TimelyController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
@@ -38,18 +46,23 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/', [FreshaController::class, 'forget']);
         });
 
-    Route::prefix("{$base}/shopify")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::get('/brands', [ShopifyController::class, 'brands']);
-            Route::post('/brands', [ShopifyController::class, 'addBrand']);
-            Route::patch('/brands/{id}', [ShopifyController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/brands/{id}', [ShopifyController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/brands/{id}/products', [ShopifyController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
-            Route::put('/brands/{id}/selection', [ShopifyController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/selection', [ShopifyController::class, 'selection']);
-            Route::delete('/', [ShopifyController::class, 'forget']);
-        });
+    // Provider-agnostic shop endpoints. Registered under BOTH the canonical
+    // /shop prefix and the legacy /shopify prefix (same controller — the
+    // dashboard flips to /shop; the alias covers the deploy gap).
+    foreach (['shop', 'shopify'] as $shopAlias) {
+        Route::prefix("{$base}/{$shopAlias}")
+            ->middleware($middleware)
+            ->group(function () {
+                Route::get('/brands', [ShopController::class, 'brands']);
+                Route::post('/brands', [ShopController::class, 'addBrand']);
+                Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
+                Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
+                Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
+                Route::put('/brands/{id}/selection', [ShopController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
+                Route::get('/selection', [ShopController::class, 'selection']);
+                Route::delete('/', [ShopController::class, 'forget']);
+            });
+    }
 
     Route::prefix("{$base}/instagram")
         ->middleware($middleware)
@@ -88,6 +101,34 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/', [AppleController::class, 'forget']);
         });
 
+    // Spotify + SoundCloud — oEmbed-resolved music embeds (connect/selection/forget).
+    Route::prefix("{$base}/spotify")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [SpotifyController::class, 'connect']);
+            Route::get('/selection', [SpotifyController::class, 'selection']);
+            Route::delete('/', [SpotifyController::class, 'forget']);
+        });
+
+    Route::prefix("{$base}/soundcloud")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [SoundcloudController::class, 'connect']);
+            Route::get('/selection', [SoundcloudController::class, 'selection']);
+            Route::delete('/', [SoundcloudController::class, 'forget']);
+        });
+
+    // Bandcamp — Apple-style: connect + recent picker + curated highlights.
+    Route::prefix("{$base}/bandcamp")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [BandcampController::class, 'connect']);
+            Route::get('/recent', [BandcampController::class, 'recent']);
+            Route::post('/highlights', [BandcampController::class, 'highlights']);
+            Route::get('/selection', [BandcampController::class, 'selection']);
+            Route::delete('/', [BandcampController::class, 'forget']);
+        });
+
     Route::prefix("{$base}/tiktok")
         ->middleware($middleware)
         ->group(function () {
@@ -110,6 +151,49 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [EventbriteController::class, 'connect']);
             Route::get('/selection', [EventbriteController::class, 'selection']);
             Route::delete('/', [EventbriteController::class, 'forget']);
+        });
+
+    // Humanitix — the Eventbrite twin (JSON-LD event scrape, no auth).
+    Route::prefix("{$base}/humanitix")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [HumanitixController::class, 'connect']);
+            Route::get('/selection', [HumanitixController::class, 'selection']);
+            Route::delete('/', [HumanitixController::class, 'forget']);
+        });
+
+    // Skool — og-scraped community card.
+    Route::prefix("{$base}/skool")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [SkoolController::class, 'connect']);
+            Route::get('/selection', [SkoolController::class, 'selection']);
+            Route::delete('/', [SkoolController::class, 'forget']);
+        });
+
+    // Plain external-link platforms: Ticketek tickets + Square / Timely booking.
+    Route::prefix("{$base}/ticketek")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [TicketekController::class, 'connect']);
+            Route::get('/selection', [TicketekController::class, 'selection']);
+            Route::delete('/', [TicketekController::class, 'forget']);
+        });
+
+    Route::prefix("{$base}/square")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [SquareController::class, 'connect']);
+            Route::get('/selection', [SquareController::class, 'selection']);
+            Route::delete('/', [SquareController::class, 'forget']);
+        });
+
+    Route::prefix("{$base}/timely")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [TimelyController::class, 'connect']);
+            Route::get('/selection', [TimelyController::class, 'selection']);
+            Route::delete('/', [TimelyController::class, 'forget']);
         });
 };
 

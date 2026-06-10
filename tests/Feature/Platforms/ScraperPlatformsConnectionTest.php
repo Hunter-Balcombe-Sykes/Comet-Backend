@@ -220,6 +220,7 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
 
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
+        $m->shouldReceive('probe')->andReturn(true);
         $m->shouldReceive('fetchBrand')->andReturnUsing(fn ($origin) => [
             'id' => md5($origin), 'name' => 'Brand', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
         ]);
@@ -232,7 +233,7 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://f.example.com'])
         ->assertStatus(422);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shopify')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
     expect($conn)->not->toBeNull();
     expect(count($conn->payload))->toBe(5);
 });

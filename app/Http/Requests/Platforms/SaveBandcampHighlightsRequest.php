@@ -4,7 +4,7 @@ namespace App\Http\Requests\Platforms;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateShopifyBrandRequest extends FormRequest
+class SaveBandcampHighlightsRequest extends FormRequest
 {
     // Authorization is handled at the trait chokepoint, not here.
     public function authorize(): bool
@@ -15,7 +15,8 @@ class UpdateShopifyBrandRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'discountCode' => ['present', 'nullable', 'string', 'max:100'],
+            'itemIds' => ['present', 'array', 'max:24'],
+            'itemIds.*' => ['string', 'max:50'],
         ];
     }
 }
