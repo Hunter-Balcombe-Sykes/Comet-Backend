@@ -211,17 +211,15 @@ class AnalyticsQueryService
     public function topLinks(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
-            // Pull `platform` from settings JSON so the dashboard can label rows
-            // by platform name (instagram, fresha, etc.) without joining a column.
-            return DB::table('analytics.link_clicks as lc')
-                ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')
-                ->where('lc.user_id', $userId)
-                ->whereBetween('lc.occurred_at', [$from, $to])
-                ->whereNull('b.deleted_at')
-                ->whereRaw("LOWER(COALESCE(b.block_group, '')) = 'links'")
-                ->whereRaw("LOWER(COALESCE(b.block_type, '')) = 'link'")
-                ->selectRaw("b.id as block_id, b.title, b.url, b.settings->>'platform' as platform, b.settings->>'category' as category, COUNT(*) as clicks")
-                ->groupByRaw("b.id, b.title, b.url, b.settings->>'platform', b.settings->>'category'")
+            // v2: clicks self-describe (url/platform/label captured at the anchor).
+            // Legacy block-era rows have url IS NULL and are excluded — the block
+            // model is gone with the skeleton pivot.
+            return DB::table('analytics.link_clicks')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->whereNotNull('url')
+                ->selectRaw('url, MAX(platform) as platform, MAX(label) as label, MAX(section_key) as section_key, COUNT(*) as clicks')
+                ->groupBy('url')
                 ->orderByDesc('clicks')
                 ->limit(10)
                 ->get();
@@ -235,21 +233,16 @@ class AnalyticsQueryService
     public function topSections(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
-            // Shared allowlist (TrackableBlockTypes) so a block_type accepted on
-            // /public/analytics/clicks by the writer is also counted here — write-side
-            // and read-side can't diverge on a config change.
-            $trackableSectionTypes = TrackableBlockTypes::sectionTypes();
-
-            return DB::table('analytics.link_clicks as lc')
-                ->join('site.blocks as b', 'b.id', '=', 'lc.link_block_id')
-                ->where('lc.user_id', $userId)
-                ->whereBetween('lc.occurred_at', [$from, $to])
-                ->whereNull('b.deleted_at')
-                ->whereRaw("LOWER(COALESCE(b.block_group, '')) = 'sections'")
-                ->whereIn(DB::raw("LOWER(COALESCE(b.block_type, ''))"), $trackableSectionTypes)
-                ->selectRaw("LOWER(COALESCE(b.block_type, '')) as section_key, COUNT(*) as clicks")
-                ->groupByRaw("LOWER(COALESCE(b.block_type, ''))")
-                ->orderByDesc('clicks')
+            // v2: section opens recorded by the skeleton tracker into
+            // analytics.section_views (per-session dedup happens at ingest). The
+            // legacy derivation from block clicks is gone with the block model.
+            return DB::table('analytics.section_views')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw('section_key, COUNT(*) as views, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_viewers')
+                ->groupBy('section_key')
+                ->orderByDesc('views')
+                ->limit(12)
                 ->get()
                 ->map(function ($entry) {
                     $sectionKey = (string) $entry->section_key;
@@ -257,7 +250,8 @@ class AnalyticsQueryService
                     return [
                         'key' => $sectionKey,
                         'title' => $this->sectionTitle($sectionKey),
-                        'clicks' => (int) ($entry->clicks ?? 0),
+                        'views' => (int) ($entry->views ?? 0),
+                        'unique_viewers' => (int) ($entry->unique_viewers ?? 0),
                     ];
                 })
                 ->values();
@@ -266,6 +260,165 @@ class AnalyticsQueryService
 
             return collect();
         }
+    }
+
+    /**
+     * Clicks grouped by destination platform slug (instagram, fresha, shopify, ...).
+     * v2 rows only — legacy block clicks carry no platform.
+     *
+     * @return array<int, array{platform:string, clicks:int, unique_clickers:int}>
+     */
+    public function platformClicks(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            return DB::table('analytics.link_clicks')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->whereNotNull('platform')
+                ->selectRaw('platform, COUNT(*) as clicks, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
+                ->groupBy('platform')
+                ->orderByDesc('clicks')
+                ->get()
+                ->map(fn ($r) => [
+                    'platform' => (string) $r->platform,
+                    'clicks' => (int) $r->clicks,
+                    'unique_clickers' => (int) $r->unique_clickers,
+                ])
+                ->all();
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Outbound clicks per product on the sitepage shop section.
+     *
+     * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
+     */
+    public function topProducts(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            return DB::table('analytics.link_clicks')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->whereNotNull('product_id')
+                ->selectRaw('product_id, MAX(product_title) as title, MAX(url) as url, COUNT(*) as clicks, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
+                ->groupBy('product_id')
+                ->orderByDesc('clicks')
+                ->limit(10)
+                ->get()
+                ->map(fn ($r) => [
+                    'product_id' => (string) $r->product_id,
+                    'title' => $r->title !== null ? (string) $r->title : null,
+                    'url' => $r->url !== null ? (string) $r->url : null,
+                    'clicks' => (int) $r->clicks,
+                    'unique_clickers' => (int) $r->unique_clickers,
+                ])
+                ->all();
+        } catch (QueryException $e) {
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Region breakdown within one country by unique visitors — defaults to AU so
+     * the dashboard can chart states (ISO-3166-2 suffixes: NSW, VIC, ...). 'UN'
+     * collects rows where the edge couldn't resolve a region.
+     *
+     * @return array<int, array{region_code:string, visitors:int}>
+     */
+    public function regions(string $userId, Carbon $from, Carbon $to, string $countryCode = 'AU'): array
+    {
+        return DB::table('analytics.site_visits')
+            ->where('user_id', $userId)
+            ->where('country_code', $countryCode)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->selectRaw("COALESCE(region_code, 'UN') as region_code, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors")
+            ->groupByRaw("COALESCE(region_code, 'UN')")
+            ->orderByDesc('visitors')
+            ->get()
+            ->map(fn ($r) => [
+                'region_code' => (string) $r->region_code,
+                'visitors' => (int) $r->visitors,
+            ])
+            ->all();
+    }
+
+    /**
+     * Session totals + average duration over the window. "Engaged" = at least two
+     * heartbeats (≥10s visible); the average ignores drive-by bounces so it reads
+     * as "time people actually spent".
+     */
+    public function sessionsAggregate(string $userId, Carbon $from, Carbon $to): stdClass
+    {
+        $empty = (object) ['total_sessions' => 0, 'engaged_sessions' => 0, 'avg_duration_seconds' => 0];
+
+        try {
+            return DB::table('analytics.site_sessions')
+                ->where('user_id', $userId)
+                ->whereBetween('started_at', [$from, $to])
+                ->selectRaw('COUNT(*) as total_sessions')
+                ->selectRaw('COUNT(*) FILTER (WHERE duration_seconds >= 10) as engaged_sessions')
+                ->selectRaw('COALESCE(ROUND(AVG(duration_seconds) FILTER (WHERE duration_seconds >= 10)), 0) as avg_duration_seconds')
+                ->first() ?? $empty;
+        } catch (QueryException $e) {
+            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return $empty;
+        }
+    }
+
+    /**
+     * Sessions seen in the last 75s (three missed 25s heartbeats = gone).
+     * Uncached — feeds the dashboard's live-now poll.
+     */
+    public function liveVisitors(string $userId): int
+    {
+        try {
+            return (int) DB::table('analytics.site_sessions')
+                ->where('user_id', $userId)
+                ->where('last_seen_at', '>=', now()->subSeconds(75))
+                ->count();
+        } catch (QueryException $e) {
+            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return 0;
+        }
+    }
+
+    /**
+     * Sitepage conversions in the window: enquiry-form submissions + newsletter
+     * signups. Both are first-party tables, not analytics events, so they stay
+     * accurate even with beacons blocked.
+     *
+     * @return array{enquiries:int, subscribers:int}
+     */
+    public function conversions(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            $enquiries = (int) DB::table('site.enquiries')
+                ->where('user_id', $userId)
+                ->whereBetween('created_at', [$from, $to])
+                ->count();
+        } catch (QueryException) {
+            $enquiries = 0;
+        }
+
+        try {
+            $subscribers = (int) DB::table('notifications.email_subscriptions')
+                ->where('user_id', $userId)
+                ->where('status', 'subscribed')
+                ->whereBetween('created_at', [$from, $to])
+                ->count();
+        } catch (QueryException) {
+            $subscribers = 0;
+        }
+
+        return ['enquiries' => $enquiries, 'subscribers' => $subscribers];
     }
 
     /**
@@ -289,6 +442,20 @@ class AnalyticsQueryService
     private function sectionTitle(string $sectionKey): string
     {
         return match ($sectionKey) {
+            // Skeleton sitepage sections (v2 tracker keys).
+            'home' => 'Home',
+            'shop' => 'Shop',
+            'music' => 'Music',
+            'podcast' => 'Podcast',
+            'watch' => 'Watch',
+            'book' => 'Book',
+            'events' => 'Events',
+            'document' => 'Document',
+            'subscribe' => 'Subscribe',
+            'socials' => 'Socials',
+            'links' => 'Links',
+            'about' => 'About',
+            // Legacy block-era keys.
             'gallery' => 'Gallery of Work',
             'services' => 'Services & Pricing',
             'booking' => 'Booking',

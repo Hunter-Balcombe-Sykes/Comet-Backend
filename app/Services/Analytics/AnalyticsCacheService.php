@@ -101,6 +101,7 @@ class AnalyticsCacheService
 
         $visitsAgg = $this->queries->visitsAggregate($proId, $from, $to);
         $clicksAgg = $this->queries->clicksAggregate($proId, $from, $to);
+        $sessionsAgg = $this->queries->sessionsAggregate($proId, $from, $to);
 
         $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
         $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);
@@ -126,7 +127,11 @@ class AnalyticsCacheService
             'breakdowns' => [
                 'devices' => $this->queries->deviceTotals($proId, $from, $to),
                 'countries' => $this->queries->countries($proId, $from, $to),
+                // AU state split (region_code from the edge); countries stays the
+                // world view, regions zooms into the home market.
+                'regions' => $this->queries->regions($proId, $from, $to),
                 'referrers' => $this->queries->referrers($proId, $from, $to),
+                'platforms' => $this->queries->platformClicks($proId, $from, $to),
             ],
             'totals' => [
                 'visits' => $totalVisits,
@@ -134,6 +139,9 @@ class AnalyticsCacheService
                 'clicks' => $totalClicks,
                 'unique_clickers' => (int) ($clicksAgg->unique_clickers ?? 0),
                 'ctr_percent' => $ctr,
+                'avg_session_seconds' => (int) ($sessionsAgg->avg_duration_seconds ?? 0),
+                'engaged_sessions' => (int) ($sessionsAgg->engaged_sessions ?? 0),
+                'total_sessions' => (int) ($sessionsAgg->total_sessions ?? 0),
                 'last_visit_at' => $visitsAgg->last_visit_at ? Carbon::parse($visitsAgg->last_visit_at)->toISOString() : null,
                 'last_click_at' => $clicksAgg->last_click_at ? Carbon::parse($clicksAgg->last_click_at)->toISOString() : null,
             ],
@@ -144,6 +152,8 @@ class AnalyticsCacheService
             ],
             'top_sections' => $this->queries->topSections($proId, $from, $to),
             'top_links' => $this->queries->topLinks($proId, $from, $to),
+            'top_products' => $this->queries->topProducts($proId, $from, $to),
+            'conversions' => $this->queries->conversions($proId, $from, $to),
         ];
     }
 }

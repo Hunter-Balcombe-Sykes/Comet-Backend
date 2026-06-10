@@ -23,6 +23,9 @@ class PurgeRawAnalyticsEvents extends Command
         'analytics.link_clicks' => 'occurred_at',
         'analytics.site_visits' => 'occurred_at',
         'analytics.lead_submissions' => 'occurred_at',
+        'analytics.section_views' => 'occurred_at',
+        // Sessions age by last activity so a long-lived session isn't purged mid-flight.
+        'analytics.site_sessions' => 'last_seen_at',
     ];
 
     public function handle(): int

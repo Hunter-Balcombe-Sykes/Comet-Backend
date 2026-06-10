@@ -9,12 +9,18 @@ use App\Models\Core\Site\Block;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
 use App\Services\Analytics\TrackableBlockTypes;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Persists analytics events to the raw Postgres tables. Owns authoritative block
 // validation (moved off the request hot path — full decouple). Idempotent: the minted
 // UUID is the explicit PK and inserts use insertOrIgnore (ON CONFLICT (id) DO NOTHING),
 // so an at-least-once retry no-ops instead of double-counting.
+//
+// v2: clicks without a blockId are valid (skeleton sitepages — destination url +
+// labels are on the event itself), and TYPE_SESSION_PING upserts
+// analytics.site_sessions with GREATEST() merges (idempotent under retries).
 class PostgresEventWriter implements AnalyticsEventWriter
 {
     public function write(AnalyticsEvent $event): void
@@ -36,12 +42,14 @@ class PostgresEventWriter implements AnalyticsEventWriter
         $visitRows = [];
         $clickRows = [];
         $sectionRows = [];
+        $sessionEvents = [];
 
         foreach ($events as $event) {
             match ($event->type) {
                 AnalyticsEvent::TYPE_PAGEVIEW => $visitRows[] = $this->visitRow($event),
                 AnalyticsEvent::TYPE_CLICK => $this->appendClickRow($event, $blocks, $clickRows),
                 AnalyticsEvent::TYPE_SECTION_VIEW => $this->appendSectionRow($event, $blocks, $sectionRows),
+                AnalyticsEvent::TYPE_SESSION_PING => $sessionEvents[] = $event,
                 default => $this->drop($event, 'unknown_type'),
             };
         }
@@ -54,6 +62,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
         }
         if ($sectionRows !== []) {
             SectionView::query()->insertOrIgnore($sectionRows);
+        }
+        foreach ($sessionEvents as $event) {
+            $this->upsertSession($event);
         }
     }
 
@@ -94,6 +105,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
             'country_code' => $e->countryCode,
+            'region_code' => $e->regionCode,
             'device_type' => $e->deviceType,
         ];
     }
@@ -101,7 +113,22 @@ class PostgresEventWriter implements AnalyticsEventWriter
     /** @param  array<string, Block>  $blocks */
     private function appendClickRow(AnalyticsEvent $e, array $blocks, array &$rows): void
     {
-        $block = $e->blockId !== null ? ($blocks[$e->blockId] ?? null) : null;
+        // v2 path — no block reference: the event self-describes (url + labels).
+        // ClickRequest guarantees url is present when block_id is absent.
+        if ($e->blockId === null) {
+            if ($e->url === null) {
+                $this->drop($e, 'url_missing');
+
+                return;
+            }
+
+            $rows[] = $this->clickRow($e);
+
+            return;
+        }
+
+        // Legacy block path — authoritative existence/ownership/trackability checks.
+        $block = $blocks[$e->blockId] ?? null;
 
         if (! $block) {
             $this->drop($e, 'block_missing');
@@ -124,7 +151,13 @@ class PostgresEventWriter implements AnalyticsEventWriter
             return;
         }
 
-        $rows[] = [
+        $rows[] = $this->clickRow($e);
+    }
+
+    /** @return array<string, mixed> */
+    private function clickRow(AnalyticsEvent $e): array
+    {
+        return [
             'id' => $e->id,
             'user_id' => $e->userId,
             'site_id' => $e->siteId,
@@ -139,6 +172,15 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'utm_source' => $e->utmSource,
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
+            'url' => $e->url,
+            'platform' => $e->platform,
+            'product_id' => $e->productId,
+            'product_title' => $e->productTitle,
+            'section_key' => $e->sectionKey,
+            'label' => $e->label,
+            'country_code' => $e->countryCode,
+            'region_code' => $e->regionCode,
+            'device_type' => $e->deviceType,
         ];
     }
 
@@ -181,6 +223,49 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'country_code' => $e->countryCode,
             'device_type' => $e->deviceType,
         ];
+    }
+
+    /**
+     * Upsert one session row from a heartbeat. PK is the client-minted session
+     * UUID; GREATEST() on last_seen/duration makes at-least-once delivery and
+     * out-of-order pings idempotent. The site_id guard stops a hostile client
+     * replaying someone else's session UUID against a different site. Origin
+     * fields (geo/device/referrer/visitor) are first-write-wins by design.
+     */
+    private function upsertSession(AnalyticsEvent $e): void
+    {
+        // started_at derived in PHP (last_seen − cumulative seconds) so the SQL
+        // stays driver-portable — SQLite test envs lack make_interval().
+        $seconds = max(0, min(86400, (int) ($e->durationSeconds ?? 0)));
+        $lastSeen = Carbon::parse($e->occurredAt);
+        $startedAt = $lastSeen->copy()->subSeconds($seconds);
+
+        $greatest = DB::connection('pgsql')->getDriverName() === 'sqlite' ? 'MAX' : 'GREATEST';
+
+        DB::connection('pgsql')->statement(
+            "INSERT INTO analytics.site_sessions
+                (id, user_id, site_id, visitor_id, started_at, last_seen_at, duration_seconds,
+                 country_code, region_code, device_type, referrer, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET
+                last_seen_at = {$greatest}(site_sessions.last_seen_at, EXCLUDED.last_seen_at),
+                duration_seconds = {$greatest}(site_sessions.duration_seconds, EXCLUDED.duration_seconds)
+             WHERE site_sessions.site_id = EXCLUDED.site_id",
+            [
+                $e->sessionId,
+                $e->userId,
+                $e->siteId,
+                $e->visitorId,
+                $startedAt->toISOString(),
+                $lastSeen->toISOString(),
+                $seconds,
+                $e->countryCode,
+                $e->regionCode,
+                $e->deviceType,
+                $e->referrer,
+                now()->toISOString(),
+            ]
+        );
     }
 
     // Breadcrumb only — Nightwatch surfaces sustained spikes via log-channel

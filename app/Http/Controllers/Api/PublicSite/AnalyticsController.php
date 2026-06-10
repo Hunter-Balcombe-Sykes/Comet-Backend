@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSiteFromRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
+use App\Http\Requests\Api\PublicSite\Analytics\PingRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\AnalyticsDedupGuard;
@@ -77,11 +78,15 @@ class AnalyticsController extends ApiController
 
         $id = (string) Str::orderedUuid();
 
-        // Dedup on (block, strongest identifier) for 3s. Returns the original id on a
-        // duplicate so the response is byte-identical to today's "return existing id".
+        // Dedup on (target, strongest identifier) for 3s. Legacy block clicks keep the
+        // original key shape; v2 url-clicks scope by site + destination hash. Returns
+        // the original id on a duplicate so the response is byte-identical to today's
+        // "return existing id".
         $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
+        $blockId = $data['block_id'] ?? null;
         if ($identifier !== null) {
-            $claim = $this->dedup->claim("analytics:dedup:click:{$data['block_id']}:{$identifier}", $id, 3);
+            $target = $blockId ?? $site->id.':'.md5(($data['url'] ?? '').'|'.($data['platform'] ?? ''));
+            $claim = $this->dedup->claim("analytics:dedup:click:{$target}:{$identifier}", $id, 3);
             if (! $claim['novel']) {
                 return $this->success(['message' => 'Click recorded', 'click_id' => $claim['id']], 201);
             }
@@ -95,7 +100,7 @@ class AnalyticsController extends ApiController
             // click sanitises the referrer (preserved SEC behaviour).
             referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
             id: $id,
-            blockId: $data['block_id'],
+            blockId: $blockId,
         );
 
         $this->ingestor->ingest($event);
@@ -145,6 +150,39 @@ class AnalyticsController extends ApiController
     }
 
     /**
+     * Session heartbeat (analytics v2). The tracker reports cumulative visible-time
+     * every ~25s; the writer upserts analytics.site_sessions with GREATEST() so
+     * there is no dedup here — retries and out-of-order delivery are harmless.
+     */
+    public function ping(PingRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        $site = $this->resolvePublishedSite($data, $error);
+        if (! $site) {
+            return $error;
+        }
+
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'ok'], 200);
+        }
+
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_SESSION_PING,
+            request: $request,
+            site: $site,
+            data: $data,
+            // First ping carries document.referrer; raw is fine (session row, not URL-joined).
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            durationSeconds: (int) $data['seconds'],
+        );
+
+        $this->ingestor->ingest($event);
+
+        return $this->success(['message' => 'ok'], 200);
+    }
+
+    /**
      * Resolve + publication-gate the site. On failure, sets $error to the right JSON
      * response (422 IDOR when site_id was supplied but cross-check failed; otherwise
      * 404 — never 403, no existence leak) and returns null.
@@ -183,6 +221,7 @@ class AnalyticsController extends ApiController
         ?string $id = null,
         ?string $blockId = null,
         ?string $sectionKey = null,
+        ?int $durationSeconds = null,
     ): AnalyticsEvent {
         return new AnalyticsEvent(
             id: $id ?? (string) Str::orderedUuid(),
@@ -201,7 +240,16 @@ class AnalyticsController extends ApiController
             countryCode: $this->detectCountryCode($request),
             deviceType: $this->detectDeviceType($request->userAgent()),
             blockId: $blockId,
-            sectionKey: $sectionKey,
+            // sectionSeen passes the key explicitly; v2 clicks carry the section
+            // they happened in via payload (which section hosted the anchor).
+            sectionKey: $sectionKey ?? $data['section_key'] ?? null,
+            regionCode: $this->detectRegionCode($request),
+            url: $data['url'] ?? null,
+            platform: isset($data['platform']) ? strtolower($data['platform']) : null,
+            productId: $data['product_id'] ?? null,
+            productTitle: $data['product_title'] ?? null,
+            label: $data['label'] ?? null,
+            durationSeconds: $durationSeconds,
         );
     }
 

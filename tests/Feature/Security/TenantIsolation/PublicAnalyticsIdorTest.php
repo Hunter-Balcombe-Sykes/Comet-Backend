@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\DB;
-
 beforeEach(function () {
     tenantHelpersEnsureTables();
 
@@ -9,24 +7,7 @@ beforeEach(function () {
     // the real site.sites table via the pgsql connection. No shadow table needed.
 
     // analytics.site_visits — needed so the pageview controller can save the record.
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
-        id TEXT PRIMARY KEY,
-        site_id TEXT NULL,
-        user_id TEXT NULL,
-        session_id TEXT NULL,
-        visitor_id TEXT NULL,
-        occurred_at TEXT NULL,
-        ip_hash TEXT NULL,
-        user_agent TEXT NULL,
-        referrer TEXT NULL,
-        utm_source TEXT NULL,
-        utm_medium TEXT NULL,
-        utm_campaign TEXT NULL,
-        country_code TEXT NULL,
-        device_type TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    setupSiteVisitsTable();
 });
 
 // The /public/analytics/pageviews route in api.php is a header-based fallback for

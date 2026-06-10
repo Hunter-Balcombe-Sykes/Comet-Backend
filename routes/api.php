@@ -13,8 +13,8 @@ use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
-use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
+use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
@@ -94,6 +94,10 @@ Route::post('/public/analytics/pageviews', [AnalyticsController::class, 'pagevie
 Route::post('/public/analytics/clicks', [AnalyticsController::class, 'click'])
     ->middleware(['throttle:analytics', 'throttle:analytics-click']);
 Route::post('/public/analytics/section-seen', [AnalyticsController::class, 'sectionSeen'])
+    ->middleware('throttle:analytics');
+// Session heartbeat (analytics v2) — upserts analytics.site_sessions; powers
+// avg-session-duration and the dashboard's live-now counter.
+Route::post('/public/analytics/ping', [AnalyticsController::class, 'ping'])
     ->middleware('throttle:analytics');
 // Real-user monitoring beacon — receives perf timings from the
 // partna-pages dispatcher's inline script. Same throttle group as the
