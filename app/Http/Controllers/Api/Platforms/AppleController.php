@@ -224,7 +224,7 @@ class AppleController extends ApiController
         }
         $items = ($cfg['fetch'])($input);
         if ($items === null) {
-            return $this->error($cfg['loadError'], 502);
+            return $this->error($cfg['loadError'], 422);
         }
 
         return $this->success([$cfg['recentKey'] => $items]);
@@ -244,7 +244,7 @@ class AppleController extends ApiController
             }
             $items = ($cfg['fetch'])(data_get($selection, 'input'));
             if ($items === null) {
-                return $this->error($cfg['loadError'], 502);
+                return $this->error($cfg['loadError'], 422);
             }
 
             // Refresh the "Most recent" tile too — a release/episode published since

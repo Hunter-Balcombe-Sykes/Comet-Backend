@@ -83,7 +83,7 @@ class BandcampController extends ApiController
 
         $profile = $this->scraper->fetchProfile($url);
         if ($profile === null) {
-            return $this->error('Could not load recent releases.', 502);
+            return $this->error('Could not load recent releases.', 422);
         }
 
         return $this->success(['items' => array_slice($profile['items'], 0, 15)]);
@@ -103,7 +103,7 @@ class BandcampController extends ApiController
 
             $profile = $this->scraper->fetchProfile($selection['url']);
             if ($profile === null) {
-                return $this->error('Could not load recent releases.', 502);
+                return $this->error('Could not load recent releases.', 422);
             }
             $items = $profile['items'];
 

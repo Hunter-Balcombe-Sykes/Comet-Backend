@@ -3,15 +3,11 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
-use App\Services\Platforms\BooksyScraper;
-use App\Services\Platforms\CalendlyApi;
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\MixcloudApi;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\PinterestScraper;
-use App\Services\Platforms\PodcastFeedService;
-use App\Services\Platforms\QuandooScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\StravaClubScraper;
@@ -164,7 +160,7 @@ it('deezer connect stores the music-embed shape with the widget URL', function (
             'url' => 'https://www.deezer.com/artist/134790',
             'name' => 'Tame Impala',
             'thumbnail' => 'https://cdn.dzcdn.net/b.jpg',
-            'embedUrl' => 'https://widget.deezer.com/widget/auto/artist/134790',
+            'embedUrl' => 'https://widget.deezer.com/widget/auto/artist/134790/top_tracks',
             'link' => 'https://www.deezer.com/artist/134790',
         ]);
 });
@@ -186,27 +182,7 @@ it('tidal connect resolves the oEmbed player and og meta', function () {
         ->assertJsonPath('embedUrl', 'https://embed.tidal.com/albums/77640617');
 });
 
-// ── Podcast + Pinterest ──────────────────────────────────────────────────────
-
-it('podcast connect stores the show and episodes, keeping pageUrl when discovered', function () {
-    $user = iv3User('pd1');
-
-    $this->mock(PodcastFeedService::class, function ($m) {
-        $m->shouldReceive('fetchFromInput')->andReturn([
-            'feedUrl' => 'https://feeds.example/show.rss',
-            'show' => ['name' => 'Mock Show', 'thumbnail' => 'https://feeds.example/a.jpg', 'description' => 'A show.', 'link' => 'https://mockshow.example'],
-            'episodes' => [
-                ['itemId' => 'ep-2', 'title' => 'Episode 2', 'date' => '2026-06-08T10:00:00+00:00', 'duration' => '31 min', 'audioUrl' => 'https://t.example/2.mp3', 'link' => 'https://mockshow.example/2'],
-            ],
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/podcast/connect', ['url' => 'https://www.buzzsprout.com/231452'])
-        ->assertOk()
-        ->assertJsonPath('url', 'https://feeds.example/show.rss')
-        ->assertJsonPath('pageUrl', 'https://www.buzzsprout.com/231452')
-        ->assertJsonPath('latest.audioUrl', 'https://t.example/2.mp3');
-});
+// ── Pinterest ────────────────────────────────────────────────────────────────
 
 it('pinterest connect stores the profile and latest pins', function () {
     $user = iv3User('pn1');
@@ -227,57 +203,7 @@ it('pinterest connect stores the profile and latest pins', function () {
         ->assertJsonPath('items.0.itemId', '424605071145132476');
 });
 
-// ── Booking / profile cards ──────────────────────────────────────────────────
-
-it('booksy connect stores the rated business card', function () {
-    $user = iv3User('bk1');
-
-    $this->mock(BooksyScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://booksy.com/en-au/12345_fade-lab_barber-shop_30748_sydney');
-        $m->shouldReceive('fetchBusiness')->andReturn([
-            'name' => 'Fade Lab', 'image' => 'https://booksy.com/i.jpg', 'rating' => 4.97, 'reviewCount' => 232, 'address' => '12 Side St, Sydney',
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/booksy/connect', ['url' => 'https://booksy.com/en-au/12345_fade-lab_barber-shop_30748_sydney'])
-        ->assertOk()
-        ->assertJsonPath('rating', 4.97)
-        ->assertJsonPath('reviewCount', 232);
-});
-
-it('calendly connect stores the profile with bookable event types', function () {
-    $user = iv3User('cl1');
-
-    $this->mock(CalendlyApi::class, function ($m) {
-        $m->shouldReceive('parseSlug')->andReturn('mock-pt');
-        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Mock PT', 'image' => null, 'description' => 'Book a session.']);
-        $m->shouldReceive('fetchEventTypes')->andReturn([
-            ['name' => 'PT Session', 'slug' => 'pt-session', 'description' => '45 min'],
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/calendly/connect', ['url' => 'https://calendly.com/mock-pt'])
-        ->assertOk()
-        ->assertJsonPath('url', 'https://calendly.com/mock-pt')
-        ->assertJsonPath('eventTypes.0.slug', 'pt-session');
-});
-
-it('quandoo connect stores the restaurant card with its /6 rating scale', function () {
-    $user = iv3User('qd1');
-
-    $this->mock(QuandooScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.quandoo.com.au/place/mazzaro-12350');
-        $m->shouldReceive('fetchRestaurant')->andReturn([
-            'name' => 'Mazzaro', 'image' => null, 'rating' => 5.5, 'bestRating' => 6, 'reviewCount' => 173,
-            'cuisines' => ['Mediterranean', 'Italian'], 'address' => '271 Elizabeth St, Sydney',
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/quandoo/connect', ['url' => 'https://www.quandoo.com.au/place/mazzaro-12350'])
-        ->assertOk()
-        ->assertJsonPath('rating', 5.5)
-        ->assertJsonPath('bestRating', 6);
-});
+// ── Profile cards ────────────────────────────────────────────────────────────
 
 it('strava connect stores the club card with member count', function () {
     $user = iv3User('sv1');
@@ -309,12 +235,46 @@ it('google business connect stores the parsed place and 422s on junk', function 
         ->assertExactJson([
             'url' => 'https://www.google.com/maps/place/Fade+Lab/@-37.81,144.96,17z',
             'name' => 'Fade Lab',
+            'address' => null,
             'lat' => -37.81,
             'lng' => 144.96,
         ]);
 
     actingAsUser($user)->postJson('/api/platforms/google-business/connect', ['url' => 'https://maps.app.goo.gl/junk'])
         ->assertStatus(422);
+});
+
+it('google business connect accepts a places-picker payload', function () {
+    $user = iv3User('gb2');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJFbIJpLaxEmsRSrzMZif-DK8',
+        'name' => 'The Grounds of Alexandria',
+        'address' => '7a/2 Huntley St, Alexandria NSW 2015',
+        'lat' => -33.9106777,
+        'lng' => 151.1941376,
+    ])
+        ->assertOk()
+        ->assertJsonPath('name', 'The Grounds of Alexandria')
+        ->assertJsonPath('address', '7a/2 Huntley St, Alexandria NSW 2015')
+        ->assertJsonPath('url', 'https://www.google.com/maps/search/?api=1&query=The%20Grounds%20of%20Alexandria&query_place_id=ChIJFbIJpLaxEmsRSrzMZif-DK8');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJFbIJpLaxEmsRSrzMZif-DK8',
+        'name' => 'Missing coords',
+    ])->assertStatus(422);
+});
+
+it('tidal connect rejects artist links with a clear 422', function () {
+    $user = iv3User('td2');
+
+    $this->mock(TidalScraper::class, function ($m) {
+        $m->shouldReceive('parseEntity')->andReturn(['type' => 'artist', 'id' => '37678972', 'link' => 'https://tidal.com/browse/artist/37678972']);
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/tidal/connect', ['url' => 'https://tidal.com/artist/37678972'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', "TIDAL doesn't offer an embeddable player for artist pages — paste an album, track or playlist link from your profile instead.");
 });
 
 // ── Lifecycle + auth ─────────────────────────────────────────────────────────
@@ -340,7 +300,7 @@ it('selection and forget work for the new platforms', function () {
 });
 
 it('requires auth on every v3 platform route', function () {
-    foreach (['vimeo', 'twitch', 'mixcloud', 'deezer', 'tidal', 'podcast', 'pinterest', 'booksy', 'calendly', 'quandoo', 'strava', 'google-business'] as $platform) {
+    foreach (['vimeo', 'twitch', 'mixcloud', 'deezer', 'tidal', 'pinterest', 'strava', 'google-business'] as $platform) {
         $this->getJson("/api/platforms/{$platform}/selection")->assertUnauthorized();
     }
 });

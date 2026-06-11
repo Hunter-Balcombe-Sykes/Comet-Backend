@@ -48,9 +48,13 @@ class DeezerApi
         ];
     }
 
-    /** Official keyless widget src — 'auto' follows the visitor's theme. */
+    /**
+     * Official keyless widget src — 'auto' follows the visitor's theme.
+     * Artist widgets need the /top_tracks tracklist suffix: the bare
+     * /artist/{id} URL answers 200 but renders an empty frame.
+     */
     public static function embedUrlForArtist(string $id): string
     {
-        return "https://widget.deezer.com/widget/auto/artist/{$id}";
+        return "https://widget.deezer.com/widget/auto/artist/{$id}/top_tracks";
     }
 }

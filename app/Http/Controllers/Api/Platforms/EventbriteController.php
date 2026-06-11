@@ -42,7 +42,7 @@ class EventbriteController extends ApiController
 
         $result = $this->scraper->fetchEvents($orgUrl);
         if ($result === null) {
-            return $this->error('Could not load that Eventbrite organiser.', 502);
+            return $this->error('Could not load that Eventbrite organiser.', 422);
         }
 
         $events = $result['events'];

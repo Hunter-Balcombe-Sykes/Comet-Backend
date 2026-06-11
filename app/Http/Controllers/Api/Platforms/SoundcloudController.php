@@ -41,7 +41,7 @@ class SoundcloudController extends ApiController
 
         $resolved = $this->oembed->resolve('https://soundcloud.com/oembed?format=json&url='.rawurlencode($link));
         if ($resolved === null) {
-            return $this->error('Could not load that SoundCloud link.', 502);
+            return $this->error('Could not load that SoundCloud link.', 422);
         }
 
         $selection = [

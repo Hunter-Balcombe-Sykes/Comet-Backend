@@ -2,8 +2,6 @@
 
 use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\BandcampController;
-use App\Http\Controllers\Api\Platforms\BooksyController;
-use App\Http\Controllers\Api\Platforms\CalendlyController;
 use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
@@ -13,8 +11,6 @@ use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\MixcloudController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
-use App\Http\Controllers\Api\Platforms\PodcastController;
-use App\Http\Controllers\Api\Platforms\QuandooController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
@@ -132,16 +128,12 @@ $registerIntegrationRoutes = function (string $base): void {
         'mixcloud' => MixcloudController::class,
         'vimeo' => VimeoController::class,
         'twitch' => TwitchController::class,
-        'podcast' => PodcastController::class,
         'pinterest' => PinterestController::class,
         'tiktok' => TiktokController::class,
         'facebook' => FacebookController::class,
         'eventbrite' => EventbriteController::class,
         'humanitix' => HumanitixController::class,
         'skool' => SkoolController::class,
-        'booksy' => BooksyController::class,
-        'calendly' => CalendlyController::class,
-        'quandoo' => QuandooController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
     ];

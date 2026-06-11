@@ -29,8 +29,23 @@ class GoogleBusinessController extends SingleSelectionPlatformController
     public function connect(ConnectGoogleBusinessRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
+        $data = $request->validated();
 
-        $place = $this->service->resolve($request->validated()['url']);
+        // Places-picker payload (canonical): the user searched + picked their
+        // own business in the dashboard. Store the canonical place deep link
+        // for the "open in Maps" / directions actions.
+        if (isset($data['placeId'])) {
+            return $this->connected($user, [
+                'url' => 'https://www.google.com/maps/search/?api=1&query='.rawurlencode($data['name']).'&query_place_id='.rawurlencode($data['placeId']),
+                'placeId' => $data['placeId'],
+                'name' => $data['name'],
+                'address' => $data['address'] ?? null,
+                'lat' => (float) $data['lat'],
+                'lng' => (float) $data['lng'],
+            ]);
+        }
+
+        $place = $this->service->resolve($data['url']);
         if ($place === null) {
             return $this->error('Paste your Google Maps link — open your business on Google Maps, hit Share, and copy the link.', 422);
         }
