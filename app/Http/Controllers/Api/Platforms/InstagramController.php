@@ -154,7 +154,7 @@ class InstagramController extends ApiController
 
         $profile = $this->scraper->fetchProfile($username, $user->id);
         if (! $profile) {
-            return $this->error('Could not fetch that Instagram profile.', 502);
+            return $this->error('Could not fetch that Instagram profile.', 422);
         }
 
         return $this->success([
@@ -178,7 +178,7 @@ class InstagramController extends ApiController
 
         $profile = $this->scraper->fetchProfile($username, $user->id);
         if (! $profile) {
-            return $this->error('Could not fetch that Instagram profile.', 502);
+            return $this->error('Could not fetch that Instagram profile.', 422);
         }
 
         $folder = 'platforms/instagram/'.now()->timestamp;

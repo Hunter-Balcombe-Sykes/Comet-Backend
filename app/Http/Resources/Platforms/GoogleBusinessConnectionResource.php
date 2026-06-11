@@ -21,6 +21,7 @@ class GoogleBusinessConnectionResource extends ApiResource
         return [
             'url' => $this->resource['url'] ?? null,
             'name' => $this->resource['name'] ?? null,
+            'address' => $this->resource['address'] ?? null,
             'lat' => $this->resource['lat'] ?? null,
             'lng' => $this->resource['lng'] ?? null,
         ];

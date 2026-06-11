@@ -82,7 +82,7 @@ class YoutubeController extends ApiController
 
         $videos = $this->scraper->fetchRecentVideos($handle);
         if ($videos === null) {
-            return $this->error('Could not load recent videos for that channel.', 502);
+            return $this->error('Could not load recent videos for that channel.', 422);
         }
 
         return $this->success(['videos' => $videos]);
@@ -104,7 +104,7 @@ class YoutubeController extends ApiController
 
             $videos = $this->scraper->fetchRecentVideos(data_get($selection, 'handle'));
             if ($videos === null) {
-                return $this->error('Could not load recent videos for that channel.', 502);
+                return $this->error('Could not load recent videos for that channel.', 422);
             }
 
             // Refresh the "Most recent" tile too (mirrors AppleController) — a video

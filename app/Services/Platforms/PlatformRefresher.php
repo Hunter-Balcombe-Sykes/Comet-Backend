@@ -22,8 +22,7 @@ class PlatformRefresher
     public const REFRESHABLE = [
         'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
         'bandcamp', 'spotify', 'soundcloud', 'deezer', 'tidal', 'mixcloud',
-        'vimeo', 'twitch', 'podcast', 'pinterest', 'booksy', 'calendly',
-        'quandoo', 'strava',
+        'vimeo', 'twitch', 'pinterest', 'strava',
     ];
 
     public function __construct(
@@ -38,11 +37,7 @@ class PlatformRefresher
         private readonly MixcloudApi $mixcloud,
         private readonly VimeoApi $vimeo,
         private readonly TwitchScraper $twitch,
-        private readonly PodcastFeedService $podcast,
         private readonly PinterestScraper $pinterest,
-        private readonly BooksyScraper $booksy,
-        private readonly CalendlyApi $calendly,
-        private readonly QuandooScraper $quandoo,
         private readonly StravaClubScraper $strava,
     ) {}
 
@@ -68,11 +63,7 @@ class PlatformRefresher
             'mixcloud' => $this->mixcloudPayload($payload),
             'vimeo' => $this->vimeoPayload($payload),
             'twitch' => $this->twitchPayload($payload),
-            'podcast' => $this->podcastPayload($payload),
             'pinterest' => $this->pinterestPayload($payload),
-            'booksy' => $this->scrapedCardPayload($payload, fn (string $url) => $this->booksy->fetchBusiness($url), 'booksy'),
-            'calendly' => $this->calendlyPayload($payload),
-            'quandoo' => $this->scrapedCardPayload($payload, fn (string $url) => $this->quandoo->fetchRestaurant($url), 'quandoo'),
             'strava' => $this->scrapedCardPayload($payload, fn (string $url) => $this->strava->fetchClub($url), 'strava'),
             default => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
@@ -408,31 +399,6 @@ class PlatformRefresher
     /**
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
      */
-    private function podcastPayload(array $payload): array
-    {
-        $feedUrl = $payload['url'] ?? null;
-        if (! $feedUrl) {
-            return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
-        }
-        $result = $this->podcast->fetchFromInput($feedUrl);
-        if ($result === null) {
-            return ['payload' => null, 'error' => 'podcast_fetch_failed', 'status' => 'unavailable'];
-        }
-
-        return ['payload' => [
-            ...$payload,
-            'name' => $result['show']['name'] ?? ($payload['name'] ?? null),
-            'thumbnail' => $result['show']['thumbnail'] ?? ($payload['thumbnail'] ?? null),
-            'description' => $result['show']['description'] ?? ($payload['description'] ?? null),
-            'link' => $result['show']['link'] ?? ($payload['link'] ?? null),
-            'latest' => $result['episodes'][0] ?? ($payload['latest'] ?? null),
-            'episodes' => $result['episodes'] !== [] ? $result['episodes'] : ($payload['episodes'] ?? []),
-        ], 'error' => null, 'status' => 'ok'];
-    }
-
-    /**
-     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
-     */
     private function pinterestPayload(array $payload): array
     {
         $username = $payload['username'] ?? null;
@@ -456,30 +422,7 @@ class PlatformRefresher
     }
 
     /**
-     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
-     */
-    private function calendlyPayload(array $payload): array
-    {
-        $slug = $payload['slug'] ?? null;
-        if (! $slug) {
-            return ['payload' => null, 'error' => 'missing_key: slug', 'status' => 'error'];
-        }
-        $profile = $this->calendly->fetchProfile($slug);
-        if ($profile === null) {
-            return ['payload' => null, 'error' => 'calendly_fetch_failed', 'status' => 'unavailable'];
-        }
-
-        return ['payload' => [
-            ...$payload,
-            'name' => $profile['name'] ?? ($payload['name'] ?? null),
-            'image' => $profile['image'] ?? ($payload['image'] ?? null),
-            'description' => $profile['description'] ?? ($payload['description'] ?? null),
-            'eventTypes' => $this->calendly->fetchEventTypes($slug) ?: ($payload['eventTypes'] ?? []),
-        ], 'error' => null, 'status' => 'ok'];
-    }
-
-    /**
-     * Booksy / Quandoo / Strava share the shape: one stored URL re-scraped
+     * Strava (and any future single-URL card): the stored URL re-scraped
      * into card fields that merge over the existing payload.
      *
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}

@@ -44,7 +44,7 @@ class SpotifyController extends ApiController
 
         $resolved = $this->oembed->resolve('https://open.spotify.com/oembed?url='.rawurlencode($link));
         if ($resolved === null) {
-            return $this->error('Could not load that Spotify link.', 502);
+            return $this->error('Could not load that Spotify link.', 422);
         }
 
         $selection = [

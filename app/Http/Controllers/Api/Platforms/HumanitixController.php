@@ -41,7 +41,7 @@ class HumanitixController extends ApiController
 
         $result = $this->scraper->fetchEvents($hostUrl);
         if ($result === null) {
-            return $this->error('Could not load that Humanitix host.', 502);
+            return $this->error('Could not load that Humanitix host.', 422);
         }
 
         $events = $result['events'];

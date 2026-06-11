@@ -1,9 +1,6 @@
 <?php
 
-use App\Services\Platforms\BooksyScraper;
-use App\Services\Platforms\CalendlyApi;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\QuandooScraper;
 use App\Services\Platforms\StravaClubScraper;
 use App\Services\SmartLinks\SafeUrlFetcher;
 
@@ -26,91 +23,6 @@ function bookingFetcherWith(array $routes): SafeUrlFetcher
 
     return $fetcher;
 }
-
-// ── Booksy ───────────────────────────────────────────────────────────────────
-
-it('booksy normalizes listing URLs and reads the business JSON-LD', function () {
-    $ld = json_encode([
-        '@context' => 'https://schema.org',
-        '@type' => 'HairSalon',
-        'name' => 'Fade Lab',
-        'image' => ['https://booksy.com/img/fadelab.jpg'],
-        'aggregateRating' => ['@type' => 'AggregateRating', 'ratingValue' => 4.974137, 'reviewCount' => 232],
-        'address' => ['@type' => 'PostalAddress', 'streetAddress' => '12 Side St', 'addressLocality' => 'Sydney'],
-    ]);
-    $scraper = new BooksyScraper(bookingFetcherWith([
-        'booksy.com/en-au/12345_fade-lab' => ['status' => 200, 'body' => '<script type="application/ld+json">'.$ld.'</script>', 'finalUrl' => 'x', 'contentType' => 'text/html'],
-    ]));
-
-    expect($scraper->normalizeUrl('https://booksy.com/en-au/12345_fade-lab_barber-shop_30748_sydney?from=share'))
-        ->toBe('https://booksy.com/en-au/12345_fade-lab_barber-shop_30748_sydney');
-    expect($scraper->normalizeUrl('https://booksy.com/en-au/s/barbers'))->toBeNull(); // search page
-    expect($scraper->normalizeUrl('https://example.com/en-au/12345_x'))->toBeNull();
-
-    $business = $scraper->fetchBusiness('https://booksy.com/en-au/12345_fade-lab');
-    expect($business)->toMatchArray([
-        'name' => 'Fade Lab',
-        'image' => 'https://booksy.com/img/fadelab.jpg',
-        'rating' => 4.97,
-        'reviewCount' => 232,
-        'address' => '12 Side St, Sydney',
-    ]);
-});
-
-// ── Quandoo ──────────────────────────────────────────────────────────────────
-
-it('quandoo normalizes place URLs and reads the Restaurant JSON-LD with its /6 scale', function () {
-    $ld = json_encode([
-        '@type' => 'Restaurant',
-        'name' => 'Mazzaro',
-        'image' => 'https://qul.imgix.net/m.jpg',
-        'servesCuisine' => ['Mediterranean', 'Italian', 'European', 'Pizza'],
-        'aggregateRating' => ['ratingValue' => '5.5', 'bestRating' => 6, 'reviewCount' => 173],
-        'address' => ['streetAddress' => '271 Elizabeth St', 'addressLocality' => 'Sydney'],
-    ]);
-    $scraper = new QuandooScraper(bookingFetcherWith([
-        'quandoo.com.au/place/mazzaro-12350' => ['status' => 200, 'body' => '<script type="application/ld+json">'.$ld.'</script>', 'finalUrl' => 'x', 'contentType' => 'text/html'],
-    ]));
-
-    expect($scraper->normalizeUrl('https://www.quandoo.com.au/place/Mazzaro-12350/menu?x=1'))
-        ->toBe('https://www.quandoo.com.au/place/mazzaro-12350');
-    expect($scraper->normalizeUrl('https://quandoo.com.au/help'))->toBeNull();
-
-    $restaurant = $scraper->fetchRestaurant('https://www.quandoo.com.au/place/mazzaro-12350');
-    expect($restaurant)->toMatchArray([
-        'name' => 'Mazzaro',
-        'rating' => 5.5,
-        'bestRating' => 6,
-        'reviewCount' => 173,
-        'cuisines' => ['Mediterranean', 'Italian', 'European'], // capped at 3
-        'address' => '271 Elizabeth St, Sydney',
-    ]);
-});
-
-// ── Calendly ─────────────────────────────────────────────────────────────────
-
-it('calendly parses slugs and fetches the booking profile + event types', function () {
-    $api = new CalendlyApi(bookingFetcherWith([
-        '/api/booking/profiles/mock-pt/event_types' => ['status' => 200, 'body' => json_encode([
-            ['name' => 'PT Session', 'slug' => 'pt-session', 'description' => '<p>45 min</p>', 'color' => '#fff', 'uuid' => 'u1'],
-            ['name' => 'Consult', 'slug' => 'consult', 'description' => null, 'color' => '#000', 'uuid' => 'u2'],
-        ]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
-        '/api/booking/profiles/mock-pt' => ['status' => 200, 'body' => json_encode([
-            'name' => 'Mock PT', 'avatar_url' => 'https://d3v0px0pttie1i.cloudfront.net/a.png', 'description' => 'Book a session.',
-        ]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
-    ]));
-
-    expect($api->parseSlug('https://calendly.com/Mock-PT/intro?month=2026-06'))->toBe('mock-pt');
-    expect($api->parseSlug('mock-pt'))->toBe('mock-pt');
-    expect($api->parseSlug('https://calendly.com/api/x'))->toBeNull(); // reserved
-
-    $profile = $api->fetchProfile('mock-pt');
-    expect($profile)->toMatchArray(['name' => 'Mock PT', 'description' => 'Book a session.']);
-
-    $types = $api->fetchEventTypes('mock-pt');
-    expect($types)->toHaveCount(2);
-    expect($types[0])->toBe(['name' => 'PT Session', 'slug' => 'pt-session', 'description' => '45 min']);
-});
 
 // ── Strava ───────────────────────────────────────────────────────────────────
 

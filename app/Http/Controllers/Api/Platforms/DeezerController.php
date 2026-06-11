@@ -36,7 +36,7 @@ class DeezerController extends SingleSelectionPlatformController
 
         $artist = $this->deezer->fetchArtist($id);
         if ($artist === null) {
-            return $this->error('Could not load that Deezer artist.', 502);
+            return $this->error('Could not load that Deezer artist.', 422);
         }
 
         return $this->connected($user, [
