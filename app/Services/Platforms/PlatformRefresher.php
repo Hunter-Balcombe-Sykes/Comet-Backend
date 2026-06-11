@@ -21,7 +21,7 @@ class PlatformRefresher
 {
     public const REFRESHABLE = [
         'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'tidal', 'mixcloud',
+        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'mixcloud',
         'vimeo', 'twitch', 'pinterest', 'strava',
     ];
 
@@ -33,7 +33,6 @@ class PlatformRefresher
         private readonly BandcampScraper $bandcamp,
         private readonly OEmbedService $oembed,
         private readonly DeezerApi $deezer,
-        private readonly TidalScraper $tidal,
         private readonly MixcloudApi $mixcloud,
         private readonly VimeoApi $vimeo,
         private readonly TwitchScraper $twitch,
@@ -59,7 +58,6 @@ class PlatformRefresher
             'spotify' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify'),
             'soundcloud' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud'),
             'deezer' => $this->deezerPayload($payload),
-            'tidal' => $this->tidalPayload($payload),
             'mixcloud' => $this->mixcloudPayload($payload),
             'vimeo' => $this->vimeoPayload($payload),
             'twitch' => $this->twitchPayload($payload),
@@ -304,26 +302,6 @@ class PlatformRefresher
             'name' => $artist['name'] ?? ($payload['name'] ?? null),
             'thumbnail' => $artist['thumbnail'] ?? ($payload['thumbnail'] ?? null),
             'embedUrl' => DeezerApi::embedUrlForArtist((string) $id),
-        ], 'error' => null, 'status' => 'ok'];
-    }
-
-    /**
-     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
-     */
-    private function tidalPayload(array $payload): array
-    {
-        $link = $payload['link'] ?? $payload['url'] ?? null;
-        if (! $link) {
-            return ['payload' => null, 'error' => 'missing_key: link', 'status' => 'error'];
-        }
-        // og tags only — the oEmbed-resolved embed URL is stable. fetchMeta
-        // never fails hard; nulls keep the stored values.
-        $meta = $this->tidal->fetchMeta($link);
-
-        return ['payload' => [
-            ...$payload,
-            'name' => $meta['name'] ?? ($payload['name'] ?? null),
-            'thumbnail' => $meta['thumbnail'] ?? ($payload['thumbnail'] ?? null),
         ], 'error' => null, 'status' => 'ok'];
     }
 

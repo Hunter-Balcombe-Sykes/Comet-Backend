@@ -9,7 +9,7 @@ use Illuminate\Http\JsonResponse;
 
 // Deezer — connect by artist link; the open JSON API resolves the name +
 // artwork and the official widget embeds keylessly. Stored in the shared
-// music-embed shape (same contract as Spotify / SoundCloud / TIDAL).
+// music-embed shape (same contract as Spotify / SoundCloud).
 class DeezerController extends SingleSelectionPlatformController
 {
     public function __construct(private readonly DeezerApi $deezer) {}

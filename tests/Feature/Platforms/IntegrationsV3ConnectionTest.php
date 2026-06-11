@@ -6,7 +6,6 @@ use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\MixcloudApi;
-use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
@@ -165,23 +164,6 @@ it('deezer connect stores the music-embed shape with the widget URL', function (
         ]);
 });
 
-it('tidal connect resolves the oEmbed player and og meta', function () {
-    $user = iv3User('td1');
-
-    $this->mock(TidalScraper::class, function ($m) {
-        $m->shouldReceive('parseEntity')->andReturn(['type' => 'album', 'id' => '77640617', 'link' => 'https://tidal.com/browse/album/77640617']);
-        $m->shouldReceive('fetchMeta')->andReturn(['name' => 'Currents', 'thumbnail' => 'https://resources.tidal.com/c.jpg']);
-    });
-    $this->mock(OEmbedService::class, function ($m) {
-        $m->shouldReceive('resolve')->andReturn(['name' => null, 'thumbnail' => null, 'embedUrl' => 'https://embed.tidal.com/albums/77640617']);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/tidal/connect', ['url' => 'https://tidal.com/browse/album/77640617'])
-        ->assertOk()
-        ->assertJsonPath('name', 'Currents')
-        ->assertJsonPath('embedUrl', 'https://embed.tidal.com/albums/77640617');
-});
-
 // ── Pinterest ────────────────────────────────────────────────────────────────
 
 it('pinterest connect stores the profile and latest pins', function () {
@@ -265,18 +247,6 @@ it('google business connect accepts a places-picker payload', function () {
     ])->assertStatus(422);
 });
 
-it('tidal connect rejects artist links with a clear 422', function () {
-    $user = iv3User('td2');
-
-    $this->mock(TidalScraper::class, function ($m) {
-        $m->shouldReceive('parseEntity')->andReturn(['type' => 'artist', 'id' => '37678972', 'link' => 'https://tidal.com/browse/artist/37678972']);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/tidal/connect', ['url' => 'https://tidal.com/artist/37678972'])
-        ->assertStatus(422)
-        ->assertJsonPath('message', "TIDAL doesn't offer an embeddable player for artist pages — paste an album, track or playlist link from your profile instead.");
-});
-
 // ── Lifecycle + auth ─────────────────────────────────────────────────────────
 
 it('selection and forget work for the new platforms', function () {
@@ -300,7 +270,7 @@ it('selection and forget work for the new platforms', function () {
 });
 
 it('requires auth on every v3 platform route', function () {
-    foreach (['vimeo', 'twitch', 'mixcloud', 'deezer', 'tidal', 'pinterest', 'strava', 'google-business'] as $platform) {
+    foreach (['vimeo', 'twitch', 'mixcloud', 'deezer', 'pinterest', 'strava', 'google-business'] as $platform) {
         $this->getJson("/api/platforms/{$platform}/selection")->assertUnauthorized();
     }
 });

@@ -16,7 +16,6 @@ use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
 use App\Http\Controllers\Api\Platforms\SpotifyController;
 use App\Http\Controllers\Api\Platforms\StravaController;
-use App\Http\Controllers\Api\Platforms\TidalController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
@@ -124,7 +123,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'spotify' => SpotifyController::class,
         'soundcloud' => SoundcloudController::class,
         'deezer' => DeezerController::class,
-        'tidal' => TidalController::class,
         'mixcloud' => MixcloudController::class,
         'vimeo' => VimeoController::class,
         'twitch' => TwitchController::class,

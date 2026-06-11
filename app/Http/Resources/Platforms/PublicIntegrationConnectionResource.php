@@ -36,7 +36,6 @@ class PublicIntegrationConnectionResource extends ApiResource
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'deezer' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
-        'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights'],
         'mixcloud' => ['url', 'username', 'name', 'thumbnail', 'followers', 'embedUrl', 'latest', 'items'],
         'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],

@@ -2,7 +2,6 @@
 
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\MixcloudApi;
-use App\Services\Platforms\TidalScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\SmartLinks\SafeUrlFetcher;
@@ -112,26 +111,6 @@ it('deezer parses artist links and surfaces API error objects as null', function
         'api.deezer.com/artist/0' => ['status' => 200, 'body' => '{"error":{"type":"DataException"}}', 'finalUrl' => 'x', 'contentType' => 'application/json'],
     ]));
     expect($err->fetchArtist('0'))->toBeNull();
-});
-
-// ── TIDAL ────────────────────────────────────────────────────────────────────
-
-it('tidal canonicalises entity links and strips the og suffix', function () {
-    $scraper = new TidalScraper(mediaFetcherWith([
-        'tidal.com/browse/album/77640617' => ['status' => 200, 'body' => '<meta property="og:title" content="Currents on TIDAL"/><meta property="og:image" content="https://resources.tidal.com/c.jpg"/>', 'finalUrl' => 'x', 'contentType' => 'text/html'],
-    ]));
-
-    expect($scraper->parseEntity('https://tidal.com/browse/album/77640617?play=true'))
-        ->toBe(['type' => 'album', 'id' => '77640617', 'link' => 'https://tidal.com/browse/album/77640617']);
-    expect($scraper->parseEntity('https://listen.tidal.com/artist/3634161'))
-        ->toBe(['type' => 'artist', 'id' => '3634161', 'link' => 'https://tidal.com/browse/artist/3634161']);
-    expect($scraper->parseEntity('https://tidal.com/login'))->toBeNull();
-
-    $meta = $scraper->fetchMeta('https://tidal.com/browse/album/77640617');
-    expect($meta['name'])->toBe('Currents');
-    expect($meta['thumbnail'])->toBe('https://resources.tidal.com/c.jpg');
-
-    expect(TidalScraper::embedUrlFor('album', '77640617'))->toBe('https://embed.tidal.com/albums/77640617');
 });
 
 // ── Twitch ───────────────────────────────────────────────────────────────────
