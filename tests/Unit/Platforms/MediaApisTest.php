@@ -105,7 +105,7 @@ it('deezer parses artist links and surfaces API error objects as null', function
 
     $artist = $ok->fetchArtist('134790');
     expect($artist['name'])->toBe('Tame Impala');
-    expect(DeezerApi::embedUrlForArtist('134790'))->toBe('https://widget.deezer.com/widget/auto/artist/134790');
+    expect(DeezerApi::embedUrlForArtist('134790'))->toBe('https://widget.deezer.com/widget/auto/artist/134790/top_tracks');
 
     // Deezer answers 200 with {"error": …} for unknown ids.
     $err = new DeezerApi(mediaFetcherWith([

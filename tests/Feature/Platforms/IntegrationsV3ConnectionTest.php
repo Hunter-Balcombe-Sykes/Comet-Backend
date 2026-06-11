@@ -160,7 +160,7 @@ it('deezer connect stores the music-embed shape with the widget URL', function (
             'url' => 'https://www.deezer.com/artist/134790',
             'name' => 'Tame Impala',
             'thumbnail' => 'https://cdn.dzcdn.net/b.jpg',
-            'embedUrl' => 'https://widget.deezer.com/widget/auto/artist/134790',
+            'embedUrl' => 'https://widget.deezer.com/widget/auto/artist/134790/top_tracks',
             'link' => 'https://www.deezer.com/artist/134790',
         ]);
 });

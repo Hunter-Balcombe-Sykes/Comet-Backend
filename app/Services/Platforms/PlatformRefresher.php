@@ -297,11 +297,13 @@ class PlatformRefresher
             return ['payload' => null, 'error' => 'deezer_fetch_failed', 'status' => 'unavailable'];
         }
 
-        // Embed + link are stable; the name and artwork can change upstream.
+        // Link is stable; name and artwork can change upstream. embedUrl is
+        // recomputed so rows stored before the /top_tracks fix self-heal.
         return ['payload' => [
             ...$payload,
             'name' => $artist['name'] ?? ($payload['name'] ?? null),
             'thumbnail' => $artist['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'embedUrl' => DeezerApi::embedUrlForArtist((string) $id),
         ], 'error' => null, 'status' => 'ok'];
     }
 
