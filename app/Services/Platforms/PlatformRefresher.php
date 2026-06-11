@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 // Pilot daily refresh for the cheap auto-content platforms — re-fetches the
@@ -22,7 +23,7 @@ class PlatformRefresher
     public const REFRESHABLE = [
         'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
         'bandcamp', 'spotify', 'soundcloud', 'deezer',
-        'vimeo', 'twitch', 'pinterest', 'strava',
+        'vimeo', 'twitch', 'pinterest', 'strava', 'google-business',
     ];
 
     public function __construct(
@@ -37,6 +38,7 @@ class PlatformRefresher
         private readonly TwitchScraper $twitch,
         private readonly PinterestScraper $pinterest,
         private readonly StravaClubScraper $strava,
+        private readonly GoogleBusinessService $googleBusiness,
     ) {}
 
     public function refresh(IntegrationConnection $connection): IntegrationConnection
@@ -61,6 +63,7 @@ class PlatformRefresher
             'twitch' => $this->twitchPayload($payload),
             'pinterest' => $this->pinterestPayload($payload),
             'strava' => $this->scrapedCardPayload($payload, fn (string $url) => $this->strava->fetchClub($url), 'strava'),
+            'google-business' => $this->googleBusinessPayload($payload),
             default => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
 
@@ -401,5 +404,41 @@ class PlatformRefresher
         }
 
         return ['payload' => $merged, 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * Google Business: re-pull the Place Details snapshot (rating, reviews,
+     * hours, phone, …) by stored placeId. The cron is daily but the snapshot
+     * only needs ~weekly re-pulls (Google billing + the ToS caching window),
+     * so a fresh detailsFetchedAt short-circuits without an API call.
+     *
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function googleBusinessPayload(array $payload): array
+    {
+        $placeId = $payload['placeId'] ?? null;
+        if (! $placeId) {
+            // Legacy link-paste connections legitimately lack a placeId —
+            // skip quietly rather than flag a shape error.
+            return ['payload' => null, 'error' => 'missing_place_id', 'status' => 'unavailable'];
+        }
+
+        try {
+            $fresh = isset($payload['detailsFetchedAt'])
+                && Carbon::parse($payload['detailsFetchedAt'])->gt(now()->subDays(6));
+        } catch (\Throwable) {
+            $fresh = false;
+        }
+        if ($fresh) {
+            return ['payload' => $payload, 'error' => null, 'status' => 'ok'];
+        }
+
+        $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId);
+        if ($details === null) {
+            return ['payload' => null, 'error' => 'google_details_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        // Spread preserves placeId + any stored keys the fetch didn't return.
+        return ['payload' => [...$payload, ...$details], 'error' => null, 'status' => 'ok'];
     }
 }

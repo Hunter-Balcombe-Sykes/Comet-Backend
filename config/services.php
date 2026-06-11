@@ -25,6 +25,10 @@ return [
     // every key rotation and fresh-environment deploy — see .env.example.
     'google_maps' => [
         'api_key' => env('GOOGLE_MAPS_API_KEY'),
+        // Server-side key for google-business Place Details enrichment.
+        // API-restricted to Places API (New) in the Cloud Console; lives only
+        // in server env vars — NEVER returned by /public/config/integrations.
+        'server_api_key' => env('GOOGLE_MAPS_SERVER_API_KEY'),
     ],
 
     'resend' => [

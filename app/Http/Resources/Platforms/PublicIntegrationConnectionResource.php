@@ -42,7 +42,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         'pinterest' => ['url', 'username', 'name', 'image', 'followers', 'latest', 'items'],
         'skool' => ['url', 'name', 'image', 'description'],
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
-        'google-business' => ['url', 'name', 'address', 'lat', 'lng'],
+        // google-business: placeId / phoneIntl / photos / priceLevel /
+        // priceRange / detailsFetchedAt stay private.
+        'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'rating', 'reviewCount', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'reviews', 'reviewSummary', 'editorialSummary', 'amenities'],
         // shop: payload is a brand-keyed MAP, filtered per brand object (below).
     ];
 
