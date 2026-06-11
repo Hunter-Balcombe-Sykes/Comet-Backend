@@ -21,7 +21,7 @@ class PlatformRefresher
 {
     public const REFRESHABLE = [
         'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'mixcloud',
+        'bandcamp', 'spotify', 'soundcloud', 'deezer',
         'vimeo', 'twitch', 'pinterest', 'strava',
     ];
 
@@ -33,7 +33,6 @@ class PlatformRefresher
         private readonly BandcampScraper $bandcamp,
         private readonly OEmbedService $oembed,
         private readonly DeezerApi $deezer,
-        private readonly MixcloudApi $mixcloud,
         private readonly VimeoApi $vimeo,
         private readonly TwitchScraper $twitch,
         private readonly PinterestScraper $pinterest,
@@ -58,7 +57,6 @@ class PlatformRefresher
             'spotify' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify'),
             'soundcloud' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud'),
             'deezer' => $this->deezerPayload($payload),
-            'mixcloud' => $this->mixcloudPayload($payload),
             'vimeo' => $this->vimeoPayload($payload),
             'twitch' => $this->twitchPayload($payload),
             'pinterest' => $this->pinterestPayload($payload),
@@ -308,28 +306,6 @@ class PlatformRefresher
     /**
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
      */
-    private function mixcloudPayload(array $payload): array
-    {
-        $username = $payload['username'] ?? null;
-        if (! $username) {
-            return ['payload' => null, 'error' => 'missing_key: username', 'status' => 'error'];
-        }
-        $profile = $this->mixcloud->fetchProfile($username);
-        if ($profile === null) {
-            return ['payload' => null, 'error' => 'mixcloud_fetch_failed', 'status' => 'unavailable'];
-        }
-        $shows = $this->mixcloud->fetchCloudcasts($username);
-
-        return ['payload' => [
-            ...$payload,
-            'name' => $profile['name'] ?? ($payload['name'] ?? null),
-            'thumbnail' => $profile['thumbnail'] ?? ($payload['thumbnail'] ?? null),
-            'followers' => $profile['followers'] ?? ($payload['followers'] ?? null),
-            'latest' => $shows[0] ?? ($payload['latest'] ?? null),
-            'items' => $shows !== [] ? $shows : ($payload['items'] ?? []),
-        ], 'error' => null, 'status' => 'ok'];
-    }
-
     /**
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
      */

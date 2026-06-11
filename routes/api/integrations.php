@@ -9,7 +9,6 @@ use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
-use App\Http\Controllers\Api\Platforms\MixcloudController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
@@ -123,7 +122,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'spotify' => SpotifyController::class,
         'soundcloud' => SoundcloudController::class,
         'deezer' => DeezerController::class,
-        'mixcloud' => MixcloudController::class,
         'vimeo' => VimeoController::class,
         'twitch' => TwitchController::class,
         'pinterest' => PinterestController::class,

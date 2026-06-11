@@ -1,7 +1,6 @@
 <?php
 
 use App\Services\Platforms\DeezerApi;
-use App\Services\Platforms\MixcloudApi;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\SmartLinks\SafeUrlFetcher;
@@ -61,31 +60,6 @@ it('vimeo maps Simple-API videos with player embed URLs', function () {
     $profile = $api->fetchProfile('patagonia');
     expect($profile['name'])->toBe('Patagonia');
     expect($profile['thumbnail'])->toBe('https://i.vimeocdn.com/portrait/p.jpg');
-});
-
-// ── Mixcloud ─────────────────────────────────────────────────────────────────
-
-it('mixcloud parses profile URLs and bare handles, rejecting reserved routes', function () {
-    $api = new MixcloudApi(mediaFetcherWith([]));
-
-    expect($api->parseUsername('https://www.mixcloud.com/NTSRadio/'))->toBe('NTSRadio');
-    expect($api->parseUsername('https://mixcloud.com/NTSRadio/shows/'))->toBe('NTSRadio');
-    expect($api->parseUsername('@NTSRadio'))->toBe('NTSRadio');
-    expect($api->parseUsername('https://www.mixcloud.com/discover/'))->toBeNull();
-    expect($api->parseUsername('not a handle!'))->toBeNull();
-});
-
-it('mixcloud maps cloudcasts with widget embed URLs', function () {
-    $api = new MixcloudApi(mediaFetcherWith([
-        '/NTSRadio/cloudcasts/' => ['status' => 200, 'body' => json_encode(['data' => [
-            ['key' => '/NTSRadio/show-1/', 'name' => 'Show 1', 'url' => 'https://www.mixcloud.com/NTSRadio/show-1/',
-                'pictures' => ['large' => 'https://thumb.mixcloud.com/1.jpg'], 'created_time' => '2026-06-09T00:00:00Z'],
-        ]]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
-    ]));
-
-    $shows = $api->fetchCloudcasts('NTSRadio');
-    expect($shows[0]['itemId'])->toBe('/NTSRadio/show-1/');
-    expect($shows[0]['embedUrl'])->toBe('https://player-widget.mixcloud.com/?hide_cover=1&feed='.rawurlencode('/NTSRadio/show-1/'));
 });
 
 // ── Deezer ───────────────────────────────────────────────────────────────────

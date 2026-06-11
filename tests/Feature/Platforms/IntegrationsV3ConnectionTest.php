@@ -5,12 +5,10 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\MixcloudApi;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\StravaClubScraper;
-use App\Services\Platforms\TidalScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\WooCommerceScraper;
@@ -120,27 +118,6 @@ it('twitch connect stores the og-scraped channel card', function () {
             'image' => 'https://static-cdn.jtvnw.net/a.png',
             'description' => 'Streams.',
         ]);
-});
-
-it('mixcloud connect stores the profile feed embed and latest shows', function () {
-    $user = iv3User('mx1');
-
-    $this->mock(MixcloudApi::class, function ($m) {
-        $m->shouldReceive('parseUsername')->andReturn('NTSRadio');
-        $m->shouldReceive('fetchProfile')->andReturn([
-            'username' => 'NTSRadio', 'name' => 'NTS Radio', 'thumbnail' => 'https://thumb.mixcloud.com/p.jpg',
-            'link' => 'https://www.mixcloud.com/NTSRadio/', 'followers' => 1000,
-        ]);
-        $m->shouldReceive('fetchCloudcasts')->andReturn([
-            ['itemId' => '/NTSRadio/show-1/', 'name' => 'Show 1', 'thumbnail' => null, 'link' => 'https://www.mixcloud.com/NTSRadio/show-1/', 'date' => null, 'embedUrl' => 'https://player-widget.mixcloud.com/?hide_cover=1&feed=x'],
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/mixcloud/connect', ['url' => 'https://www.mixcloud.com/NTSRadio/'])
-        ->assertOk()
-        ->assertJsonPath('username', 'NTSRadio')
-        ->assertJsonPath('embedUrl', \App\Services\Platforms\MixcloudApi::embedUrlForFeed('/NTSRadio/'))
-        ->assertJsonPath('latest.name', 'Show 1');
 });
 
 it('deezer connect stores the music-embed shape with the widget URL', function () {
@@ -270,7 +247,7 @@ it('selection and forget work for the new platforms', function () {
 });
 
 it('requires auth on every v3 platform route', function () {
-    foreach (['vimeo', 'twitch', 'mixcloud', 'deezer', 'pinterest', 'strava', 'google-business'] as $platform) {
+    foreach (['vimeo', 'twitch', 'deezer', 'pinterest', 'strava', 'google-business'] as $platform) {
         $this->getJson("/api/platforms/{$platform}/selection")->assertUnauthorized();
     }
 });
