@@ -118,6 +118,7 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
             'link' => 'https://vimeo.com/mockuser',
             'latest' => null,
             'items' => [],
+            'highlights' => [['itemId' => '1', 'name' => 'Pick', 'thumbnail' => null, 'link' => 'https://vimeo.com/1', 'embedUrl' => 'https://player.vimeo.com/video/1']],
         ],
         'is_active' => true,
         'last_refresh_status' => 'ok',
@@ -136,4 +137,5 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     ]);
     expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('apiPath');
     expect($platforms['vimeo'][0]['payload']['url'])->toBe('https://vimeo.com/mockuser');
+    expect($platforms['vimeo'][0]['payload']['highlights'])->toHaveCount(1);   // curated picks are public
 });

@@ -99,6 +99,52 @@ it('vimeo connect stores the profile and latest videos with embeds', function ()
         ->assertJsonPath('items.0.itemId', '1030868189');
 });
 
+it('vimeo recent + highlights mirror the youtube picker flow', function () {
+    $user = iv3User('vh1');
+
+    $videos = array_map(fn (int $i) => [
+        'itemId' => "10{$i}", 'name' => "Video {$i}", 'thumbnail' => null,
+        'link' => "https://vimeo.com/10{$i}", 'date' => null,
+        'embedUrl' => "https://player.vimeo.com/video/10{$i}",
+    ], range(1, 8));
+
+    $this->mock(VimeoApi::class, function ($m) use ($videos) {
+        $m->shouldReceive('parseSource')->andReturn(['apiPath' => 'mockuser', 'link' => 'https://vimeo.com/mockuser']);
+        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Mock User', 'thumbnail' => null, 'link' => 'https://vimeo.com/mockuser', 'bio' => null]);
+        $m->shouldReceive('fetchVideos')->andReturn($videos);
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/vimeo/connect', ['url' => 'https://vimeo.com/mockuser'])
+        ->assertOk()
+        ->assertJsonPath('highlights', []);
+
+    actingAsUser($user)->getJson('/api/platforms/vimeo/recent')
+        ->assertOk()
+        ->assertJsonCount(8, 'videos');
+
+    // Picks store in posted order; unknown ids drop silently.
+    actingAsUser($user)->postJson('/api/platforms/vimeo/highlights', ['itemIds' => ['103', '101', 'nope', '105']])
+        ->assertOk()
+        ->assertJsonCount(3, 'highlights')
+        ->assertJsonPath('highlights.0.itemId', '103')
+        ->assertJsonPath('highlights.1.itemId', '101')
+        ->assertJsonPath('highlights.2.itemId', '105');
+
+    // Reconnecting the SAME profile keeps the picks…
+    actingAsUser($user)->postJson('/api/platforms/vimeo/connect', ['url' => 'https://vimeo.com/mockuser'])
+        ->assertOk()
+        ->assertJsonCount(3, 'highlights');
+
+    // …and an empty list clears them.
+    actingAsUser($user)->postJson('/api/platforms/vimeo/highlights', ['itemIds' => []])
+        ->assertOk()
+        ->assertJsonPath('highlights', []);
+
+    // Over-cap is rejected by validation, not silently truncated.
+    actingAsUser($user)->postJson('/api/platforms/vimeo/highlights', ['itemIds' => ['101', '102', '103', '104', '105', '106']])
+        ->assertStatus(422);
+});
+
 it('twitch connect stores the og-scraped channel card', function () {
     $user = iv3User('tw1');
 
