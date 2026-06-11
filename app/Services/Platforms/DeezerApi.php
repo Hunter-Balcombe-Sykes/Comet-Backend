@@ -17,7 +17,7 @@ class DeezerApi
     /** Artist id from a deezer.com artist URL (any locale prefix). */
     public function parseArtistId(string $url): ?string
     {
-        if (preg_match('~^https?://(?:www\.)?deezer\.com/(?:[a-z]{2}/)?artist/(\d+)~i', trim($url), $m)) {
+        if (preg_match('~^https?://(?:www\.)?deezer\.com/(?:[a-z]{2}/)?artist/(\d+)~i', PlatformInput::urlish($url), $m)) {
             return $m[1];
         }
 

@@ -4,7 +4,7 @@ namespace App\Http\Requests\Platforms;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class ConnectHumanitixRequest extends FormRequest
+class ConnectYoutubeMusicRequest extends FormRequest
 {
     // Authorization is handled at the trait chokepoint, not here.
     public function authorize(): bool
@@ -15,8 +15,9 @@ class ConnectHumanitixRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // A Humanitix host page or any event page (host resolved server-side).
-            'url' => ['required', 'string', 'max:500'],
+            // Artist/channel URL (music.youtube.com or youtube.com), a raw
+            // UC… channel id, or an @handle — the scraper normalises.
+            'url' => ['required', 'string', 'max:300'],
         ];
     }
 }

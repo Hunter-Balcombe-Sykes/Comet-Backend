@@ -16,7 +16,7 @@ class ConnectDeezerRequest extends FormRequest
     {
         return [
             // Any deezer.com artist link (locale prefixes allowed).
-            'url' => ['required', 'string', 'max:300', 'regex:~^https?://(?:www\.)?deezer\.com/~i'],
+            'url' => ['required', 'string', 'max:300'],
         ];
     }
 }

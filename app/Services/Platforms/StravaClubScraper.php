@@ -12,11 +12,18 @@ class StravaClubScraper extends PlatformScraper
 {
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
-    /** Canonical club URL from any strava.com/clubs/… link. */
+    /** Canonical club URL from any strava.com/clubs/… link (scheme optional)
+     * or a bare club slug/id. */
     public function normalizeUrl(string $url): ?string
     {
-        if (preg_match('~^https?://(?:www\.)?strava\.com/clubs/([A-Za-z0-9_-]+)~i', trim($url), $m)) {
+        $url = PlatformInput::urlish($url);
+
+        if (preg_match('~^https?://(?:www\.)?strava\.com/clubs/([A-Za-z0-9_-]+)~i', $url, $m)) {
             return 'https://www.strava.com/clubs/'.$m[1];
+        }
+
+        if (PlatformInput::isBareToken($url, '~^[A-Za-z0-9_-]{2,60}$~')) {
+            return 'https://www.strava.com/clubs/'.PlatformInput::token($url);
         }
 
         return null;

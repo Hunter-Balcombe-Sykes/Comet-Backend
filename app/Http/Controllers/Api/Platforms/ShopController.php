@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddShopBrandRequest;
 use App\Http\Requests\Platforms\SetShopProductsRequest;
+use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Models\Core\User\User;
@@ -79,9 +80,17 @@ class ShopController extends ApiController
         // Detection + scrape run outside the lock (slow external HTTP).
         // Only the read→mutate→write cycle is serialised.
         $detected = $this->detector->detect($validated['url']);
+
+        // Server-side probe failed AND the dashboard supplied a browser-fetched
+        // Store API payload — stores whose WAF blocks datacenter IPs (403s every
+        // server request) still connect via the user's own browser.
+        if ($detected === null && is_array($validated['storeApi'] ?? null)) {
+            $detected = $this->detectFromClientPayload($validated['url'], $validated['storeApi']);
+        }
+
         if ($detected === null) {
             return $this->error(
-                "Couldn't find a supported store at that URL. Shopify and WooCommerce stores connect automatically; other sites need standard product markup on the page you paste.",
+                "Couldn't find a supported store at that URL. Shopify and WooCommerce stores connect automatically; other sites need standard product markup on the page you paste. Some stores block automated requests — if yours does, retry and we'll read it through your browser instead.",
                 422,
             );
         }
@@ -111,6 +120,12 @@ class ShopController extends ApiController
                 'discountCode' => $discount,
                 'products' => $map[$id]['products'] ?? [],
             ];
+            // Client-connected brands can't be re-scraped server-side; the
+            // flag routes product reads through the catalog cache + the
+            // client re-warm endpoint instead of abort(502)ing.
+            if (! empty($detected['fetchMode'])) {
+                $map[$id]['fetchMode'] = $detected['fetchMode'];
+            }
             $this->writeConnection($user, $map);
 
             // The generic detector already read the page's products — warm the
@@ -154,6 +169,27 @@ class ShopController extends ApiController
 
             return $this->success(['brands' => ShopBrandResource::collection(array_values($map))->resolve()]);
         });
+    }
+
+    // POST /api/platforms/shop/brands/{id}/catalog — client-assisted catalog
+    // re-warm for a client-mode brand: the browser fetched the store's public
+    // Store API and posts the raw products; we normalise + host-pin them and
+    // warm the same picker cache the live scrape would have.
+    public function catalog(SubmitShopCatalogRequest $request, string $id): JsonResponse
+    {
+        $map = $this->brandMap($this->currentUser($request));
+        if (! isset($map[$id])) {
+            return $this->error('Brand not found.', 404);
+        }
+
+        $products = $this->woocommerce->productsFromClient($map[$id]['url'], $request->validated()['products']);
+        if ($products === []) {
+            return $this->error('No products from this store were found in that payload.', 422);
+        }
+
+        Cache::put($this->catalogKey($id), $products, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
+
+        return $this->success(['products' => $products]);
     }
 
     // GET /api/platforms/shop/brands/{id}/products — live products for the picker.
@@ -239,6 +275,12 @@ class ShopController extends ApiController
      */
     private function brandProfileFor(array $detected): array
     {
+        // Client-assisted detection already carries the brand + products the
+        // browser fetched — no server round-trips (they'd be blocked anyway).
+        if (isset($detected['clientBrand'])) {
+            return [$detected['clientBrand'], $detected['clientProducts']];
+        }
+
         return match ($detected['provider']) {
             ShopProviderDetector::PROVIDER_WOOCOMMERCE => [$this->woocommerce->fetchBrand($detected['origin']), null],
             ShopProviderDetector::PROVIDER_SQUARESPACE => [$this->squarespace->fetchBrand($detected['sourceUrl']), null],
@@ -248,9 +290,63 @@ class ShopController extends ApiController
         };
     }
 
+    /**
+     * Server-probe-failed fallback: build a detection result from the
+     * browser-fetched Store API payload. Null when the payload contains no
+     * products actually belonging to the pasted store (host-pinned).
+     *
+     * @return array{provider:string, origin:string, sourceUrl:string, page:null, store:null, clientBrand:array, clientProducts:array, fetchMode:string}|null
+     */
+    private function detectFromClientPayload(string $url, array $storeApi): ?array
+    {
+        $origin = $this->shopify->originOf($url);
+        if (! $origin) {
+            return null;
+        }
+
+        $rawProducts = $storeApi['products'] ?? null;
+        if (! is_array($rawProducts)) {
+            return null;
+        }
+
+        $products = $this->woocommerce->productsFromClient($origin, $rawProducts);
+        if ($products === []) {
+            return null;
+        }
+
+        $root = is_array($storeApi['root'] ?? null) ? $storeApi['root'] : null;
+
+        return [
+            'provider' => ShopProviderDetector::PROVIDER_WOOCOMMERCE,
+            'origin' => $origin,
+            'sourceUrl' => $origin,
+            'page' => null,
+            'store' => null,
+            'clientBrand' => $this->woocommerce->brandFromClient($origin, $root),
+            'clientProducts' => $products,
+            'fetchMode' => 'client',
+        ];
+    }
+
     /** Live product catalog for a stored brand, dispatched by its provider. */
     private function providerProducts(array $brand): array
     {
+        // Client-mode brands: the store blocks our egress, so a live scrape
+        // usually 502s. Try it anyway (blocks get lifted), then fall back to
+        // the warmed catalog, then to the already-chosen products.
+        if (($brand['fetchMode'] ?? null) === 'client') {
+            try {
+                $live = $this->woocommerce->fetchProducts($brand['url']);
+                if ($live !== []) {
+                    return $live;
+                }
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException) {
+                // Fall through to the cached/stored catalog.
+            }
+
+            return Cache::get($this->catalogKey($brand['id'])) ?? ($brand['products'] ?? []);
+        }
+
         return match ($brand['provider'] ?? 'shopify') {
             ShopProviderDetector::PROVIDER_WOOCOMMERCE => $this->woocommerce->fetchProducts($brand['url']),
             ShopProviderDetector::PROVIDER_SQUARESPACE => $this->squarespace->fetchProducts($brand['sourceUrl'] ?? $brand['url']),

@@ -26,6 +26,13 @@ class VimeoApi
      */
     public function parseSource(string $url): ?array
     {
+        $url = PlatformInput::urlish($url);
+
+        // A bare profile name maps straight onto vimeo.com/{name}.
+        if (PlatformInput::isBareToken($url, '~^[a-z0-9_-]{2,60}$~i')) {
+            $url = 'https://vimeo.com/'.strtolower(PlatformInput::token($url));
+        }
+
         $parts = parse_url(trim($url));
         $host = strtolower($parts['host'] ?? '');
         if (! in_array(preg_replace('~^www\.~', '', $host), ['vimeo.com'], true)) {

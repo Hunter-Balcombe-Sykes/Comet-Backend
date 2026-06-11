@@ -16,15 +16,37 @@ class YoutubeScraper extends PlatformScraper
         private readonly YoutubeThumbnailResolver $thumbnails,
     ) {}
 
-    // Reduce any of bare handle / @handle / full URL to a bare handle.
+    // Reduce any of bare handle / @handle / full URL (scheme optional) to a
+    // bare handle.
     public function normalizeHandle(string $input): string
     {
-        $s = trim($input);
-        if (str_starts_with($s, 'http') && preg_match('~youtube\.com/(?:@|c/|user/)([A-Za-z0-9._-]+)~i', $s, $m)) {
+        $s = PlatformInput::urlish($input);
+        if (preg_match('~youtube\.com/(?:@|c/|user/)([A-Za-z0-9._-]+)~i', $s, $m)) {
             return $m[1];
         }
 
-        return ltrim($s, '@');
+        return PlatformInput::token($s);
+    }
+
+    /**
+     * Resolve any channel reference to its UC… channel id: a raw id, a
+     * /channel/UC… URL on youtube.com OR music.youtube.com (scheme optional),
+     * or a handle/@handle/handle-URL (resolved via the channel page).
+     */
+    public function channelIdFrom(string $input): ?string
+    {
+        $s = PlatformInput::urlish($input);
+
+        if (preg_match('~(?:^|/channel/|/browse/)(UC[A-Za-z0-9_-]{22})~', $s, $m)) {
+            return $m[1];
+        }
+
+        $handle = $this->normalizeHandle($s);
+        if ($handle === '' || str_contains($handle, '/') || str_contains($handle, '.com')) {
+            return null;
+        }
+
+        return $this->resolveChannelId($handle, ['User-Agent' => self::USER_AGENT]);
     }
 
     /**
@@ -36,12 +58,24 @@ class YoutubeScraper extends PlatformScraper
      */
     public function fetchRecentVideos(string $handle, int $limit = 15): ?array
     {
-        $headers = ['User-Agent' => self::USER_AGENT];
-
-        $channelId = $this->resolveChannelId($handle, $headers);
+        $channelId = $this->resolveChannelId($handle, ['User-Agent' => self::USER_AGENT]);
         if ($channelId === null) {
             return null;
         }
+
+        return $this->fetchUploadsFeed($channelId, $limit)['videos'] ?? null;
+    }
+
+    /**
+     * The uploads feed for a known channel id: the feed-level channel title +
+     * the most-recent videos (same shape as fetchRecentVideos). Null when the
+     * feed can't be fetched.
+     *
+     * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, thumbnail:string}>}|null
+     */
+    public function fetchUploadsFeed(string $channelId, int $limit = 15): ?array
+    {
+        $headers = ['User-Agent' => self::USER_AGENT];
 
         // Use the channel's uploads-playlist feed (UU…) rather than the channel
         // feed (UC…). On a fresh upload the channel_id feed can lag hours — or
@@ -53,6 +87,20 @@ class YoutubeScraper extends PlatformScraper
         if ($rss === null || $rss['status'] !== 200) {
             return null;
         }
+
+        // Channel display name from the feed head (before any <entry>): the
+        // feed-level <author><name> carries it verbatim; the playlist feed's
+        // own <title> is "Uploads from <channel>", kept only as a stripped
+        // fallback.
+        $head = explode('<entry>', $rss['body'], 2)[0];
+        preg_match('~<author>\s*<name>([^<]*)</name>~', $head, $an);
+        preg_match('~<title>([^<]*)</title>~', $head, $ft);
+        $rawTitle = trim($an[1] ?? '') !== ''
+            ? trim($an[1])
+            : preg_replace('~^Uploads from\s+~i', '', trim($ft[1] ?? ''));
+        $feedTitle = $rawTitle !== ''
+            ? html_entity_decode($rawTitle, ENT_QUOTES | ENT_HTML5)
+            : null;
 
         preg_match_all('~<entry>(.*?)</entry>~s', $rss['body'], $entries);
 
@@ -87,7 +135,7 @@ class YoutubeScraper extends PlatformScraper
         }
         unset($entry);
 
-        return $out;
+        return ['title' => $feedTitle, 'videos' => $out];
     }
 
     // Channel page → the channel's OWN canonical ID. A channel page lists several

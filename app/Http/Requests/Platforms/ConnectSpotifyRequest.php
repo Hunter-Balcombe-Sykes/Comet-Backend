@@ -16,7 +16,7 @@ class ConnectSpotifyRequest extends FormRequest
     {
         return [
             // Any open.spotify.com entity link (artist/album/playlist/track/show/episode/user).
-            'url' => ['required', 'string', 'max:500', 'regex:~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?:artist|album|playlist|track|show|episode|user)/[A-Za-z0-9]+~i'],
+            'url' => ['required', 'string', 'max:500'],
         ];
     }
 }

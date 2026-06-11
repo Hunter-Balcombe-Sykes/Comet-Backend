@@ -9,16 +9,21 @@ use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
+use App\Http\Controllers\Api\Platforms\LinkedinController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
+use App\Http\Controllers\Api\Platforms\RedditController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
 use App\Http\Controllers\Api\Platforms\SpotifyController;
 use App\Http\Controllers\Api\Platforms\StravaController;
+use App\Http\Controllers\Api\Platforms\ThreadsController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
+use App\Http\Controllers\Api\Platforms\XController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
+use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
 
@@ -61,6 +66,7 @@ $registerIntegrationRoutes = function (string $base): void {
                 Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
+                Route::post('/brands/{id}/catalog', [ShopController::class, 'catalog'])->where('id', '[A-Za-z0-9._-]+');
                 Route::put('/brands/{id}/selection', [ShopController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
                 Route::get('/selection', [ShopController::class, 'selection']);
                 Route::delete('/', [ShopController::class, 'forget']);
@@ -126,6 +132,18 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/', [VimeoController::class, 'forget']);
         });
 
+    // YouTube Music — Vimeo-style: connect + recent-releases picker + curated
+    // highlights, fed by the artist channel's uploads RSS.
+    Route::prefix("{$base}/youtube-music")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [YoutubeMusicController::class, 'connect']);
+            Route::get('/recent', [YoutubeMusicController::class, 'recent']);
+            Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
+            Route::get('/selection', [YoutubeMusicController::class, 'selection']);
+            Route::delete('/', [YoutubeMusicController::class, 'forget']);
+        });
+
     // Everything else is the uniform connect / selection / forget shape —
     // one stored selection per user, no picker step. Probe-verified keyless
     // platforms only (see the integrations v3 migration header).
@@ -142,6 +160,11 @@ $registerIntegrationRoutes = function (string $base): void {
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
+        // Link-only socials (Facebook-style: store a canonical profile URL).
+        'x' => XController::class,
+        'linkedin' => LinkedinController::class,
+        'threads' => ThreadsController::class,
+        'reddit' => RedditController::class,
     ];
     foreach ($singleSelection as $slug => $controller) {
         Route::prefix("{$base}/{$slug}")

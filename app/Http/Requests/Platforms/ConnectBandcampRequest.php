@@ -16,7 +16,7 @@ class ConnectBandcampRequest extends FormRequest
     {
         return [
             // Any {artist}.bandcamp.com URL — reduced to its origin server-side.
-            'url' => ['required', 'string', 'max:500', 'regex:~^https?://[a-z0-9][a-z0-9-]*\.bandcamp\.com~i'],
+            'url' => ['required', 'string', 'max:500'],
         ];
     }
 }

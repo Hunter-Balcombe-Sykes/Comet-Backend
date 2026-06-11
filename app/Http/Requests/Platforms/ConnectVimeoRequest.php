@@ -16,7 +16,7 @@ class ConnectVimeoRequest extends FormRequest
     {
         return [
             // Any vimeo.com profile or channel URL; the controller rejects video/reserved paths.
-            'url' => ['required', 'string', 'max:300', 'regex:~^https?://(?:www\.)?vimeo\.com/~i'],
+            'url' => ['required', 'string', 'max:300'],
         ];
     }
 }

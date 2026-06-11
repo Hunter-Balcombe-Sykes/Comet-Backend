@@ -17,7 +17,7 @@ class TwitchScraper extends PlatformScraper
     /** Channel login from a twitch.tv URL or a bare handle. */
     public function parseLogin(string $input): ?string
     {
-        $input = trim($input);
+        $input = PlatformInput::urlish($input);
 
         if (preg_match('~^https?://(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{3,25})/?~i', $input, $m)) {
             $candidate = $m[1];

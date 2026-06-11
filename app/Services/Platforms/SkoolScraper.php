@@ -15,10 +15,18 @@ class SkoolScraper extends PlatformScraper
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
-    // Any skool.com community URL → canonical https://www.skool.com/{slug}.
+    // Any skool.com community URL (scheme optional) or a bare community slug
+    // → canonical https://www.skool.com/{slug}.
     public function normalizeUrl(string $input): ?string
     {
-        if (preg_match('~^https?://(?:www\.)?skool\.com/([a-z0-9][a-z0-9-]*)~i', trim($input), $m)) {
+        $input = PlatformInput::urlish($input);
+
+        if (! preg_match('~^https?://(?:www\.)?skool\.com/([a-z0-9][a-z0-9-]*)~i', $input, $m)
+            && PlatformInput::isBareToken($input, '~^[a-z0-9][a-z0-9-]*$~i')) {
+            $m = [null, PlatformInput::token($input)];
+        }
+
+        if (isset($m[1])) {
             $slug = strtolower($m[1]);
             // Product pages, not communities.
             if (in_array($slug, ['signup', 'login', 'discovery', 'games', 'about', 'legal', 'careers', 'affiliates'], true)) {

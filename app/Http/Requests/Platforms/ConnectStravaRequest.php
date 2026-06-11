@@ -16,7 +16,7 @@ class ConnectStravaRequest extends FormRequest
     {
         return [
             // A strava.com club URL (athlete profiles are login-walled).
-            'url' => ['required', 'string', 'max:300', 'regex:~^https?://(?:www\.)?strava\.com/clubs/~i'],
+            'url' => ['required', 'string', 'max:300'],
         ];
     }
 }

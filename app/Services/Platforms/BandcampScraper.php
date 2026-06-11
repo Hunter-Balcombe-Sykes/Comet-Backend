@@ -12,11 +12,18 @@ class BandcampScraper extends PlatformScraper
 {
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
-    // Any {sub}.bandcamp.com URL → canonical https origin, else null.
+    // Any {sub}.bandcamp.com URL (scheme optional) or a bare artist subdomain
+    // → canonical https origin, else null.
     public function normalizeOrigin(string $input): ?string
     {
-        if (preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.bandcamp\.com~i', trim($input), $m)) {
+        $input = PlatformInput::urlish($input);
+
+        if (preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.bandcamp\.com~i', $input, $m)) {
             return 'https://'.strtolower($m[1]).'.bandcamp.com';
+        }
+
+        if (PlatformInput::isBareToken($input, '~^[a-z0-9][a-z0-9-]*$~i')) {
+            return 'https://'.strtolower(PlatformInput::token($input)).'.bandcamp.com';
         }
 
         return null;

@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
 class PlatformRefresher
 {
     public const REFRESHABLE = [
-        'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
+        'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
         'bandcamp', 'spotify', 'soundcloud', 'deezer',
         'vimeo', 'twitch', 'pinterest', 'strava', 'google-business',
     ];
@@ -51,6 +51,7 @@ class PlatformRefresher
         // status='ok'        → success.
         $result = match ($connection->platform) {
             'youtube' => $this->youtubePayload($payload),
+            'youtube-music' => $this->youtubeMusicPayload($payload),
             'eventbrite' => $this->eventbritePayload($payload),
             'humanitix' => $this->humanitixPayload($payload),
             'apple-music' => $this->appleMusicPayload($payload),
@@ -309,6 +310,29 @@ class PlatformRefresher
     /**
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
      */
+    private function youtubeMusicPayload(array $payload): array
+    {
+        $channelId = $payload['channelId'] ?? null;
+        if (! $channelId) {
+            return ['payload' => null, 'error' => 'missing_key: channelId', 'status' => 'error'];
+        }
+        $feed = $this->youtube->fetchUploadsFeed((string) $channelId, 12);
+        if ($feed === null || $feed['videos'] === []) {
+            return ['payload' => null, 'error' => 'youtube_music_no_releases', 'status' => 'unavailable'];
+        }
+        $items = \App\Http\Controllers\Api\Platforms\YoutubeMusicController::musicItems($feed['videos']);
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $feed['title'] !== null
+                ? preg_replace('/\s+-\s+Topic$/', '', $feed['title'])
+                : ($payload['name'] ?? null),
+            'thumbnail' => $items[0]['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'latest' => $items[0],
+            'items' => array_slice($items, 0, 12),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
     /**
      * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
      */
