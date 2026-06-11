@@ -94,3 +94,15 @@ it('google business reads the canonical URL from an interstitial body', function
     $place = $service->resolve('https://share.google/xyz');
     expect($place['name'])->toBe('Mock Cafe');
 });
+
+it('strava upgrades the og avatar to the original rendition when it exists', function () {
+    $html = '<meta property="og:title" content="Melbourne, Victoria | On Run Club"/>'
+        .'<meta property="og:image" content="https://dgalywyr863hv.cloudfront.net/pictures/clubs/1/2/3/large.jpg"/>';
+    $scraper = new StravaClubScraper(bookingFetcherWith([
+        'strava.com/clubs/onrc' => ['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html'],
+        'pictures/clubs/1/2/3/original.jpg' => ['status' => 200, 'body' => 'jpg', 'finalUrl' => 'x', 'contentType' => 'image/jpeg'],
+    ]));
+
+    $club = $scraper->fetchClub('https://www.strava.com/clubs/onrc');
+    expect($club['image'])->toBe('https://dgalywyr863hv.cloudfront.net/pictures/clubs/1/2/3/original.jpg');
+});

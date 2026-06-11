@@ -53,10 +53,21 @@ class StravaClubScraper extends PlatformScraper
             $members = (int) str_replace([',', '.'], '', $m[1]);
         }
 
+        // og:image is the 124px "large" avatar rendition; a ~416px "original"
+        // usually sits beside it on the CDN. Probe and prefer it.
+        $image = $this->metaContent($html, 'og:image');
+        if ($image !== null && preg_match('~^(https://dgalywyr863hv\.cloudfront\.net/pictures/clubs/.+/)large\.(jpe?g|png)$~i', $image, $m)) {
+            $original = $m[1].'original.'.$m[2];
+            $probe = $this->fetcher->tryFetch($original, ['User-Agent' => self::USER_AGENT]);
+            if ($probe !== null && $probe['status'] === 200) {
+                $image = $original;
+            }
+        }
+
         return [
             'name' => $name,
             'location' => $location,
-            'image' => $this->metaContent($html, 'og:image'),
+            'image' => $image,
             'description' => $this->metaContent($html, 'og:description'),
             'members' => $members,
         ];
