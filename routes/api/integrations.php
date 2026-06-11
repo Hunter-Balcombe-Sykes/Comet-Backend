@@ -115,6 +115,17 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/', [BandcampController::class, 'forget']);
         });
 
+    // Vimeo — YouTube-style: connect + recent-uploads picker + curated highlights.
+    Route::prefix("{$base}/vimeo")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [VimeoController::class, 'connect']);
+            Route::get('/recent', [VimeoController::class, 'recent']);
+            Route::post('/highlights', [VimeoController::class, 'highlights']);
+            Route::get('/selection', [VimeoController::class, 'selection']);
+            Route::delete('/', [VimeoController::class, 'forget']);
+        });
+
     // Everything else is the uniform connect / selection / forget shape —
     // one stored selection per user, no picker step. Probe-verified keyless
     // platforms only (see the integrations v3 migration header).
@@ -122,7 +133,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'spotify' => SpotifyController::class,
         'soundcloud' => SoundcloudController::class,
         'deezer' => DeezerController::class,
-        'vimeo' => VimeoController::class,
         'twitch' => TwitchController::class,
         'pinterest' => PinterestController::class,
         'tiktok' => TiktokController::class,
