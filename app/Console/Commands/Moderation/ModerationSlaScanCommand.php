@@ -16,12 +16,13 @@ use Illuminate\Support\Facades\Log;
 class ModerationSlaScanCommand extends Command
 {
     protected $signature = 'moderation:sla-scan';
+
     protected $description = 'Warn on cases approaching SLA breach (configurable lead time).';
 
     public function handle(): int
     {
         $leadMinutes = (int) config('partna.moderation.sla.breach_warning_min', 120);
-        $cutoff      = now()->addMinutes($leadMinutes);
+        $cutoff = now()->addMinutes($leadMinutes);
 
         $atRisk = ModerationCase::query()
             ->whereIn('status', ['open', 'triaged', 'under_review'])
@@ -32,13 +33,14 @@ class ModerationSlaScanCommand extends Command
         foreach ($atRisk as $case) {
             $minutes = now()->diffInMinutes($case->sla_due_at, false);
             Log::warning('moderation.sla.breach_risk', [
-                'case_id'        => $case->id,
-                'severity'       => $case->severity,
+                'case_id' => $case->id,
+                'severity' => $case->severity,
                 'due_in_minutes' => $minutes,
             ]);
         }
 
         $this->info("Scanned. {$atRisk->count()} cases near SLA breach.");
+
         return self::SUCCESS;
     }
 }

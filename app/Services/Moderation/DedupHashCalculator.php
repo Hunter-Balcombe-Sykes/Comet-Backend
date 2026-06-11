@@ -25,8 +25,8 @@ class DedupHashCalculator
         }
 
         $identity = $reporterEmail !== null
-            ? 'email:' . strtolower(trim($reporterEmail))
-            : 'ip:' . $reporterIpHash;
+            ? 'email:'.strtolower(trim($reporterEmail))
+            : 'ip:'.$reporterIpHash;
 
         return hash('sha256', implode('|', [
             'content_report',

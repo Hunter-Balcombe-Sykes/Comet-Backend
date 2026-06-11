@@ -3,6 +3,9 @@
 namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -143,9 +146,9 @@ class StoreLinkBlockRequest extends BaseFormRequest
                 // to the auth-context professional placed on request attributes
                 // by Context\LoadCurrentUser (self path).
                 $pro = $this->route('professional') ?? $this->attributes->get('professional');
-                $proId = $pro instanceof \App\Models\Core\User\User ? $pro->id : null;
+                $proId = $pro instanceof User ? $pro->id : null;
                 if ($proId !== null && $max > 0) {
-                    $existing = \App\Models\Core\Site\Block::query()
+                    $existing = Block::query()
                         ->where('user_id', $proId)
                         ->where('block_group', 'links')
                         ->whereNull('deleted_at')
@@ -165,17 +168,17 @@ class StoreLinkBlockRequest extends BaseFormRequest
             $settings = $this->input('settings');
             if (is_array($settings) && array_key_exists('live_check_enabled', $settings) && (bool) $settings['live_check_enabled']) {
                 $pro = $this->route('professional') ?? $this->attributes->get('professional');
-                $proId = $pro instanceof \App\Models\Core\User\User ? $pro->id : null;
+                $proId = $pro instanceof User ? $pro->id : null;
 
                 if ($proId !== null) {
                     // Resolve site_id from the professional so we cap per-site, not per-professional.
-                    $siteId = \App\Models\Core\Site\Site::query()
+                    $siteId = Site::query()
                         ->where('user_id', $proId)
                         ->value('id');
 
                     if ($siteId) {
                         $cap = (int) config('partna.streaming.max_live_check_per_site', 5);
-                        $existing = \App\Models\Core\Site\Block::query()
+                        $existing = Block::query()
                             ->where('site_id', $siteId)
                             ->where('block_group', 'links')
                             ->whereRaw("settings->>'live_check_enabled' = 'true'")

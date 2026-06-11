@@ -1,11 +1,13 @@
 <?php
 
 use App\Models\Core\MediaVariant;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 // Verifies that when MediaVariant::getUrlAttribute fails to resolve a disk URL,
 // the exception is reported to Nightwatch (report($e)) before returning ''.
@@ -24,7 +26,7 @@ it('reports the exception when Storage::disk throws for an unknown disk', functi
     $mediaId = (string) Str::uuid();
     $variantId = (string) Str::uuid();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement(
+    DB::connection('pgsql')->statement(
         "INSERT INTO site.media_variants (id, media_id, variant_key, artifact_type, disk, path, created_at, updated_at)
          VALUES (?, ?, 'optimized', 'webp', 'nonexistent_disk_xyz', 'images/test.webp', ?, ?)",
         [$variantId, $mediaId, now()->toDateTimeString(), now()->toDateTimeString()]
@@ -39,5 +41,5 @@ it('reports the exception when Storage::disk throws for an unknown disk', functi
 
     expect($url)->toBe('');
 
-    Exceptions::assertReported(\InvalidArgumentException::class);
+    Exceptions::assertReported(InvalidArgumentException::class);
 });

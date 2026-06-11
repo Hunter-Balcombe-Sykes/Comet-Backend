@@ -276,7 +276,7 @@ class CacheLockService
     {
         try {
             Redis::incr('cache:lock_release_failures');
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('cache.lock_release_failure_counter_failed', ['error' => $e->getMessage()]);
         }
     }

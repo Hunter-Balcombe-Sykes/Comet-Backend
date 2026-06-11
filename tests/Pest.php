@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
 use App\Http\Middleware\Context\LoadCurrentUser;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
@@ -194,10 +196,10 @@ function aal2ClaimsWithFreshTotp(int $verifiedSecondsAgo = 0): array
  * when a staff route needs fresh-AAL2 instead of sticky-AAL2.
  */
 function actingAsStaff(
-    \App\Models\Core\Staff\PartnaStaff $staff,
+    PartnaStaff $staff,
     array $claims = [],
-): \Pest\Support\HigherOrderTapProxy {
-    $authUserId = $staff->auth_user_id ?? (string) \Illuminate\Support\Str::uuid();
+): HigherOrderTapProxy {
+    $authUserId = $staff->auth_user_id ?? (string) Str::uuid();
 
     // Staff routes are gated by require.aal2 — default to AAL2 unless the test
     // overrides (e.g. to assert the gate rejects AAL1).
@@ -207,11 +209,11 @@ function actingAsStaff(
         'email_verified' => true,
         'aal' => 'aal2',
         'amr' => [['method' => 'totp', 'timestamp' => time()]],
-        'session_id' => (string) \Illuminate\Support\Str::uuid(),
+        'session_id' => (string) Str::uuid(),
     ], $claims);
 
     // Stub VerifySupabaseJwt — same shape as actingAsUser uses.
-    app()->bind(\App\Http\Middleware\Auth\VerifySupabaseJwt::class, function () use ($authUserId, $defaultClaims) {
+    app()->bind(VerifySupabaseJwt::class, function () use ($authUserId, $defaultClaims) {
         return new class($authUserId, $defaultClaims)
         {
             public function __construct(
@@ -219,7 +221,7 @@ function actingAsStaff(
                 private readonly array $claims,
             ) {}
 
-            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            public function handle(Request $request, Closure $next)
             {
                 $request->attributes->set('supabase_uid', $this->uid);
                 $request->attributes->set('supabase_claims', $this->claims);
@@ -233,12 +235,12 @@ function actingAsStaff(
     });
 
     // Stub EnsurePartnaStaff to inject the staff record on the request.
-    app()->bind(\App\Http\Middleware\Auth\EnsurePartnaStaff::class, function () use ($staff) {
+    app()->bind(EnsurePartnaStaff::class, function () use ($staff) {
         return new class($staff)
         {
-            public function __construct(private readonly \App\Models\Core\Staff\PartnaStaff $s) {}
+            public function __construct(private readonly PartnaStaff $s) {}
 
-            public function handle(\Illuminate\Http\Request $request, \Closure $next)
+            public function handle(Request $request, Closure $next)
             {
                 $request->attributes->set('partna_staff', $this->s);
 

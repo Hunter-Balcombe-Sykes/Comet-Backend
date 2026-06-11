@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Core\User\User;
+
 // ============================================================
 // Authentication — INERT under Supabase JWT auth.
 // ============================================================
@@ -37,7 +39,7 @@ return [
             'driver' => 'eloquent',
             // Points at the Partna user model. Auth::user() is always null in this
             // app (Supabase JWT auth) — this provider is a stub required by Laravel.
-            'model' => App\Models\Core\User\User::class,
+            'model' => User::class,
         ],
     ],
 

@@ -1,10 +1,11 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Site\Block;
 use Illuminate\Support\Carbon;
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('ships only the allowlisted fields and drops extras', function () {
     $block = new Block([

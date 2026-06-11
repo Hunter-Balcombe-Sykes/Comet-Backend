@@ -1,11 +1,13 @@
 <?php
 
+use App\Models\Core\User\User;
 use App\Models\Core\User\UserConfirmationPreference;
 use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\User\User;
 use App\Policies\UserSelfPolicy;
+use Illuminate\Auth\Access\Response;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     $this->policy = new UserSelfPolicy;
@@ -26,7 +28,7 @@ it('denies view with 404 when the actor does not own a UserConfirmationPreferenc
 
     $result = $this->policy->view($actor, $pref);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -45,7 +47,7 @@ it('denies update with 404 when the actor does not own the resource', function (
 
     $result = $this->policy->update($actor, $pref);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -55,7 +57,7 @@ it('denies update with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->update($actor, $pref);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -75,7 +77,7 @@ it('denies delete with 404 when the actor does not own the resource', function (
 
     $result = $this->policy->delete($actor, $pref);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -87,7 +89,7 @@ it('denies update on UserDeletionAuditEntry even for the owner (append-only)', f
 
     $result = $this->policy->update($actor, $audit);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -97,6 +99,6 @@ it('denies delete on UserDeletionAuditEntry even for the owner (append-only)', f
 
     $result = $this->policy->delete($actor, $audit);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });

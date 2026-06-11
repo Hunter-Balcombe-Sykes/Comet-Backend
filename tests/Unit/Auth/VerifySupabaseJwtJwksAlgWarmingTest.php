@@ -18,7 +18,7 @@ uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     // Reset the in-process static key cache so each test starts cold.
-    $ref = new \ReflectionClass(VerifySupabaseJwt::class);
+    $ref = new ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
     $prop->setValue(null, []);
 
@@ -40,7 +40,7 @@ function buildRs256JwtForAlgWarmingTest(string $kid, string $privPem, array $cla
     return $sigInput.'.'.rtrim(strtr(base64_encode($sig), '+/', '-_'), '=');
 }
 
-function buildRsaJwkForAlgWarmingTest(string $kid, \OpenSSLAsymmetricKey $privKey): array
+function buildRsaJwkForAlgWarmingTest(string $kid, OpenSSLAsymmetricKey $privKey): array
 {
     $details = openssl_pkey_get_details($privKey);
 
@@ -54,7 +54,7 @@ function buildRsaJwkForAlgWarmingTest(string $kid, \OpenSSLAsymmetricKey $privKe
     ];
 }
 
-function buildEs256JwkForAlgWarmingTest(string $kid, \OpenSSLAsymmetricKey $privKey): array
+function buildEs256JwkForAlgWarmingTest(string $kid, OpenSSLAsymmetricKey $privKey): array
 {
     $details = openssl_pkey_get_details($privKey);
 
@@ -120,7 +120,7 @@ it('warms a TRUE mixed-alg JWKS (RS256 + ES256) with each kid carrying its own a
     $response = $middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
     expect($response->getStatusCode())->toBe(200);
 
-    $ref = new \ReflectionClass(VerifySupabaseJwt::class);
+    $ref = new ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
     $warmed = $prop->getValue();
 
@@ -169,7 +169,7 @@ it('warms self::$keysByKid with each parsed Key having its OWN declared algorith
 
     // Inspect the warmed static cache — both kids must report the algorithm
     // declared by their JWK entry, NOT whatever $alg the inbound JWT had.
-    $ref = new \ReflectionClass(VerifySupabaseJwt::class);
+    $ref = new ReflectionClass(VerifySupabaseJwt::class);
     $prop = $ref->getProperty('keysByKid');
     $warmed = $prop->getValue();
 

@@ -1,6 +1,10 @@
 <?php
 
+use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 it('adds moderation_state column to site.sites with default active', function () {
     if (DB::connection()->getDriverName() !== 'pgsql') {
@@ -26,11 +30,11 @@ it('rejects illegal site moderation_state values via CHECK constraint', function
 
     // Pick any existing site via the test factory once SiteFactory exists (Task 7.5).
     // Until then, this assertion runs against a forceFilled row.
-    $user = \App\Models\Core\User\User::factory()->create();
-    $site = (new \App\Models\Core\Site\Site)->forceFill([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+    $user = User::factory()->create();
+    $site = (new Site)->forceFill([
+        'id' => (string) Str::uuid(),
         'user_id' => $user->id,
-        'subdomain' => 'check-' . uniqid(),
+        'subdomain' => 'check-'.uniqid(),
         'skeleton_id' => 'skeleton-1',
         'settings' => [],
         'is_published' => true,
@@ -40,7 +44,7 @@ it('rejects illegal site moderation_state values via CHECK constraint', function
     expect(fn () => DB::statement(
         "UPDATE site.sites SET moderation_state = 'invalid_state' WHERE id = ?",
         [$site->id]
-    ))->toThrow(\Illuminate\Database\QueryException::class);
+    ))->toThrow(QueryException::class);
 })->group('postgres');
 
 it('users.status already covers moderation outcomes (no new column needed)', function () {

@@ -53,8 +53,8 @@ it('marks the SiteMedia row as ready on successful processing', function () {
     $service = Mockery::mock(ImageVariantService::class);
     $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
     $service->shouldReceive('processVariants')->once()->andReturn([
-        'optimized' => new \stdClass,
-        'maximized' => new \stdClass,
+        'optimized' => new stdClass,
+        'maximized' => new stdClass,
     ]);
 
     $job = new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}");
@@ -78,8 +78,8 @@ it('purges the sitepage edge cache when an image becomes ready', function () {
     $service = Mockery::mock(ImageVariantService::class);
     $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
     $service->shouldReceive('processVariants')->once()->andReturn([
-        'optimized' => new \stdClass,
-        'maximized' => new \stdClass,
+        'optimized' => new stdClass,
+        'maximized' => new stdClass,
     ]);
 
     Queue::fake();

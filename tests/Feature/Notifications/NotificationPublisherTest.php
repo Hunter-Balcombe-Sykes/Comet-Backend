@@ -28,7 +28,7 @@ beforeEach(function () {
 
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS notifications");
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // already attached
     }
 

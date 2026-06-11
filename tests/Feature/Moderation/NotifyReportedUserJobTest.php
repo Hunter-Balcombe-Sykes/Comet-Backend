@@ -22,7 +22,7 @@ it('sends ContentHiddenNotification for hide_site decisions', function () {
         'reportable_owner_user_id' => $user->id,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_site']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 
@@ -37,7 +37,7 @@ it('sends AccountSuspendedNotification for suspend_user decisions', function () 
         'reportable_owner_user_id' => $user->id,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'suspend_user']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 
@@ -51,7 +51,7 @@ it('skips notification when user capability receive_moderation_notifications is 
         'reportable_owner_user_id' => $user->id,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_site']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 
@@ -61,9 +61,9 @@ it('skips notification when user capability receive_moderation_notifications is 
 
 it('marks entry completed when no owner user exists', function () {
     Notification::fake();
-    $case     = ModerationCase::factory()->create(['reportable_owner_user_id' => null]);
+    $case = ModerationCase::factory()->create(['reportable_owner_user_id' => null]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 

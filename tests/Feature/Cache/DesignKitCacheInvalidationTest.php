@@ -4,8 +4,8 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
-use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
+use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -74,7 +74,7 @@ it('advances updated_at on a design-kit-only update so the public profile cache 
     // Call UpdateSiteAction::execute() directly with empty $data — this is the
     // same code path the controller takes (sans HTTP layer overhead).
     // With no site-column fields in $data, the action does not dirty the site row.
-    $action = app(\App\Services\Site\UpdateSiteAction::class);
+    $action = app(UpdateSiteAction::class);
     $returnedSite = $action->execute($pro, []);
 
     // wasChanged() must be false after a no-op save — this is the precondition
@@ -84,7 +84,7 @@ it('advances updated_at on a design-kit-only update so the public profile cache 
     // Replicate the controller's touch logic exactly. If the controller's
     // touch() block were deleted, this assertion would remain but the
     // HTTP-layer test (which exercises the full controller path) would fail.
-    if (!$returnedSite->wasChanged()) {
+    if (! $returnedSite->wasChanged()) {
         $returnedSite->touch();
     }
 

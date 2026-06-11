@@ -9,6 +9,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectBandcampRequest;
 use App\Http\Requests\Platforms\SaveBandcampHighlightsRequest;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
+use App\Services\Platforms\BandcampScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -28,7 +29,7 @@ class BandcampController extends ApiController
     // (mirrors the Apple Music selection so sitepages render both identically).
     private const FLAT_FIELDS = ['name', 'thumbnail', 'link'];
 
-    public function __construct(private readonly \App\Services\Platforms\BandcampScraper $scraper) {}
+    public function __construct(private readonly BandcampScraper $scraper) {}
 
     protected function platform(): string
     {

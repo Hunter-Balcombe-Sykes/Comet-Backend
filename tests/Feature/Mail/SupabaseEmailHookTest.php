@@ -269,7 +269,7 @@ it('treats duplicate webhook-id as a no-op (Supabase retries are idempotent)', f
 
 it('forgets the dedup marker when Mail::queue throws so Supabase retries can re-attempt', function (): void {
     // Override the Mail::fake() set in beforeEach with a mock that throws on queue.
-    Mail::shouldReceive('queue')->once()->andThrow(new \RuntimeException('queue connection down'));
+    Mail::shouldReceive('queue')->once()->andThrow(new RuntimeException('queue connection down'));
 
     $req = makeSupabaseHookRequest([
         'user' => ['email' => 'retry@partna.au'],

@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Models\Core\Site\Block;
 use Illuminate\Validation\Rule;
 
 /**
@@ -135,7 +136,7 @@ class UpdateLinkBlockRequest extends BaseFormRequest
 
                 if ($siteId) {
                     $cap = (int) config('partna.streaming.max_live_check_per_site', 5);
-                    $existing = \App\Models\Core\Site\Block::query()
+                    $existing = Block::query()
                         ->where('site_id', $siteId)
                         ->where('block_group', 'links')
                         ->when($currentBlockId, fn ($q) => $q->where('id', '!=', $currentBlockId))

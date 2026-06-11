@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\User\User;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -31,63 +32,63 @@ beforeEach(function () {
  */
 function seedPurgePiiUser(string $originalEmail): array
 {
-    $id      = (string) Str::uuid();
-    $authId  = (string) Str::uuid();
-    $handle  = 'pii-' . substr($id, 0, 6);
+    $id = (string) Str::uuid();
+    $authId = (string) Str::uuid();
+    $handle = 'pii-'.substr($id, 0, 6);
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id'                    => $id,
-        'auth_user_id'          => $authId,
-        'handle'                => $handle,
-        'handle_lc'             => $handle,
-        'display_name'          => 'PII Test User',
-        'primary_email'         => "deleted+{$id}@partna.au", // already pseudonymised
-        'status'                => 'pending_deletion',
+        'id' => $id,
+        'auth_user_id' => $authId,
+        'handle' => $handle,
+        'handle_lc' => $handle,
+        'display_name' => 'PII Test User',
+        'primary_email' => "deleted+{$id}@partna.au", // already pseudonymised
+        'status' => 'pending_deletion',
         'deletion_confirmed_at' => now()->subDays(31)->toIso8601String(),
-        'created_at'            => now()->toIso8601String(),
-        'updated_at'            => now()->toIso8601String(),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
     ]);
 
     // Audit snapshot written before pseudonymisation — resolveDeletedAccountEmail() reads this.
     DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
-        'id'                          => (string) Str::uuid(),
-        'user_id'                     => $id,
+        'id' => (string) Str::uuid(),
+        'user_id' => $id,
         'professional_handle_snapshot' => $handle,
-        'professional_email_snapshot'  => $originalEmail,
-        'event'                        => 'confirmed',
-        'actor_type'                   => 'professional',
-        'created_at'                   => now()->subDays(31)->toIso8601String(),
+        'professional_email_snapshot' => $originalEmail,
+        'event' => 'confirmed',
+        'actor_type' => 'professional',
+        'created_at' => now()->subDays(31)->toIso8601String(),
     ]);
 
     return ['id' => $id, 'auth_user_id' => $authId, 'email' => $originalEmail];
 }
 
 it('deletes R2 export ZIP files before forceDelete (P2-08)', function () {
-    $user   = seedPurgePiiUser('p208@example.com');
+    $user = seedPurgePiiUser('p208@example.com');
     $userId = $user['id'];
 
-    $zipPath = "exports/{$userId}/" . Str::uuid() . '.zip';
+    $zipPath = "exports/{$userId}/".Str::uuid().'.zip';
     Storage::disk('media')->put($zipPath, 'fake-zip-bytes');
 
     // Orphan ZIP with no audit row / no file_path — e.g. left by a crash before the
     // DB write. Only the directory catch-all sweep reaches this one.
-    $orphanPath = "exports/{$userId}/orphan-" . Str::uuid() . '.zip';
+    $orphanPath = "exports/{$userId}/orphan-".Str::uuid().'.zip';
     Storage::disk('media')->put($orphanPath, 'orphan-zip-bytes');
 
     DB::connection('pgsql')->table('audit.data_export_audit')->insert([
-        'id'                           => (string) Str::uuid(),
-        'user_id'                      => $userId,
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
         'professional_handle_snapshot' => 'pii-test',
-        'status'                       => 'completed',
-        'file_path'                    => $zipPath,
-        'recipient_email'              => 'p208@example.com',
-        'triggered_by'                 => 'self',
-        'created_at'                   => now()->toIso8601String(),
+        'status' => 'completed',
+        'file_path' => $zipPath,
+        'recipient_email' => 'p208@example.com',
+        'triggered_by' => 'self',
+        'created_at' => now()->toIso8601String(),
     ]);
 
     Storage::disk('media')->assertExists($zipPath);
 
-    $professional = \App\Models\Core\User\User::find($userId);
+    $professional = User::find($userId);
     app(AccountDeletionService::class)->purge($professional);
 
     Storage::disk('media')->assertMissing($zipPath);
@@ -96,17 +97,17 @@ it('deletes R2 export ZIP files before forceDelete (P2-08)', function () {
 });
 
 it('deletes waitlist signup row matched by email_lc (P2-09)', function () {
-    $user    = seedPurgePiiUser('p209@example.com');
+    $user = seedPurgePiiUser('p209@example.com');
     $emailLc = 'p209@example.com';
 
     DB::connection('pgsql')->table('core.waitlist_signups')->insert([
-        'id'       => (string) Str::uuid(),
-        'email'    => 'P209@example.com',
+        'id' => (string) Str::uuid(),
+        'email' => 'P209@example.com',
         'email_lc' => $emailLc,
         'created_at' => now()->toIso8601String(),
     ]);
 
-    $professional = \App\Models\Core\User\User::find($user['id']);
+    $professional = User::find($user['id']);
     app(AccountDeletionService::class)->purge($professional);
 
     $row = DB::connection('pgsql')->table('core.waitlist_signups')
@@ -116,19 +117,19 @@ it('deletes waitlist signup row matched by email_lc (P2-09)', function () {
 });
 
 it('force-deletes feedback rows for the professional (P2-10)', function () {
-    $user   = seedPurgePiiUser('p210@example.com');
+    $user = seedPurgePiiUser('p210@example.com');
     $userId = $user['id'];
 
     DB::connection('pgsql')->table('core.feedback')->insert([
-        'id'      => (string) Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $userId,
-        'kind'    => 'bug',
+        'kind' => 'bug',
         'message' => 'Sensitive message containing PII.',
         'created_at' => now()->toIso8601String(),
         'updated_at' => now()->toIso8601String(),
     ]);
 
-    $professional = \App\Models\Core\User\User::find($userId);
+    $professional = User::find($userId);
     app(AccountDeletionService::class)->purge($professional);
 
     $count = DB::connection('pgsql')->table('core.feedback')
@@ -139,24 +140,24 @@ it('force-deletes feedback rows for the professional (P2-10)', function () {
 });
 
 it('nulls out reporter_user_id, reporter_email and reason_details on case_signals (P2-11)', function () {
-    $user    = seedPurgePiiUser('p211@example.com');
-    $userId  = $user['id'];
+    $user = seedPurgePiiUser('p211@example.com');
+    $userId = $user['id'];
     $signalId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('moderation.case_signals')->insert([
-        'id'               => $signalId,
-        'case_id'          => (string) Str::uuid(),
-        'signal_source'    => 'content_report',
+        'id' => $signalId,
+        'case_id' => (string) Str::uuid(),
+        'signal_source' => 'content_report',
         // signal_data carries the reporter's verbatim report payload — must be erased.
-        'signal_data'      => '{"details":"My name is Jane Doe, 12 Smith St, and they doxxed me."}',
+        'signal_data' => '{"details":"My name is Jane Doe, 12 Smith St, and they doxxed me."}',
         'reporter_user_id' => $userId,
-        'reporter_email'   => 'p211@example.com',
-        'reason_code'      => 'spam',
-        'reason_details'   => 'This user is posting my home address and phone number.',
-        'created_at'       => now()->toIso8601String(),
+        'reporter_email' => 'p211@example.com',
+        'reason_code' => 'spam',
+        'reason_details' => 'This user is posting my home address and phone number.',
+        'created_at' => now()->toIso8601String(),
     ]);
 
-    $professional = \App\Models\Core\User\User::find($userId);
+    $professional = User::find($userId);
     app(AccountDeletionService::class)->purge($professional);
 
     $signal = DB::connection('pgsql')->table('moderation.case_signals')
@@ -175,24 +176,24 @@ it('nulls out reporter_user_id, reporter_email and reason_details on case_signal
 });
 
 it('deletes global email subscriptions matched by email_lc (P2-12)', function () {
-    $user    = seedPurgePiiUser('p212@example.com');
+    $user = seedPurgePiiUser('p212@example.com');
     $emailLc = 'p212@example.com';
     $globalId = (string) Str::uuid();
 
     // Global subscription (user_id IS NULL) — platform marketing list
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
-        'id'               => $globalId,
-        'user_id'          => null,
-        'list_key'         => 'marketing',
-        'email'            => 'P212@example.com',
-        'email_lc'         => $emailLc,
-        'status'           => 'subscribed',
+        'id' => $globalId,
+        'user_id' => null,
+        'list_key' => 'marketing',
+        'email' => 'P212@example.com',
+        'email_lc' => $emailLc,
+        'status' => 'subscribed',
         'unsubscribe_token' => Str::random(48),
-        'created_at'       => now()->toIso8601String(),
-        'updated_at'       => now()->toIso8601String(),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
     ]);
 
-    $professional = \App\Models\Core\User\User::find($user['id']);
+    $professional = User::find($user['id']);
     app(AccountDeletionService::class)->purge($professional);
 
     $row = DB::connection('pgsql')->table('notifications.email_subscriptions')
@@ -203,37 +204,37 @@ it('deletes global email subscriptions matched by email_lc (P2-12)', function ()
 
 it('clears all five PII surfaces in a single purge run', function () {
     $originalEmail = 'p2all@example.com';
-    $emailLc       = 'p2all@example.com';
-    $user          = seedPurgePiiUser($originalEmail);
-    $userId        = $user['id'];
+    $emailLc = 'p2all@example.com';
+    $user = seedPurgePiiUser($originalEmail);
+    $userId = $user['id'];
 
     // #P2-08: export ZIP on R2
-    $zipPath = "exports/{$userId}/" . Str::uuid() . '.zip';
+    $zipPath = "exports/{$userId}/".Str::uuid().'.zip';
     Storage::disk('media')->put($zipPath, 'fake-zip-bytes');
     DB::connection('pgsql')->table('audit.data_export_audit')->insert([
-        'id'                           => (string) Str::uuid(),
-        'user_id'                      => $userId,
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
         'professional_handle_snapshot' => 'pii-test',
-        'status'                       => 'completed',
-        'file_path'                    => $zipPath,
-        'recipient_email'              => $originalEmail,
-        'triggered_by'                 => 'self',
-        'created_at'                   => now()->toIso8601String(),
+        'status' => 'completed',
+        'file_path' => $zipPath,
+        'recipient_email' => $originalEmail,
+        'triggered_by' => 'self',
+        'created_at' => now()->toIso8601String(),
     ]);
 
     // #P2-09: waitlist signup
     DB::connection('pgsql')->table('core.waitlist_signups')->insert([
-        'id'       => (string) Str::uuid(),
-        'email'    => $originalEmail,
+        'id' => (string) Str::uuid(),
+        'email' => $originalEmail,
         'email_lc' => $emailLc,
         'created_at' => now()->toIso8601String(),
     ]);
 
     // #P2-10: feedback
     DB::connection('pgsql')->table('core.feedback')->insert([
-        'id'      => (string) Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $userId,
-        'kind'    => 'idea',
+        'kind' => 'idea',
         'message' => 'PII-bearing message.',
         'created_at' => now()->toIso8601String(),
         'updated_at' => now()->toIso8601String(),
@@ -242,32 +243,32 @@ it('clears all five PII surfaces in a single purge run', function () {
     // #P2-11: case signal with reporter PII
     $signalId = (string) Str::uuid();
     DB::connection('pgsql')->table('moderation.case_signals')->insert([
-        'id'               => $signalId,
-        'case_id'          => (string) Str::uuid(),
-        'signal_source'    => 'content_report',
-        'signal_data'      => '{"details":"verbatim reporter freetext PII"}',
+        'id' => $signalId,
+        'case_id' => (string) Str::uuid(),
+        'signal_source' => 'content_report',
+        'signal_data' => '{"details":"verbatim reporter freetext PII"}',
         'reporter_user_id' => $userId,
-        'reporter_email'   => $originalEmail,
-        'reason_code'      => 'spam',
-        'reason_details'   => 'Sensitive freetext from reporter.',
-        'created_at'       => now()->toIso8601String(),
+        'reporter_email' => $originalEmail,
+        'reason_code' => 'spam',
+        'reason_details' => 'Sensitive freetext from reporter.',
+        'created_at' => now()->toIso8601String(),
     ]);
 
     // #P2-12: global email subscription
     $globalSubId = (string) Str::uuid();
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
-        'id'               => $globalSubId,
-        'user_id'          => null,
-        'list_key'         => 'marketing',
-        'email'            => $originalEmail,
-        'email_lc'         => $emailLc,
-        'status'           => 'subscribed',
+        'id' => $globalSubId,
+        'user_id' => null,
+        'list_key' => 'marketing',
+        'email' => $originalEmail,
+        'email_lc' => $emailLc,
+        'status' => 'subscribed',
         'unsubscribe_token' => Str::random(48),
-        'created_at'       => now()->toIso8601String(),
-        'updated_at'       => now()->toIso8601String(),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
     ]);
 
-    $professional = \App\Models\Core\User\User::find($userId);
+    $professional = User::find($userId);
     $result = app(AccountDeletionService::class)->purge($professional);
 
     expect($result)->toBeTrue();

@@ -1,9 +1,10 @@
 <?php
 
-// Bootstrap the Laravel app so response()->json() is available.
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Controllers\Api\ApiController;
+use Tests\TestCase;
+
+// Bootstrap the Laravel app so response()->json() is available.
+uses(TestCase::class)->in(__FILE__);
 
 /**
  * Expose the protected success() helper on a concrete subclass for testing.

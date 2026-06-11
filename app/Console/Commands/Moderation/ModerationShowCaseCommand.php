@@ -13,6 +13,7 @@ use Illuminate\Console\Command;
 class ModerationShowCaseCommand extends Command
 {
     protected $signature = 'moderation:show-case {case_id}';
+
     protected $description = 'Print a case + signals + evidence + decisions as JSON (support utility).';
 
     public function handle(): int
@@ -23,14 +24,15 @@ class ModerationShowCaseCommand extends Command
 
         if ($case === null) {
             $this->error('Case not found.');
+
             return self::FAILURE;
         }
 
         $this->line(json_encode([
-            'case_id'   => $case->id,
-            'case'      => $case->toArray(),
-            'signals'   => $case->signals->map->toArray()->values(),
-            'evidence'  => $case->evidence->map->toArray()->values(),
+            'case_id' => $case->id,
+            'case' => $case->toArray(),
+            'signals' => $case->signals->map->toArray()->values(),
+            'evidence' => $case->evidence->map->toArray()->values(),
             'decisions' => $case->decisions->map->toArray()->values(),
         ], JSON_PRETTY_PRINT));
 

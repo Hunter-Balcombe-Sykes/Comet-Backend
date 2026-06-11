@@ -256,5 +256,4 @@ class PublicEmailSubscriptionController extends ApiController
 
         return ucfirst($first).' '.ucfirst($last);
     }
-
 }

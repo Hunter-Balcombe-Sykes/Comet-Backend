@@ -2,6 +2,7 @@
 
 use App\Services\Auth\AuthFactorEventRepository;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 
 beforeEach(function () {
     setupAuthFactorEventsTable();
@@ -12,7 +13,7 @@ beforeEach(function () {
     ]);
 });
 
-function postSignedHook(array $payload, ?string $overrideBody = null, ?string $id = null): \Illuminate\Testing\TestResponse
+function postSignedHook(array $payload, ?string $overrideBody = null, ?string $id = null): TestResponse
 {
     $body = $overrideBody ?? json_encode($payload);
     $id = $id ?? 'msg_'.Str::uuid();
@@ -47,7 +48,7 @@ it('returns continue and records verify_success for a valid signed success', fun
         'valid' => true,
     ])->assertOk()->assertJson(['decision' => 'continue']);
 
-    $event = \DB::connection('pgsql')->table('audit.auth_factor_events')
+    $event = DB::connection('pgsql')->table('audit.auth_factor_events')
         ->where('user_id', $userId)->first();
     expect($event->event_type)->toBe('verify_success');
 });
@@ -66,7 +67,7 @@ it('returns continue and records verify_failed for the first few failures', func
         $response->assertOk()->assertJson(['decision' => 'continue']);
     }
 
-    $count = \DB::connection('pgsql')->table('audit.auth_factor_events')
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
         ->where('user_id', $userId)->where('event_type', 'verify_failed')->count();
     expect($count)->toBe(4);
 });
@@ -91,7 +92,7 @@ it('WEBHOOK-3: a redelivered webhook-id is deduplicated — event recorded once'
     postSignedHook($payload, null, $webhookId)
         ->assertOk()->assertJson(['decision' => 'continue']);
 
-    $count = \DB::connection('pgsql')->table('audit.auth_factor_events')
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
         ->where('user_id', $userId)->where('event_type', 'verify_failed')->count();
     expect($count)->toBe(1);
 });
@@ -117,7 +118,7 @@ it('returns reject on the 6th failed attempt in the window', function () {
         ->assertJsonStructure(['decision', 'message']);
 
     // The rejection itself is recorded as verify_rejected_by_hook
-    $rejection = \DB::connection('pgsql')->table('audit.auth_factor_events')
+    $rejection = DB::connection('pgsql')->table('audit.auth_factor_events')
         ->where('user_id', $userId)
         ->where('event_type', 'verify_rejected_by_hook')
         ->first();

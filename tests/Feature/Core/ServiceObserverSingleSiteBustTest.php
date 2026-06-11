@@ -6,12 +6,11 @@
 // resulting in ~29 wasted Redis DELs on every service mutation (the most frequent write
 // path in the app).
 
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
 use App\Services\Cache\SiteCacheService;
 use App\Services\User\SectionVisibilityService;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {

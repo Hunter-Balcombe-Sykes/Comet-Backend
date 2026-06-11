@@ -56,9 +56,9 @@ class DispatchEnquiryNotificationsJob implements ShouldQueue
     {
         report($e);
         Log::error('Enquiry notification dispatch permanently failed', [
-            'job'        => static::class,
+            'job' => static::class,
             'enquiry_id' => $this->enquiryId,
-            'error'      => $e->getMessage(),
+            'error' => $e->getMessage(),
         ]);
     }
 }

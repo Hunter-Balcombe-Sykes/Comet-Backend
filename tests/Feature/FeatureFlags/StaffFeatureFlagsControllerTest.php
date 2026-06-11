@@ -9,10 +9,14 @@ use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\FeatureFlags\FeatureFlagService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Mockery\MockInterface;
+use Symfony\Component\HttpFoundation\ParameterBag;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Feature\FeatureFlags\FeatureFlagTestCase;
 
 beforeEach(function () {
@@ -48,7 +52,7 @@ beforeEach(function () {
  *
  * @param  class-string<T>  $class
  * @param  array<string,mixed>  $validatedData
- * @return T&\Mockery\MockInterface
+ * @return T&MockInterface
  */
 function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff): mixed
 {
@@ -57,9 +61,9 @@ function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff
 
     // Symfony's $attributes is a typed property that must be initialised before
     // ->set() can be called on it. Use reflection to inject a fresh ParameterBag.
-    $ref = new \ReflectionClass(\Symfony\Component\HttpFoundation\Request::class);
+    $ref = new ReflectionClass(Symfony\Component\HttpFoundation\Request::class);
     $prop = $ref->getProperty('attributes');
-    $prop->setValue($mock, new \Symfony\Component\HttpFoundation\ParameterBag);
+    $prop->setValue($mock, new ParameterBag);
 
     $mock->attributes->set('partna_staff', $staff);
 
@@ -71,7 +75,7 @@ function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff
 it('index returns 401 when staff not on request', function () {
     $request = Request::create('/', 'GET');
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->flagController->index($request);
 });
 
@@ -80,7 +84,7 @@ it('index returns 401 when staff not on request', function () {
 it('store returns 401 when staff not on request', function () {
     $request = CreateFeatureFlagRequest::create('/', 'POST', []);
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->flagController->store($request);
 });
 
@@ -133,7 +137,7 @@ it('store validation accepts valid lowercase_underscore key', function () {
 it('update returns 401 when staff not on request', function () {
     $request = UpdateFeatureFlagRequest::create('/', 'PATCH', ['rollout_percent' => 50]);
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->flagController->update($request, 'any_flag');
 });
 
@@ -180,7 +184,7 @@ it('update changes description on an existing flag', function () {
 it('destroy returns 401 when staff not on request', function () {
     $request = Request::create('/', 'DELETE');
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->flagController->destroy($request, 'any_flag');
 });
 
@@ -201,7 +205,7 @@ it('destroy throws ModelNotFoundException for unknown flag', function () {
     $request = Request::create('/', 'DELETE');
     $request->attributes->set('partna_staff', $this->staff);
 
-    $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+    $this->expectException(ModelNotFoundException::class);
     $this->flagController->destroy($request, 'nonexistent_flag');
 });
 
@@ -210,7 +214,7 @@ it('destroy throws ModelNotFoundException for unknown flag', function () {
 it('override index returns 401 when staff not on request', function () {
     $request = Request::create('/', 'GET');
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->overrideController->index($request, 'any_flag');
 });
 
@@ -222,7 +226,7 @@ it('override store returns 401 when staff not on request', function () {
         'enabled' => true,
     ]);
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->overrideController->store($request, 'any_flag');
 });
 
@@ -252,13 +256,12 @@ it('store override creates a professional override', function () {
     expect($payload['data']['enabled'])->toBeTrue();
 });
 
-
 // ── StaffFeatureFlagOverrideController::destroy ───────────────────────────────
 
 it('override destroy returns 401 when staff not on request', function () {
     $request = Request::create('/', 'DELETE');
 
-    $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+    $this->expectException(HttpException::class);
     $this->overrideController->destroy($request, (string) Str::uuid());
 });
 

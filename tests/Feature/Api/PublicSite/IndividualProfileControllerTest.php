@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -472,8 +475,8 @@ it('projects content-pool videos with kind=video, poster and duration_ms', funct
         ]);
     }
 
-    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+    $site = Site::query()->findOrFail($siteId);
+    $items = app(SitepageDataResolverService::class)->getContentMedia($site);
 
     expect($items)->toHaveCount(1);
     expect($items[0]['kind'])->toBe('video');
@@ -521,8 +524,8 @@ it('interleaves content-pool images and videos by sort_order', function () {
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+    $site = Site::query()->findOrFail($siteId);
+    $items = app(SitepageDataResolverService::class)->getContentMedia($site);
 
     expect($items)->toHaveCount(2);
     expect($items[0]['id'])->toBe($videoId);    // sort_order=0
@@ -551,14 +554,14 @@ it('excludes content-pool media that is not ready / not active / soft-deleted / 
         array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'gallery', 'path' => 'd.jpg', 'processing_state' => 'ready', 'is_active' => 1]),
     ]);
 
-    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+    $site = Site::query()->findOrFail($siteId);
+    $items = app(SitepageDataResolverService::class)->getContentMedia($site);
 
     expect($items)->toBeArray()->toBeEmpty();
 });
 
 it('returns empty when the site is null', function () {
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia(null);
+    $items = app(SitepageDataResolverService::class)->getContentMedia(null);
     expect($items)->toBeArray()->toBeEmpty();
 });
 
@@ -581,8 +584,8 @@ it('handles content-pool video with no poster artifact (poster=null)', function 
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+    $site = Site::query()->findOrFail($siteId);
+    $items = app(SitepageDataResolverService::class)->getContentMedia($site);
 
     expect($items)->toHaveCount(1);
     expect($items[0]['kind'])->toBe('video');
@@ -609,8 +612,8 @@ it('returns url_hd=null for content-pool video with only optimized variant', fun
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $site = \App\Models\Core\Site\Site::query()->findOrFail($siteId);
-    $items = app(\App\Services\PublicSite\SitepageDataResolverService::class)->getContentMedia($site);
+    $site = Site::query()->findOrFail($siteId);
+    $items = app(SitepageDataResolverService::class)->getContentMedia($site);
 
     expect($items)->toHaveCount(1);
     expect($items[0]['url'])->toBeString()->not->toBeEmpty();
@@ -1013,7 +1016,7 @@ it('single-flights concurrent requests so only one payload is built', function (
     // Mock the builder — build() must be called exactly once across both requests.
     // The second request hits the warm payload cache (fast path in CacheLockService)
     // and never invokes the callback, so the builder is never reached again.
-    $mock = $this->mock(\App\Services\PublicSite\IndividualProfilePayloadBuilder::class);
+    $mock = $this->mock(IndividualProfilePayloadBuilder::class);
     $mock->shouldReceive('cacheTtl')->andReturn(300);
     $mock->shouldReceive('build')
         ->once()

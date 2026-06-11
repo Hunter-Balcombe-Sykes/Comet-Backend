@@ -11,7 +11,7 @@ beforeEach(function () {
 
 it('triages an open case', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create(['status' => 'open']);
+    $case = ModerationCase::factory()->create(['status' => 'open']);
 
     $res = actingAsStaff($staff)
         ->postJson("/api/staff/cases/{$case->id}/triage", ['priority' => 2, 'notes' => 'looks bad']);
@@ -23,7 +23,7 @@ it('triages an open case', function () {
 
 it('rejects triage on resolved case with 422', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->resolved()->create();
+    $case = ModerationCase::factory()->resolved()->create();
 
     $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/triage", []);
     $res->assertStatus(422);
@@ -31,7 +31,7 @@ it('rejects triage on resolved case with 422', function () {
 
 it('rejects priority out of range', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create(['status' => 'open']);
+    $case = ModerationCase::factory()->create(['status' => 'open']);
 
     $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/triage", ['priority' => 99]);
     $res->assertStatus(422);

@@ -13,13 +13,17 @@ class AuditEvent extends BaseModel
     use HasFactory;
 
     protected $table = 'audit.moderation_events';
+
     public $timestamps = false;
+
     protected $keyType = 'string';
+
     public $incrementing = false;
+
     protected $guarded = ['id'];
 
     protected $casts = [
-        'payload'    => 'array',
+        'payload' => 'array',
         'created_at' => 'datetime',
     ];
 

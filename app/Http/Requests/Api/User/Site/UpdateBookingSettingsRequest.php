@@ -13,7 +13,7 @@ class UpdateBookingSettingsRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'booking_mode'       => ['required', 'string', Rule::in(['manual'])],
+            'booking_mode' => ['required', 'string', Rule::in(['manual'])],
             'manual_booking_url' => ['nullable', 'url', 'max:2048'],
         ];
     }

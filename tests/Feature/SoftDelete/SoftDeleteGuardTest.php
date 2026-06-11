@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
+use App\Mail\Notifications\InviteNotificationMail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -96,7 +97,7 @@ it('email job exits without sending when professional is soft-deleted', function
 
     config([
         'partna.notifications.email_enabled' => true,
-        'partna.notifications.mailables.invites' => \App\Mail\Notifications\InviteNotificationMail::class,
+        'partna.notifications.mailables.invites' => InviteNotificationMail::class,
     ]);
 
     (new SendTransactionalNotificationEmailJob($notifId, 'invites', $proId))->handle();

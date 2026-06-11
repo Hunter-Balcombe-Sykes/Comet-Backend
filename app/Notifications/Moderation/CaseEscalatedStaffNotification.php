@@ -22,14 +22,14 @@ class CaseEscalatedStaffNotification extends Notification
     {
         $target = match ($this->decision->decision_type) {
             'escalate_law_enforcement' => 'law enforcement',
-            'escalate_esafety'         => 'eSafety Commissioner',
-            default                    => 'an external authority',
+            'escalate_esafety' => 'eSafety Commissioner',
+            default => 'an external authority',
         };
 
         return (new MailMessage)
             ->subject("[Partna T&S] Escalation to {$target}")
             ->line("Case {$this->decision->case_id} has been escalated to {$target}.")
-            ->line('Reason: ' . ($this->decision->reason ?? 'see audit log'));
+            ->line('Reason: '.($this->decision->reason ?? 'see audit log'));
     }
 
     public function toArray(object $notifiable): array

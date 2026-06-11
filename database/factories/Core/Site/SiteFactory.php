@@ -17,7 +17,8 @@ class SiteFactory extends Factory
     public function definition(): array
     {
         // user_id is set via ->for($user, 'user') in callers (or filled here when standalone).
-        $sub = 'site-' . strtolower(Str::random(8));
+        $sub = 'site-'.strtolower(Str::random(8));
+
         return [
             'id' => (string) Str::uuid(),
             'user_id' => User::factory(),

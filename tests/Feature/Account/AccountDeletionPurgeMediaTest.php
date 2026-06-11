@@ -5,6 +5,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\AccountDeletionService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -32,7 +33,7 @@ it('dispatches DeleteMediaArtifactsJob for each video media item on purge', func
     $site = $professional->site;
 
     $mediaId = (string) Str::uuid();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
+    DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
         'pool' => SiteMedia::POOL_GALLERY,
@@ -60,7 +61,7 @@ it('deletes image variant files from storage on purge', function () {
     $imagePath = "images/{$professional->id}/{$mediaId}/original.jpg";
     Storage::disk('media')->put($imagePath, 'fake-image-bytes');
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
+    DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
         'pool' => SiteMedia::POOL_GALLERY,
@@ -85,7 +86,7 @@ it('deletes document files from storage on purge', function () {
     $docPath = "documents/{$professional->id}/{$mediaId}/file.pdf";
     Storage::disk('media')->put($docPath, 'fake-pdf-bytes');
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
+    DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
         'pool' => SiteMedia::POOL_DOCUMENTS,
@@ -131,7 +132,7 @@ it('continues purge even when an individual media artifact cleanup throws', func
     $site = $professional->site;
 
     $mediaId = (string) Str::uuid();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.site_media')->insert([
+    DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
         'pool' => SiteMedia::POOL_GALLERY,
@@ -145,7 +146,7 @@ it('continues purge even when an individual media artifact cleanup throws', func
 
     // ImageVariantService throwing should not abort the whole purge
     $this->mock(ImageVariantService::class, function ($mock) {
-        $mock->shouldReceive('deleteVariants')->andThrow(new \RuntimeException('storage error'));
+        $mock->shouldReceive('deleteVariants')->andThrow(new RuntimeException('storage error'));
     });
 
     // Purge completes (returns true) — the video job is still dispatched

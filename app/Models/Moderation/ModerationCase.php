@@ -17,20 +17,21 @@ class ModerationCase extends BaseModel
     protected $table = 'moderation.cases';
 
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $guarded = ['id'];
 
     protected $casts = [
-        'severity'      => 'integer',
-        'signal_count'  => 'integer',
-        'priority'      => 'integer',
+        'severity' => 'integer',
+        'signal_count' => 'integer',
+        'priority' => 'integer',
         'auto_actioned' => 'boolean',
-        'sla_due_at'    => 'datetime',
-        'triaged_at'    => 'datetime',
-        'resolved_at'   => 'datetime',
-        'created_at'    => 'datetime',
-        'updated_at'    => 'datetime',
+        'sla_due_at' => 'datetime',
+        'triaged_at' => 'datetime',
+        'resolved_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     public function owner(): BelongsTo

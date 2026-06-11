@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
 use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Requests\Api\User\UpdateUserRequest;
-use App\Services\User\AccountDeletionService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -58,13 +57,13 @@ it('blocks profile update when fresh AAL2 required and token is aal1 (401)', fun
     $req = tenantRequestAs($pro, ['display_name' => 'Should fail'], 'PATCH');
     // tenantRequestAs does not set aal2 — aal defaults to aal1, amr has no MFA entries
 
-    $formReq = \App\Http\Requests\Api\User\UpdateUserRequest::createFrom($req);
+    $formReq = UpdateUserRequest::createFrom($req);
     $formReq->setContainer(app());
 
     try {
-        app(\App\Http\Controllers\Api\User\Account\UserSelfController::class)->update($formReq);
+        app(UserSelfController::class)->update($formReq);
         expect(false)->toBeTrue('Expected AuthorizationException');
-    } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+    } catch (AuthorizationException $e) {
         expect($e->status())->toBe(401);
     }
 });
@@ -80,13 +79,13 @@ it('allows profile update when fresh AAL2 required and amr contains recent totp'
         ['method' => 'totp',     'timestamp' => time() - 60],
     ]);
 
-    $formReq = \App\Http\Requests\Api\User\UpdateUserRequest::createFrom($req);
+    $formReq = UpdateUserRequest::createFrom($req);
     $formReq->setContainer(app());
     $formReq->validateResolved();
     // Bind the enriched request so BasePolicy::requiresFreshAal2() sees the aal2 attributes.
     app()->instance('request', $formReq);
 
-    $response = app(\App\Http\Controllers\Api\User\Account\UserSelfController::class)->update($formReq);
+    $response = app(UserSelfController::class)->update($formReq);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -97,11 +96,11 @@ it('skips fresh-AAL2 check when feature flag is off (default)', function () {
     $pro = createTenant('self-update-flag-off');
     $req = tenantRequestAs($pro, ['display_name' => 'Should pass'], 'PATCH');
 
-    $formReq = \App\Http\Requests\Api\User\UpdateUserRequest::createFrom($req);
+    $formReq = UpdateUserRequest::createFrom($req);
     $formReq->setContainer(app());
     $formReq->validateResolved();
 
-    $response = app(\App\Http\Controllers\Api\User\Account\UserSelfController::class)->update($formReq);
+    $response = app(UserSelfController::class)->update($formReq);
 
     expect($response->getStatusCode())->toBe(200);
 });

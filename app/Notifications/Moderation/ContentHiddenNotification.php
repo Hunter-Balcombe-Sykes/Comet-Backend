@@ -28,10 +28,10 @@ class ContentHiddenNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            'decision_id'   => $this->decision->id,
-            'case_id'       => $this->decision->case_id,
+            'decision_id' => $this->decision->id,
+            'case_id' => $this->decision->case_id,
             'decision_type' => $this->decision->decision_type,
-            'reason'        => $this->decision->reason,
+            'reason' => $this->decision->reason,
         ];
     }
 }

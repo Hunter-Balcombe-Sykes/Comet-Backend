@@ -3,11 +3,10 @@
 namespace App\Services\Site;
 
 use App\Models\Core\HandleChangeLog;
-use App\Models\Core\User\User;
-use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Services\Cache\SiteCacheService;
+use App\Models\Core\Site\UserHandleAlias;
+use App\Models\Core\User\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -83,7 +82,7 @@ class UpdateSiteAction
             }
         }
 
-        return DB::transaction(function () use ($professional, $site, $data, $options, $allowForcePublish, $forcePublish, $allowSubdomainOverride): Site {
+        return DB::transaction(function () use ($professional, $site, $data, $options, $allowSubdomainOverride): Site {
             if (array_key_exists('subdomain', $data)) {
                 $incoming = strtolower($data['subdomain']);
                 $current = strtolower((string) $site->subdomain);
@@ -132,17 +131,17 @@ class UpdateSiteAction
                         ]);
                     }
 
-                    $reclaimDays  = (int) config('partna.handle.reclaim_days', 14);
+                    $reclaimDays = (int) config('partna.handle.reclaim_days', 14);
                     $redirectDays = (int) config('partna.handle.redirect_days', 90);
 
                     if (! empty($site->subdomain)) {
                         try {
                             SiteSubdomainAlias::query()->create([
-                                'site_id'       => $site->id,
-                                'subdomain'     => $site->subdomain,
+                                'site_id' => $site->id,
+                                'subdomain' => $site->subdomain,
                                 'reclaim_until' => now()->addDays($reclaimDays),
-                                'expires_at'    => now()->addDays($redirectDays),
-                                'created_at'    => now(),
+                                'expires_at' => now()->addDays($redirectDays),
+                                'created_at' => now(),
                             ]);
                         } catch (UniqueConstraintViolationException $e) {
                             // Alias row already exists — refresh lifecycle timestamps in case
@@ -154,7 +153,7 @@ class UpdateSiteAction
                                 ->whereRaw('lower(subdomain) = ?', [strtolower((string) $site->subdomain)])
                                 ->update([
                                     'reclaim_until' => now()->addDays($reclaimDays),
-                                    'expires_at'    => now()->addDays($redirectDays),
+                                    'expires_at' => now()->addDays($redirectDays),
                                 ]);
                         }
                     }
@@ -170,18 +169,18 @@ class UpdateSiteAction
                         try {
                             UserHandleAlias::query()->create([
                                 'user_id' => $professional->id,
-                                'handle'          => $oldHandle,
-                                'reclaim_until'   => now()->addDays($reclaimDays),
-                                'expires_at'      => now()->addDays($redirectDays),
-                                'created_at'      => now(),
-                                'updated_at'      => now(),
+                                'handle' => $oldHandle,
+                                'reclaim_until' => now()->addDays($reclaimDays),
+                                'expires_at' => now()->addDays($redirectDays),
+                                'created_at' => now(),
+                                'updated_at' => now(),
                             ]);
                         } catch (UniqueConstraintViolationException $e) {
                             // Old handle is already aliased for this user — nothing to do.
                         }
 
                         $professional->forceFill([
-                            'handle'    => $incoming,
+                            'handle' => $incoming,
                             'handle_lc' => $incoming,
                         ])->save();
                     }
@@ -198,13 +197,13 @@ class UpdateSiteAction
                     // the professional themselves (self-serve rename).
                     HandleChangeLog::create([
                         'user_id' => (string) $professional->id,
-                        'old_handle'      => $current,
-                        'new_handle'      => $incoming,
-                        'reason'          => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),
-                        'actor_id'        => (string) ($options['actor_id'] ?? $professional->id),
-                        'ip_address'      => $options['ip'] ?? null,
-                        'user_agent'      => $options['user_agent'] ?? null,
-                        'changed_at'      => now(),
+                        'old_handle' => $current,
+                        'new_handle' => $incoming,
+                        'reason' => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),
+                        'actor_id' => (string) ($options['actor_id'] ?? $professional->id),
+                        'ip_address' => $options['ip'] ?? null,
+                        'user_agent' => $options['user_agent'] ?? null,
+                        'changed_at' => now(),
                     ]);
 
                     $data['subdomain'] = $incoming;

@@ -4,6 +4,8 @@ use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // Helper: build a request with a pre-resolved staff record (bypasses DB lookup).
 function makeStaffRequest(PartnaStaff $staff): Request
@@ -99,8 +101,8 @@ it('passes through when supabase uid maps to a PartnaStaff record in DB', functi
     $uid = 'uid-with-staff-record';
     $now = now()->toDateTimeString();
 
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('core.partna_staff')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+    DB::connection('pgsql')->table('core.partna_staff')->insert([
+        'id' => (string) Str::uuid(),
         'auth_user_id' => $uid,
         'role' => PartnaStaff::ROLE_SUPPORT,
         'primary_email' => 'staff@example.test',

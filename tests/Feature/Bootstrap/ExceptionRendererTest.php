@@ -18,7 +18,7 @@ it('renders KickRateLimitException as 429 with Retry-After header', function () 
 
 it('renders KickRateLimitException as 429 without Retry-After when retryAfter is null', function () {
     Route::get('api/__test/kick-rate-limit-no-retry', function () {
-        throw new KickRateLimitException();
+        throw new KickRateLimitException;
     });
 
     $response = $this->getJson('api/__test/kick-rate-limit-no-retry');

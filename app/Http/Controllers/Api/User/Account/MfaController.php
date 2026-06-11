@@ -55,6 +55,7 @@ class MfaController extends Controller
                 'factor_id' => $factorId,
                 'reason' => $e->getMessage(),
             ]);
+
             return response()->json(['message' => 'Could not remove factor'], 502);
         }
 

@@ -4,6 +4,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Redis;
@@ -24,9 +25,9 @@ beforeEach(function () {
 function antiAbusePayload(string $handle = 'joeplumber'): array
 {
     return [
-        'target_type'     => 'Site',
-        'target_handle'   => $handle,
-        'reason_code'     => 'spam',
+        'target_type' => 'Site',
+        'target_handle' => $handle,
+        'reason_code' => 'spam',
         'turnstile_token' => 'cf-fixture',
     ];
 }
@@ -41,7 +42,7 @@ it('rate-limits at the framework IP throttle (5 per minute)', function () {
         return Limit::perMinutes($cfg['minutes'], $cfg['requests'])
             ->by($request->ip())
             ->response(fn () => response()->json([
-                'error'   => 'RATE_LIMITED',
+                'error' => 'RATE_LIMITED',
                 'message' => 'Hold on a sec, try again in a minute.',
             ], 429));
     });
@@ -78,7 +79,7 @@ it('rate-limits at the per-target throttle (3 per hour) from same IP', function 
 });
 
 it('rejects a duplicate (same reporter, same target, same reason) with 409', function () {
-    if (\Illuminate\Support\Facades\DB::connection()->getDriverName() !== 'pgsql') {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
         $this->markTestSkipped('Dedup unique constraint requires PostgreSQL.');
     }
 

@@ -1,7 +1,9 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -98,8 +100,8 @@ it('fails open and stays available when the Supabase admin API errors', function
 });
 
 it('skips the Supabase check when the email is already taken in Laravel', function () {
-    Illuminate\Support\Facades\DB::connection('pgsql')->table('core.users')->insert([
-        'id' => (string) Illuminate\Support\Str::uuid(),
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => (string) Str::uuid(),
         'handle' => 'existing',
         'handle_lc' => 'existing',
         'status' => 'active',

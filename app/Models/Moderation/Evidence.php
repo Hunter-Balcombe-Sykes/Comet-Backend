@@ -12,13 +12,17 @@ class Evidence extends BaseModel
     use HasFactory;
 
     protected $table = 'moderation.evidence';
+
     public $timestamps = false;
+
     protected $keyType = 'string';
+
     public $incrementing = false;
+
     protected $guarded = ['id'];
 
     protected $casts = [
-        'payload'     => 'array',
+        'payload' => 'array',
         'captured_at' => 'datetime',
     ];
 

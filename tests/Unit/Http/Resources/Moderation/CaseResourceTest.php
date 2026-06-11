@@ -16,16 +16,16 @@ beforeEach(function () {
 });
 
 it('CaseResource never exposes reporter_email', function () {
-    $case   = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => 'leak@example.com']);
 
     $array = (new CaseResource($case))->toArray(Request::create('/'));
-    $json  = json_encode($array);
+    $json = json_encode($array);
     expect($json)->not->toContain('leak@example.com');
 });
 
 it('CaseDetailResource includes signals + evidence + decisions but never raw reporter_email', function () {
-    $case   = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     $signal = CaseSignal::factory()->forCase($case)->create(['reporter_email' => 'leak@example.com', 'reason_details' => 'visible']);
     Evidence::factory()->forCase($case)->create();
 

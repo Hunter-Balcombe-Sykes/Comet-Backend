@@ -33,12 +33,12 @@ class UserHandleAlias extends BaseModel
     ];
 
     protected $casts = [
-        'reclaim_until'   => 'datetime',
-        'expires_at'      => 'datetime',
-        'notified_t3_at'  => 'datetime',
-        'notified_t1_at'  => 'datetime',
-        'created_at'      => 'datetime',
-        'updated_at'      => 'datetime',
+        'reclaim_until' => 'datetime',
+        'expires_at' => 'datetime',
+        'notified_t3_at' => 'datetime',
+        'notified_t1_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     // Active = no expiry set (legacy) OR not yet expired.
@@ -54,7 +54,6 @@ class UserHandleAlias extends BaseModel
     {
         return $query->whereNotNull('reclaim_until')->where('reclaim_until', '>', now());
     }
-
 
     public function user(): BelongsTo
     {

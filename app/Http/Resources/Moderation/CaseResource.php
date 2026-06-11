@@ -14,19 +14,19 @@ class CaseResource extends ApiResource
     public function toArray($request): array
     {
         return [
-            'id'                       => (string) $this->id,
-            'case_type'                => $this->case_type,
-            'reportable_type'          => $this->reportable_type,
-            'reportable_id'            => $this->reportable_id,
+            'id' => (string) $this->id,
+            'case_type' => $this->case_type,
+            'reportable_type' => $this->reportable_type,
+            'reportable_id' => $this->reportable_id,
             'reportable_owner_user_id' => $this->reportable_owner_user_id,
-            'severity'                 => $this->severity,
-            'status'                   => $this->status,
-            'signal_count'             => $this->signal_count,
-            'priority'                 => $this->priority,
-            'auto_actioned'            => $this->auto_actioned,
-            'triaged_at'               => $this->triaged_at?->toIso8601String(),
-            'resolved_at'              => $this->resolved_at?->toIso8601String(),
-            'created_at'               => $this->created_at?->toIso8601String(),
+            'severity' => $this->severity,
+            'status' => $this->status,
+            'signal_count' => $this->signal_count,
+            'priority' => $this->priority,
+            'auto_actioned' => $this->auto_actioned,
+            'triaged_at' => $this->triaged_at?->toIso8601String(),
+            'resolved_at' => $this->resolved_at?->toIso8601String(),
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 }

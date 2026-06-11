@@ -1,26 +1,26 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffCustomerManagementController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffLinkBlockManagementController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSectionManagementController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceCategoryManagementController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSiteManagementController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagOverrideController;
+use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
-use App\Http\Controllers\Api\Staff\StaffSite\StaffWorkplaceController;
-use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffMeController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationEmailPolicyController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffSiteController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffStatsController;
+use App\Http\Controllers\Api\Staff\StaffSite\StaffWorkplaceController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffCustomerManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffLinkBlockManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSectionManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceCategoryManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSiteManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
 use Illuminate\Support\Facades\Route;
 
 // TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
@@ -40,10 +40,10 @@ Route::prefix('staff')
         Route::get('/cases/{case}', [StaffCaseController::class, 'show'])->name('staff.cases.show');
 
         // Moderation case lifecycle mutations
-        Route::post('/cases/{case}/triage',   [StaffCaseController::class, 'triage'])->name('staff.cases.triage');
-        Route::post('/cases/{case}/take',     [StaffCaseController::class, 'take'])->name('staff.cases.take');
-        Route::post('/cases/{case}/release',  [StaffCaseController::class, 'release'])->name('staff.cases.release');
-        Route::post('/cases/{case}/decide',   [StaffCaseController::class, 'decide'])->name('staff.cases.decide');
+        Route::post('/cases/{case}/triage', [StaffCaseController::class, 'triage'])->name('staff.cases.triage');
+        Route::post('/cases/{case}/take', [StaffCaseController::class, 'take'])->name('staff.cases.take');
+        Route::post('/cases/{case}/release', [StaffCaseController::class, 'release'])->name('staff.cases.release');
+        Route::post('/cases/{case}/decide', [StaffCaseController::class, 'decide'])->name('staff.cases.decide');
         Route::post('/cases/{case}/escalate', [StaffCaseController::class, 'escalate'])->name('staff.cases.escalate');
 
         // Platform-wide stats

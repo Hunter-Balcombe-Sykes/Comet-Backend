@@ -3,16 +3,16 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\IndexLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Http\Resources\LinkBlockResource;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\LinkBlockFieldBuilder;
 use Illuminate\Support\Facades\DB;
@@ -34,8 +34,8 @@ use InvalidArgumentException;
  */
 class UserLinkBlockController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(
         private readonly LinkBlockFieldBuilder $fieldBuilder

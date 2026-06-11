@@ -174,7 +174,7 @@ it('emits CORS headers on error responses for an allowlisted origin (#P3-11 regr
 it('accepts CSP violation reports, logs at error level, and returns 204', function () {
     Log::shouldReceive('error')
         ->once()
-        ->with('csp.violation', \Mockery::on(fn ($ctx) => isset($ctx['report']) && is_array($ctx['report'])));
+        ->with('csp.violation', Mockery::on(fn ($ctx) => isset($ctx['report']) && is_array($ctx['report'])));
 
     $payload = ['csp-report' => ['violated-directive' => "script-src 'self'", 'blocked-uri' => 'https://evil.example.com/x.js']];
 
@@ -188,8 +188,9 @@ it('truncates oversized CSP report string fields before logging', function () {
     $logged = null;
     Log::shouldReceive('error')
         ->once()
-        ->with('csp.violation', \Mockery::on(function ($ctx) use (&$logged) {
+        ->with('csp.violation', Mockery::on(function ($ctx) use (&$logged) {
             $logged = $ctx;
+
             return true;
         }));
 

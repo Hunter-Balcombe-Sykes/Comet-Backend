@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -159,7 +160,7 @@ class SecureHeaders
             if ($result === false) {
                 // Malformed regex in config: surface loudly so the typo is fixed,
                 // rather than silently dropping every match against this pattern.
-                \Illuminate\Support\Facades\Log::error('cors.pattern_invalid', [
+                Log::error('cors.pattern_invalid', [
                     'pattern' => $pattern,
                     'error' => preg_last_error_msg(),
                 ]);

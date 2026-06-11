@@ -1,11 +1,11 @@
 <?php
 
 use App\Jobs\Moderation\QuarantineMediaJob;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
-use App\Models\Core\Site\Site;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -104,24 +104,24 @@ it('sets site_media.processing_state to quarantined', function () {
 
     $case = ModerationCase::factory()->csamMatch()->create([
         'reportable_type' => 'SiteMedia',
-        'reportable_id'   => $mediaId,
+        'reportable_id' => $mediaId,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create([
-        'action_type'   => 'quarantine_media',
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create([
+        'action_type' => 'quarantine_media',
         'action_target' => ['site_media_id' => $mediaId],
     ]);
 
     (new QuarantineMediaJob($entry->id, $case->id))->handle();
 
-    $row = DB::selectOne("SELECT processing_state FROM site.site_media WHERE id = ?", [$mediaId]);
+    $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
     expect($row->processing_state)->toBe('quarantined');
     expect($entry->fresh()->status)->toBe('completed');
 })->group('postgres');
 
 it('falls back to reportable_id when action_target has no site_media_id', function () {
-    $user    = User::factory()->create();
-    $site    = Site::factory()->for($user, 'user')->create();
+    $user = User::factory()->create();
+    $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
         "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
@@ -130,24 +130,24 @@ it('falls back to reportable_id when action_target has no site_media_id', functi
 
     $case = ModerationCase::factory()->csamMatch()->create([
         'reportable_type' => 'SiteMedia',
-        'reportable_id'   => $mediaId,
+        'reportable_id' => $mediaId,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
     // Empty action_target — no site_media_id key present, so job falls back to reportable_id
     $entry = ActionLogEntry::factory()->forDecision($decision)->create([
-        'action_type'   => 'quarantine_media',
+        'action_type' => 'quarantine_media',
         'action_target' => [],
     ]);
 
     (new QuarantineMediaJob($entry->id, $case->id))->handle();
 
-    $row = DB::selectOne("SELECT processing_state FROM site.site_media WHERE id = ?", [$mediaId]);
+    $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
     expect($row->processing_state)->toBe('quarantined');
 })->group('postgres');
 
 it('is idempotent (running twice does not error, state stays quarantined)', function () {
-    $user    = User::factory()->create();
-    $site    = Site::factory()->for($user, 'user')->create();
+    $user = User::factory()->create();
+    $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
         "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
@@ -156,17 +156,17 @@ it('is idempotent (running twice does not error, state stays quarantined)', func
 
     $case = ModerationCase::factory()->csamMatch()->create([
         'reportable_type' => 'SiteMedia',
-        'reportable_id'   => $mediaId,
+        'reportable_id' => $mediaId,
     ]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create([
-        'action_type'   => 'quarantine_media',
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create([
+        'action_type' => 'quarantine_media',
         'action_target' => ['site_media_id' => $mediaId],
     ]);
 
     (new QuarantineMediaJob($entry->id, $case->id))->handle();
     (new QuarantineMediaJob($entry->id, $case->id))->handle(); // second run must not throw
 
-    $row = DB::selectOne("SELECT processing_state FROM site.site_media WHERE id = ?", [$mediaId]);
+    $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
     expect($row->processing_state)->toBe('quarantined');
 })->group('postgres');

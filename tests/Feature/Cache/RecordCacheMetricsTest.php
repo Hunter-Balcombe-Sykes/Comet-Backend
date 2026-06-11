@@ -44,7 +44,7 @@ it('sets TTL on the bucket hash when a field is first created', function () {
     Redis::shouldReceive('hIncrBy')->andReturn(1); // new field
     Redis::shouldReceive('expire')
         ->once()
-        ->with(\Mockery::pattern('/^cache_metrics:/'), RecordCacheMetrics::BUCKET_TTL_SECONDS);
+        ->with(Mockery::pattern('/^cache_metrics:/'), RecordCacheMetrics::BUCKET_TTL_SECONDS);
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new CacheHit('redis', 'site:payload:abc', []));
@@ -85,12 +85,12 @@ it('buckets multi-segment keys by first prefix segment', function () {
 });
 
 it('swallows redis errors so cache operations are not disrupted', function () {
-    Redis::shouldReceive('hIncrBy')->andThrow(new \RuntimeException('Redis connection failed'));
+    Redis::shouldReceive('hIncrBy')->andThrow(new RuntimeException('Redis connection failed'));
     Log::spy();
 
     $listener = new RecordCacheMetrics;
 
-    expect(fn () => $listener->handle(new CacheHit('redis', 'site:payload:x', [])))->not->toThrow(\Throwable::class);
+    expect(fn () => $listener->handle(new CacheHit('redis', 'site:payload:x', [])))->not->toThrow(Throwable::class);
 
-    Log::shouldHaveReceived('warning')->with('cache.metrics.record_failed', \Mockery::type('array'))->once();
+    Log::shouldHaveReceived('warning')->with('cache.metrics.record_failed', Mockery::type('array'))->once();
 });

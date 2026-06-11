@@ -25,15 +25,15 @@ class CaseCreatedStaffNotification extends Notification
             ->line("Case ID: {$this->case->id}")
             ->line("Type: {$this->case->case_type}")
             ->line("Signal count: {$this->case->signal_count}")
-            ->action('Open case in staff dashboard', config('app.url') . "/staff/cases/{$this->case->id}");
+            ->action('Open case in staff dashboard', config('app.url')."/staff/cases/{$this->case->id}");
     }
 
     public function toArray(object $notifiable): array
     {
         return [
-            'case_id'      => $this->case->id,
-            'case_type'    => $this->case->case_type,
-            'severity'     => $this->case->severity,
+            'case_id' => $this->case->id,
+            'case_type' => $this->case->case_type,
+            'severity' => $this->case->severity,
             'signal_count' => $this->case->signal_count,
         ];
     }

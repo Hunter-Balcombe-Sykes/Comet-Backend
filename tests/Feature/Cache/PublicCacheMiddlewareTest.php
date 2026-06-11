@@ -49,7 +49,6 @@ it('public site-by-slug route includes Vary: X-Site-Subdomain in response header
     expect($vary)->toContain('X-Site-Subdomain');
 });
 
-
 it('unsubscribe route returns Cache-Control: no-store regardless of response code', function () {
     // The middleware must set no-store before the route handler resolves,
     // so even a 404 (no token found) must carry the no-store header.
@@ -59,7 +58,6 @@ it('unsubscribe route returns Cache-Control: no-store regardless of response cod
     expect($cacheControl)->toContain('no-store');
     expect($cacheControl)->not->toContain('public');
 });
-
 
 it('authenticated API routes do not receive public cache headers', function () {
     $response = $this

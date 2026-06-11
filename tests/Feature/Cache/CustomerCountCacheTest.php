@@ -79,7 +79,7 @@ it('does not throw when user_id is missing', function () {
     // user_id intentionally not set
 
     $observer = new CustomerObserver;
-    expect(fn () => $observer->created($customer))->not->toThrow(\Throwable::class);
+    expect(fn () => $observer->created($customer))->not->toThrow(Throwable::class);
 });
 
 it('only invalidates the correct professional count key', function () {

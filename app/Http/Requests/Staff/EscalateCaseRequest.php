@@ -16,7 +16,7 @@ class EscalateCaseRequest extends FormRequest
     {
         return [
             'escalation_target' => ['required', 'string', 'in:law_enforcement,esafety'],
-            'notes'             => ['required', 'string', 'min:20', 'max:4000'],
+            'notes' => ['required', 'string', 'min:20', 'max:4000'],
         ];
     }
 
@@ -24,7 +24,7 @@ class EscalateCaseRequest extends FormRequest
     {
         return new EscalationDto(
             target: $this->string('escalation_target')->toString(),
-            notes:  $this->string('notes')->toString(),
+            notes: $this->string('notes')->toString(),
         );
     }
 }

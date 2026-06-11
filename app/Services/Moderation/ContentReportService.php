@@ -51,12 +51,12 @@ class ContentReportService
             );
         }
 
-        $reporterIpHash = hash('sha256', $dto->reporterIp . '|' . config('app.key'));
+        $reporterIpHash = hash('sha256', $dto->reporterIp.'|'.config('app.key'));
         $dedupHash = $this->dedup->forReport(
             reportableType: $dto->targetType,
-            reportableId:   $site->id,
-            reasonCode:     $dto->reasonCode,
-            reporterEmail:  $dto->reporterEmail,
+            reportableId: $site->id,
+            reasonCode: $dto->reasonCode,
+            reporterEmail: $dto->reporterEmail,
             reporterIpHash: $reporterIpHash,
         );
 
@@ -65,22 +65,22 @@ class ContentReportService
         $openedCaseId = null;
         $signal = DB::transaction(function () use ($dto, $site, $user, $reporterIpHash, $dedupHash, &$caseOpened, &$openedCaseId) {
 
-            $case    = $this->openOrMergeCase($dto->targetType, $site->id, $user->id);
-            $isNew   = $case->wasRecentlyCreated;
-            $caseOpened   = $isNew;
+            $case = $this->openOrMergeCase($dto->targetType, $site->id, $user->id);
+            $isNew = $case->wasRecentlyCreated;
+            $caseOpened = $isNew;
             $openedCaseId = $case->id;
 
             // forceCreate() is required because these models guard 'id' via $guarded.
             $signal = CaseSignal::forceCreate([
-                'id'               => (string) Str::uuid(),
-                'case_id'          => $case->id,
-                'signal_source'    => 'content_report',
-                'signal_data'      => ['details' => $dto->details],
-                'reporter_email'   => $dto->reporterEmail,
+                'id' => (string) Str::uuid(),
+                'case_id' => $case->id,
+                'signal_source' => 'content_report',
+                'signal_data' => ['details' => $dto->details],
+                'reporter_email' => $dto->reporterEmail,
                 'reporter_ip_hash' => $reporterIpHash,
-                'reason_code'      => $dto->reasonCode,
-                'reason_details'   => $dto->details,
-                'dedup_hash'       => $dedupHash,
+                'reason_code' => $dto->reasonCode,
+                'reason_details' => $dto->details,
+                'dedup_hash' => $dedupHash,
             ]);
 
             // New cases start at signal_count=1 (satisfies CHECK signal_count >= 1).
@@ -99,8 +99,8 @@ class ContentReportService
         // into an existing case are not "opened" events).
         if ($caseOpened) {
             Log::info('moderation.case.opened', [
-                'case_id'         => $openedCaseId,
-                'case_type'       => 'content_report',
+                'case_id' => $openedCaseId,
+                'case_type' => 'content_report',
                 'reportable_type' => $dto->targetType,
             ]);
         }
@@ -128,18 +128,18 @@ class ContentReportService
         }
 
         return ModerationCase::forceCreate([
-            'id'                       => (string) Str::uuid(),
-            'case_type'                => 'content_report',
-            'reportable_type'          => $type,
-            'reportable_id'            => $id,
+            'id' => (string) Str::uuid(),
+            'case_type' => 'content_report',
+            'reportable_type' => $type,
+            'reportable_id' => $id,
             'reportable_owner_user_id' => $ownerId,
-            'severity'                 => 2,
-            'status'                   => 'open',
+            'severity' => 2,
+            'status' => 'open',
             // Start at 1: this INSERT satisfies CHECK (signal_count >= 1) without
             // needing a separate UPDATE in the same statement. The signal being
             // processed is the first one for this case.
-            'signal_count'             => 1,
-            'priority'                 => 5,
+            'signal_count' => 1,
+            'priority' => 5,
         ]);
     }
 }

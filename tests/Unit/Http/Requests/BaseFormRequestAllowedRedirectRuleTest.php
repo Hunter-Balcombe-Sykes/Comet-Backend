@@ -17,14 +17,14 @@ function makeAllowedRedirectRequest(): BaseFormRequest
             ];
         }
 
-        public function exposeAllowedRedirectRule(): \Closure
+        public function exposeAllowedRedirectRule(): Closure
         {
             return $this->allowedRedirectRule();
         }
     };
 }
 
-function validateRedirect(?string $value): \Illuminate\Validation\Validator
+function validateRedirect(?string $value): Illuminate\Validation\Validator
 {
     $request = makeAllowedRedirectRequest();
 

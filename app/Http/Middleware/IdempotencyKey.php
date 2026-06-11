@@ -14,7 +14,9 @@ use Throwable;
 final class IdempotencyKey
 {
     private const TTL_SEC = 86_400;        // 24h response cache
+
     private const LOCK_SEC = 120;          // distributed lock TTL — sized for slow synchronous handlers (mail dispatch, R2 upload). Raise further only if a handler legitimately exceeds 2 min.
+
     private const MAX_BODY_BYTES = 262_144; // 256 KB cache body cap (bigger payloads bypass cache)
 
     // Headers that must never be cached/replayed — Symfony's HttpKernel::filterResponse

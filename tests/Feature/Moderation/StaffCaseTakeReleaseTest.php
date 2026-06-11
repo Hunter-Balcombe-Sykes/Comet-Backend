@@ -11,7 +11,7 @@ beforeEach(function () {
 
 it('takes a triaged case → under_review', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->triaged()->create();
+    $case = ModerationCase::factory()->triaged()->create();
 
     $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/take");
     $res->assertOk();
@@ -20,7 +20,7 @@ it('takes a triaged case → under_review', function () {
 
 it('releases an under_review case back to triaged', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->underReview()->create();
+    $case = ModerationCase::factory()->underReview()->create();
 
     $res = actingAsStaff($staff)->postJson("/api/staff/cases/{$case->id}/release");
     $res->assertOk();
@@ -29,7 +29,7 @@ it('releases an under_review case back to triaged', function () {
 
 it('rejects take on already-taken case with 409 conflict', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->underReview()->create();
+    $case = ModerationCase::factory()->underReview()->create();
 
     // Already under_review by another staffer is a concurrency conflict (409),
     // not an illegal transition (422).

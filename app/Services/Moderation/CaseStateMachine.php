@@ -11,11 +11,11 @@ use App\Models\Moderation\ModerationCase;
 class CaseStateMachine
 {
     private const LEGAL_TRANSITIONS = [
-        'open'           => ['triaged', 'auto_actioned', 'resolved'],
-        'triaged'        => ['under_review', 'resolved'],
-        'under_review'   => ['resolved', 'triaged'],
-        'auto_actioned'  => ['resolved'],
-        'resolved'       => [],   // terminal
+        'open' => ['triaged', 'auto_actioned', 'resolved'],
+        'triaged' => ['under_review', 'resolved'],
+        'under_review' => ['resolved', 'triaged'],
+        'auto_actioned' => ['resolved'],
+        'resolved' => [],   // terminal
     ];
 
     public function transition(ModerationCase $case, string $to): void
@@ -36,6 +36,7 @@ class CaseStateMachine
     public function canTransition(ModerationCase $case, string $to): bool
     {
         $from = $case->status;
+
         return isset(self::LEGAL_TRANSITIONS[$from])
             && in_array($to, self::LEGAL_TRANSITIONS[$from], strict: true);
     }

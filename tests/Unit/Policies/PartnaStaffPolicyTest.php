@@ -2,6 +2,7 @@
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Policies\PartnaStaffPolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new PartnaStaffPolicy;
@@ -28,7 +29,7 @@ it('denies support viewing another staff record with 404', function () {
 
     $result = $this->policy->view($actor, $target);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 

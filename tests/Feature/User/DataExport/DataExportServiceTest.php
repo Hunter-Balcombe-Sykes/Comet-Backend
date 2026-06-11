@@ -1,5 +1,7 @@
 <?php
 
+use App\Exceptions\Gdpr\DataExportInProgressException;
+use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Jobs\Gdpr\ExportUserDataJob;
 use App\Models\Core\User\User;
 use App\Services\User\DataExport\DataExportService;
@@ -51,7 +53,7 @@ it('throws DataExportInProgressException when an export was queued in the last 3
     $service->dispatch($pro, 'self', null, 'professional');
 
     expect(fn () => $service->dispatch($pro, 'self', null, 'professional'))
-        ->toThrow(\App\Exceptions\Gdpr\DataExportInProgressException::class);
+        ->toThrow(DataExportInProgressException::class);
 });
 
 it('allows a new export after the dedup window passes', function () {
@@ -112,5 +114,5 @@ it('throws NoRecipientEmailException when professional has no recipient email', 
     $service = app(DataExportService::class);
 
     expect(fn () => $service->dispatch($pro, 'self', null, 'professional'))
-        ->toThrow(\App\Exceptions\Gdpr\NoRecipientEmailException::class);
+        ->toThrow(NoRecipientEmailException::class);
 });

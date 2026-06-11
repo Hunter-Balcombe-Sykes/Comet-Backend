@@ -4,6 +4,7 @@ use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Gdpr\GdprRequest;
 use App\Models\Core\User\User;
 use App\Policies\GdprPolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new GdprPolicy;
@@ -24,7 +25,7 @@ it('denies view with 404 when the actor does not own the GdprRequest', function 
 
     $result = $this->policy->view($actor, $request);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -43,7 +44,7 @@ it('denies view with 404 when the actor does not own the DataExportAudit', funct
 
     $result = $this->policy->view($actor, $audit);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 

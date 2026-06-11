@@ -2,8 +2,8 @@
 
 /** @phpstan-ignore-all */
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -174,19 +174,19 @@ function setupCoreSchema(): void
         // resolve correctly.
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS core");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Ignore if already attached.
         }
 
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS site");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Ignore if already attached.
         }
 
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS audit");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Ignore if already attached.
         }
 

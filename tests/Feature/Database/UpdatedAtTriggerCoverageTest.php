@@ -19,14 +19,14 @@ if (! function_exists('updatedAtSuiteIsPostgres')) {
 }
 
 if (! function_exists('assertUpdatedAtTriggerExists')) {
-/**
- * Assert that a BEFORE UPDATE trigger bound to public.set_updated_at() (or any
- * schema-local variant) exists on the given schema.table.
- */
-function assertUpdatedAtTriggerExists(string $schema, string $table): void
-{
-    $row = DB::selectOne(
-        "SELECT trigger_name
+    /**
+     * Assert that a BEFORE UPDATE trigger bound to public.set_updated_at() (or any
+     * schema-local variant) exists on the given schema.table.
+     */
+    function assertUpdatedAtTriggerExists(string $schema, string $table): void
+    {
+        $row = DB::selectOne(
+            "SELECT trigger_name
            FROM information_schema.triggers
           WHERE event_object_schema = ?
             AND event_object_table  = ?
@@ -34,13 +34,13 @@ function assertUpdatedAtTriggerExists(string $schema, string $table): void
             AND event_manipulation  = 'UPDATE'
             AND action_statement    ILIKE '%set_updated_at%'
           LIMIT 1",
-        [$schema, $table]
-    );
+            [$schema, $table]
+        );
 
-    expect($row)->not->toBeNull(
-        "Expected a BEFORE UPDATE set_updated_at trigger on [{$schema}.{$table}] but none was found."
-    );
-}
+        expect($row)->not->toBeNull(
+            "Expected a BEFORE UPDATE set_updated_at trigger on [{$schema}.{$table}] but none was found."
+        );
+    }
 }
 
 // ─── site schema ────────────────────────────────────────────────────────────

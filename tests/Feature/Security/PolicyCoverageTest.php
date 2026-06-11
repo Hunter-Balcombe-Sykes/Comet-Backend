@@ -1,5 +1,18 @@
 <?php
 
+use App\Models\Analytics\LinkClick;
+use App\Models\Analytics\SectionView;
+use App\Models\Analytics\SiteVisit;
+use App\Models\Core\Gdpr\GdprRequest;
+use App\Models\Core\HandleChangeLog;
+use App\Models\Core\MediaVariant;
+use App\Models\Core\Site\UserHandleAlias;
+use App\Models\Core\Staff\StaffAuditEntry;
+use App\Models\Core\Waitlist\WaitlistSignup;
+use App\Models\Moderation\ActionLogEntry;
+use App\Models\Moderation\AuditEvent;
+use App\Models\Moderation\CaseSignal;
+use App\Models\Moderation\Evidence;
 use Illuminate\Support\Facades\Gate;
 use Symfony\Component\Finder\Finder;
 
@@ -17,40 +30,40 @@ use Symfony\Component\Finder\Finder;
 
 const POLICY_EXEMPT = [
     // Catalog & system tables — no tenant ownership; admin-only or read-only.
-    \App\Models\Core\MediaVariant::class,           // owned via parent SiteMedia
-    \App\Models\Core\Waitlist\WaitlistSignup::class, // public submission, no actor
+    MediaVariant::class,           // owned via parent SiteMedia
+    WaitlistSignup::class, // public submission, no actor
 
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
     // API, gated by the parent Site policy.
-    \App\Models\Analytics\LinkClick::class,
-    \App\Models\Analytics\SectionView::class,
-    \App\Models\Analytics\SiteVisit::class,
+    LinkClick::class,
+    SectionView::class,
+    SiteVisit::class,
 
     // Append-only audit log for handle/subdomain renames; readable by staff only — no per-row tenant policy.
-    \App\Models\Core\HandleChangeLog::class,
+    HandleChangeLog::class,
 
     // Handle alias table — read/write access flows through the parent Professional's policy.
-    \App\Models\Core\Site\UserHandleAlias::class,
+    UserHandleAlias::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional
     // are FK metadata, not authorization keys. A Policy class would be meaningless
     // here because there is no controller action to gate.
-    \App\Models\Core\Staff\StaffAuditEntry::class,
+    StaffAuditEntry::class,
 
     // GDPR request submissions — write-only via the GDPR submission endpoint;
     // mutations are user-initiated, reads are staff-only via SQL. Parent
     // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
-    \App\Models\Core\Gdpr\GdprRequest::class,
+    GdprRequest::class,
 
     // Moderation write-only / child models — no user-facing API endpoints;
     // access is via staff tooling and SQL. Parent resources (ModerationCase,
     // Decision) are covered by CasePolicy / DecisionPolicy.
-    \App\Models\Moderation\Evidence::class,        // child of ModerationCase; owned via parent policy
-    \App\Models\Moderation\ActionLogEntry::class,  // append-only audit log; no per-row gate needed
-    \App\Models\Moderation\AuditEvent::class,      // append-only audit log; no per-row gate needed
-    \App\Models\Moderation\CaseSignal::class,      // write-only ingest; read access via parent case
+    Evidence::class,        // child of ModerationCase; owned via parent policy
+    ActionLogEntry::class,  // append-only audit log; no per-row gate needed
+    AuditEvent::class,      // append-only audit log; no per-row gate needed
+    CaseSignal::class,      // write-only ingest; read access via parent case
 ];
 
 it('every tenant-owned model has a registered policy', function () {

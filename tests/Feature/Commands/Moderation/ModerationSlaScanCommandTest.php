@@ -11,11 +11,11 @@ beforeEach(function () {
 it('logs warnings for cases approaching SLA breach', function () {
     Log::spy();
     ModerationCase::factory()->create([
-        'status'     => 'open',
+        'status' => 'open',
         'sla_due_at' => now()->addMinutes(60),  // within 2h warning window
     ]);
     ModerationCase::factory()->create([
-        'status'     => 'open',
+        'status' => 'open',
         'sla_due_at' => now()->addHours(24),    // not near breach
     ]);
 

@@ -17,7 +17,7 @@ beforeEach(function () {
 it('notifies on-call staff with CsamAutoAction for csam_match cases', function () {
     Notification::fake();
     $staff = PartnaStaff::factory()->create(['role' => 'admin']);
-    $case  = ModerationCase::factory()->csamMatch()->create();
+    $case = ModerationCase::factory()->csamMatch()->create();
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
     $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_oncall_staff']);
 
@@ -30,7 +30,7 @@ it('notifies on-call staff with CsamAutoAction for csam_match cases', function (
 it('notifies on-call staff with Escalated for escalate_law_enforcement', function () {
     Notification::fake();
     $staff = PartnaStaff::factory()->create(['role' => 'admin']);
-    $case  = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     $decision = Decision::factory()->forCase($case)->create(['decision_type' => 'escalate_law_enforcement']);
     $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_oncall_staff']);
 

@@ -4,12 +4,12 @@ use App\DTOs\Moderation\PublicReportDto;
 
 it('exposes immutable typed fields', function () {
     $dto = new PublicReportDto(
-        targetType:    'Site',
-        targetHandle:  'joeplumber',
-        reasonCode:    'harassment',
-        details:       'Long-form complaint',
+        targetType: 'Site',
+        targetHandle: 'joeplumber',
+        reasonCode: 'harassment',
+        details: 'Long-form complaint',
         reporterEmail: 'reporter@example.com',
-        reporterIp:    '203.0.113.42',
+        reporterIp: '203.0.113.42',
     );
 
     expect($dto->targetType)->toBe('Site');

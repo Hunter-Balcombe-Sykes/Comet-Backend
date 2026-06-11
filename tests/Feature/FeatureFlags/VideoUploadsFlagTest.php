@@ -5,6 +5,7 @@
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Media\ImageVariantService;
@@ -45,7 +46,7 @@ it('returns 403 when video_uploads flag is off for the professional', function (
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\User\User::query()->findOrFail($userId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
 
     // Flag service returns false for video_uploads
@@ -102,7 +103,7 @@ it('allows image uploads regardless of video_uploads flag state', function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $professional = \App\Models\Core\User\User::query()->findOrFail($userId);
+    $professional = User::query()->findOrFail($userId);
     $professional->load('site');
 
     // Flag service returns false, but image uploads should not be blocked

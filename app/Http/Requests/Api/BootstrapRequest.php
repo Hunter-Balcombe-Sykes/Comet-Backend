@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 // V2: Validates individual professional onboarding/bootstrap — display name, email, phone, handle generation.
@@ -125,7 +126,7 @@ class BootstrapRequest extends BaseFormRequest
     private function generateHandleFromDisplayName(string $displayName): string
     {
         // Convert display name to slug (e.g., "Josh's Barbershop" -> "joshs-barbershop")
-        $base = \Illuminate\Support\Str::slug($displayName);
+        $base = Str::slug($displayName);
 
         if ($base === '' || $base === '-') {
             $base = 'professional';

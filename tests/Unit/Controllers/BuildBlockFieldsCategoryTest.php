@@ -1,11 +1,12 @@
 <?php
 
-// Bootstrap the Laravel app so config() is available — SocialLinkNormalizer reads
-// the social_platforms registry from config('partna.*') during normalize().
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Services\Site\LinkBlockFieldBuilder;
 use App\Services\Site\SocialLinkNormalizer;
+use Tests\TestCase;
+
+// Bootstrap the Laravel app so config() is available — SocialLinkNormalizer reads
+// the social_platforms registry from config('partna.*') during normalize().
+uses(TestCase::class)->in(__FILE__);
 
 function buildLinkBlockFields(array $data): array
 {

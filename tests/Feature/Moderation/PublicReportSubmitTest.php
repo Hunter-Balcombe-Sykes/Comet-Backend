@@ -21,11 +21,11 @@ beforeEach(function () {
 function validReportPayload(string $handle = 'joeplumber'): array
 {
     return [
-        'target_type'     => 'Site',
-        'target_handle'   => $handle,
-        'reason_code'     => 'spam',
-        'details'         => 'this looks like spam to me',
-        'reporter_email'  => 'reporter@example.com',
+        'target_type' => 'Site',
+        'target_handle' => $handle,
+        'reason_code' => 'spam',
+        'details' => 'this looks like spam to me',
+        'reporter_email' => 'reporter@example.com',
         'turnstile_token' => 'cf-token-fixture',
     ];
 }

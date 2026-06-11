@@ -70,9 +70,9 @@ class NotifyStaffOfCaseUpdateJob implements ShouldQueue, ShouldQueueAfterCommit
     {
         report($e);
         Log::error('Moderation staff notification job permanently failed', [
-            'job'     => static::class,
+            'job' => static::class,
             'case_id' => $this->caseId,
-            'error'   => $e->getMessage(),
+            'error' => $e->getMessage(),
         ]);
     }
 }

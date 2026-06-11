@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Enquiry;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 it('uses the site.enquiries table', function () {
     expect((new Enquiry)->getTable())->toBe('site.enquiries');
@@ -20,7 +21,7 @@ it('uses UUID keys and soft deletes', function () {
 
     expect($model->incrementing)->toBeFalse();
     expect($model->getKeyType())->toBe('string');
-    expect(in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($model)))->toBeTrue();
+    expect(in_array(SoftDeletes::class, class_uses_recursive($model)))->toBeTrue();
 });
 
 it('hides submitter PII and request telemetry from default serialisation', function () {

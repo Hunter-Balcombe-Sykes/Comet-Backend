@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\User\UserBootstrapService;
 use Illuminate\Support\Facades\DB;
 
@@ -27,7 +28,7 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
 });
 
 it('does not gate existing professionals when waitlist mode is enabled', function () {
-    $existing = new App\Models\Core\User\User([
+    $existing = new User([
         'handle' => 'existing',
         'handle_lc' => 'existing',
         'display_name' => 'Existing User',

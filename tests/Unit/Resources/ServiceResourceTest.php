@@ -1,13 +1,14 @@
 <?php
 
-// Unit tests opt into Tests\TestCase via this hook (Pest config only auto-binds
-// Tests\TestCase under tests/Feature). Required for ->resolve() to bootstrap
-// the container that wraps JsonResource.
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Resources\ServiceResource;
 use App\Models\Core\User\Service;
 use Illuminate\Support\Carbon;
+use Tests\TestCase;
+
+// Unit tests opt into Tests\TestCase via this hook (Pest config only auto-binds
+// Tests\TestCase under tests/Feature). Required for ->resolve() to bootstrap
+// the container that wraps JsonResource.
+uses(TestCase::class)->in(__FILE__);
 
 function makeService(array $overrides = []): Service
 {

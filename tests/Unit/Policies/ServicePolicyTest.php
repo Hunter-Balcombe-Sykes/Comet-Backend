@@ -1,9 +1,10 @@
 <?php
 
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Policies\ServicePolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new ServicePolicy;
@@ -24,7 +25,7 @@ it('denies view with 404 when the actor does not own the service', function () {
 
     $result = $this->policy->view($actor, $service);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -43,7 +44,7 @@ it('denies view with 404 when the actor does not own the service category', func
 
     $result = $this->policy->view($actor, $category);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -69,7 +70,7 @@ it('denies create with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->create($actor, $skeleton);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -80,7 +81,7 @@ it('denies category create with 423 when the actor is pending deletion', functio
 
     $result = $this->policy->create($actor, $skeleton);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
 });
 
@@ -99,7 +100,7 @@ it('denies update with 404 when the actor does not own the service', function ()
 
     $result = $this->policy->update($actor, $service);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -109,7 +110,7 @@ it('denies update with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->update($actor, $service);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -127,7 +128,7 @@ it('denies update with 404 when the actor does not own the category', function (
 
     $result = $this->policy->update($actor, $category);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -146,7 +147,7 @@ it('denies delete with 404 when the actor does not own the service', function ()
 
     $result = $this->policy->delete($actor, $service);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -156,7 +157,7 @@ it('denies delete with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->delete($actor, $service);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });

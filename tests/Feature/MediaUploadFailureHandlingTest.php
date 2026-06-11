@@ -5,9 +5,9 @@
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
 use App\Jobs\DeleteMediaArtifactsJob;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\VideoVariantService;
@@ -170,7 +170,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
     $videoVariant = Mockery::mock(VideoVariantService::class);
     $videoVariant->shouldReceive('probeAndValidate')
         ->once()
-        ->andThrow(new \RuntimeException('File does not contain a recognisable video stream.'));
+        ->andThrow(new RuntimeException('File does not contain a recognisable video stream.'));
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
@@ -210,7 +210,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
     $videoVariant = Mockery::mock(VideoVariantService::class);
     $videoVariant->shouldReceive('probeAndValidate')
         ->once()
-        ->andThrow(new \RuntimeException('Video is too long (400s). Maximum allowed duration is 300s.'));
+        ->andThrow(new RuntimeException('Video is too long (400s). Maximum allowed duration is 300s.'));
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);
@@ -250,7 +250,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
     $videoVariant = Mockery::mock(VideoVariantService::class);
     $videoVariant->shouldReceive('probeAndValidate')
         ->once()
-        ->andThrow(new \RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
+        ->andThrow(new RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
 
     app()->instance(ImageVariantService::class, $mediaService);
     app()->instance(VideoVariantService::class, $videoVariant);

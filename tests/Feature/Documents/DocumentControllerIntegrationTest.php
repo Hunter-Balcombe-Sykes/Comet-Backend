@@ -3,8 +3,8 @@
 use App\Http\Controllers\Api\User\Account\UserDocumentController;
 use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
@@ -159,7 +159,6 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
     expect($activeRows->first()->alt_text)->toBe('Version 2');
     Storage::disk('media')->assertExists($activeRows->first()->path);
 });
-
 
 it('POST /api/documents returns 415 when finfo detects MIME mismatch', function () {
     $pro = seedUser();

@@ -5,8 +5,8 @@ namespace App\Services\User;
 use App\Enums\AccountType;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -136,17 +136,17 @@ class UserBootstrapService
         $now = now();
 
         EmailSubscription::insertOrIgnore([
-            'id'               => (string) Str::uuid(),
-            'user_id'          => null,
-            'list_key'         => 'sidest_updates',
-            'email'            => $email,
-            'email_lc'         => $email,
-            'status'           => 'subscribed',
-            'subscribed_at'    => $now,
-            'consent_source'   => 'bootstrap',
+            'id' => (string) Str::uuid(),
+            'user_id' => null,
+            'list_key' => 'sidest_updates',
+            'email' => $email,
+            'email_lc' => $email,
+            'status' => 'subscribed',
+            'subscribed_at' => $now,
+            'consent_source' => 'bootstrap',
             'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
-            'created_at'       => $now,
-            'updated_at'       => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
         ]);
     }
 

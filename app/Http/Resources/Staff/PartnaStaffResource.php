@@ -12,10 +12,10 @@ class PartnaStaffResource extends ApiResource
     public function toArray(Request $request): array
     {
         return [
-            'id'            => (string) $this->id,
-            'name'          => $this->name,
+            'id' => (string) $this->id,
+            'name' => $this->name,
             'primary_email' => $this->primary_email,
-            'role'          => $this->role,
+            'role' => $this->role,
         ];
     }
 }

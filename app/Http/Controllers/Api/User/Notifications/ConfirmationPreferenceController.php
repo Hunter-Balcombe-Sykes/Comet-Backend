@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\User\Notifications;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Api\User\UpdateConfirmationPreferenceRequest;
 use App\Services\User\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,7 @@ class ConfirmationPreferenceController extends ApiController
         ]);
     }
 
-    public function update(\App\Http\Requests\Api\User\UpdateConfirmationPreferenceRequest $request): JsonResponse
+    public function update(UpdateConfirmationPreferenceRequest $request): JsonResponse
     {
         $validated = $request->validated();
         if ($validated === []) {

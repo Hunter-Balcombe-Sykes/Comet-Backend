@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Analytics/AnalyticsEventTest.php
 
 use App\Services\Analytics\AnalyticsEvent;

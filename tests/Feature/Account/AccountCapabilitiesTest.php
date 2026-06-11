@@ -2,7 +2,6 @@
 
 // Plan §28.3 / §9 capability matrix tests — individual-only after standalone strip.
 
-use App\Enums\AccountType;
 use App\Http\Resources\UserDashboardResource;
 use App\Http\Resources\UserResource;
 use App\Models\Core\User\User;

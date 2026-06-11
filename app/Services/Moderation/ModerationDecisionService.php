@@ -52,16 +52,16 @@ class ModerationDecisionService
             }
             // forceCreate() is required because Decision guards 'id' via $guarded = ['id'].
             $decision = Decision::forceCreate([
-                'id'                        => Str::uuid()->toString(),
-                'case_id'                   => $case->id,
-                'decision_type'             => $dto->decisionType,
-                'reason'                    => $dto->reason,
-                'decided_by_staff_id'       => $staff->id,
-                'decided_by_system'         => false,
-                'auto_actioned'             => false,
-                'second_staff_approval_id'  => $dto->secondStaffApprovalId,
-                'second_staff_approved_at'  => $dto->secondStaffApprovalId !== null ? now() : null,
-                'decided_at'                => now(),
+                'id' => Str::uuid()->toString(),
+                'case_id' => $case->id,
+                'decision_type' => $dto->decisionType,
+                'reason' => $dto->reason,
+                'decided_by_staff_id' => $staff->id,
+                'decided_by_system' => false,
+                'auto_actioned' => false,
+                'second_staff_approval_id' => $dto->secondStaffApprovalId,
+                'second_staff_approved_at' => $dto->secondStaffApprovalId !== null ? now() : null,
+                'decided_at' => now(),
             ]);
 
             // Transition status first so the case is in a consistent state before
@@ -87,10 +87,10 @@ class ModerationDecisionService
 
         // Observability breadcrumb (logged after commit so a rollback doesn't emit it).
         Log::info('moderation.decision', [
-            'case_id'       => $case->id,
-            'decision_id'   => $decision->id,
+            'case_id' => $case->id,
+            'decision_id' => $decision->id,
             'decision_type' => $dto->decisionType,
-            'staff_id'      => $staff->id,
+            'staff_id' => $staff->id,
         ]);
 
         return $decision;
@@ -107,16 +107,16 @@ class ModerationDecisionService
     {
         $decision = DB::transaction(function () use ($case, $dto) {
             $decision = Decision::forceCreate([
-                'id'                        => Str::uuid()->toString(),
-                'case_id'                   => $case->id,
-                'decision_type'             => $dto->decisionType,
-                'reason'                    => $dto->reason,
-                'decided_by_staff_id'       => null,
-                'decided_by_system'         => true,
-                'auto_actioned'             => true,
-                'second_staff_approval_id'  => null,
-                'second_staff_approved_at'  => null,
-                'decided_at'                => now(),
+                'id' => Str::uuid()->toString(),
+                'case_id' => $case->id,
+                'decision_type' => $dto->decisionType,
+                'reason' => $dto->reason,
+                'decided_by_staff_id' => null,
+                'decided_by_system' => true,
+                'auto_actioned' => true,
+                'second_staff_approval_id' => null,
+                'second_staff_approved_at' => null,
+                'decided_at' => now(),
             ]);
 
             // Only transition if not already auto_actioned (e.g. case was 'open'
@@ -142,8 +142,8 @@ class ModerationDecisionService
 
         // Observability breadcrumb (logged after commit so a rollback doesn't emit it).
         Log::warning('moderation.auto_action', [
-            'case_id'       => $case->id,
-            'decision_id'   => $decision->id,
+            'case_id' => $case->id,
+            'decision_id' => $decision->id,
             'decision_type' => $dto->decisionType,
         ]);
 

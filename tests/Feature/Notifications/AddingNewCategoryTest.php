@@ -35,11 +35,11 @@ beforeEach(function () {
     $conn = DB::connection('pgsql');
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS notifications");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (

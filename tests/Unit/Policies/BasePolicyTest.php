@@ -40,9 +40,9 @@ it('returns null when the professional has any other status', function () {
 });
 
 it('returns a 404 deny response from denyAsNotFound', function () {
-    $policy = new class extends \App\Policies\BasePolicy
+    $policy = new class extends BasePolicy
     {
-        public function callDenyAsNotFound(): \Illuminate\Auth\Access\Response
+        public function callDenyAsNotFound(): Response
         {
             return $this->denyAsNotFound();
         }
@@ -50,7 +50,7 @@ it('returns a 404 deny response from denyAsNotFound', function () {
 
     $result = $policy->callDenyAsNotFound();
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
     expect($result->message())->toBe('Not found.');
 });

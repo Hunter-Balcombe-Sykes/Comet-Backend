@@ -42,7 +42,7 @@ function buildRs256Jwt(string $kid, string $privPem, array $claims): string
  *
  * @return array{kty: string, kid: string, use: string, alg: string, n: string, e: string}
  */
-function buildRsaJwk(string $kid, \OpenSSLAsymmetricKey $privKey): array
+function buildRsaJwk(string $kid, OpenSSLAsymmetricKey $privKey): array
 {
     $details = openssl_pkey_get_details($privKey);
 

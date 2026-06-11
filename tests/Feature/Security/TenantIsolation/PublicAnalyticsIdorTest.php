@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Str;
+
 beforeEach(function () {
     tenantHelpersEnsureTables();
 
@@ -27,8 +29,8 @@ it('refuses to record a pageview when body site_id does not match the X-Site-Sub
     $response = $this->withHeaders(['X-Site-Subdomain' => 'attacker'])
         ->postJson('/api/public/analytics/pageviews', [
             'site_id' => $victim->site->id,
-            'session_id' => (string) \Illuminate\Support\Str::uuid(),
-            'visitor_id' => (string) \Illuminate\Support\Str::uuid(),
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
         ]);
 
     expect($response->status())->toBe(422);
@@ -40,8 +42,8 @@ it('records a pageview when site_id matches the X-Site-Subdomain header', functi
     $response = $this->withHeaders(['X-Site-Subdomain' => 'legit'])
         ->postJson('/api/public/analytics/pageviews', [
             'site_id' => $tenant->site->id,
-            'session_id' => (string) \Illuminate\Support\Str::uuid(),
-            'visitor_id' => (string) \Illuminate\Support\Str::uuid(),
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
         ]);
 
     // 201 = pageview recorded successfully.

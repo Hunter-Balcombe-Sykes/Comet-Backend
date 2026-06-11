@@ -22,8 +22,8 @@ it('prints a case in JSON to stdout', function () {
     // from $this->line() output in some environments. Use Artisan::call() + Artisan::output()
     // for reliable multi-line JSON assertions.
     $exitCode = Artisan::call('moderation:show-case', ['case_id' => $case->id]);
-    $output   = Artisan::output();
-    $decoded  = json_decode($output, true);
+    $output = Artisan::output();
+    $decoded = json_decode($output, true);
 
     expect($exitCode)->toBe(0);
     expect($decoded)->toBeArray()

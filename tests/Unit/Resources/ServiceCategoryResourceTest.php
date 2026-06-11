@@ -1,10 +1,11 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\User\ServiceCategory;
 use Illuminate\Support\Carbon;
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('ships only the allowlisted fields and drops extras', function () {
     $category = new ServiceCategory([

@@ -28,13 +28,13 @@ class PublicReportController extends Controller
             $result = $this->reports->submit($request->toDto());
         } catch (ReportTargetNotFound) {
             return response()->json([
-                'error'   => 'INVALID_TARGET',
+                'error' => 'INVALID_TARGET',
                 'message' => "We couldn't find that page.",
             ], 422);
         } catch (QueryException $e) {
             if ($this->isDedupViolation($e)) {
                 return response()->json([
-                    'error'   => 'DUPLICATE_REPORT',
+                    'error' => 'DUPLICATE_REPORT',
                     'message' => "You've already reported this.",
                 ], 409);
             }

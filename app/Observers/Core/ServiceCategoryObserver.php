@@ -3,8 +3,8 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\User\User;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;

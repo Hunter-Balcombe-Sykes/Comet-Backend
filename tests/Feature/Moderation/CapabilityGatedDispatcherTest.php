@@ -18,10 +18,10 @@ it('does not notify users whose receive_moderation_notifications capability is f
     Notification::fake();
 
     // Disabled/banned users have receive_moderation_notifications = false (fail-closed).
-    $user     = User::factory()->create(['status' => 'disabled']);
-    $case     = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
+    $user = User::factory()->create(['status' => 'disabled']);
+    $case = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
     $decision = Decision::factory()->forCase($case)->create(['decision_type' => 'hide_site']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 
@@ -33,10 +33,10 @@ it('does not notify users whose receive_moderation_notifications capability is f
 it('still notifies users whose state is active', function () {
     Notification::fake();
 
-    $user     = User::factory()->create(['status' => 'active']);
-    $case     = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
+    $user = User::factory()->create(['status' => 'active']);
+    $case = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
     $decision = Decision::factory()->forCase($case)->create(['decision_type' => 'hide_site']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
 
     (new NotifyReportedUserJob($entry->id, $case->id))->handle();
 

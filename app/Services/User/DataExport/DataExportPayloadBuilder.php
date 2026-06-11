@@ -5,6 +5,7 @@ namespace App\Services\User\DataExport;
 use App\Models\Core\User\User;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
 // V2: Pure builder. Assembles the full data-export payload (Ring 1 + 2 of the
@@ -782,7 +783,7 @@ class DataExportPayloadBuilder
      * PDOStatement one at a time rather than building a full result array,
      * which keeps peak PHP memory bounded regardless of total row count.
      */
-    private function lazyRows(\Illuminate\Database\Query\Builder $query): Generator
+    private function lazyRows(Builder $query): Generator
     {
         foreach ($query->cursor() as $row) {
             yield (array) $row;

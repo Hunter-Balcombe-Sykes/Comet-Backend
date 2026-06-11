@@ -1,12 +1,14 @@
 <?php
+
 // tests/Unit/Analytics/PostgresEventWriterTest.php
 
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class); // Unit test hits the (sqlite-backed) pgsql connection.
+uses(TestCase::class); // Unit test hits the (sqlite-backed) pgsql connection.
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
@@ -18,7 +20,7 @@ beforeEach(function () {
 
 function pgWriter(): PostgresEventWriter
 {
-    return new PostgresEventWriter();
+    return new PostgresEventWriter;
 }
 
 function baseEvent(array $o = []): AnalyticsEvent

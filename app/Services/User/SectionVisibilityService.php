@@ -2,11 +2,12 @@
 
 namespace App\Services\User;
 
-use App\Models\Core\User\User;
-use App\Models\Core\User\Service;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\Service;
+use App\Models\Core\User\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -586,8 +587,8 @@ class SectionVisibilityService
         }
 
         try {
-            $dropTs = \Carbon\CarbonImmutable::parse($drop);
-            $expiryTs = \Carbon\CarbonImmutable::parse($expiry);
+            $dropTs = CarbonImmutable::parse($drop);
+            $expiryTs = CarbonImmutable::parse($expiry);
         } catch (\Throwable) {
             return [false, 'Countdown section has an invalid drop time or expiry time.'];
         }

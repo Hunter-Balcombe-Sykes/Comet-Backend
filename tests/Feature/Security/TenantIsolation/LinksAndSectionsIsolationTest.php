@@ -5,6 +5,7 @@ use App\Http\Requests\Api\User\Site\IndexLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Models\Core\Site\Block;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -87,7 +88,7 @@ it('link update refuses a block belonging to another professional site', functio
     $block = Block::query()->findOrFail($blockId);
 
     $formReq = UpdateLinkBlockRequest::createFrom($plainReq);
-    $formReq->setRouteResolver(fn () => tap(new \Illuminate\Routing\Route('PATCH', '/', []), function ($route) use ($block) {
+    $formReq->setRouteResolver(fn () => tap(new Route('PATCH', '/', []), function ($route) use ($block) {
         $route->bind(request());
         $route->setParameter('linkBlock', $block);
     }));

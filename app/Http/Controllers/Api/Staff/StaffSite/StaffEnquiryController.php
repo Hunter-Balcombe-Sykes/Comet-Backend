@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Resources\EnquiryResource;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

@@ -31,8 +31,8 @@ class AccountSuspendedNotification extends Notification
     {
         return [
             'decision_id' => $this->decision->id,
-            'reason'      => $this->decision->reason,
-            'decided_at'  => $this->decision->decided_at,
+            'reason' => $this->decision->reason,
+            'decided_at' => $this->decision->decided_at,
         ];
     }
 }

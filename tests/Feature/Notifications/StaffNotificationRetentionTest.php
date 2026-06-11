@@ -40,7 +40,7 @@ beforeEach(function () {
     // `notifications` to make `notifications.notifications` resolve.
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS notifications");
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Ignore if already attached from a previous test in this process.
     }
 

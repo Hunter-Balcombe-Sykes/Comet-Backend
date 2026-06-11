@@ -134,4 +134,3 @@ it('does not re-publish a site that was manually unpublished before deletion was
     // Site stays offline — we don't own manually-unpublished state.
     expect((bool) $site->is_published)->toBeFalse();
 });
-

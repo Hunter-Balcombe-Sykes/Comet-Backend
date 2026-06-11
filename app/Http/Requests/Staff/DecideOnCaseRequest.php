@@ -3,6 +3,8 @@
 namespace App\Http\Requests\Staff;
 
 use App\DTOs\Moderation\DecisionDto;
+use App\Models\Core\Staff\PartnaStaff;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -24,8 +26,8 @@ class DecideOnCaseRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'decision_type'            => ['required', 'string', 'in:' . implode(',', self::ALLOWED)],
-            'reason'                   => ['required', 'string', 'min:10', 'max:2000'],
+            'decision_type' => ['required', 'string', 'in:'.implode(',', self::ALLOWED)],
+            'reason' => ['required', 'string', 'min:10', 'max:2000'],
             'second_staff_approval_id' => [
                 'required_if:decision_type,override_csam_auto_action',
                 'nullable',
@@ -34,18 +36,19 @@ class DecideOnCaseRequest extends FormRequest
         ];
     }
 
-    public function withValidator(\Illuminate\Contracts\Validation\Validator $validator): void
+    public function withValidator(Validator $validator): void
     {
         $validator->after(function ($v) {
             $approverId = $this->input('second_staff_approval_id');
-            if (!$approverId) {
+            if (! $approverId) {
                 return;
             }
 
             // Ensure the second approver is a real staff member.
-            $exists = \App\Models\Core\Staff\PartnaStaff::query()->where('id', $approverId)->exists();
-            if (!$exists) {
+            $exists = PartnaStaff::query()->where('id', $approverId)->exists();
+            if (! $exists) {
                 $v->errors()->add('second_staff_approval_id', 'The second approver must be a valid staff member.');
+
                 return;
             }
 
@@ -60,8 +63,8 @@ class DecideOnCaseRequest extends FormRequest
     public function toDto(): DecisionDto
     {
         return new DecisionDto(
-            decisionType:          $this->string('decision_type')->toString(),
-            reason:                $this->string('reason')->toString(),
+            decisionType: $this->string('decision_type')->toString(),
+            reason: $this->string('reason')->toString(),
             secondStaffApprovalId: $this->input('second_staff_approval_id'),
         );
     }
