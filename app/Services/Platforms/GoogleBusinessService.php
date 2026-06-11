@@ -3,6 +3,8 @@
 namespace App\Services\Platforms;
 
 use App\Services\SmartLinks\SafeUrlFetcher;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -108,7 +110,7 @@ class GoogleBusinessService extends PlatformScraper
     // place per refresh. Field additions here must also be mapped in
     // mapDetails() and allowlisted in PublicIntegrationConnectionResource if
     // they should reach the sitepage.
-    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
+    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
 
     /**
      * Fetch Place Details (New) for a place ID and map the response onto
@@ -151,7 +153,19 @@ class GoogleBusinessService extends PlatformScraper
             return null;
         }
 
-        return $this->mapDetails((array) $res->json());
+        $mapped = $this->mapDetails((array) $res->json());
+
+        // Photo refs → servable image URLs (one billed media call per photo,
+        // pooled). Street View availability is a free metadata probe.
+        if (isset($mapped['photos']) && is_array($mapped['photos'])) {
+            $mapped['photos'] = $this->resolvePhotoUrls($key, $mapped['photos']);
+        }
+        if (isset($mapped['lat'], $mapped['lng'])
+            && ($pano = $this->streetViewPano($key, (float) $mapped['lat'], (float) $mapped['lng'])) !== null) {
+            $mapped['streetView'] = $pano;
+        }
+
+        return $mapped;
     }
 
     /**
@@ -231,6 +245,10 @@ class GoogleBusinessService extends PlatformScraper
         ], $notNull);
 
         $hours = data_get($place, 'regularOpeningHours');
+        // Holiday-aware hours for the next 7 days — public-holiday exceptions
+        // are baked into the weekday descriptions.
+        $currentHours = data_get($place, 'currentOpeningHours');
+        $postal = data_get($place, 'postalAddress');
         $reviewSummary = data_get($place, 'reviewSummary.text.text') ?? data_get($place, 'reviewSummary.text');
 
         $mapped = array_filter([
@@ -252,6 +270,18 @@ class GoogleBusinessService extends PlatformScraper
                 'periods' => data_get($hours, 'periods'),
                 'utcOffsetMinutes' => data_get($place, 'utcOffsetMinutes'),
             ] : null,
+            'currentHours' => is_array($currentHours)
+                ? (array_filter(['weekdays' => data_get($currentHours, 'weekdayDescriptions')], $notNull) ?: null)
+                : null,
+            'addressParts' => is_array($postal)
+                ? (array_filter([
+                    'lines' => data_get($postal, 'addressLines'),
+                    'suburb' => data_get($postal, 'locality'),
+                    'state' => data_get($postal, 'administrativeArea'),
+                    'postcode' => data_get($postal, 'postalCode'),
+                    'country' => data_get($postal, 'regionCode'),
+                ], $notNull) ?: null)
+                : null,
             'links' => $links !== [] ? $links : null,
             'priceLevel' => data_get($place, 'priceLevel'),
             'priceRange' => data_get($place, 'priceRange'),
@@ -265,5 +295,76 @@ class GoogleBusinessService extends PlatformScraper
         $mapped['detailsFetchedAt'] = now()->toIso8601String();
 
         return $mapped;
+    }
+
+    /**
+     * Resolve stored photo refs to servable image URLs via the Place Photos
+     * media endpoint — one billed call per photo, pooled for latency. A
+     * failed resolve keeps the ref without a url; the next weekly refresh
+     * retries.
+     *
+     * @param  array<int, array<string,mixed>>  $photos
+     * @return array<int, array<string,mixed>>
+     */
+    private function resolvePhotoUrls(string $key, array $photos): array
+    {
+        try {
+            $responses = Http::pool(fn (Pool $pool) => array_map(
+                fn (array $photo) => $pool
+                    ->timeout(5)
+                    ->withHeaders(['X-Goog-Api-Key' => $key])
+                    ->get('https://places.googleapis.com/v1/'.($photo['ref'] ?? '').'/media', [
+                        'maxWidthPx' => 1200,
+                        'skipHttpRedirect' => 'true',
+                    ]),
+                array_values($photos),
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('google_business.photo_resolve_failed', ['message' => $e->getMessage()]);
+
+            return $photos;
+        }
+
+        foreach (array_values($photos) as $index => $photo) {
+            $res = $responses[$index] ?? null;
+            $uri = $res instanceof Response && $res->ok() ? $res->json('photoUri') : null;
+            if (is_string($uri) && $uri !== '') {
+                $photos[$index]['url'] = $uri;
+            }
+        }
+
+        return $photos;
+    }
+
+    /**
+     * Street View availability probe — the metadata endpoint is free (only
+     * image renders are billed). Null when no outdoor pano covers the pin or
+     * the Street View Static API isn't enabled on the key.
+     *
+     * @return array{panoId: string, lat: float, lng: float}|null
+     */
+    private function streetViewPano(string $key, float $lat, float $lng): ?array
+    {
+        try {
+            $res = Http::timeout(5)->get('https://maps.googleapis.com/maps/api/streetview/metadata', [
+                'location' => $lat.','.$lng,
+                'radius' => 100,
+                'source' => 'outdoor',
+                'key' => $key,
+            ]);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $panoId = $res->ok() && $res->json('status') === 'OK' ? $res->json('pano_id') : null;
+        if (! is_string($panoId) || $panoId === '') {
+            return null;
+        }
+
+        return [
+            'panoId' => $panoId,
+            'lat' => (float) ($res->json('location.lat') ?? $lat),
+            'lng' => (float) ($res->json('location.lng') ?? $lng),
+        ];
     }
 }
