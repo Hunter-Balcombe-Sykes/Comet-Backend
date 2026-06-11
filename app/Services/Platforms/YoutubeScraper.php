@@ -49,8 +49,8 @@ class YoutubeScraper extends PlatformScraper
         // uploads-playlist feed updates within minutes. The uploads playlist id
         // is the channel id with its "UC" prefix swapped to "UU".
         $uploadsPlaylistId = 'UU'.substr($channelId, 2);
-        $rss = $this->fetcher->fetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
-        if ($rss['status'] !== 200) {
+        $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
+        if ($rss === null || $rss['status'] !== 200) {
             return null;
         }
 
@@ -97,8 +97,8 @@ class YoutubeScraper extends PlatformScraper
     // channelId only if neither is present. (Fixes @casey → wrong side-channel.)
     private function resolveChannelId(string $handle, array $headers): ?string
     {
-        $page = $this->fetcher->fetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
-        if ($page['status'] !== 200) {
+        $page = $this->fetcher->tryFetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
+        if ($page === null || $page['status'] !== 200) {
             return null;
         }
 

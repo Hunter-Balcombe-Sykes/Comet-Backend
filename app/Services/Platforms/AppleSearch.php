@@ -77,8 +77,8 @@ class AppleSearch extends PlatformScraper
 
     private function itunes(string $path): ?array
     {
-        $res = $this->fetcher->fetch('https://itunes.apple.com'.$path, ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch('https://itunes.apple.com'.$path, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $json = json_decode($res['body'], true);

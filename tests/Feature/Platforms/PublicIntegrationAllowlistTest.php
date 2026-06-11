@@ -104,11 +104,38 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
+    // v3 platforms carry private re-fetch inputs (podcast pageUrl, vimeo
+    // apiPath) that must never reach the public wire.
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'ticketek',
-        'resource_id' => 'ticketek',
-        'payload' => ['url' => 'https://premier.ticketek.com.au/x', 'label' => 'Tour', '_junk' => 'x'],
+        'platform' => 'podcast',
+        'resource_id' => 'podcast',
+        'payload' => [
+            'url' => 'https://feeds.example/show.rss',
+            'pageUrl' => 'https://www.buzzsprout.com/123', // private
+            'name' => 'Mock Show',
+            'thumbnail' => null,
+            'description' => null,
+            'link' => 'https://mockshow.example',
+            'latest' => null,
+            'episodes' => [],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'vimeo',
+        'resource_id' => 'vimeo',
+        'payload' => [
+            'url' => 'https://vimeo.com/mockuser',
+            'apiPath' => 'mockuser', // private
+            'name' => 'Mock User',
+            'thumbnail' => null,
+            'link' => 'https://vimeo.com/mockuser',
+            'latest' => null,
+            'items' => [],
+        ],
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
@@ -124,8 +151,8 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
         'embedUrl' => 'https://open.spotify.com/embed/artist/abc',
         'link' => 'https://open.spotify.com/artist/abc',
     ]);
-    expect($platforms['ticketek'][0]['payload'])->toBe([
-        'url' => 'https://premier.ticketek.com.au/x',
-        'label' => 'Tour',
-    ]);
+    expect($platforms['podcast'][0]['payload'])->not->toHaveKey('pageUrl');
+    expect($platforms['podcast'][0]['payload']['name'])->toBe('Mock Show');
+    expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('apiPath');
+    expect($platforms['vimeo'][0]['payload']['url'])->toBe('https://vimeo.com/mockuser');
 });

@@ -10,7 +10,7 @@ afterEach(function () {
 function bandcampScraperWith(string $html, int $status = 200): BandcampScraper
 {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('fetch')->andReturn([
+    $fetcher->shouldReceive('tryFetch')->andReturn([
         'status' => $status, 'body' => $html, 'finalUrl' => 'https://artist.bandcamp.com/music', 'contentType' => 'text/html',
     ]);
 

@@ -6,12 +6,12 @@ use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
 
 /**
- * Plain external-link platforms (Ticketek tickets, Square + Timely booking
- * links): a validated URL plus an optional user label. No scraping.
+ * Google Business map card: the Maps link plus the place name and
+ * coordinates parsed from it (no keyless API exposes ratings/reviews).
  *
  * `$this->resource` is the selection ARRAY.
  */
-class ExternalLinkConnectionResource extends ApiResource
+class GoogleBusinessConnectionResource extends ApiResource
 {
     /**
      * @return array<string, mixed>
@@ -20,7 +20,9 @@ class ExternalLinkConnectionResource extends ApiResource
     {
         return [
             'url' => $this->resource['url'] ?? null,
-            'label' => $this->resource['label'] ?? null,
+            'name' => $this->resource['name'] ?? null,
+            'lat' => $this->resource['lat'] ?? null,
+            'lng' => $this->resource['lng'] ?? null,
         ];
     }
 }

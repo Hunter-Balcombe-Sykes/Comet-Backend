@@ -260,50 +260,24 @@ it('skool connect 404s when the community cannot be read', function () {
         ->assertStatus(404);
 });
 
-// ── External link platforms (Ticketek / Square / Timely) ────────────────────
+// ── Removed link-only platforms (Ticketek / Square / Timely) ─────────────────
+// Dropped in v3: none could graduate past a bare URL (Ticketek's WAF blocks
+// automated reads; Square/Timely booking pages are empty JS shells). The
+// routes are gone entirely.
 
-it('stores ticketek, square, and timely as validated link cards', function () {
+it('no longer routes the removed link-only platforms', function () {
     $user = iv2User('lk1');
 
-    actingAsUser($user)->postJson('/api/platforms/ticketek/connect', [
-        'url' => 'https://premier.ticketek.com.au/shows/show.aspx?sh=MOCKTOUR26',
-        'label' => 'World Tour 2026',
-    ])
-        ->assertOk()
-        ->assertExactJson(['url' => 'https://premier.ticketek.com.au/shows/show.aspx?sh=MOCKTOUR26', 'label' => 'World Tour 2026']);
-
-    actingAsUser($user)->postJson('/api/platforms/square/connect', [
-        'url' => 'https://book.squareup.com/appointments/abc123/location',
-    ])
-        ->assertOk()
-        ->assertExactJson(['url' => 'https://book.squareup.com/appointments/abc123/location', 'label' => null]);
-
-    actingAsUser($user)->postJson('/api/platforms/timely/connect', [
-        'url' => 'https://book.gettimely.com/Booking/Location/238925',
-    ])
-        ->assertOk()
-        ->assertJsonPath('url', 'https://book.gettimely.com/Booking/Location/238925');
-
     foreach (['ticketek', 'square', 'timely'] as $platform) {
-        expect(IntegrationConnection::where('user_id', $user->id)->where('platform', $platform)->exists())->toBeTrue();
+        actingAsUser($user)->postJson("/api/platforms/{$platform}/connect", ['url' => 'https://example.com'])
+            ->assertNotFound();
     }
-});
-
-it('rejects link-card URLs on the wrong host', function () {
-    $user = iv2User('lk2');
-
-    actingAsUser($user)->postJson('/api/platforms/ticketek/connect', ['url' => 'https://ticketmaster.com/x'])
-        ->assertStatus(422);
-    actingAsUser($user)->postJson('/api/platforms/square/connect', ['url' => 'https://calendly.com/x'])
-        ->assertStatus(422);
-    actingAsUser($user)->postJson('/api/platforms/timely/connect', ['url' => 'https://gettimely.com/'])
-        ->assertStatus(422);
 });
 
 // ── Auth gates on the new routes ─────────────────────────────────────────────
 
 it('requires auth on every new platform route', function () {
-    foreach (['shop/brands', 'spotify/selection', 'soundcloud/selection', 'bandcamp/selection', 'humanitix/selection', 'skool/selection', 'ticketek/selection', 'square/selection', 'timely/selection'] as $path) {
+    foreach (['shop/brands', 'spotify/selection', 'soundcloud/selection', 'bandcamp/selection', 'humanitix/selection', 'skool/selection'] as $path) {
         $this->getJson("/api/platforms/{$path}")->assertUnauthorized();
     }
 });

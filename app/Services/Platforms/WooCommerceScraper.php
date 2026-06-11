@@ -25,8 +25,8 @@ class WooCommerceScraper extends PlatformScraper
      */
     public function probe(string $origin): bool
     {
-        $res = $this->fetcher->fetch($origin.self::PRODUCTS_PATH.'?per_page=1', ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($origin.self::PRODUCTS_PATH.'?per_page=1', ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return false;
         }
         $data = json_decode($res['body'], true);
@@ -48,7 +48,7 @@ class WooCommerceScraper extends PlatformScraper
         $name = data_get($root, 'name');
         $name = is_string($name) && trim($name) !== '' ? trim($name) : null;
 
-        $home = $this->fetcher->fetch($origin.'/', ['User-Agent' => self::USER_AGENT]);
+        $home = $this->fetcher->tryFetch($origin.'/', ['User-Agent' => self::USER_AGENT]);
         $html = $home['status'] === 200 ? $home['body'] : '';
 
         return [
@@ -69,9 +69,9 @@ class WooCommerceScraper extends PlatformScraper
      */
     public function fetchProducts(string $origin): array
     {
-        $res = $this->fetcher->fetch($origin.self::PRODUCTS_PATH.'?per_page=100', ['User-Agent' => self::USER_AGENT]);
+        $res = $this->fetcher->tryFetch($origin.self::PRODUCTS_PATH.'?per_page=100', ['User-Agent' => self::USER_AGENT]);
 
-        if ($res['status'] !== 200) {
+        if ($res === null || $res['status'] !== 200) {
             abort(502, "WooCommerce returned HTTP {$res['status']} for the Store API — it may be disabled.");
         }
 
@@ -126,8 +126,8 @@ class WooCommerceScraper extends PlatformScraper
 
     private function json(string $url): ?array
     {
-        $res = $this->fetcher->fetch($url, ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $data = json_decode($res['body'], true);

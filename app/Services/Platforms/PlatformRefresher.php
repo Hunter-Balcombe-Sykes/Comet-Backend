@@ -21,7 +21,9 @@ class PlatformRefresher
 {
     public const REFRESHABLE = [
         'youtube', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud',
+        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'tidal', 'mixcloud',
+        'vimeo', 'twitch', 'podcast', 'pinterest', 'booksy', 'calendly',
+        'quandoo', 'strava',
     ];
 
     public function __construct(
@@ -31,6 +33,17 @@ class PlatformRefresher
         private readonly AppleSearch $apple,
         private readonly BandcampScraper $bandcamp,
         private readonly OEmbedService $oembed,
+        private readonly DeezerApi $deezer,
+        private readonly TidalScraper $tidal,
+        private readonly MixcloudApi $mixcloud,
+        private readonly VimeoApi $vimeo,
+        private readonly TwitchScraper $twitch,
+        private readonly PodcastFeedService $podcast,
+        private readonly PinterestScraper $pinterest,
+        private readonly BooksyScraper $booksy,
+        private readonly CalendlyApi $calendly,
+        private readonly QuandooScraper $quandoo,
+        private readonly StravaClubScraper $strava,
     ) {}
 
     public function refresh(IntegrationConnection $connection): IntegrationConnection
@@ -50,6 +63,17 @@ class PlatformRefresher
             'bandcamp' => $this->bandcampPayload($payload),
             'spotify' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify'),
             'soundcloud' => $this->musicEmbedPayload($payload, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud'),
+            'deezer' => $this->deezerPayload($payload),
+            'tidal' => $this->tidalPayload($payload),
+            'mixcloud' => $this->mixcloudPayload($payload),
+            'vimeo' => $this->vimeoPayload($payload),
+            'twitch' => $this->twitchPayload($payload),
+            'podcast' => $this->podcastPayload($payload),
+            'pinterest' => $this->pinterestPayload($payload),
+            'booksy' => $this->scrapedCardPayload($payload, fn (string $url) => $this->booksy->fetchBusiness($url), 'booksy'),
+            'calendly' => $this->calendlyPayload($payload),
+            'quandoo' => $this->scrapedCardPayload($payload, fn (string $url) => $this->quandoo->fetchRestaurant($url), 'quandoo'),
+            'strava' => $this->scrapedCardPayload($payload, fn (string $url) => $this->strava->fetchClub($url), 'strava'),
             default => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
 
@@ -266,5 +290,217 @@ class PlatformRefresher
             'description' => $latest['description'],
             'link' => $latest['link'],
         ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function deezerPayload(array $payload): array
+    {
+        $id = $payload['artistId'] ?? null;
+        if (! $id) {
+            return ['payload' => null, 'error' => 'missing_key: artistId', 'status' => 'error'];
+        }
+        $artist = $this->deezer->fetchArtist((string) $id);
+        if ($artist === null) {
+            return ['payload' => null, 'error' => 'deezer_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        // Embed + link are stable; the name and artwork can change upstream.
+        return ['payload' => [
+            ...$payload,
+            'name' => $artist['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $artist['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function tidalPayload(array $payload): array
+    {
+        $link = $payload['link'] ?? $payload['url'] ?? null;
+        if (! $link) {
+            return ['payload' => null, 'error' => 'missing_key: link', 'status' => 'error'];
+        }
+        // og tags only — the oEmbed-resolved embed URL is stable. fetchMeta
+        // never fails hard; nulls keep the stored values.
+        $meta = $this->tidal->fetchMeta($link);
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $meta['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $meta['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function mixcloudPayload(array $payload): array
+    {
+        $username = $payload['username'] ?? null;
+        if (! $username) {
+            return ['payload' => null, 'error' => 'missing_key: username', 'status' => 'error'];
+        }
+        $profile = $this->mixcloud->fetchProfile($username);
+        if ($profile === null) {
+            return ['payload' => null, 'error' => 'mixcloud_fetch_failed', 'status' => 'unavailable'];
+        }
+        $shows = $this->mixcloud->fetchCloudcasts($username);
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $profile['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $profile['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'followers' => $profile['followers'] ?? ($payload['followers'] ?? null),
+            'latest' => $shows[0] ?? ($payload['latest'] ?? null),
+            'items' => $shows !== [] ? $shows : ($payload['items'] ?? []),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function vimeoPayload(array $payload): array
+    {
+        $apiPath = $payload['apiPath'] ?? null;
+        if (! $apiPath) {
+            return ['payload' => null, 'error' => 'missing_key: apiPath', 'status' => 'error'];
+        }
+        $videos = $this->vimeo->fetchVideos($apiPath);
+        if ($videos === []) {
+            return ['payload' => null, 'error' => 'vimeo_no_videos', 'status' => 'unavailable'];
+        }
+        $profile = $this->vimeo->fetchProfile($apiPath);
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $profile['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $profile['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'latest' => $videos[0],
+            'items' => array_slice($videos, 0, 12),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function twitchPayload(array $payload): array
+    {
+        $login = $payload['login'] ?? null;
+        if (! $login) {
+            return ['payload' => null, 'error' => 'missing_key: login', 'status' => 'error'];
+        }
+        $channel = $this->twitch->fetchChannel($login);
+        if ($channel === null) {
+            return ['payload' => null, 'error' => 'twitch_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $channel['name'] ?? ($payload['name'] ?? null),
+            'image' => $channel['image'] ?? ($payload['image'] ?? null),
+            'description' => $channel['description'] ?? ($payload['description'] ?? null),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function podcastPayload(array $payload): array
+    {
+        $feedUrl = $payload['url'] ?? null;
+        if (! $feedUrl) {
+            return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
+        }
+        $result = $this->podcast->fetchFromInput($feedUrl);
+        if ($result === null) {
+            return ['payload' => null, 'error' => 'podcast_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $result['show']['name'] ?? ($payload['name'] ?? null),
+            'thumbnail' => $result['show']['thumbnail'] ?? ($payload['thumbnail'] ?? null),
+            'description' => $result['show']['description'] ?? ($payload['description'] ?? null),
+            'link' => $result['show']['link'] ?? ($payload['link'] ?? null),
+            'latest' => $result['episodes'][0] ?? ($payload['latest'] ?? null),
+            'episodes' => $result['episodes'] !== [] ? $result['episodes'] : ($payload['episodes'] ?? []),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function pinterestPayload(array $payload): array
+    {
+        $username = $payload['username'] ?? null;
+        if (! $username) {
+            return ['payload' => null, 'error' => 'missing_key: username', 'status' => 'error'];
+        }
+        $profile = $this->pinterest->fetchProfile($username);
+        if ($profile === null) {
+            return ['payload' => null, 'error' => 'pinterest_fetch_failed', 'status' => 'unavailable'];
+        }
+        $pins = $this->pinterest->fetchPins($username);
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $profile['name'] ?? ($payload['name'] ?? null),
+            'image' => $profile['image'] ?? ($payload['image'] ?? null),
+            'followers' => $profile['followers'] ?? ($payload['followers'] ?? null),
+            'latest' => $pins[0] ?? ($payload['latest'] ?? null),
+            'items' => $pins !== [] ? $pins : ($payload['items'] ?? []),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function calendlyPayload(array $payload): array
+    {
+        $slug = $payload['slug'] ?? null;
+        if (! $slug) {
+            return ['payload' => null, 'error' => 'missing_key: slug', 'status' => 'error'];
+        }
+        $profile = $this->calendly->fetchProfile($slug);
+        if ($profile === null) {
+            return ['payload' => null, 'error' => 'calendly_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        return ['payload' => [
+            ...$payload,
+            'name' => $profile['name'] ?? ($payload['name'] ?? null),
+            'image' => $profile['image'] ?? ($payload['image'] ?? null),
+            'description' => $profile['description'] ?? ($payload['description'] ?? null),
+            'eventTypes' => $this->calendly->fetchEventTypes($slug) ?: ($payload['eventTypes'] ?? []),
+        ], 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * Booksy / Quandoo / Strava share the shape: one stored URL re-scraped
+     * into card fields that merge over the existing payload.
+     *
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function scrapedCardPayload(array $payload, callable $fetch, string $platform): array
+    {
+        $url = $payload['url'] ?? null;
+        if (! $url) {
+            return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
+        }
+        $card = $fetch($url);
+        if ($card === null) {
+            return ['payload' => null, 'error' => "{$platform}_fetch_failed", 'status' => 'unavailable'];
+        }
+
+        // Refresh every scraped field; nulls from the scrape keep stored values.
+        $merged = $payload;
+        foreach ($card as $key => $value) {
+            $merged[$key] = $value ?? ($payload[$key] ?? null);
+        }
+
+        return ['payload' => $merged, 'error' => null, 'status' => 'ok'];
     }
 }

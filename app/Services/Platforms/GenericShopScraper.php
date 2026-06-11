@@ -22,8 +22,8 @@ class GenericShopScraper extends PlatformScraper
      */
     public function fetchPage(string $url): ?array
     {
-        $res = $this->fetcher->fetch($url, ['User-Agent' => self::USER_AGENT]);
-        if ($res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $html = $res['body'];
