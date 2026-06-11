@@ -27,7 +27,12 @@ class HumanitixScraper extends PlatformScraper
      */
     public function resolveHostUrl(string $input): ?string
     {
-        $input = trim($input);
+        $input = PlatformInput::urlish($input);
+
+        // A bare host slug maps straight onto the canonical host page.
+        if (PlatformInput::isBareToken($input, '~^[a-z0-9-]{2,80}$~i')) {
+            return 'https://events.humanitix.com/host/'.strtolower(PlatformInput::token($input));
+        }
 
         if (preg_match('~^https?://(?:events\.)?humanitix\.com/host/([a-z0-9-]+)~i', $input, $m)) {
             return 'https://events.humanitix.com/host/'.strtolower($m[1]);

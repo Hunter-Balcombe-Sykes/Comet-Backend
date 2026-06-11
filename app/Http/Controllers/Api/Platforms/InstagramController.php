@@ -13,6 +13,7 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\PlatformInput;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -259,8 +260,12 @@ class InstagramController extends ApiController
     // caller forwards. (Apify token must be configured for any scrape.)
     private function validateUsername(Request $request): JsonResponse|string
     {
-        $validated = $request->validate(['username' => ['required', 'string', 'max:80']]);
-        $username = ltrim(trim($validated['username']), '@');
+        $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
+        // Accept a pasted profile URL (scheme optional) as well as @handle/handle.
+        $raw = PlatformInput::urlish(trim($validated['username']));
+        $username = preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $raw, $m)
+            ? $m[1]
+            : ltrim($raw, '@');
         if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
             return $this->error("That doesn't look like a valid Instagram username.", 422);
         }

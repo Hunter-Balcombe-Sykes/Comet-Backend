@@ -18,7 +18,7 @@ class PinterestScraper extends PlatformScraper
     /** Username from any pinterest.* profile URL or a bare handle. */
     public function parseUsername(string $input): ?string
     {
-        $input = trim($input);
+        $input = PlatformInput::urlish($input);
 
         if (preg_match('~^https?://(?:[a-z]{2,3}\.)?pinterest\.(?:com|com\.au|co\.uk|ca|fr|de|es|it|jp|nz)/([A-Za-z0-9_]{3,30})/?~i', $input, $m)) {
             $candidate = $m[1];

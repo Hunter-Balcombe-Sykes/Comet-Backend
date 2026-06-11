@@ -44,6 +44,7 @@ class ShopProviderDetector
      */
     public function detect(string $url): ?array
     {
+        $url = PlatformInput::urlish($url);
         $origin = $this->shopify->originOf($url);
         if (! $origin) {
             return null;

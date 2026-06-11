@@ -21,17 +21,37 @@ class WooCommerceScraper extends PlatformScraper
 
     /**
      * Cheap "is this a WooCommerce store?" probe — one product, smallest page.
-     * A JSON array response (even empty) means the Store API is live.
+     * A JSON array response (even empty) means the Store API is live. Tries
+     * the pretty /wp-json path first, then the ?rest_route= form (WP sites
+     * with plain permalinks 404 the pretty path but serve the query form).
      */
     public function probe(string $origin): bool
     {
-        $res = $this->fetcher->tryFetch($origin.self::PRODUCTS_PATH.'?per_page=1', ['User-Agent' => self::USER_AGENT]);
-        if ($res === null || $res['status'] !== 200) {
-            return false;
+        foreach ($this->storeApiUrls($origin, 'per_page=1') as $url) {
+            $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+            if ($res === null || $res['status'] !== 200) {
+                continue;
+            }
+            $data = json_decode($res['body'], true);
+            if (is_array($data) && array_is_list($data)) {
+                return true;
+            }
         }
-        $data = json_decode($res['body'], true);
 
-        return is_array($data) && array_is_list($data);
+        return false;
+    }
+
+    /**
+     * Both URL forms of the Store API products endpoint, pretty path first.
+     *
+     * @return list<string>
+     */
+    private function storeApiUrls(string $origin, string $query): array
+    {
+        return [
+            $origin.self::PRODUCTS_PATH.'?'.$query,
+            $origin.'/?rest_route='.rawurlencode('/wc/store/v1/products').'&'.$query,
+        ];
     }
 
     /**
@@ -69,17 +89,37 @@ class WooCommerceScraper extends PlatformScraper
      */
     public function fetchProducts(string $origin): array
     {
-        $res = $this->fetcher->tryFetch($origin.self::PRODUCTS_PATH.'?per_page=100', ['User-Agent' => self::USER_AGENT]);
+        $data = null;
+        $lastStatus = null;
+        foreach ($this->storeApiUrls($origin, 'per_page=100') as $url) {
+            $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+            if ($res === null || $res['status'] !== 200) {
+                $lastStatus = $res['status'] ?? 'no response';
 
-        if ($res === null || $res['status'] !== 200) {
-            abort(502, "WooCommerce returned HTTP {$res['status']} for the Store API — it may be disabled.");
+                continue;
+            }
+            $decoded = json_decode($res['body'], true);
+            if (is_array($decoded) && array_is_list($decoded)) {
+                $data = $decoded;
+                break;
+            }
         }
 
-        $data = json_decode($res['body'], true);
-        if (! is_array($data) || ! array_is_list($data)) {
-            abort(502, 'No Store API products found — this may not be a WooCommerce store.');
+        if ($data === null) {
+            abort(502, "WooCommerce returned HTTP {$lastStatus} for the Store API — it may be disabled or blocking server requests.");
         }
 
+        return $this->mapStoreApiProducts($data, $origin);
+    }
+
+    /**
+     * Raw Store-API products → the canonical product shape (shared by the
+     * server fetch above and the client-assisted path below).
+     *
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}>
+     */
+    public function mapStoreApiProducts(array $data, string $origin): array
+    {
         $out = [];
         foreach ($data as $product) {
             if (! is_array($product) || ! isset($product['id'])) {
@@ -102,6 +142,69 @@ class WooCommerceScraper extends PlatformScraper
         }
 
         return $out;
+    }
+
+    /**
+     * Client-assisted path: the dashboard fetched the store's public Store API
+     * from the BROWSER (the user's IP — works when the store's WAF blocks our
+     * datacenter egress) and posted the raw JSON. Same mapping as the server
+     * fetch, then hardened:
+     *   - permalinks pinned to the store's host (a posted catalog can't turn
+     *     the shop card into links to some other site)
+     *   - images must be http(s) URLs
+     *   - strings capped to sane lengths
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function productsFromClient(string $origin, array $rawProducts): array
+    {
+        $host = strtolower((string) parse_url($origin, PHP_URL_HOST));
+        $bareHost = preg_replace('~^www\.~', '', $host);
+
+        $out = [];
+        foreach ($this->mapStoreApiProducts($rawProducts, $origin) as $product) {
+            $permalinkHost = strtolower((string) parse_url($product['url'], PHP_URL_HOST));
+            if ($permalinkHost === '' || preg_replace('~^www\.~', '', $permalinkHost) !== $bareHost) {
+                continue;
+            }
+            if ($product['image'] !== null
+                && ! preg_match('~^https?://~i', (string) $product['image'])) {
+                $product['image'] = null;
+            }
+
+            $product['productId'] = mb_substr($product['productId'], 0, 64);
+            $product['variantId'] = mb_substr($product['variantId'], 0, 64);
+            $product['title'] = mb_substr($product['title'], 0, 300);
+            $product['handle'] = mb_substr($product['handle'], 0, 200);
+            if ($product['currency'] !== null && ! preg_match('~^[A-Z]{3}$~', (string) $product['currency'])) {
+                $product['currency'] = null;
+            }
+
+            $out[] = $product;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Brand profile from a client-posted WP root payload. No server fetches —
+     * the store blocks us; the favicon default resolves in the visitor's
+     * browser instead.
+     *
+     * @return array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}
+     */
+    public function brandFromClient(string $origin, ?array $root): array
+    {
+        $name = is_array($root) ? data_get($root, 'name') : null;
+        $name = is_string($name) && trim($name) !== '' ? mb_substr(trim($name), 0, 200) : null;
+
+        return [
+            'id' => preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST))),
+            'name' => $name,
+            'currency' => null,
+            'favicon' => $origin.'/favicon.ico',
+            'logo' => null,
+        ];
     }
 
     /**

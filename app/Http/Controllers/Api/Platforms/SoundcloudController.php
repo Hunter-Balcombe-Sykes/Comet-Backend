@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSoundcloudRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -77,8 +78,15 @@ class SoundcloudController extends ApiController
     /** soundcloud.com path (≤3 segments) → canonical https link, else null. */
     private function canonicalUrl(string $url): ?string
     {
-        if (preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+(?:/[a-z0-9_-]+){0,2})~i', trim($url), $m)) {
+        $url = PlatformInput::urlish($url);
+
+        if (preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+(?:/[a-z0-9_-]+){0,2})~i', $url, $m)) {
             return 'https://soundcloud.com'.strtolower(rtrim($m[1], '/'));
+        }
+
+        // A bare profile name maps straight onto soundcloud.com/{name}.
+        if (PlatformInput::isBareToken($url, '~^[a-z0-9_-]{3,40}$~i')) {
+            return 'https://soundcloud.com/'.strtolower(PlatformInput::token($url));
         }
 
         return null;

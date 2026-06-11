@@ -16,7 +16,7 @@ class ConnectSkoolRequest extends FormRequest
     {
         return [
             // A skool.com community URL.
-            'url' => ['required', 'string', 'max:500', 'regex:~^https?://(?:www\.)?skool\.com/[a-z0-9][a-z0-9-]*~i'],
+            'url' => ['required', 'string', 'max:500'],
         ];
     }
 }

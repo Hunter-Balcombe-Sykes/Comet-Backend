@@ -12,6 +12,15 @@ class ConnectFreshaRequest extends FormRequest
         return true;
     }
 
+    // Scheme-less pastes ("fresha.com/a/…") are normalised before the regex
+    // rule runs.
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('url'))) {
+            $this->merge(['url' => \App\Services\Platforms\PlatformInput::urlish((string) $this->input('url'))]);
+        }
+    }
+
     public function rules(): array
     {
         return [

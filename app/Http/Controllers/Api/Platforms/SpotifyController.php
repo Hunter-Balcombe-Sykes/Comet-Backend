@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSpotifyRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -80,7 +81,7 @@ class SpotifyController extends ApiController
     /** @return array{0:string, 1:string}|null [type, id] from any entity link. */
     private function parseEntity(string $url): ?array
     {
-        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|album|playlist|track|show|episode|user)/([A-Za-z0-9]+)~i', trim($url), $m)) {
+        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|album|playlist|track|show|episode|user)/([A-Za-z0-9]+)~i', PlatformInput::urlish($url), $m)) {
             return [strtolower($m[1]), $m[2]];
         }
 

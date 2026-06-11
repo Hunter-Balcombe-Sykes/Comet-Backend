@@ -17,7 +17,7 @@ class EventbriteScraper extends PlatformScraper
     // Accept a full Eventbrite organiser URL → canonical /o/<slug-id> form, else null.
     public function normalizeOrgUrl(string $input): ?string
     {
-        if (preg_match('~https?://(?:www\.)?eventbrite\.[a-z.]+/o/[a-z0-9-]+~i', trim($input), $m)) {
+        if (preg_match('~https?://(?:www\.)?eventbrite\.[a-z.]+/o/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
             return $m[0];
         }
 
