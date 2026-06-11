@@ -48,6 +48,16 @@ function gbPlaceDetailsResponse(): array
             'weekdayDescriptions' => ['Monday: 9:00 AM – 5:00 PM'],
             'periods' => [['open' => ['day' => 1, 'hour' => 9, 'minute' => 0], 'close' => ['day' => 1, 'hour' => 17, 'minute' => 0]]],
         ],
+        'currentOpeningHours' => [
+            'weekdayDescriptions' => ["Monday: Closed (King's Birthday)", 'Tuesday: 9:00 AM – 5:00 PM'],
+        ],
+        'postalAddress' => [
+            'addressLines' => ['12 Example St'],
+            'locality' => 'Melbourne',
+            'administrativeArea' => 'VIC',
+            'postalCode' => '3000',
+            'regionCode' => 'AU',
+        ],
         'editorialSummary' => ['text' => 'A neighbourhood barber shop.'],
         'reviewSummary' => ['text' => ['text' => 'People love the fades.']],
         'reviews' => array_map(fn (int $i) => [
@@ -78,7 +88,15 @@ function gbPlaceDetailsResponse(): array
 
 it('enriches a picker connect with the place details snapshot', function () {
     config(['services.google_maps.server_api_key' => 'server-key']);
-    Http::fake(['places.googleapis.com/*' => Http::response(gbPlaceDetailsResponse())]);
+    Http::fake([
+        // Order matters: specific media + street view patterns before the
+        // details catch-all.
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg']),
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response([
+            'status' => 'OK', 'pano_id' => 'pano123', 'location' => ['lat' => -37.8123, 'lng' => 144.9601],
+        ]),
+        'places.googleapis.com/*' => Http::response(gbPlaceDetailsResponse()),
+    ]);
     $user = gbDetailsUser('gbd1');
 
     $res = actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
@@ -112,14 +130,20 @@ it('enriches a picker connect with the place details snapshot', function () {
         ->where('user_id', $user->id)->where('platform', 'google-business')
         ->firstOrFail()->payload;
     expect($payload['reviews'])->toHaveCount(5);    // capped
-    expect($payload['photos'])->toHaveCount(10);    // capped, never exposed
+    expect($payload['photos'])->toHaveCount(10);    // capped
+    expect($payload['photos'][0]['url'])->toBe('https://lh3.example/resolved.jpg');    // resolved media URL
+    expect($payload['streetView']['panoId'])->toBe('pano123');
+    expect($payload['currentHours']['weekdays'])->toHaveCount(2);   // holiday-aware variant
+    expect($payload['addressParts']['postcode'])->toBe('3000');
     expect($payload['amenities']['outdoorSeating'])->toBeFalse();   // false ≠ absent
     expect($payload['amenities']['serves']['coffee'])->toBeTrue();
     expect($payload['reviewSummary'])->toBe('People love the fades.');
     expect($payload)->toHaveKey('detailsFetchedAt');
 
-    // …while the connect response (dashboard shape) hides photos.
-    expect($res->json())->not->toHaveKey('photos');
+    // …and the connect response (dashboard shape) carries the gallery +
+    // street view too. The PUBLIC allowlist still strips both.
+    expect($res->json('photos.0.url'))->toBe('https://lh3.example/resolved.jpg');
+    expect($res->json('streetView.panoId'))->toBe('pano123');
 });
 
 it('keeps the plain picker selection when no server key is configured', function () {
@@ -154,7 +178,12 @@ it('keeps the picker selection when the details fetch fails', function () {
 
 it('refreshes a stale google business connection via place details', function () {
     config(['services.google_maps.server_api_key' => 'server-key']);
-    Http::fake(['places.googleapis.com/*' => Http::response(gbPlaceDetailsResponse())]);
+    Http::fake([
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg']),
+        // No outdoor pano here — exercises the streetView-absent path.
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response(gbPlaceDetailsResponse()),
+    ]);
     $user = gbDetailsUser('gbd4');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
@@ -171,6 +200,8 @@ it('refreshes a stale google business connection via place details', function ()
     expect($conn->payload['name'])->toBe('Fade Lab Barbers');
     expect($conn->payload['rating'])->toBe(4.8);
     expect($conn->payload['placeId'])->toBe('ChIJtest');    // preserved through the merge
+    expect($conn->payload['photos'][0]['url'])->toBe('https://lh3.example/resolved.jpg');
+    expect($conn->payload)->not->toHaveKey('streetView');   // ZERO_RESULTS → absent
     expect($conn->payload)->toHaveKey('detailsFetchedAt');
 });
 

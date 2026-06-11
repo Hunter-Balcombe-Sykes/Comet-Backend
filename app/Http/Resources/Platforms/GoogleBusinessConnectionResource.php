@@ -16,12 +16,14 @@ use Illuminate\Http\Request;
  */
 class GoogleBusinessConnectionResource extends ApiResource
 {
-    // photos stay internal — refs are unrenderable without a billed media
-    // call; a future design pass resolves + exposes them.
+    // photos carry resolved image URLs (refreshed weekly) — exposed to the
+    // dashboard here; the PUBLIC sitepage allowlist still excludes them until
+    // the sitepage design pass renders a gallery.
     private const ENRICHMENT_KEYS = [
         'placeId', 'businessStatus', 'category', 'phone', 'phoneIntl', 'website',
-        'rating', 'reviewCount', 'hours', 'links', 'priceLevel', 'priceRange',
-        'editorialSummary', 'reviewSummary', 'reviews', 'amenities', 'detailsFetchedAt',
+        'rating', 'reviewCount', 'hours', 'currentHours', 'addressParts', 'links',
+        'priceLevel', 'priceRange', 'editorialSummary', 'reviewSummary', 'reviews',
+        'amenities', 'photos', 'streetView', 'detailsFetchedAt',
     ];
 
     /**
