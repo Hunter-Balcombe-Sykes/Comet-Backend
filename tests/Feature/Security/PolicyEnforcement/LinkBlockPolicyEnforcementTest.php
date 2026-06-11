@@ -7,6 +7,7 @@ use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -22,7 +23,7 @@ it('allows the owner to update their own link block', function () {
     // Wire the route binding so prepareForValidation can extract the block UUID,
     // then run validation before the controller — mirrors how the HTTP stack works.
     $formReq = UpdateLinkBlockRequest::createFrom($req);
-    $formReq->setRouteResolver(fn () => tap(new \Illuminate\Routing\Route('PATCH', '/', []), function ($route) use ($block) {
+    $formReq->setRouteResolver(fn () => tap(new Route('PATCH', '/', []), function ($route) use ($block) {
         $route->bind(request());
         $route->setParameter('linkBlock', $block);
     }));
@@ -79,7 +80,7 @@ it('allows the owner to delete their own link block', function () {
 
     // Wire the route binding so prepareForValidation can extract the block UUID.
     $formReq = DestroyLinkBlockRequest::createFrom($req);
-    $formReq->setRouteResolver(fn () => tap(new \Illuminate\Routing\Route('DELETE', '/', []), function ($route) use ($block) {
+    $formReq->setRouteResolver(fn () => tap(new Route('DELETE', '/', []), function ($route) use ($block) {
         $route->bind(request());
         $route->setParameter('linkBlock', $block);
     }));
@@ -100,7 +101,7 @@ it('blocks a non-owner from deleting a link block with 404', function () {
     // destroy() calls validated() before the policy check, so we must resolve
     // the validator first — same pattern as the happy-path tests above.
     $formReq = DestroyLinkBlockRequest::createFrom($req);
-    $formReq->setRouteResolver(fn () => tap(new \Illuminate\Routing\Route('DELETE', '/', []), function ($route) use ($block) {
+    $formReq->setRouteResolver(fn () => tap(new Route('DELETE', '/', []), function ($route) use ($block) {
         $route->bind(request());
         $route->setParameter('linkBlock', $block);
     }));
@@ -126,7 +127,7 @@ it('blocks pending-deletion professional from creating a link block (423)', func
 
     $req = tenantRequestAs($pro, [
         'title' => 'My Link',
-        'url'   => 'https://example.com',
+        'url' => 'https://example.com',
     ], 'POST');
 
     try {
@@ -142,8 +143,8 @@ it('allows active professional to create a link block (no 423 thrown)', function
     $pro = createTenant('lb-store-active');
 
     $req = tenantRequestAs($pro, [
-        'title'    => 'My Link',
-        'url'      => 'https://example.com',
+        'title' => 'My Link',
+        'url' => 'https://example.com',
         'category' => 'other',
     ], 'POST');
     $req->headers->set('Accept', 'application/json');

@@ -7,6 +7,7 @@ use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\User\User;
 use App\Policies\NotificationPolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new NotificationPolicy;
@@ -47,7 +48,7 @@ it('denies view with 404 when the targeted notification belongs to another profe
 
     $result = $this->policy->view($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -68,7 +69,7 @@ it('denies view with 404 when the actor does not own the NotificationEmailPrefer
 
     $result = $this->policy->view($actor, $pref);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -85,7 +86,7 @@ it('denies view with 404 when the actor does not own the EmailSubscription', fun
 
     $result = $this->policy->view($actor, $sub);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -106,7 +107,7 @@ it('denies update with 404 when the actor does not own the resource', function (
 
     $result = $this->policy->update($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -116,7 +117,7 @@ it('denies update with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->update($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -128,7 +129,7 @@ it('denies update with 404 when a global notification (user_id null) is passed',
 
     $result = $this->policy->update($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -149,7 +150,7 @@ it('denies delete with 404 when the actor does not own the resource', function (
 
     $result = $this->policy->delete($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -159,7 +160,7 @@ it('denies delete with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->delete($actor, $notification);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -178,7 +179,7 @@ it('denies view on NotificationEmailPolicy with 404 for non-owner', function () 
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $pref = new NotificationEmailPolicy(['user_id' => 'pro-other']);
     $result = $this->policy->view($actor, $pref);
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -196,6 +197,6 @@ it('denies view on NotificationReceipt with 404 for non-owner', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
     $receipt = new NotificationReceipt(['user_id' => 'pro-other']);
     $result = $this->policy->view($actor, $receipt);
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });

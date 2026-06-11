@@ -5,7 +5,6 @@ use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
-use App\Notifications\Moderation\ReportOutcomeNotification;
 use Illuminate\Support\Facades\Notification;
 
 beforeEach(function () {
@@ -21,7 +20,7 @@ it('sends ReportOutcomeNotification to all reporters with reporter_email', funct
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => null]); // anonymous — skipped
 
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_site']);
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
 
     (new NotifyReporterJob($entry->id, $case->id))->handle();
 
@@ -32,10 +31,10 @@ it('sends ReportOutcomeNotification to all reporters with reporter_email', funct
 
 it('skips when all reporters were anonymous', function () {
     Notification::fake();
-    $case     = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => null]);
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
 
     (new NotifyReporterJob($entry->id, $case->id))->handle();
 
@@ -45,11 +44,11 @@ it('skips when all reporters were anonymous', function () {
 
 it('deduplicates when same email appears multiple times', function () {
     Notification::fake();
-    $case     = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => 'dupe@example.com']);
     CaseSignal::factory()->forCase($case)->create(['reporter_email' => 'dupe@example.com']); // duplicate
     $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
-    $entry    = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reporter']);
 
     (new NotifyReporterJob($entry->id, $case->id))->handle();
 

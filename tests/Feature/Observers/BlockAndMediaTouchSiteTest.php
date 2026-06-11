@@ -2,6 +2,7 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
@@ -190,7 +191,7 @@ it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJ
     $fixture = seedTouchFixture();
     Queue::fake();
 
-    \App\Models\Core\Site\Site::find($fixture['site_id'])->touch();
+    Site::find($fixture['site_id'])->touch();
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
         return $job->handle === 'touchtest';

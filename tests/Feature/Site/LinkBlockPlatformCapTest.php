@@ -19,10 +19,11 @@
  * runs in shared code — both subclasses must resolve the right professional.
  */
 
-use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\Staff\UserSite\Links\StaffStoreLinkRequest;
+use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\MessageBag;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Validator;
 
@@ -55,10 +56,10 @@ function seedCappedLinks(string $userId, string $siteId, int $count, string $cat
  * Run withValidator's after-callbacks against the given FormRequest.
  * Returns the resulting error bag.
  */
-function runStoreLinkValidator(StoreLinkBlockRequest $request): \Illuminate\Support\MessageBag
+function runStoreLinkValidator(StoreLinkBlockRequest $request): MessageBag
 {
     /** @var Validator $validator */
-    $validator = \Illuminate\Support\Facades\Validator::make($request->all(), $request->rules());
+    $validator = Illuminate\Support\Facades\Validator::make($request->all(), $request->rules());
     $request->withValidator($validator);
     $validator->fails(); // triggers `after` callbacks
 

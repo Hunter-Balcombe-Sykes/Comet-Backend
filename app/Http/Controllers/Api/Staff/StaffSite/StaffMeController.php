@@ -12,7 +12,7 @@ class StaffMeController extends ApiController
     public function show(Request $request)
     {
         return $this->success([
-            'uid'   => $request->attributes->get('supabase_uid'),
+            'uid' => $request->attributes->get('supabase_uid'),
             'staff' => new PartnaStaffResource($request->attributes->get('partna_staff')),
         ]);
     }

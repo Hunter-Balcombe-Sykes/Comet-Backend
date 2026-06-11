@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\UpdateVisibilityRequest;
 use App\Http\Resources\SiteResource;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
 // V2: Toggles whether a professional's mini-site is publicly published or hidden.

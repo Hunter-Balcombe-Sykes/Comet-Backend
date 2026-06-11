@@ -6,8 +6,8 @@ use App\Exceptions\Gdpr\DataExportInProgressException;
 use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Jobs\Gdpr\ExportUserDataJob;
 use App\Models\Core\Gdpr\DataExportAudit;
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 
 // V2: Single dispatch entry point for professional data exports. Inserts the

@@ -14,16 +14,16 @@ class CaseFactory extends Factory
     public function definition(): array
     {
         return [
-            'id'                       => Str::uuid()->toString(),
-            'case_type'                => 'content_report',
-            'reportable_type'          => 'Site',
-            'reportable_id'            => Str::uuid()->toString(),
+            'id' => Str::uuid()->toString(),
+            'case_type' => 'content_report',
+            'reportable_type' => 'Site',
+            'reportable_id' => Str::uuid()->toString(),
             'reportable_owner_user_id' => null,
-            'severity'                 => 2,
-            'status'                   => 'open',
-            'signal_count'             => 1,
-            'auto_actioned'            => false,
-            'priority'                 => 5,
+            'severity' => 2,
+            'status' => 'open',
+            'signal_count' => 1,
+            'auto_actioned' => false,
+            'priority' => 5,
         ];
     }
 
@@ -50,11 +50,11 @@ class CaseFactory extends Factory
     public function csamMatch(): self
     {
         return $this->state(fn () => [
-            'case_type'     => 'csam_match',
-            'severity'      => 5,
-            'status'        => 'auto_actioned',
+            'case_type' => 'csam_match',
+            'severity' => 5,
+            'status' => 'auto_actioned',
             'auto_actioned' => true,
-            'priority'      => 1,
+            'priority' => 1,
         ]);
     }
 }

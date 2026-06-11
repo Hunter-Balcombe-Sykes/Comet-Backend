@@ -9,6 +9,7 @@ use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 beforeEach(function () {
     attachTestSchemas();
@@ -150,7 +151,7 @@ it('markReadForProfessional returns 404 when the notification belongs to a diffe
     $controller = new StaffNotificationController(app(NotificationListingService::class));
 
     expect(fn () => $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $notification))
-        ->toThrow(Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+        ->toThrow(NotFoundHttpException::class);
 });
 
 it('global broadcasts are visible to staff acting on behalf of any pro', function () {

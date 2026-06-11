@@ -20,26 +20,28 @@ use Illuminate\Support\Facades\DB;
 class ModerationReverseDecisionCommand extends Command
 {
     protected $signature = 'moderation:reverse-decision {decision_id} {--reason=}';
+
     protected $description = 'Reverse a prior decision (pre-appeals stop-gap); creates a new decision with supersedes_decision_id.';
 
     public function handle(ModerationAuditService $audit): int
     {
-        $reason   = $this->option('reason') ?: 'unspecified';
+        $reason = $this->option('reason') ?: 'unspecified';
         $original = Decision::query()->find($this->argument('decision_id'));
 
         if ($original === null) {
             $this->error('Decision not found.');
+
             return self::FAILURE;
         }
 
         DB::transaction(function () use ($original, $audit, $reason) {
             $reversal = Decision::create([
-                'case_id'                => $original->case_id,
-                'decision_type'          => 'dismiss',
-                'reason'                 => "Reversal of {$original->id}: {$reason}",
-                'decided_by_staff_id'    => null,
-                'decided_by_system'      => true,
-                'auto_actioned'          => false,
+                'case_id' => $original->case_id,
+                'decision_type' => 'dismiss',
+                'reason' => "Reversal of {$original->id}: {$reason}",
+                'decided_by_staff_id' => null,
+                'decided_by_system' => true,
+                'auto_actioned' => false,
                 'supersedes_decision_id' => $original->id,
             ]);
 
@@ -52,6 +54,7 @@ class ModerationReverseDecisionCommand extends Command
         });
 
         $this->info('Decision reversed.');
+
         return self::SUCCESS;
     }
 }

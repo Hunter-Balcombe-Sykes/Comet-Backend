@@ -1,8 +1,9 @@
 <?php
 
 use App\Models\Core\Staff\StaffAuditEntry;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class);
+uses(TestCase::class);
 
 it('uses the audit.staff_audit_log table', function () {
     expect((new StaffAuditEntry)->getTable())->toBe('audit.staff_audit_log');

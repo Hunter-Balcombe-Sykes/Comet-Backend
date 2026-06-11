@@ -3,9 +3,12 @@
 use App\Jobs\Notifications\SyncCustomerMarketingOptInJob;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -134,38 +137,38 @@ it('B3/P1-10 job: is a no-op when the EmailSubscription row no longer exists', f
 // B3/P1-11 — failed() log context must NOT contain the customer email; keep
 // user_id + subscription_id for correlation.
 it('JOB-3 + B3/P1-11: failed() reports exception and logs UUIDs only (no email)', function () {
-    \Illuminate\Support\Facades\Log::spy();
+    Log::spy();
 
-    $exception = new \RuntimeException('boom');
+    $exception = new RuntimeException('boom');
     $reported = null;
-    app()->bind(\Illuminate\Contracts\Debug\ExceptionHandler::class, function () use (&$reported) {
-        return new class($reported) implements \Illuminate\Contracts\Debug\ExceptionHandler
+    app()->bind(ExceptionHandler::class, function () use (&$reported) {
+        return new class($reported) implements ExceptionHandler
         {
             public function __construct(public &$captured) {}
 
-            public function report(\Throwable $e): void
+            public function report(Throwable $e): void
             {
                 $this->captured = $e;
             }
 
-            public function shouldReport(\Throwable $e): bool
+            public function shouldReport(Throwable $e): bool
             {
                 return true;
             }
 
-            public function render($request, \Throwable $e): \Symfony\Component\HttpFoundation\Response
+            public function render($request, Throwable $e): Response
             {
-                return new \Symfony\Component\HttpFoundation\Response;
+                return new Response;
             }
 
-            public function renderForConsole($output, \Throwable $e): void {}
+            public function renderForConsole($output, Throwable $e): void {}
         };
     });
 
     (new SyncCustomerMarketingOptInJob('p1', 'sub-id-1'))->failed($exception);
 
     expect($reported)->toBe($exception);
-    \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
+    Log::shouldHaveReceived('error')
         ->once()
         ->withArgs(function (string $message, array $context) {
             return $message === 'notifications.sync_customer_marketing_opt_in.failed'

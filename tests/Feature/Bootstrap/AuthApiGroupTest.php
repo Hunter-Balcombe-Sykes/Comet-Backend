@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
@@ -8,7 +9,7 @@ beforeEach(function () {
     // Register a test route that requires the full user.api group and returns
     // the resolved professional's ID so we can confirm all three middleware ran.
     Route::middleware(['user.api'])
-        ->get('/__test/auth-api-group', function (\Illuminate\Http\Request $request) {
+        ->get('/__test/auth-api-group', function (Request $request) {
             return response()->json(['user_id' => $request->get('professional')->id]);
         });
 });

@@ -2,8 +2,8 @@
 
 namespace Database\Factories\Moderation;
 
-use App\Models\Moderation\ModerationCase;
 use App\Models\Moderation\CaseSignal;
+use App\Models\Moderation\ModerationCase;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -14,16 +14,16 @@ class CaseSignalFactory extends Factory
     public function definition(): array
     {
         return [
-            'id'               => Str::uuid()->toString(),
-            'case_id'          => ModerationCase::factory(),
-            'signal_source'    => 'content_report',
-            'signal_data'      => [],
+            'id' => Str::uuid()->toString(),
+            'case_id' => ModerationCase::factory(),
+            'signal_source' => 'content_report',
+            'signal_data' => [],
             'reporter_user_id' => null,
-            'reporter_email'   => null,
+            'reporter_email' => null,
             'reporter_ip_hash' => hash('sha256', '127.0.0.1:salt'),
-            'reason_code'      => 'spam',
-            'reason_details'   => null,
-            'dedup_hash'       => hash('sha256', Str::uuid()->toString()),
+            'reason_code' => 'spam',
+            'reason_details' => null,
+            'dedup_hash' => hash('sha256', Str::uuid()->toString()),
         ];
     }
 
@@ -36,7 +36,7 @@ class CaseSignalFactory extends Factory
     {
         return $this->state(fn () => [
             'signal_source' => 'csam_scan',
-            'reason_code'   => 'auto_csam_hash_match',
+            'reason_code' => 'auto_csam_hash_match',
         ]);
     }
 }

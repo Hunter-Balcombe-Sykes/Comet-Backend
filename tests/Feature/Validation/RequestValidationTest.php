@@ -1,14 +1,15 @@
 <?php
 
 use App\Http\Requests\Api\BootstrapRequest;
+use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
+use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
+use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;
 use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
-use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
-use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
-use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -124,7 +125,7 @@ it('rejects invalid link block update payload', function () {
 
     $request = Request::create('/api/test', 'PATCH', $payload);
     $request->setRouteResolver(function () {
-        $route = new Illuminate\Routing\Route(['PATCH'], '/api/test', []);
+        $route = new Route(['PATCH'], '/api/test', []);
         $route->parameters = ['linkBlock' => 'not-a-uuid'];
 
         return $route;

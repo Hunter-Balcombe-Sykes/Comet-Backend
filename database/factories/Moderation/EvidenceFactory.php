@@ -2,8 +2,8 @@
 
 namespace Database\Factories\Moderation;
 
-use App\Models\Moderation\ModerationCase;
 use App\Models\Moderation\Evidence;
+use App\Models\Moderation\ModerationCase;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -14,12 +14,12 @@ class EvidenceFactory extends Factory
     public function definition(): array
     {
         return [
-            'id'            => Str::uuid()->toString(),
-            'case_id'       => ModerationCase::factory(),
-            'signal_id'     => null,
+            'id' => Str::uuid()->toString(),
+            'case_id' => ModerationCase::factory(),
+            'signal_id' => null,
             'evidence_type' => 'content_snapshot',
-            'payload'       => ['placeholder' => true],
-            'content_hash'  => hash('sha256', Str::uuid()->toString()),
+            'payload' => ['placeholder' => true],
+            'content_hash' => hash('sha256', Str::uuid()->toString()),
         ];
     }
 
@@ -32,7 +32,7 @@ class EvidenceFactory extends Factory
     {
         return $this->state(fn () => [
             'evidence_type' => 'csam_hash_match',
-            'payload'       => ['match_database' => 'NCMEC', 'confidence' => 'exact'],
+            'payload' => ['match_database' => 'NCMEC', 'confidence' => 'exact'],
         ]);
     }
 }

@@ -1,6 +1,8 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('moderation.enabled is a boolean, not a raw env string', function () {
     // Verifies the (bool) cast is in place — the value must be a native boolean

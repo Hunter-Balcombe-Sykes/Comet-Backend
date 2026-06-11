@@ -1,8 +1,9 @@
 <?php
 
 use App\Services\FeatureFlags\FeatureFlagService;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class);
+uses(TestCase::class);
 
 it('feature() helper delegates to FeatureFlagService', function () {
     $mock = $this->mock(FeatureFlagService::class);

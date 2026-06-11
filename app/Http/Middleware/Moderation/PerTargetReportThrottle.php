@@ -22,13 +22,13 @@ class PerTargetReportThrottle
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $cap    = config('partna.moderation.reporting.per_target_throttle.requests', 3);
+        $cap = config('partna.moderation.reporting.per_target_throttle.requests', 3);
         $window = config('partna.moderation.reporting.per_target_throttle.window_minutes', 60);
 
-        $ipHash = hash('sha256', $request->ip() . '|' . config('app.key'));
-        $type   = $request->input('target_type', 'unknown');
+        $ipHash = hash('sha256', $request->ip().'|'.config('app.key'));
+        $type = $request->input('target_type', 'unknown');
         $handle = strtolower((string) $request->input('target_handle', 'unknown'));
-        $key    = "moderation:report:ip:{$ipHash}:target:{$type}:{$handle}";
+        $key = "moderation:report:ip:{$ipHash}:target:{$type}:{$handle}";
 
         $count = (int) Redis::incr($key);
         if ($count === 1) {
@@ -37,8 +37,8 @@ class PerTargetReportThrottle
 
         if ($count > $cap) {
             return response()->json([
-                'error'   => 'TARGET_RATE_LIMITED',
-                'message' => "Hold on a sec — try again later.",
+                'error' => 'TARGET_RATE_LIMITED',
+                'message' => 'Hold on a sec — try again later.',
             ], 429);
         }
 

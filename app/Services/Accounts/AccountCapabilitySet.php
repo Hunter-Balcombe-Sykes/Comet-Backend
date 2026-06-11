@@ -26,8 +26,8 @@ final readonly class AccountCapabilitySet
      *                                 are already under moderation action so new public reports
      *                                 are suppressed (Plan B, T&S foundation).
      * @param  bool  $receive_moderation_notifications  True only for active accounts. Suspended
-     *                                                   or banned users do not receive email/push
-     *                                                   moderation notifications.
+     *                                                  or banned users do not receive email/push
+     *                                                  moderation notifications.
      */
     public function __construct(
         public bool $can_edit_design,

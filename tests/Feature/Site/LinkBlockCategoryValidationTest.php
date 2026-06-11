@@ -3,6 +3,7 @@
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -31,7 +32,7 @@ function validateUpdateRequestCategory(array $payload, ?string $blockId = null):
 {
     $request = Request::create('/api/test', 'PATCH', $payload);
     $request->setRouteResolver(function () use ($blockId) {
-        $route = new Illuminate\Routing\Route(['PATCH'], '/api/test', []);
+        $route = new Route(['PATCH'], '/api/test', []);
         $route->parameters = ['linkBlock' => $blockId ?? (string) Str::uuid()];
 
         return $route;

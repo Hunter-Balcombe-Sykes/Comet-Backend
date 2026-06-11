@@ -9,6 +9,7 @@ use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Mail\Mailable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
@@ -199,11 +200,11 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
         ]);
     }
 
-    private function buildMailable(Notification $notification, string $class): ?\Illuminate\Mail\Mailable
+    private function buildMailable(Notification $notification, string $class): ?Mailable
     {
         $mailable = new $class($notification);
 
-        if (! $mailable instanceof \Illuminate\Mail\Mailable) {
+        if (! $mailable instanceof Mailable) {
             return null;
         }
 

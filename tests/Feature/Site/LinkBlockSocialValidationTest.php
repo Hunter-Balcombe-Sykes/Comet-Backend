@@ -4,6 +4,7 @@ use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Services\Site\SocialLinkNormalizer;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -39,7 +40,7 @@ function validateUpdateRequest(array $payload, ?string $blockId = null): array
 {
     $request = Request::create('/api/test', 'PATCH', $payload);
     $request->setRouteResolver(function () use ($blockId) {
-        $route = new Illuminate\Routing\Route(['PATCH'], '/api/test', []);
+        $route = new Route(['PATCH'], '/api/test', []);
         $route->parameters = ['linkBlock' => $blockId ?? (string) Str::uuid()];
 
         return $route;

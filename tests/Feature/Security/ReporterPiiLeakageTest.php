@@ -28,10 +28,10 @@ it('does not write raw IP into the audit log', function () {
     Site::factory()->for($user, 'user')->create();
 
     $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.99'])->postJson('/api/v1/public/report', [
-        'target_type'     => 'Site',
-        'target_handle'   => 'joeplumber',
-        'reason_code'     => 'spam',
-        'reporter_email'  => 'leak@example.com',
+        'target_type' => 'Site',
+        'target_handle' => 'joeplumber',
+        'reason_code' => 'spam',
+        'reporter_email' => 'leak@example.com',
         'turnstile_token' => 'cf',
     ])->assertStatus(202);
 
@@ -46,7 +46,7 @@ it('does not write raw IP into the audit log', function () {
 it('does not log reporter PII via Log facade', function () {
     // Attach a Monolog TestHandler so we can inspect every record that flows through
     // the logger during the request. This avoids fighting Mockery's spy API.
-    $testHandler = new TestHandler();
+    $testHandler = new TestHandler;
     $monolog = Log::getLogger();
     $monolog->pushHandler($testHandler);
 
@@ -54,10 +54,10 @@ it('does not log reporter PII via Log facade', function () {
     Site::factory()->for($user, 'user')->create();
 
     $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.99'])->postJson('/api/v1/public/report', [
-        'target_type'     => 'Site',
-        'target_handle'   => 'joeplumber2',
-        'reason_code'     => 'spam',
-        'reporter_email'  => 'leak@example.com',
+        'target_type' => 'Site',
+        'target_handle' => 'joeplumber2',
+        'reason_code' => 'spam',
+        'reporter_email' => 'leak@example.com',
         'turnstile_token' => 'cf',
     ])->assertStatus(202);
 

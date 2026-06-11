@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\DB;
 // V2: Manages site section visibility (gallery, services, shop, booking, bio). Account-type restrictions apply.
 class UserSectionBlockController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
@@ -401,5 +401,4 @@ class UserSectionBlockController extends ApiController
             return $byType->values();
         });
     }
-
 }

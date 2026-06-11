@@ -7,9 +7,9 @@ use App\Http\Requests\Api\Staff\UserSite\Services\StaffReorderServiceCategoryReq
 use App\Http\Requests\Api\Staff\UserSite\Services\StaffStoreServiceCategoryRequest;
 use App\Http\Requests\Api\Staff\UserSite\Services\StaffUpdateServiceCategoryRequest;
 use App\Http\Resources\ServiceCategoryResource;
-use App\Models\Core\User\User;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

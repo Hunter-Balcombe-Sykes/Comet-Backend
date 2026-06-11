@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\Staff\UserSite;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ValidatesUserAbout;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 // V2: Validates staff update of a professional profile — supports display name, contact info, location, and phone normalization with PATCH semantics.
 class StaffUpdateUserRequest extends BaseFormRequest
@@ -42,7 +43,7 @@ class StaffUpdateUserRequest extends BaseFormRequest
         ], $this->aboutRules());
     }
 
-    public function withValidator(\Illuminate\Validation\Validator $validator): void
+    public function withValidator(Validator $validator): void
     {
         $validator->after(function ($v) {
             $this->validateExperienceDateOrder($v);

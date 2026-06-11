@@ -29,7 +29,7 @@ it('logs cache.metrics for each prefix in the bucket', function () {
     (new AggregateCacheMetricsJob)->handle();
 
     Log::shouldHaveReceived('info')
-        ->with('cache.metrics', \Mockery::on(fn ($ctx) => $ctx['prefix'] === 'site'
+        ->with('cache.metrics', Mockery::on(fn ($ctx) => $ctx['prefix'] === 'site'
             && $ctx['hits'] === 80
             && $ctx['misses'] === 20
             && $ctx['writes'] === 10
@@ -37,7 +37,7 @@ it('logs cache.metrics for each prefix in the bucket', function () {
         ->once();
 
     Log::shouldHaveReceived('info')
-        ->with('cache.metrics', \Mockery::on(fn ($ctx) => $ctx['prefix'] === 'pro'
+        ->with('cache.metrics', Mockery::on(fn ($ctx) => $ctx['prefix'] === 'pro'
             && $ctx['hits'] === 50
             && $ctx['hit_rate'] === round(50 / 55, 4)))
         ->once();
@@ -57,7 +57,7 @@ it('reports an SLO violation when a hot prefix hits below 90%', function () {
 
     $handler->shouldHaveReceived('report')
         ->once()
-        ->withArgs(fn (\Throwable $e) => str_contains($e->getMessage(), 'site')
+        ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'site')
             && str_contains($e->getMessage(), 'SLO violation'));
 });
 
@@ -116,7 +116,7 @@ it('handles buckets with only writes (no reads)', function () {
     (new AggregateCacheMetricsJob)->handle();
 
     Log::shouldHaveReceived('info')
-        ->with('cache.metrics', \Mockery::on(fn ($ctx) => $ctx['prefix'] === 'pro'
+        ->with('cache.metrics', Mockery::on(fn ($ctx) => $ctx['prefix'] === 'pro'
             && $ctx['hits'] === 0
             && $ctx['misses'] === 0
             && $ctx['hit_rate'] === null))
@@ -134,9 +134,9 @@ it('confirms slo_prefixes and threshold constants are as documented', function (
 });
 
 it('failed() calls report() so terminal failures alert Nightwatch', function () {
-    $handler = $this->spy(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+    $handler = $this->spy(ExceptionHandler::class);
 
-    $e = new \RuntimeException('redis connection lost');
+    $e = new RuntimeException('redis connection lost');
     (new AggregateCacheMetricsJob)->failed($e);
 
     $handler->shouldHaveReceived('report')->once()->withArgs(fn ($reported) => $reported === $e);

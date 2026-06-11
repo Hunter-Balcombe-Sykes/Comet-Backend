@@ -1,10 +1,11 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
 use Illuminate\Support\Carbon;
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 function makeSectionBlock(array $overrides = []): Block
 {

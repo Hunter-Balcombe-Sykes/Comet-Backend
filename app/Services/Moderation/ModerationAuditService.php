@@ -4,6 +4,7 @@ namespace App\Services\Moderation;
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Moderation\AuditEvent;
+use Illuminate\Support\Str;
 
 /**
  * Single write path for the audit.moderation_events table.
@@ -44,13 +45,13 @@ class ModerationAuditService
         array $payload = [],
     ): AuditEvent {
         return AuditEvent::create([
-            'id'             => (string) \Illuminate\Support\Str::uuid(),
-            'actor_kind'     => 'staff',
+            'id' => (string) Str::uuid(),
+            'actor_kind' => 'staff',
             'actor_staff_id' => $staff->id,
-            'action'         => $action,
-            'target_type'    => $targetType,
-            'target_id'      => $targetId,
-            'payload'        => $this->scrubPii($payload),
+            'action' => $action,
+            'target_type' => $targetType,
+            'target_id' => $targetId,
+            'payload' => $this->scrubPii($payload),
         ]);
     }
 
@@ -61,13 +62,13 @@ class ModerationAuditService
         array $payload = [],
     ): AuditEvent {
         return AuditEvent::create([
-            'id'             => (string) \Illuminate\Support\Str::uuid(),
-            'actor_kind'     => 'system',
+            'id' => (string) Str::uuid(),
+            'actor_kind' => 'system',
             'actor_staff_id' => null,
-            'action'         => $action,
-            'target_type'    => $targetType,
-            'target_id'      => $targetId,
-            'payload'        => $this->scrubPii($payload),
+            'action' => $action,
+            'target_type' => $targetType,
+            'target_id' => $targetId,
+            'payload' => $this->scrubPii($payload),
         ]);
     }
 
@@ -85,6 +86,7 @@ class ModerationAuditService
             }
             $result[$key] = is_array($value) ? $this->scrubPii($value) : $value;
         }
+
         return $result;
     }
 }

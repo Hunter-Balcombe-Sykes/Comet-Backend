@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\User\Notifications\NotificationController;
-use App\Services\Cache\CacheLockService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 

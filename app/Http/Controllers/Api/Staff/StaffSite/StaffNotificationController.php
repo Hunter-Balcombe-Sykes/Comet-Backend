@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Resources\NotificationListingResource;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
-use App\Http\Resources\NotificationListingResource;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;

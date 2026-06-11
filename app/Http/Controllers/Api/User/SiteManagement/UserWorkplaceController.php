@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
@@ -16,8 +16,8 @@ use Illuminate\Http\Request;
 // record, the stored shape is the same.
 class UserWorkplaceController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     private const SETTINGS_KEY = 'workplace';
 

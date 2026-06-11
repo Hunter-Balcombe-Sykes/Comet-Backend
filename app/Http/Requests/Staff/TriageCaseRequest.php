@@ -15,7 +15,7 @@ class TriageCaseRequest extends FormRequest
     {
         return [
             'priority' => ['nullable', 'integer', 'min:1', 'max:10'],
-            'notes'    => ['nullable', 'string', 'max:2000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }
 
@@ -23,7 +23,7 @@ class TriageCaseRequest extends FormRequest
     {
         return new TriageDto(
             priority: $this->integer('priority') ?: null,
-            notes:    $this->string('notes')->toString() ?: null,
+            notes: $this->string('notes')->toString() ?: null,
         );
     }
 }

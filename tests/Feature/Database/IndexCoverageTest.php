@@ -22,18 +22,18 @@ function indexCoverageSuiteIsPostgres(): bool
  * (not an INVALID stub left over from a cancelled CONCURRENTLY build).
  *
  * @param  string  $schema  e.g. 'site'
- * @param  string  $table   e.g. 'sites'
- * @param  string  $index   e.g. 'idx_aps_brand_user_id'
+ * @param  string  $table  e.g. 'sites'
+ * @param  string  $index  e.g. 'idx_aps_brand_user_id'
  */
 function assertIndexExists(string $schema, string $table, string $index): void
 {
     $row = DB::selectOne(
-        "SELECT i.indisvalid
+        'SELECT i.indisvalid
            FROM pg_index i
            JOIN pg_class c ON c.oid = i.indexrelid
            JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = ?
-            AND c.relname = ?",
+            AND c.relname = ?',
         [$schema, $index]
     );
 

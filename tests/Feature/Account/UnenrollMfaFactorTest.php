@@ -1,6 +1,5 @@
 <?php
 
-use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -50,7 +49,7 @@ it('calls Supabase Admin API and records unenroll event when within 60s', functi
             && $request->hasHeader('Authorization', 'Bearer sr_test_key');
     });
 
-    $event = \DB::connection('pgsql')->table('audit.auth_factor_events')
+    $event = DB::connection('pgsql')->table('audit.auth_factor_events')
         ->where('user_id', $pro->auth_user_id)
         ->where('event_type', 'unenroll')
         ->first();

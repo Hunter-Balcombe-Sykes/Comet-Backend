@@ -6,8 +6,8 @@ use App\Exceptions\Gdpr\DataExportInProgressException;
 use App\Exceptions\Gdpr\NoRecipientEmailException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\RequestStaffDataExportRequest;
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\User;
 use App\Services\User\DataExport\DataExportService;
 use Illuminate\Http\JsonResponse;
 

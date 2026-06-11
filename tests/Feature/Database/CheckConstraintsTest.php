@@ -23,7 +23,7 @@ function checkConstraintsSuiteIsPostgres(): bool
  * Assert that a named CHECK constraint exists on the given table and has been validated.
  *
  * @param  string  $schema  e.g. 'site'
- * @param  string  $table   e.g. 'blocks'
+ * @param  string  $table  e.g. 'blocks'
  * @param  string  $constraint  e.g. 'blocks_block_type_check'
  */
 function assertCheckConstraintExists(string $schema, string $table, string $constraint): void

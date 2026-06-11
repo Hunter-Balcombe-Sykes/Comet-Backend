@@ -95,7 +95,7 @@ it('summary() wraps all DB queries in CacheLockService::rememberLocked with a 60
     $this->mock(CacheLockService::class, function (MockInterface $m) use (&$captured) {
         $m->shouldReceive('rememberLocked')
             ->once()
-            ->withArgs(function (string $key, int $ttl, \Closure $fn): bool {
+            ->withArgs(function (string $key, int $ttl, Closure $fn): bool {
                 return str_contains($key, 'staff:analytics:summary:') && $ttl === 60;
             })
             ->andReturn([

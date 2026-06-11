@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\User\Notifications;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
@@ -13,8 +13,8 @@ use Illuminate\Http\Request;
 // V2: In-app notification listing, mark-as-read, and dismiss for the authenticated professional.
 class NotificationController extends ApiController
 {
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
 
     public function __construct(private readonly NotificationListingService $listing) {}
 

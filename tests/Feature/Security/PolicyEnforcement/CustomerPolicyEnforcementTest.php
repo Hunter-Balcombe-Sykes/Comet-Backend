@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\User\Customers\UserCustomerController;
+use App\Http\Requests\Api\User\Customer\StoreCustomerRequest;
+use App\Http\Requests\Api\User\Customer\UpdateCustomerRequest;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -44,7 +46,7 @@ it('blocks a non-owner from updating another tenants customer with 404', functio
 
     try {
         app(UserCustomerController::class)->update(
-            \App\Http\Requests\Api\User\Customer\UpdateCustomerRequest::createFrom($req),
+            UpdateCustomerRequest::createFrom($req),
             $customer
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
@@ -79,7 +81,7 @@ it('blocks a pending-deletion owner from updating a customer with 423', function
 
     try {
         app(UserCustomerController::class)->update(
-            \App\Http\Requests\Api\User\Customer\UpdateCustomerRequest::createFrom($req),
+            UpdateCustomerRequest::createFrom($req),
             $customer
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
@@ -124,7 +126,7 @@ it('blocks a pending-deletion owner from creating a customer with 423', function
 
     try {
         app(UserCustomerController::class)->store(
-            \App\Http\Requests\Api\User\Customer\StoreCustomerRequest::createFrom($req)
+            StoreCustomerRequest::createFrom($req)
         );
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {

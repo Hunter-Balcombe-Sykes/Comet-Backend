@@ -4,9 +4,11 @@
 
 use App\Jobs\Streaming\CheckStreamingLiveStatusJob;
 use App\Services\Streaming\LiveStatusPoller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -35,7 +37,7 @@ it('logs critical and aborts when Redis is unavailable', function () {
 
     Redis::shouldReceive('exists')
         ->once()
-        ->andThrow(new \RedisException('Connection refused'));
+        ->andThrow(new RedisException('Connection refused'));
 
     // The job calls report($e) after the explicit log; intercept it so the
     // exception handler doesn't double-fire Log::error.
@@ -49,7 +51,7 @@ it('logs critical and aborts when Redis is unavailable', function () {
     $job = new CheckStreamingLiveStatusJob;
     $job->handle($poller);
 
-    Exceptions::assertReported(\RedisException::class);
+    Exceptions::assertReported(RedisException::class);
 });
 
 it('catches poller exceptions and logs per-platform error without crashing the job', function () {
@@ -57,8 +59,8 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     config(['partna.streaming_platforms' => ['twitch']]);
 
     // Insert a live-check-enabled block so the job finds handles and calls poll.
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
         'block_group' => 'links',
         'is_active' => 1,
         'settings' => json_encode(['live_check_enabled' => 'true', 'platform' => 'twitch', 'handle' => 'testuser']),
@@ -70,7 +72,7 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     $poller = Mockery::mock(LiveStatusPoller::class);
     $poller->shouldReceive('poll')
         ->with('twitch', Mockery::any())
-        ->andThrow(new \RuntimeException('Network error'));
+        ->andThrow(new RuntimeException('Network error'));
 
     // Fake the exception reporter so report($e) inside the per-platform catch
     // doesn't trigger an additional Log::error via the exception handler.
@@ -82,7 +84,7 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     // Should not throw
     $job->handle($poller);
 
-    Exceptions::assertReported(\RuntimeException::class);
+    Exceptions::assertReported(RuntimeException::class);
 });
 
 it('logs job failure via failed() callback', function () {
@@ -93,7 +95,7 @@ it('logs job failure via failed() callback', function () {
     Log::shouldReceive('error')->once()->with('streaming.job_failed', Mockery::any());
 
     $job = new CheckStreamingLiveStatusJob;
-    $job->failed(new \RuntimeException('Something broke'));
+    $job->failed(new RuntimeException('Something broke'));
 
-    Exceptions::assertReported(\RuntimeException::class);
+    Exceptions::assertReported(RuntimeException::class);
 });

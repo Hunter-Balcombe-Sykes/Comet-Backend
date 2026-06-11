@@ -11,7 +11,7 @@ it('produces the same hash for the same inputs', function () {
 
 it('produces different hashes for different reasons', function () {
     $calc = new DedupHashCalculator;
-    $spam      = $calc->forReport('Site', '123', 'spam',       'r@e.com', null);
+    $spam = $calc->forReport('Site', '123', 'spam', 'r@e.com', null);
     $harassmnt = $calc->forReport('Site', '123', 'harassment', 'r@e.com', null);
     expect($spam)->not->toBe($harassmnt);
 });
@@ -38,5 +38,5 @@ it('produces hex digest of length 64 (sha256)', function () {
 
 it('rejects when both email and ip_hash are null', function () {
     expect(fn () => (new DedupHashCalculator)->forReport('Site', '1', 'spam', null, null))
-        ->toThrow(\InvalidArgumentException::class);
+        ->toThrow(InvalidArgumentException::class);
 });

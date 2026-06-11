@@ -4,8 +4,9 @@ use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Tests\Feature\FeatureFlags\FeatureFlagTestCase;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class);
+uses(TestCase::class);
 
 beforeEach(function () {
     Cache::flush();

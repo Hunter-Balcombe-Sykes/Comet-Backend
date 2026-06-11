@@ -5,6 +5,7 @@ namespace App\Services\Moderation;
 use App\Models\Core\Site\Site;
 use App\Models\Moderation\Evidence;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 /**
@@ -40,12 +41,12 @@ class EvidenceSnapshotService
 
         // forceCreate() bypasses the model's $guarded = ['id'] so the explicit UUID is stored.
         return Evidence::forceCreate([
-            'id'            => (string) \Illuminate\Support\Str::uuid(),
-            'case_id'       => $caseId,
-            'signal_id'     => $signalId,
+            'id' => (string) Str::uuid(),
+            'case_id' => $caseId,
+            'signal_id' => $signalId,
             'evidence_type' => 'content_snapshot',
-            'payload'       => $payload,
-            'content_hash'  => $contentHash,
+            'payload' => $payload,
+            'content_hash' => $contentHash,
         ]);
     }
 
@@ -56,14 +57,14 @@ class EvidenceSnapshotService
         $site = Site::query()->with(['user', 'blocks'])->findOrFail($siteId);
 
         return [
-            'site_id'        => $site->id,
+            'site_id' => $site->id,
             'site_subdomain' => $site->subdomain ?? null,
-            'user_id'        => $site->user_id,
-            'handle'         => $site->user?->handle ?? null,
-            'display_name'   => $site->user?->display_name ?? null,
-            'bio'            => $site->user?->bio ?? null,
-            'block_count'    => $site->blocks?->count() ?? 0,
-            'block_types'    => $site->blocks?->pluck('block_type')->all() ?? [],
+            'user_id' => $site->user_id,
+            'handle' => $site->user?->handle ?? null,
+            'display_name' => $site->user?->display_name ?? null,
+            'bio' => $site->user?->bio ?? null,
+            'block_count' => $site->blocks?->count() ?? 0,
+            'block_types' => $site->blocks?->pluck('block_type')->all() ?? [],
         ];
     }
 }

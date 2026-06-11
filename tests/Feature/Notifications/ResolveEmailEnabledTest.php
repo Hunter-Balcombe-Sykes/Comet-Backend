@@ -6,6 +6,7 @@ use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // Locks in the resolveEmailEnabled() precedence chain so future preference-
 // model refactors don't silently flip the meaning of force_on / force_off /
@@ -28,7 +29,7 @@ beforeEach(function () {
     foreach (['core', 'notifications'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // already attached
         }
     }
@@ -69,7 +70,7 @@ beforeEach(function () {
 function insertPolicy(?string $proId, string $category, string $mode): void
 {
     DB::table('notifications.notification_email_policies')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $proId,
         'category_key' => $category,
         'mode' => $mode,
@@ -81,7 +82,7 @@ function insertPolicy(?string $proId, string $category, string $mode): void
 function insertPreference(string $proId, string $category, bool $enabled): void
 {
     DB::table('notifications.notification_email_preferences')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $proId,
         'category_key' => $category,
         'enabled' => $enabled ? 1 : 0,

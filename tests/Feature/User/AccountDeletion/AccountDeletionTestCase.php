@@ -270,7 +270,7 @@ class AccountDeletionTestCase
         )");
 
         // core.waitlist_signups — purge() deletes by email_lc.
-        $conn->statement("CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
             id TEXT PRIMARY KEY,
             name TEXT NULL,
             email TEXT NULL,
@@ -280,7 +280,7 @@ class AccountDeletionTestCase
             pilot_program_opt_in INTEGER NULL,
             created_at TEXT NULL,
             updated_at TEXT NULL
-        )");
+        )');
 
         // moderation.case_signals — purge() nulls out reporter PII.
         // SQLite does not enforce FKs by default, so the cases table is omitted here.

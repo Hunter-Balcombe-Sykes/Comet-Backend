@@ -4,8 +4,9 @@ use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     // Fast-path URL resolution — avoids Storage::disk() client construction

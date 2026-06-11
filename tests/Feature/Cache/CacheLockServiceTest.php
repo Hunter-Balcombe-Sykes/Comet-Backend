@@ -345,7 +345,7 @@ it('nullable: throws if closure returns the reserved sentinel string', function 
         fn () => '__cache_lock_null_sentinel__',
     );
 
-    expect($call)->toThrow(\LogicException::class, 'reserved');
+    expect($call)->toThrow(LogicException::class, 'reserved');
 });
 
 it('stale key receives jittered TTL — not a fixed STALE_MULTIPLIER × base', function () {

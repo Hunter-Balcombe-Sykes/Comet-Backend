@@ -6,6 +6,7 @@ use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ValidatesUserAbout;
 use App\Models\Core\User\User;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 // V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
 class UpdateUserRequest extends BaseFormRequest
@@ -45,7 +46,7 @@ class UpdateUserRequest extends BaseFormRequest
         ], $this->aboutRules());
     }
 
-    public function withValidator(\Illuminate\Validation\Validator $validator): void
+    public function withValidator(Validator $validator): void
     {
         $validator->after(function ($v) {
             $this->validateExperienceDateOrder($v);

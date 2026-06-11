@@ -3,6 +3,7 @@
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
 use App\Policies\CustomerPolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new CustomerPolicy;
@@ -23,7 +24,7 @@ it('denies view with 404 when the actor does not own the customer', function () 
 
     $result = $this->policy->view($actor, $customer);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -49,7 +50,7 @@ it('denies create with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->create($actor, $skeleton);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -69,7 +70,7 @@ it('denies update with 404 when the actor does not own the customer', function (
 
     $result = $this->policy->update($actor, $customer);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -79,7 +80,7 @@ it('denies update with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->update($actor, $customer);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });
@@ -99,7 +100,7 @@ it('denies delete with 404 when the actor does not own the customer', function (
 
     $result = $this->policy->delete($actor, $customer);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(404);
 });
 
@@ -109,7 +110,7 @@ it('denies delete with 423 when the actor is pending deletion', function () {
 
     $result = $this->policy->delete($actor, $customer);
 
-    expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+    expect($result)->toBeInstanceOf(Response::class);
     expect($result->status())->toBe(423);
     expect($result->message())->toBe('Account is pending deletion.');
 });

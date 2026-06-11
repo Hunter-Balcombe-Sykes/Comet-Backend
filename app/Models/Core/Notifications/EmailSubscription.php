@@ -2,6 +2,7 @@
 
 namespace App\Models\Core\Notifications;
 
+use App\Jobs\Notifications\SyncCustomerMarketingOptInJob;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -101,7 +102,7 @@ class EmailSubscription extends BaseModel
                 $subscriptionId = (string) $subscription->id;
 
                 DB::afterCommit(function () use ($userId, $subscriptionId) {
-                    \App\Jobs\Notifications\SyncCustomerMarketingOptInJob::dispatch(
+                    SyncCustomerMarketingOptInJob::dispatch(
                         $userId,
                         $subscriptionId,
                     );

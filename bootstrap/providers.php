@@ -1,8 +1,13 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\BotProtectionServiceProvider;
+use App\Providers\DatabaseServiceProvider;
+use App\Providers\EventServiceProvider;
+
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\DatabaseServiceProvider::class,
-    App\Providers\EventServiceProvider::class,
-    App\Providers\BotProtectionServiceProvider::class,
+    AppServiceProvider::class,
+    DatabaseServiceProvider::class,
+    EventServiceProvider::class,
+    BotProtectionServiceProvider::class,
 ];

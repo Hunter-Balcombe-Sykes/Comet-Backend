@@ -1,13 +1,14 @@
 <?php
 
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\User\User;
 use App\Policies\SitePolicy;
+use Illuminate\Auth\Access\Response;
 
 beforeEach(function () {
     $this->policy = new SitePolicy;
@@ -33,7 +34,7 @@ describe('Site', function () {
 
         $result = $this->policy->view($actor, $site);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 
@@ -50,7 +51,7 @@ describe('Site', function () {
 
         $result = $this->policy->update($actor, $site);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 
@@ -60,7 +61,7 @@ describe('Site', function () {
 
         $result = $this->policy->update($actor, $site);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(423);
         expect($result->message())->toBe('Account is pending deletion.');
     });
@@ -71,7 +72,7 @@ describe('Site', function () {
 
         $result = $this->policy->create($actor, $skeleton);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(423);
         expect($result->message())->toBe('Account is pending deletion.');
     });
@@ -102,7 +103,7 @@ describe('SiteMedia', function () {
 
         $result = $this->policy->view($actor, $media);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 
@@ -123,7 +124,7 @@ describe('SiteMedia', function () {
 
         $result = $this->policy->delete($actor, $media);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(423);
     });
 });
@@ -146,7 +147,7 @@ describe('Block', function () {
 
         $result = $this->policy->view($actor, $block);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 });
@@ -173,7 +174,7 @@ describe('SiteSubdomainAlias', function () {
 
         $result = $this->policy->view($actor, $alias);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 });
@@ -196,7 +197,7 @@ describe('Enquiry', function () {
 
         $result = $this->policy->view($actor, $enquiry);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 });
@@ -219,7 +220,7 @@ describe('LeadSubmission', function () {
 
         $result = $this->policy->view($actor, $lead);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 });
@@ -241,7 +242,7 @@ describe('spoofing defense', function () {
 
         $result = $this->policy->view($actor, $media);
 
-        expect($result)->toBeInstanceOf(\Illuminate\Auth\Access\Response::class);
+        expect($result)->toBeInstanceOf(Response::class);
         expect($result->status())->toBe(404);
     });
 });

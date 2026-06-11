@@ -187,5 +187,5 @@ it('does not throw when a variant file is already missing from storage', functio
     $media = SiteMedia::query()->findOrFail($mediaId);
 
     // Must not throw.
-    expect(fn () => $media->forceDelete())->not->toThrow(\Throwable::class);
+    expect(fn () => $media->forceDelete())->not->toThrow(Throwable::class);
 });

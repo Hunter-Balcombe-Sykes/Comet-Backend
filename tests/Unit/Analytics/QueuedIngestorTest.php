@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Analytics/QueuedIngestorTest.php
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;
@@ -6,11 +7,12 @@ use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Ingestors\QueuedIngestor;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
 
 // Uses Queue::fake(), app(), config() (the job constructor reads
 // partna.analytics_queue.name), and Log::warning in the fail-open path — all need a
 // booted app. tests/Pest.php binds only Feature to Tests\TestCase, so opt in here.
-uses(Tests\TestCase::class);
+uses(TestCase::class);
 
 function ingestorEvent(): AnalyticsEvent
 {

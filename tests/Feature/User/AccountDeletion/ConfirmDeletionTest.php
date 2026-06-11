@@ -263,14 +263,14 @@ it('rolls back the entire confirmation when pseudonymisation fails — status, a
     // live PII intact. The unified DB::transaction must roll back EVERYTHING.
     $service = new class extends AccountDeletionService
     {
-        protected function pseudonymiseAccountPii(\App\Models\Core\User\User $professional): void
+        protected function pseudonymiseAccountPii(User $professional): void
         {
-            throw new \RuntimeException('Simulated DB failure mid-pseudonymise');
+            throw new RuntimeException('Simulated DB failure mid-pseudonymise');
         }
     };
 
     expect(fn () => $service->confirm($pro, $rawToken, Request::create('/', 'POST')))
-        ->toThrow(\RuntimeException::class);
+        ->toThrow(RuntimeException::class);
 
     $pro->refresh();
 

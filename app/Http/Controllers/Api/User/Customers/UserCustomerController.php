@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api\User\Customers;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\User\Customer\StoreCustomerRequest;
 use App\Http\Requests\Api\User\Customer\UpdateCustomerRequest;
@@ -21,8 +21,8 @@ class UserCustomerController extends ApiController
 {
     use HandlesSearchQueries;
     use NormalizesPerPage;
-    use ResolveCurrentUser;
     use ResolveCurrentSite;
+    use ResolveCurrentUser;
     use ReturnsPaginatedResponse;
 
     public function index(Request $request)

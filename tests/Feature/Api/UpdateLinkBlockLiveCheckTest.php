@@ -3,7 +3,11 @@
 /** @phpstan-ignore-all */
 
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
+use App\Models\Core\Site\Block;
+use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 it('accepts live_check_enabled=true in settings for a streaming platform context', function () {
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
@@ -17,7 +21,7 @@ it('accepts live_check_enabled=true in settings for a streaming platform context
     // Supply a valid UUID for 'id' — prepareForValidation is not called when
     // using Validator::make directly, so id must be provided explicitly.
     $validator = Validator::make(
-        ['id' => (string) \Illuminate\Support\Str::uuid(), 'settings' => ['live_check_enabled' => true]],
+        ['id' => (string) Str::uuid(), 'settings' => ['live_check_enabled' => true]],
         $request->rules()
     );
 
@@ -35,7 +39,7 @@ it('rejects live_check_enabled as a non-boolean', function () {
     // Supply a valid UUID for 'id' — prepareForValidation is not called when
     // using Validator::make directly, so id must be provided explicitly.
     $validator = Validator::make(
-        ['id' => (string) \Illuminate\Support\Str::uuid(), 'settings' => ['live_check_enabled' => 'yes']],
+        ['id' => (string) Str::uuid(), 'settings' => ['live_check_enabled' => 'yes']],
         $request->rules()
     );
 
@@ -53,12 +57,12 @@ it('rejects is_live in settings — it is read-only and not in the allowlist', f
     // is_live is NOT in link_block_settings_keys — the withValidator allowlist check rejects it.
     // Use create() so the request carries the data; withValidator reads $this->input()
     // which only works when the request itself holds the payload.
-    $blockId = (string) \Illuminate\Support\Str::uuid();
+    $blockId = (string) Str::uuid();
     $request = UpdateLinkBlockRequest::create('/test', 'PATCH', [
         'settings' => ['is_live' => true],
     ]);
     $request->setRouteResolver(function () use ($blockId) {
-        $route = new \Illuminate\Routing\Route(['PATCH'], '/test', []);
+        $route = new Route(['PATCH'], '/test', []);
         $route->setParameter('linkBlock', $blockId);
 
         return $route;
@@ -99,8 +103,8 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
     // boolean (Laravel's `boolean` rule + array cast) — only this fixture
     // diverges, to make the same query work across both dialects in tests.
     foreach (['a', 'b'] as $suffix) {
-        \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.blocks')->insert([
-            'id' => (string) \Illuminate\Support\Str::uuid(),
+        DB::connection('pgsql')->table('site.blocks')->insert([
+            'id' => (string) Str::uuid(),
             'site_id' => $site->id,
             'block_group' => 'links',
             'block_type' => 'link',
@@ -114,8 +118,8 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
     }
 
     // A third block being updated to enable live_check should be rejected
-    $newBlockId = (string) \Illuminate\Support\Str::uuid();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.blocks')->insert([
+    $newBlockId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => $newBlockId,
         'site_id' => $site->id,
         'block_group' => 'links',
@@ -128,13 +132,13 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $block = \App\Models\Core\Site\Block::query()->find($newBlockId);
+    $block = Block::query()->find($newBlockId);
 
     $request = UpdateLinkBlockRequest::create('/test', 'PATCH', [
         'settings' => ['live_check_enabled' => true],
     ]);
     $request->setRouteResolver(function () use ($block) {
-        $route = new \Illuminate\Routing\Route(['PATCH'], '/test', []);
+        $route = new Route(['PATCH'], '/test', []);
         // Assign parameters directly — setParameter() requires the route to be
         // "bound" (dispatched through the router), which doesn't happen in unit
         // tests. Setting the public property bypasses that guard.

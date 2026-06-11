@@ -9,14 +9,17 @@
 
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
+use App\Services\Media\VideoVariantService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 beforeEach(function () {
     setupUsersTable();
@@ -48,7 +51,7 @@ function seedGalleryMediaRow(string $siteId, string $mediaType, int $sortOrder):
     return $id;
 }
 
-function callReorderController(User $professional, array $body): \Illuminate\Http\JsonResponse
+function callReorderController(User $professional, array $body): JsonResponse
 {
     $request = Request::create('/api/images/reorder', 'POST', $body);
     $request->attributes->set('professional', $professional);
@@ -59,9 +62,9 @@ function callReorderController(User $professional, array $body): \Illuminate\Htt
     $formRequest->validateResolved();
 
     $mediaService = Mockery::mock(ImageVariantService::class);
-    $videoVariant = Mockery::mock(\App\Services\Media\VideoVariantService::class);
+    $videoVariant = Mockery::mock(VideoVariantService::class);
     app()->instance(ImageVariantService::class, $mediaService);
-    app()->instance(\App\Services\Media\VideoVariantService::class, $videoVariant);
+    app()->instance(VideoVariantService::class, $videoVariant);
     $controller = app(UserUploadController::class);
 
     return $controller->reorder($formRequest);
@@ -160,5 +163,5 @@ it('rejects a mixed reorder that includes an id from another site', function () 
     expect(fn () => callReorderController($professionalA, [
         'pool' => 'gallery',
         'ids' => [$ownImage, $foreignVideo],
-    ]))->toThrow(Symfony\Component\HttpKernel\Exception\HttpException::class);
+    ]))->toThrow(HttpException::class);
 });

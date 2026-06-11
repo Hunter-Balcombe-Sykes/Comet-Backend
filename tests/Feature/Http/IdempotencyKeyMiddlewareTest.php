@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 beforeEach(function () {
     // Array cache driver in tests (per phpunit.xml CACHE_STORE=array) — flush
@@ -236,7 +237,7 @@ it('does NOT cache StreamedResponse (handler runs every time)', function () {
     $handler = function () use (&$callCount) {
         $callCount++;
 
-        return new \Symfony\Component\HttpFoundation\StreamedResponse(
+        return new StreamedResponse(
             fn () => print 'chunk',
             200,
             ['Content-Type' => 'application/octet-stream'],

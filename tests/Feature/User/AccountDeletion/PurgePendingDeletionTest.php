@@ -2,6 +2,7 @@
 
 use App\Models\Core\User\User;
 use App\Services\User\AccountDeletionService;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -130,7 +131,7 @@ it('command purges professionals past 30 days but skips within grace', function 
         'deletion_confirmed_at' => now()->subDays(5)->toIso8601String(),
     ]);
 
-    \Illuminate\Support\Facades\Artisan::call('partna:purge-soft-deletes');
+    Artisan::call('partna:purge-soft-deletes');
 
     $purgeableExists = DB::connection('pgsql')->table('core.users')
         ->where('id', $purgeable->id)->exists();

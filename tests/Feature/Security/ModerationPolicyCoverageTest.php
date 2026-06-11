@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Moderation\ModerationCase;
 use App\Models\Moderation\Decision;
+use App\Models\Moderation\ModerationCase;
 use Illuminate\Support\Facades\Gate;
 
 it('registers a policy for moderation ModerationCase', function () {

@@ -14,7 +14,7 @@ beforeEach(function () {
 it('notifies admin staff at threshold signal_count 1', function () {
     Notification::fake();
     $staff = PartnaStaff::factory()->create(['role' => 'admin']);
-    $case  = ModerationCase::factory()->create(['signal_count' => 1]);
+    $case = ModerationCase::factory()->create(['signal_count' => 1]);
 
     (new NotifyStaffOfCaseUpdateJob($case->id))->handle();
 
@@ -34,7 +34,7 @@ it('does NOT notify at signal_count 2 (between thresholds)', function () {
 it('notifies at threshold 3', function () {
     Notification::fake();
     $staff = PartnaStaff::factory()->create(['role' => 'admin']);
-    $case  = ModerationCase::factory()->create(['signal_count' => 3]);
+    $case = ModerationCase::factory()->create(['signal_count' => 3]);
 
     (new NotifyStaffOfCaseUpdateJob($case->id))->handle();
 

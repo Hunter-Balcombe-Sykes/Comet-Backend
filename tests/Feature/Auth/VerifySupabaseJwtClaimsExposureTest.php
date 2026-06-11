@@ -5,6 +5,8 @@ use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+
 // Build a minimal test JWT. Uses HS256 so the JWKS path always rejects it,
 // forcing the Auth-Server fallback path. Claims are readable in the payload.
 function makeMfaTestJwt(array $claims = []): string
@@ -50,7 +52,7 @@ beforeEach(function () {
     $revocation->shouldReceive('trackForUser');
 
     $this->middleware = new VerifySupabaseJwt($cacheLock, $revocation);
-    $this->uid = (string) \Illuminate\Support\Str::uuid();
+    $this->uid = (string) Str::uuid();
     $this->next = fn ($req) => response()->json(['ok' => true]);
 });
 
@@ -83,6 +85,7 @@ it('exposes aal, amr, and session_id on the request attributes when the JWKS pat
 
     $this->middleware->handle($request, function ($req) use (&$capturedRequest) {
         $capturedRequest = $req;
+
         return response()->json(['ok' => true]);
     });
 

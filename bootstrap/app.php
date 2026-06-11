@@ -1,5 +1,10 @@
 <?php
 
+use App\Console\Commands\BackfillHourlyAnalytics;
+use App\Console\Commands\CompactHourlyAnalytics;
+use App\Console\Commands\Moderation\ModerationRedactReporterPiiCommand;
+use App\Console\Commands\Moderation\ModerationShowCaseCommand;
+use App\Console\Commands\Moderation\ModerationSlaScanCommand;
 use App\Contracts\HttpStatusCodeInterface;
 use App\Http\Middleware\AddETagHeaders;
 use App\Http\Middleware\AddPublicCacheHeaders;
@@ -16,12 +21,15 @@ use App\Http\Middleware\IdempotencyKey;
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
 use App\Http\Middleware\SecureHeaders;
+use App\Http\Middleware\VerifyBotToken;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -35,11 +43,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withCommands([
-        \App\Console\Commands\BackfillHourlyAnalytics::class,
-        \App\Console\Commands\CompactHourlyAnalytics::class,
-        \App\Console\Commands\Moderation\ModerationRedactReporterPiiCommand::class,
-        \App\Console\Commands\Moderation\ModerationSlaScanCommand::class,
-        \App\Console\Commands\Moderation\ModerationShowCaseCommand::class,
+        BackfillHourlyAnalytics::class,
+        CompactHourlyAnalytics::class,
+        ModerationRedactReporterPiiCommand::class,
+        ModerationSlaScanCommand::class,
+        ModerationShowCaseCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust all proxy IPs — the app is exclusively behind Cloudflare, so every
@@ -66,7 +74,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // verifier. The per-uid rate limiters in AppServiceProvider then fire before
         // `supabase_uid` is set on the request and throw RuntimeException.
         $middleware->prependToPriorityList(
-            \Illuminate\Routing\Middleware\ThrottleRequests::class,
+            ThrottleRequests::class,
             VerifySupabaseJwt::class,
         );
 
@@ -75,7 +83,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // also depends on `supabase_uid` being set, which means it has to run
         // AFTER VerifySupabaseJwt; the natural priority-list order does that.
         $middleware->prependToPriorityList(
-            \Illuminate\Routing\Middleware\ThrottleRequests::class,
+            ThrottleRequests::class,
             IdempotencyKey::class,
         );
 
@@ -90,7 +98,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'supabase.auth-hook' => VerifySupabaseAuthHookSignature::class,
             'supabase.email-hook' => VerifySupabaseEmailHookSignature::class,
             'feature' => FeatureGate::class,
-            'bot.token' => \App\Http\Middleware\VerifyBotToken::class,
+            'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
             'idempotent' => IdempotencyKey::class,
         ]);
@@ -160,7 +168,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             // Forbidden (403)
             elseif ($e instanceof AccessDeniedHttpException) {
-                \Illuminate\Support\Facades\Log::warning('Access denied', [
+                Log::warning('Access denied', [
                     'path' => $request->path(),
                     'message' => $e->getMessage(),
                 ]);
@@ -198,7 +206,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
                 // Log full exception for debugging even in production
                 if ($statusCode >= 500) {
-                    \Illuminate\Support\Facades\Log::error('API Error', [
+                    Log::error('API Error', [
                         'exception' => $e,
                         'status' => $statusCode,
                     ]);

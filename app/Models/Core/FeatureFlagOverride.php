@@ -9,7 +9,9 @@ use Illuminate\Support\Str;
 class FeatureFlagOverride extends BaseModel
 {
     protected $table = 'core.feature_flag_overrides';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [

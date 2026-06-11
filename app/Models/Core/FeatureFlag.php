@@ -11,8 +11,11 @@ class FeatureFlag extends BaseModel
     use SoftDeletes;
 
     protected $table = 'core.feature_flags';
+
     protected $primaryKey = 'key';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = ['key', 'description', 'default_enabled', 'rollout_percent'];

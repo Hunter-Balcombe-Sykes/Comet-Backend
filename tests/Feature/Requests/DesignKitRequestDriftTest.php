@@ -97,7 +97,7 @@ it('UpdateSiteRequest has no design_kit rules for non-existent columns', functio
     expect($phantom)->toBe(
         [],
         "UpdateSiteRequest references design_kit columns that don't exist in site.design_kits:\n  - ".implode("\n  - ", $phantom)."\n\n"
-        ."Either add the missing column via a SQL migration in supabase/migrations/ or remove the stale rule."
+        .'Either add the missing column via a SQL migration in supabase/migrations/ or remove the stale rule.'
     );
 });
 
@@ -113,6 +113,6 @@ it('StaffUpdateSiteRequest has no design_kit rules for non-existent columns', fu
     expect($phantom)->toBe(
         [],
         "StaffUpdateSiteRequest references design_kit columns that don't exist in site.design_kits:\n  - ".implode("\n  - ", $phantom)."\n\n"
-        ."Either add the missing column via a SQL migration in supabase/migrations/ or remove the stale rule."
+        .'Either add the missing column via a SQL migration in supabase/migrations/ or remove the stale rule.'
     );
 });

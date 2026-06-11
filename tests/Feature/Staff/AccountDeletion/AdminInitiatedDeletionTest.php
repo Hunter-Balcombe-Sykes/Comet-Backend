@@ -2,10 +2,11 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
+use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\Staff\PartnaStaff;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -119,7 +120,7 @@ it('admin cannot initiate while another deletion is already in flight', function
 });
 
 it('reason is required and validated at the form request level', function () {
-    $request = new \App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
+    $request = new StaffInitiateDeletionRequest;
 
     // min:10 — too short
     $validator = validator(['reason' => 'short'], $request->rules(), $request->messages());
@@ -253,4 +254,3 @@ it('GET show returns deletion state and non-PII audit entries', function () {
         ->and($entry)->not->toHaveKey('ip_address')
         ->and($entry)->not->toHaveKey('user_agent');
 });
-

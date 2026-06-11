@@ -16,11 +16,11 @@ class PublicReportRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'target_type'     => ['required', 'string', 'in:Site'],
-            'target_handle'   => ['required', 'string', 'min:1', 'max:60'],
-            'reason_code'     => ['required', 'string', 'in:' . implode(',', self::ALLOWED_REASON_CODES)],
-            'details'         => ['nullable', 'string', 'max:4000'],
-            'reporter_email'  => ['nullable', 'email', 'max:255'],
+            'target_type' => ['required', 'string', 'in:Site'],
+            'target_handle' => ['required', 'string', 'min:1', 'max:60'],
+            'reason_code' => ['required', 'string', 'in:'.implode(',', self::ALLOWED_REASON_CODES)],
+            'details' => ['nullable', 'string', 'max:4000'],
+            'reporter_email' => ['nullable', 'email', 'max:255'],
             'turnstile_token' => ['required', 'string'],
         ];
     }
@@ -28,9 +28,9 @@ class PublicReportRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'target_type.in'           => 'Reports against this type of target are not supported yet.',
-            'reason_code.in'           => "That reason isn't supported. Please pick one of the options.",
-            'details.max'              => 'Please keep details under 4000 characters.',
+            'target_type.in' => 'Reports against this type of target are not supported yet.',
+            'reason_code.in' => "That reason isn't supported. Please pick one of the options.",
+            'details.max' => 'Please keep details under 4000 characters.',
             'turnstile_token.required' => 'Please complete the verification and try again.',
         ];
     }
@@ -38,12 +38,12 @@ class PublicReportRequest extends FormRequest
     public function toDto(): PublicReportDto
     {
         return new PublicReportDto(
-            targetType:    $this->string('target_type')->toString(),
-            targetHandle:  strtolower(trim($this->string('target_handle')->toString())),
-            reasonCode:    $this->string('reason_code')->toString(),
-            details:       $this->input('details'),
+            targetType: $this->string('target_type')->toString(),
+            targetHandle: strtolower(trim($this->string('target_handle')->toString())),
+            reasonCode: $this->string('reason_code')->toString(),
+            details: $this->input('details'),
             reporterEmail: $this->input('reporter_email'),
-            reporterIp:    $this->ip(),
+            reporterIp: $this->ip(),
         );
     }
 

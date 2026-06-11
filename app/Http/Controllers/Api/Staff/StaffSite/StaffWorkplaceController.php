@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
 // Staff inspector for a professional's stored workplace card data.

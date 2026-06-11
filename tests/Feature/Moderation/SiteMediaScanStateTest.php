@@ -16,7 +16,7 @@ it('allows scanning and quarantined values for site_media.processing_state', fun
             DB::table('site.sites')->insert([
                 'id' => $siteId,
                 'user_id' => $user->id,
-                'subdomain' => 'scan-test-' . Str::random(6),
+                'subdomain' => 'scan-test-'.Str::random(6),
                 'skeleton_id' => 'skeleton-1',
                 'settings' => '[]',
                 'is_published' => true,
@@ -31,7 +31,7 @@ it('allows scanning and quarantined values for site_media.processing_state', fun
 
     DB::update("UPDATE site.site_media SET processing_state = 'quarantined' WHERE id = ?", [$mediaId]);
 
-    $row = DB::selectOne("SELECT processing_state, scanned_at FROM site.site_media WHERE id = ?", [$mediaId]);
+    $row = DB::selectOne('SELECT processing_state, scanned_at FROM site.site_media WHERE id = ?', [$mediaId]);
     expect($row->processing_state)->toBe('quarantined');
     expect($row->scanned_at)->toBeNull();
 })->group('postgres');

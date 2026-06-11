@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Requests\Api\User\UpdateUserRequest;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
-function validateAboutPayload(array $about): \Illuminate\Contracts\Validation\Validator
+function validateAboutPayload(array $about): Validator
 {
     $request = Request::create('/api/test', 'PATCH', ['about' => $about]);
     $formRequest = UpdateUserRequest::createFrom($request);
@@ -11,7 +13,7 @@ function validateAboutPayload(array $about): \Illuminate\Contracts\Validation\Va
 
     try {
         $formRequest->validateResolved();
-    } catch (\Illuminate\Validation\ValidationException $e) {
+    } catch (ValidationException $e) {
         return $e->validator;
     }
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\Auth\RequireAal2;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -11,7 +12,6 @@ use Illuminate\Support\Facades\Route;
  * "request MFA enrollment" route used pre-enrollment), add it to the
  * AAL2_EXEMPT_PATHS list with a one-line justification comment.
  */
-
 const AAL2_EXEMPT_PATHS = [
     // path => justification
     // 'api/staff/mfa/setup' => 'pre-enrollment endpoint; called from aal1 sessions',
@@ -33,7 +33,7 @@ it('every staff API route is gated by require.aal2', function () {
         $middleware = $route->gatherMiddleware();
         $hasAal2 = collect($middleware)->contains(function ($m) {
             return $m === 'require.aal2'
-                || $m === \App\Http\Middleware\Auth\RequireAal2::class;
+                || $m === RequireAal2::class;
         });
 
         if (! $hasAal2) {

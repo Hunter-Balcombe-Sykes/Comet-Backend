@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Core\User\User;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Models\Moderation\ModerationCase;
 use App\Services\Moderation\EvidenceSnapshotService;
 use Tests\TestCase;
@@ -36,10 +36,9 @@ it('captures a Site snapshot with stable content_hash', function () {
 
 it('throws when the target is an unknown type', function () {
     $case = ModerationCase::factory()->create();
-    expect(fn () =>
-        app(EvidenceSnapshotService::class)
-            ->capture($case->id, 'Unicorn', '00000000-0000-0000-0000-000000000000', null)
-    )->toThrow(\InvalidArgumentException::class, 'Unsupported snapshot target type: Unicorn');
+    expect(fn () => app(EvidenceSnapshotService::class)
+        ->capture($case->id, 'Unicorn', '00000000-0000-0000-0000-000000000000', null)
+    )->toThrow(InvalidArgumentException::class, 'Unsupported snapshot target type: Unicorn');
 });
 
 it('payload is JSON-serializable (no recursion, no DateTime)', function () {

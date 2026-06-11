@@ -1,10 +1,11 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
-
 use App\Http\Resources\SiteResource;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Carbon;
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('ships only the allowlisted columns and passes non-design settings through', function () {
     $site = new Site([

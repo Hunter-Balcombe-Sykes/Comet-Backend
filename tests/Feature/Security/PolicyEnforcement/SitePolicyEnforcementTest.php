@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
+use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -106,7 +107,7 @@ it('blocks a pending-deletion owner from updating a gallery image with 423', fun
 
     try {
         app(UserGalleryController::class)->update(
-            \App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest::createFrom($req),
+            UpdateGalleryImageRequest::createFrom($req),
             $image
         );
         expect(false)->toBeTrue('Expected AuthorizationException');

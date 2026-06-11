@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Concerns;
 
+use Illuminate\Validation\Validator;
+
 // V2: Shared validation + normalization for the professional "about" payload
 // (credentials + experience). Used by UpdateUserRequest (self-serve)
 // and StaffUpdateUserRequest so both endpoints enforce identical shape.
@@ -82,7 +84,7 @@ trait ValidatesUserAbout
      * Cross-field rule: each experience entry's `end` must be >= `start` when both set.
      * Call from withValidator() in the Form Request.
      */
-    protected function validateExperienceDateOrder(\Illuminate\Validation\Validator $validator): void
+    protected function validateExperienceDateOrder(Validator $validator): void
     {
         $experience = (array) data_get($this->all(), 'about.experience', []);
         foreach ($experience as $i => $row) {

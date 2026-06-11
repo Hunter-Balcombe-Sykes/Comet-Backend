@@ -1,9 +1,9 @@
 <?php
 
 use App\Http\Middleware\Logging\RecordStaffAuditEntry;
-use App\Models\Core\User\User;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
+use App\Models\Core\User\User;
 use App\Services\Audit\StaffAuditService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -15,11 +15,11 @@ beforeEach(function () {
     $conn = DB::connection('pgsql');
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
     try {
         $conn->statement("ATTACH DATABASE ':memory:' AS audit");
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
@@ -52,11 +52,11 @@ function makeAuditRequest(string $method, string $uri, array $bindings = []): Re
 }
 
 it('records a row for POST/PATCH/PUT/DELETE writes', function (string $method) {
-    $staff = new PartnaStaff();
+    $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
     $staff->primary_email = 'support@partna.au';
 
-    $professional = new User();
+    $professional = new User;
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme';
 
@@ -65,7 +65,7 @@ it('records a row for POST/PATCH/PUT/DELETE writes', function (string $method) {
     ]);
     $request->attributes->set('partna_staff', $staff);
 
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
 
     $response = new Response('', 200);
     $middleware->terminate($request, $response);
@@ -82,14 +82,14 @@ it('records a row for POST/PATCH/PUT/DELETE writes', function (string $method) {
 
 it('skips GET/HEAD/OPTIONS requests', function (string $method) {
     $request = makeAuditRequest($method, '/staff/professionals');
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
     $middleware->terminate($request, new Response('', 200));
 
     expect(StaffAuditEntry::query()->count())->toBe(0);
 })->with(['GET', 'HEAD', 'OPTIONS']);
 
 it('records the row even when status code is 4xx', function () {
-    $staff = new PartnaStaff();
+    $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
 
     $request = makeAuditRequest('DELETE', '/staff/professionals/123/force', [
@@ -97,7 +97,7 @@ it('records the row even when status code is 4xx', function () {
     ]);
     $request->attributes->set('partna_staff', $staff);
 
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
     $middleware->terminate($request, new Response('Forbidden', 403));
 
     $row = StaffAuditEntry::query()->first();
@@ -109,7 +109,7 @@ it('records a null staff_id when partna_staff is missing from the request', func
     $request = makeAuditRequest('POST', '/staff/notifications');
     // No partna_staff attribute — simulating a write that somehow got past auth.
 
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
     $middleware->terminate($request, new Response('', 200));
 
     $row = StaffAuditEntry::query()->first();
@@ -118,7 +118,7 @@ it('records a null staff_id when partna_staff is missing from the request', func
 });
 
 it('accepts a string professional binding when route-model binding is not in effect', function () {
-    $staff = new PartnaStaff();
+    $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
 
     $userId = (string) Str::uuid();
@@ -127,7 +127,7 @@ it('accepts a string professional binding when route-model binding is not in eff
     ]);
     $request->attributes->set('partna_staff', $staff);
 
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
     $middleware->terminate($request, new Response('', 200));
 
     $row = StaffAuditEntry::query()->first();
@@ -136,10 +136,10 @@ it('accepts a string professional binding when route-model binding is not in eff
 });
 
 it('serialises route bindings to scalar UUIDs in payload_summary', function () {
-    $staff = new PartnaStaff();
+    $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
 
-    $professional = new User();
+    $professional = new User;
     $professional->id = (string) Str::uuid();
     $professional->handle = 'acme';
 
@@ -149,7 +149,7 @@ it('serialises route bindings to scalar UUIDs in payload_summary', function () {
     ]);
     $request->attributes->set('partna_staff', $staff);
 
-    $middleware = new RecordStaffAuditEntry(new StaffAuditService());
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
     $middleware->terminate($request, new Response('', 200));
 
     $row = StaffAuditEntry::query()->first();

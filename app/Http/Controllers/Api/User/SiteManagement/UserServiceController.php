@@ -16,6 +16,7 @@ use App\Services\Cache\UserCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // V2: Service CRUD + reorder for professional's mini-site.
 class UserServiceController extends ApiController
@@ -150,7 +151,7 @@ class UserServiceController extends ApiController
             // Log the actual cause so the user sees the real error in server
             // logs instead of the generic "An error occurred" wrapper from
             // bootstrap/app.php. Re-throws so the wrapper still returns 500.
-            \Illuminate\Support\Facades\Log::error('Service store failed', [
+            Log::error('Service store failed', [
                 'user_id' => $pro->id,
                 'payload' => $data,
                 'message' => $e->getMessage(),

@@ -1,6 +1,8 @@
 <?php
 
-uses(Tests\TestCase::class)->in(__FILE__);
+use Tests\TestCase;
+
+uses(TestCase::class)->in(__FILE__);
 
 it('exposes the 7 link categories in config', function () {
     $categories = config('partna.link_categories');

@@ -29,7 +29,7 @@ it('returns 401 for unauthenticated requests to every staff case endpoint', func
 
 it('returns 401 when staff is authenticated but AAL1 (no MFA)', function () {
     $staff = PartnaStaff::factory()->create();
-    $case  = ModerationCase::factory()->create();
+    $case = ModerationCase::factory()->create();
 
     // Pass aal=aal1 via the actingAsStaff helper — VerifySupabaseJwt stub sets
     // supabase_aal='aal1' on the request, which require.aal2 reads and rejects.

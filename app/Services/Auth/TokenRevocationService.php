@@ -88,11 +88,11 @@ class TokenRevocationService
                 // intentional — preserves "same network neighbourhood" signal
                 // without pinpointing the exact device address.
                 Redis::hmset($metaKey, [
-                    'user_id'      => $userId,
-                    'created_at'   => (string) time(),
-                    'ip_prefix'    => $this->truncateIp((string) ($metadata['ip'] ?? '')),
+                    'user_id' => $userId,
+                    'created_at' => (string) time(),
+                    'ip_prefix' => $this->truncateIp((string) ($metadata['ip'] ?? '')),
                     'browser_family' => $this->parseUaBrowserFamily((string) ($metadata['user_agent'] ?? '')),
-                    'platform'     => $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
+                    'platform' => $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
                 ]);
                 Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
             }
@@ -176,21 +176,21 @@ class TokenRevocationService
             // Legacy-compat: entries written before SEC-3 carry raw `ip` and
             // `user_agent`; parse them on read so callers always see the new shape.
             if (array_key_exists('ip_prefix', $meta)) {
-                $ipPrefix      = (string) $meta['ip_prefix'];
+                $ipPrefix = (string) $meta['ip_prefix'];
                 $browserFamily = (string) $meta['browser_family'];
-                $platform      = (string) $meta['platform'];
+                $platform = (string) $meta['platform'];
             } else {
-                $ipPrefix      = $this->truncateIp((string) ($meta['ip'] ?? ''));
+                $ipPrefix = $this->truncateIp((string) ($meta['ip'] ?? ''));
                 $browserFamily = $this->parseUaBrowserFamily((string) ($meta['user_agent'] ?? ''));
-                $platform      = $this->parseUaPlatform((string) ($meta['user_agent'] ?? ''));
+                $platform = $this->parseUaPlatform((string) ($meta['user_agent'] ?? ''));
             }
 
             $sessions[] = [
-                'session_id'     => $sid,
-                'created_at'     => (int) ($meta['created_at'] ?? 0),
-                'ip_prefix'      => $ipPrefix,
+                'session_id' => $sid,
+                'created_at' => (int) ($meta['created_at'] ?? 0),
+                'ip_prefix' => $ipPrefix,
                 'browser_family' => $browserFamily,
-                'platform'       => $platform,
+                'platform' => $platform,
             ];
         }
 
@@ -250,16 +250,16 @@ class TokenRevocationService
         }
 
         return match (true) {
-            (bool) preg_match('/Edg(?:e|\/)/i', $ua)                  => 'Edge',
-            (bool) preg_match('/OPR\//i', $ua)                        => 'Opera',
-            (bool) preg_match('/SamsungBrowser/i', $ua)               => 'Samsung Browser',
-            (bool) preg_match('/(?:Chrome|CriOS)\/[\d.]+/i', $ua)     => 'Chrome',
-            (bool) preg_match('/FxiOS\//i', $ua)                      => 'Firefox',
-            (bool) preg_match('/Firefox\/[\d.]+/i', $ua)              => 'Firefox',
+            (bool) preg_match('/Edg(?:e|\/)/i', $ua) => 'Edge',
+            (bool) preg_match('/OPR\//i', $ua) => 'Opera',
+            (bool) preg_match('/SamsungBrowser/i', $ua) => 'Samsung Browser',
+            (bool) preg_match('/(?:Chrome|CriOS)\/[\d.]+/i', $ua) => 'Chrome',
+            (bool) preg_match('/FxiOS\//i', $ua) => 'Firefox',
+            (bool) preg_match('/Firefox\/[\d.]+/i', $ua) => 'Firefox',
             // Mobile Safari (iOS WebKit) before generic Safari
             (bool) preg_match('/Version\/[\d.]+ Mobile.*Safari/i', $ua) => 'iOS Safari',
-            (bool) preg_match('/Safari\/[\d.]+/i', $ua)               => 'Safari',
-            default                                                    => 'Other',
+            (bool) preg_match('/Safari\/[\d.]+/i', $ua) => 'Safari',
+            default => 'Other',
         };
     }
 
@@ -273,12 +273,12 @@ class TokenRevocationService
         }
 
         return match (true) {
-            (bool) preg_match('/iPhone|iPad|iOS/i', $ua)     => 'iOS',
-            (bool) preg_match('/Android/i', $ua)             => 'Android',
-            (bool) preg_match('/Windows/i', $ua)             => 'Windows',
-            (bool) preg_match('/Macintosh|Mac OS X/i', $ua)  => 'macOS',
-            (bool) preg_match('/Linux/i', $ua)               => 'Linux',
-            default                                          => 'Other',
+            (bool) preg_match('/iPhone|iPad|iOS/i', $ua) => 'iOS',
+            (bool) preg_match('/Android/i', $ua) => 'Android',
+            (bool) preg_match('/Windows/i', $ua) => 'Windows',
+            (bool) preg_match('/Macintosh|Mac OS X/i', $ua) => 'macOS',
+            (bool) preg_match('/Linux/i', $ua) => 'Linux',
+            default => 'Other',
         };
     }
 }

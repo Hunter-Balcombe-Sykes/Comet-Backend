@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Auth\JwksUnavailableException;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
 use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
@@ -244,7 +245,7 @@ it('reports a JWKS-infrastructure failure to the exception handler', function ()
 
     $this->middleware->handle($request, $this->next);
 
-    Exceptions::assertReported(\App\Exceptions\Auth\JwksUnavailableException::class);
+    Exceptions::assertReported(JwksUnavailableException::class);
 });
 
 it('does NOT report a token-level failure to the exception handler', function () {

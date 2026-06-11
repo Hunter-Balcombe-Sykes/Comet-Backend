@@ -1,13 +1,16 @@
 <?php
 
 use App\Models\Core\Site\SiteSubdomainAlias;
+use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupUsersTable();
@@ -51,7 +54,7 @@ it('stamps reclaim_until and expires_at on a new subdomain alias', function () {
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\User\User::query()->findOrFail($proId);
+    $pro = User::query()->findOrFail($proId);
 
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'newhandle']);
 
@@ -103,7 +106,7 @@ function seedForeignAlias(string $subdomain, ?string $expiresAt): string
 }
 
 /** Creates our own user+site so we can attempt a rename. */
-function seedOwnSite(string $subdomain): \App\Models\Core\User\User
+function seedOwnSite(string $subdomain): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -129,7 +132,7 @@ function seedOwnSite(string $subdomain): \App\Models\Core\User\User
         'updated_at' => $now,
     ]);
 
-    return \App\Models\Core\User\User::query()->findOrFail($proId);
+    return User::query()->findOrFail($proId);
 }
 
 it('allows claiming a subdomain whose foreign alias has expired (expired aliases do not block re-registration)', function () {
@@ -154,7 +157,7 @@ it('still blocks claiming a subdomain whose foreign alias is active', function (
     $pro = seedOwnSite('mine');
 
     expect(fn () => app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'taken']))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('deletes the matching subdomain alias when a user renames back to a subdomain they previously held', function () {
@@ -184,7 +187,7 @@ it('deletes the matching subdomain alias when a user renames back to a subdomain
         'updated_at' => $now,
     ]);
 
-    $pro = \App\Models\Core\User\User::query()->findOrFail($proId);
+    $pro = User::query()->findOrFail($proId);
 
     // a → b (creates alias for 'a')
     app(UpdateSiteAction::class)->execute($pro, ['subdomain' => 'b']);

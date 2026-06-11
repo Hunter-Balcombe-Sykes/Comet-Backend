@@ -14,11 +14,11 @@ class EvidenceResource extends ApiResource
     public function toArray($request): array
     {
         return [
-            'id'            => (string) $this->id,
+            'id' => (string) $this->id,
             'evidence_type' => $this->evidence_type,
-            'payload'       => $this->payload,
-            'content_hash'  => $this->content_hash,
-            'captured_at'   => $this->captured_at?->toIso8601String(),
+            'payload' => $this->payload,
+            'content_hash' => $this->content_hash,
+            'captured_at' => $this->captured_at?->toIso8601String(),
         ];
     }
 }

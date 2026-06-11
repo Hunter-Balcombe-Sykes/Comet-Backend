@@ -4,6 +4,8 @@
 
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
+use App\Services\Media\UnprocessableImageException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -188,8 +190,8 @@ it('throws UnprocessableImageException when pixel count exceeds the guard', func
             imageId: $imageId,
             basePath: "images/test/{$imageId}",
         );
-        throw new \RuntimeException('Expected UnprocessableImageException was not thrown');
-    } catch (\App\Services\Media\UnprocessableImageException $e) {
+        throw new RuntimeException('Expected UnprocessableImageException was not thrown');
+    } catch (UnprocessableImageException $e) {
         expect($e->getMessage())->toContain('exceed safe processing limit');
         expect($e->getMessage())->toContain('6000');
         expect($e->getMessage())->toContain('5000');
@@ -219,8 +221,8 @@ it('respects the PARTNA_IMAGE_MAX_PIXELS env override', function () {
             imageId: $imageId,
             basePath: "images/test/{$imageId}",
         );
-        throw new \RuntimeException('Expected UnprocessableImageException was not thrown');
-    } catch (\App\Services\Media\UnprocessableImageException $e) {
+        throw new RuntimeException('Expected UnprocessableImageException was not thrown');
+    } catch (UnprocessableImageException $e) {
         expect($e->getMessage())->toContain('1000000');
     } finally {
         @unlink($fixture);
@@ -232,7 +234,7 @@ it('storeOriginal stores a valid image via stream and returns the path', functio
     $basePath = 'images/test/'.Str::uuid();
     $fixture = makeVariantFixture(400, 300, 'jpeg');
 
-    $upload = new \Illuminate\Http\UploadedFile(
+    $upload = new UploadedFile(
         $fixture,
         'photo.jpg',
         'image/jpeg',
@@ -258,7 +260,7 @@ it('storeOriginal rejects files whose bytes are not an allowed image MIME', func
     // Write a PHP script and disguise it as a JPEG via the client-supplied filename + MIME.
     $maliciousPath = tempnam(sys_get_temp_dir(), 'sidest_malicious_');
     file_put_contents($maliciousPath, "<?php echo 'pwn'; ?>\n");
-    $upload = new \Illuminate\Http\UploadedFile(
+    $upload = new UploadedFile(
         $maliciousPath,
         'evil.jpg',
         'image/jpeg', // CLIENT-supplied MIME — must NOT be trusted
@@ -268,8 +270,8 @@ it('storeOriginal rejects files whose bytes are not an allowed image MIME', func
 
     try {
         $service->storeOriginal($upload, $basePath);
-        throw new \RuntimeException('Expected UnprocessableImageException was not thrown');
-    } catch (\App\Services\Media\UnprocessableImageException $e) {
+        throw new RuntimeException('Expected UnprocessableImageException was not thrown');
+    } catch (UnprocessableImageException $e) {
         expect($e->getMessage())->toContain('not an accepted image format');
     } finally {
         @unlink($maliciousPath);
