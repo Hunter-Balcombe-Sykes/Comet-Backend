@@ -7,10 +7,11 @@ use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\JsonResponse;
 
-// Google Business — connect by Maps share link. Google exposes no keyless
-// ratings/reviews API, so the card is the honest subset: place name +
-// coordinates parsed from the link, a live keyless map embed on the
-// sitepage, and open-in-Maps / directions actions.
+// Google Business — connect via the Places picker (canonical) or a pasted
+// Maps share link (legacy). Picker connects are enriched server-side with the
+// Place Details snapshot (rating, reviews, hours, phone, website, …); the
+// refresh cron keeps that snapshot current. Link connects stay the honest
+// URL-parse subset: name + coordinates + keyless map embed.
 class GoogleBusinessController extends SingleSelectionPlatformController
 {
     public function __construct(private readonly GoogleBusinessService $service) {}
@@ -35,14 +36,23 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         // own business in the dashboard. Store the canonical place deep link
         // for the "open in Maps" / directions actions.
         if (isset($data['placeId'])) {
-            return $this->connected($user, [
+            $selection = [
                 'url' => 'https://www.google.com/maps/search/?api=1&query='.rawurlencode($data['name']).'&query_place_id='.rawurlencode($data['placeId']),
                 'placeId' => $data['placeId'],
                 'name' => $data['name'],
                 'address' => $data['address'] ?? null,
                 'lat' => (float) $data['lat'],
                 'lng' => (float) $data['lng'],
-            ]);
+            ];
+
+            // Place Details enrichment (rating, reviews, hours, phone, …) —
+            // best-effort: a missing server key or failed fetch keeps the
+            // picker fields and the refresh cron retries within a week.
+            // mapDetails() drops absent keys, so the spread never overwrites
+            // a picker value with null.
+            $details = $this->service->fetchPlaceDetails($data['placeId']);
+
+            return $this->connected($user, [...$selection, ...($details ?? [])]);
         }
 
         $place = $this->service->resolve($data['url']);

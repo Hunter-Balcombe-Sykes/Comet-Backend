@@ -85,8 +85,9 @@ class EnvCheckService
             'partna.bot_protection.drivers.turnstile.secret' => 'TURNSTILE_SECRET',
             'partna.bot_protection.drivers.turnstile.site_key' => 'TURNSTILE_SITE_KEY',
         ],
-        'Google Maps (address autocomplete)' => [
+        'Google Maps (address autocomplete + place details)' => [
             'services.google_maps.api_key' => 'GOOGLE_MAPS_API_KEY',
+            'services.google_maps.server_api_key' => 'GOOGLE_MAPS_SERVER_API_KEY',
         ],
         'Analytics' => [
             'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
