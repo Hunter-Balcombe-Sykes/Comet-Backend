@@ -30,5 +30,18 @@ abstract class TestCase extends BaseTestCase
         config(['database.default' => 'pgsql']);
 
         DB::purge('pgsql');
+
+        // MediaDiskResolver trusts $_ENV/$_SERVER over config (Laravel Cloud
+        // injects runtime env vars that deploy-cached config can't see). Under
+        // phpunit, dotenv loads .env into those superglobals, so a developer's
+        // (or CI's) SIDEST_MEDIA_DISK=media would silently override the suites'
+        // config('partna.media_disk') overrides and point media-test writes at
+        // the real S3 disk. Clear the probe keys per-test; the tests that
+        // exercise the probe itself (MediaDiskResolverTest) set them explicitly
+        // mid-test.
+        unset(
+            $_ENV['PARTNA_MEDIA_DISK'], $_SERVER['PARTNA_MEDIA_DISK'],
+            $_ENV['SIDEST_MEDIA_DISK'], $_SERVER['SIDEST_MEDIA_DISK'],
+        );
     }
 }
