@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
+use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Str;
@@ -106,6 +107,8 @@ it('youtube connect returns the canonical tile shape with latest passed through 
     actingAsUser($user)->postJson('/api/platforms/youtube/connect', ['channel' => '@mychannel'])
         ->assertOk()
         ->assertExactJson([
+            // Multi-account platforms echo the account row id on connect.
+            'id' => 'acct-'.substr(sha1('mychannel'), 0, 16),
             'handle' => 'mychannel',
             'name' => 'Vid',
             'description' => 'd',
@@ -149,6 +152,7 @@ it('apple music + podcast connect return their per-platform flat fields', functi
     actingAsUser($user)->postJson('/api/platforms/apple/music/connect', ['artist' => 'Artist'])
         ->assertOk()
         ->assertExactJson([
+            'id' => 'acct-'.substr(sha1('artist'), 0, 16),
             'input' => 'Artist', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l',
             'latest' => ['collectionId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l'],
             'highlights' => [],
@@ -157,6 +161,7 @@ it('apple music + podcast connect return their per-platform flat fields', functi
     actingAsUser($user)->postJson('/api/platforms/apple/podcast/connect', ['show' => 'Show'])
         ->assertOk()
         ->assertExactJson([
+            'id' => 'acct-'.substr(sha1('show'), 0, 16),
             'input' => 'Show', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l',
             'latest' => ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
             'highlights' => [],
@@ -165,46 +170,64 @@ it('apple music + podcast connect return their per-platform flat fields', functi
 
 // ── Eventbrite (EventbriteConnectionResource) ────────────────────────────────
 
-it('eventbrite connect returns {url,organiser,next,upcoming} with events verbatim', function () {
+it('eventbrite connect returns the account shape with ids stamped on events', function () {
     $user = platformContractUser('eb1');
-    $this->mock(EventbriteScraper::class, function ($m) {
+    $event = ['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00'];
+    $this->mock(EventbriteScraper::class, function ($m) use ($event) {
         $m->shouldReceive('normalizeOrgUrl')->andReturn('https://www.eventbrite.com/o/acme-1');
         $m->shouldReceive('fetchEvents')->andReturn([
             'organiser' => 'Acme',
-            'events' => [['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00']],
+            'events' => [$event],
         ]);
     });
+
+    $stamped = EventsPayload::withIds([$event])[0];
 
     actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => 'https://www.eventbrite.com/o/acme-1'])
         ->assertOk()
         ->assertExactJson([
+            'id' => 'acct-'.substr(sha1('https://www.eventbrite.com/o/acme-1'), 0, 16),
             'url' => 'https://www.eventbrite.com/o/acme-1',
             'organiser' => 'Acme',
-            'next' => ['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00'],
-            'upcoming' => [['name' => 'Gig', 'startDate' => '2099-01-01T00:00:00+00:00', 'endDate' => '2099-01-02T00:00:00+00:00']],
+            'next' => $stamped,
+            'upcoming' => [$stamped],
         ]);
 });
 
-it('eventbrite selection filters past events AND strips unknown keys', function () {
+it('eventbrite selection filters past events, strips unknown keys, and exposes accounts + merged events', function () {
     $user = platformContractUser('eb2');
+    $future = ['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00'];
     seedPlatformConnection($user, 'eventbrite', [
         'url' => 'https://www.eventbrite.com/o/acme-1',
         'organiser' => 'Acme',
         'next' => ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
         'upcoming' => [
             ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
-            ['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00'],
+            $future,
         ],
         '_internal' => 'leak',
     ]);
 
+    $stamped = EventsPayload::withIds([$future])[0];
+    // Merged events are tagged with their source account row.
+    $merged = [...$stamped, 'source' => 'account', 'accountId' => 'eventbrite'];
+
     actingAsUser($user)->getJson('/api/platforms/eventbrite/selection')
         ->assertOk()
         ->assertExactJson(['selection' => [
+            'accounts' => [[
+                'id' => 'eventbrite',
+                'url' => 'https://www.eventbrite.com/o/acme-1',
+                'organiser' => 'Acme',
+                'next' => $stamped,
+                'upcoming' => [$stamped],
+            ]],
+            'events' => [$merged],
+            // Legacy mirror keys (pre-multi-account consumers).
             'url' => 'https://www.eventbrite.com/o/acme-1',
             'organiser' => 'Acme',
-            'next' => ['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00'],
-            'upcoming' => [['name' => 'Future', 'endDate' => '2099-01-02T00:00:00+00:00']],
+            'next' => $merged,
+            'upcoming' => [$merged],
         ]]);
 });
 

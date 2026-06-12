@@ -139,6 +139,12 @@ class PlatformRefresher
      */
     private function eventbritePayload(array $payload): array
     {
+        // Standalone-event row — re-scrape the single event page; the id is
+        // re-derived from the link so it stays stable across refreshes.
+        if (($payload['kind'] ?? null) === 'event') {
+            return $this->standaloneEventPayload($payload, fn (string $link) => $this->eventbrite->fetchSingleEvent($link), 'eventbrite');
+        }
+
         $url = $payload['url'] ?? null;
         if (! $url) {
             return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
@@ -147,14 +153,14 @@ class PlatformRefresher
         if ($result === null) {
             return ['payload' => null, 'error' => 'eventbrite_fetch_failed', 'status' => 'unavailable'];
         }
-        $events = $result['events'];
 
-        return ['payload' => [
-            'url' => $url,
-            'organiser' => $result['organiser'],
-            'next' => $events[0] ?? null,
-            'upcoming' => $events,
-        ], 'error' => null, 'status' => 'ok'];
+        // accountPayload re-applies the user's per-event hides to the fresh list.
+        return ['payload' => EventsPayload::accountPayload(
+            $url,
+            $result['organiser'],
+            $result['events'],
+            is_array($payload['hiddenEventIds'] ?? null) ? $payload['hiddenEventIds'] : [],
+        ), 'error' => null, 'status' => 'ok'];
     }
 
     /**
@@ -162,6 +168,10 @@ class PlatformRefresher
      */
     private function humanitixPayload(array $payload): array
     {
+        if (($payload['kind'] ?? null) === 'event') {
+            return $this->standaloneEventPayload($payload, fn (string $link) => $this->humanitix->fetchSingleEvent($link), 'humanitix');
+        }
+
         $url = $payload['url'] ?? null;
         if (! $url) {
             return ['payload' => null, 'error' => 'missing_key: url', 'status' => 'error'];
@@ -170,14 +180,32 @@ class PlatformRefresher
         if ($result === null) {
             return ['payload' => null, 'error' => 'humanitix_fetch_failed', 'status' => 'unavailable'];
         }
-        $events = $result['events'];
 
-        return ['payload' => [
-            'url' => $url,
-            'organiser' => $result['organiser'],
-            'next' => $events[0] ?? null,
-            'upcoming' => $events,
-        ], 'error' => null, 'status' => 'ok'];
+        return ['payload' => EventsPayload::accountPayload(
+            $url,
+            $result['organiser'],
+            $result['events'],
+            is_array($payload['hiddenEventIds'] ?? null) ? $payload['hiddenEventIds'] : [],
+        ), 'error' => null, 'status' => 'ok'];
+    }
+
+    /**
+     * Refresh one standalone event row from its event page.
+     *
+     * @return array{payload: array<string,mixed>|null, error: string|null, status: string}
+     */
+    private function standaloneEventPayload(array $payload, callable $fetch, string $platform): array
+    {
+        $link = $payload['link'] ?? null;
+        if (! is_string($link) || $link === '') {
+            return ['payload' => null, 'error' => 'missing_key: link', 'status' => 'error'];
+        }
+        $event = $fetch($link);
+        if ($event === null) {
+            return ['payload' => null, 'error' => $platform.'_event_fetch_failed', 'status' => 'unavailable'];
+        }
+
+        return ['payload' => EventsPayload::standalonePayload($event), 'error' => null, 'status' => 'ok'];
     }
 
     /**

@@ -28,8 +28,13 @@ class PublicIntegrationConnectionResource extends ApiResource
         'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
         'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'link', 'latest', 'highlights'],
-        'eventbrite' => ['url', 'organiser', 'next', 'upcoming'],
-        'humanitix' => ['url', 'organiser', 'next', 'upcoming'],
+        // Events platforms carry two row kinds: account rows ({url, organiser,
+        // next, upcoming}) and standalone-event rows ({kind:'event', id, ...flat
+        // event fields}). hiddenEventIds stays private (dashboard-only state).
+        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
+        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
+        // custom: one row per user-attached link.
+        'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],
         'tiktok' => ['username', 'url'],
         'x' => ['username', 'url'],

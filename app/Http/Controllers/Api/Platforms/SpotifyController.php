@@ -2,15 +2,11 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSpotifyRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 // Test-mode endpoints for Spotify. Connect by entity link only (artist /
 // album / playlist / track / show / episode / user) — the public oEmbed
@@ -18,16 +14,24 @@ use Illuminate\Http\Request;
 // embed player URL is derived from the entity type + id. The sitepage renders
 // the embed (which streams the artist's top tracks natively), so there is no
 // highlights picker.
-class SpotifyController extends ApiController
+class SpotifyController extends SingleSelectionPlatformController
 {
-    use ManagesIntegrationConnection;
-    use ResolveCurrentUser;
-
     public function __construct(private readonly OEmbedService $oembed) {}
 
     protected function platform(): string
     {
         return 'spotify';
+    }
+
+    protected function resourceClass(): string
+    {
+        return MusicEmbedConnectionResource::class;
+    }
+
+    // Listen platform — multiple entity accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
     }
 
     // POST /api/platforms/spotify/connect
@@ -48,7 +52,7 @@ class SpotifyController extends ApiController
             return $this->error('Could not load that Spotify link.', 422);
         }
 
-        $selection = [
+        return $this->connected($user, [
             'url' => $link,
             'name' => $resolved['name'],
             'thumbnail' => $resolved['thumbnail'],
@@ -56,26 +60,7 @@ class SpotifyController extends ApiController
             // but the constructed form covers a missing field.
             'embedUrl' => $resolved['embedUrl'] ?? "https://open.spotify.com/embed/{$type}/{$id}",
             'link' => $link,
-        ];
-        $this->writeConnection($user, $selection);
-
-        return $this->success((new MusicEmbedConnectionResource($selection))->resolve());
-    }
-
-    // GET /api/platforms/spotify/selection
-    public function selection(Request $request): JsonResponse
-    {
-        $payload = $this->readConnection($this->currentUser($request));
-
-        return $this->success(['selection' => $payload ? (new MusicEmbedConnectionResource($payload))->resolve() : null]);
-    }
-
-    // DELETE /api/platforms/spotify
-    public function forget(Request $request): JsonResponse
-    {
-        $this->forgetConnection($this->currentUser($request));
-
-        return $this->success(['selection' => null]);
+        ]);
     }
 
     /** @return array{0:string, 1:string}|null [type, id] from any entity link. */

@@ -2,31 +2,35 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSoundcloudRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 // Test-mode endpoints for SoundCloud. Connect by profile / track / set link —
 // the public oEmbed endpoint resolves the display name + artwork with no
 // auth; the official widget player URL is parsed from the oEmbed html (with a
 // deterministic w.soundcloud.com fallback that accepts permalink URLs). The
 // sitepage renders the widget, so there is no highlights picker.
-class SoundcloudController extends ApiController
+class SoundcloudController extends SingleSelectionPlatformController
 {
-    use ManagesIntegrationConnection;
-    use ResolveCurrentUser;
-
     public function __construct(private readonly OEmbedService $oembed) {}
 
     protected function platform(): string
     {
         return 'soundcloud';
+    }
+
+    protected function resourceClass(): string
+    {
+        return MusicEmbedConnectionResource::class;
+    }
+
+    // Listen platform — multiple profile accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
     }
 
     // POST /api/platforms/soundcloud/connect
@@ -45,7 +49,7 @@ class SoundcloudController extends ApiController
             return $this->error('Could not load that SoundCloud link.', 422);
         }
 
-        $selection = [
+        return $this->connected($user, [
             'url' => $link,
             'name' => $resolved['name'],
             'thumbnail' => $resolved['thumbnail'],
@@ -53,26 +57,7 @@ class SoundcloudController extends ApiController
             // iframe still yields a working player.
             'embedUrl' => $resolved['embedUrl'] ?? 'https://w.soundcloud.com/player/?url='.rawurlencode($link).'&visual=true',
             'link' => $link,
-        ];
-        $this->writeConnection($user, $selection);
-
-        return $this->success((new MusicEmbedConnectionResource($selection))->resolve());
-    }
-
-    // GET /api/platforms/soundcloud/selection
-    public function selection(Request $request): JsonResponse
-    {
-        $payload = $this->readConnection($this->currentUser($request));
-
-        return $this->success(['selection' => $payload ? (new MusicEmbedConnectionResource($payload))->resolve() : null]);
-    }
-
-    // DELETE /api/platforms/soundcloud
-    public function forget(Request $request): JsonResponse
-    {
-        $this->forgetConnection($this->currentUser($request));
-
-        return $this->success(['selection' => null]);
+        ]);
     }
 
     /** soundcloud.com path (≤3 segments) → canonical https link, else null. */

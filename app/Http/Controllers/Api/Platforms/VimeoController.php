@@ -31,6 +31,18 @@ class VimeoController extends SingleSelectionPlatformController
         return VimeoConnectionResource::class;
     }
 
+    // Watch platform — multiple profile accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
+    }
+
+    // apiPath is the canonical profile identity (urls vary per input form).
+    protected function accountKeyOf(array $selection): ?string
+    {
+        return is_string($selection['apiPath'] ?? null) ? $selection['apiPath'] : parent::accountKeyOf($selection);
+    }
+
     // POST /api/platforms/vimeo/connect
     public function connect(ConnectVimeoRequest $request): JsonResponse
     {
@@ -47,12 +59,10 @@ class VimeoController extends SingleSelectionPlatformController
             return $this->error('Could not find that Vimeo profile.', 404);
         }
 
-        // Reconnecting the SAME profile keeps the chosen highlights; switching
-        // to a different one resets them (they belonged to the old profile).
-        $existing = $this->readConnection($user);
-        $highlights = data_get($existing, 'apiPath') === $source['apiPath']
-            ? data_get($existing, 'highlights', [])
-            : [];
+        // Re-adding an already-connected profile keeps that account's chosen
+        // highlights; a new profile starts with none.
+        $existing = $this->matchAccountRow($user, 'apiPath', $source['apiPath'])?->payload;
+        $highlights = data_get($existing, 'highlights', []);
 
         return $this->connected($user, [
             'url' => $source['link'],
@@ -66,11 +76,13 @@ class VimeoController extends SingleSelectionPlatformController
         ]);
     }
 
-    // GET /api/platforms/vimeo/recent — the latest uploads for the highlights
-    // picker (the keyless API caps a page at 20).
+    // GET /api/platforms/vimeo/recent?account={id} — the latest uploads for the
+    // highlights picker (the keyless API caps a page at 20). Defaults to the
+    // first account when no account id is given.
     public function recent(Request $request): JsonResponse
     {
-        $apiPath = data_get($this->readConnection($this->currentUser($request)), 'apiPath');
+        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $apiPath = data_get($row?->payload, 'apiPath');
         if (! $apiPath) {
             return $this->error('Connect a Vimeo profile first.', 404);
         }
@@ -83,17 +95,20 @@ class VimeoController extends SingleSelectionPlatformController
         return $this->success(['videos' => $videos]);
     }
 
-    // POST /api/platforms/vimeo/highlights — snapshot up to 5 chosen uploads
-    // (by itemId, from the recent list). An empty list clears them.
+    // POST /api/platforms/vimeo/highlights?account={id} — snapshot up to 5
+    // chosen uploads (by itemId, from the recent list) onto that account.
+    // An empty list clears them.
     public function highlights(SaveVimeoHighlightsRequest $request): JsonResponse
     {
         $validated = $request->validated();
 
         $user = $this->currentUser($request);
+        $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
-            $selection = $this->readConnection($user);
-            if (! $selection) {
+        return $this->withConnectionLock($user, function () use ($user, $validated, $accountId): JsonResponse {
+            $row = $this->requestedAccountRow($user, $accountId);
+            $selection = $row?->payload;
+            if (! $row || ! $selection) {
                 return $this->error('Connect a Vimeo profile first.', 404);
             }
 
@@ -116,9 +131,9 @@ class VimeoController extends SingleSelectionPlatformController
                 ->values()
                 ->all();
 
-            $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection, $row->resource_id);
 
-            return $this->success((new VimeoConnectionResource($selection))->resolve());
+            return $this->success(['id' => $row->resource_id, ...(new VimeoConnectionResource($selection))->resolve()]);
         });
     }
 }

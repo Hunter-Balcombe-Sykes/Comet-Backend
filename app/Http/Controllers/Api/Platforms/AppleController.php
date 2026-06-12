@@ -77,6 +77,18 @@ class AppleController extends ApiController
         return $this->recentFor($request, $this->musicConfig());
     }
 
+    // GET /api/platforms/apple/music/accounts — every connected artist.
+    public function musicAccounts(Request $request): JsonResponse
+    {
+        return $this->accountsFor($request, self::MUSIC);
+    }
+
+    // DELETE /api/platforms/apple/music/accounts/{id} — remove one artist.
+    public function removeMusicAccount(Request $request, string $id): JsonResponse
+    {
+        return $this->removeAccountFor($request, self::MUSIC, $id);
+    }
+
     // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
     public function musicHighlights(SaveAppleMusicHighlightsRequest $request): JsonResponse
     {
@@ -103,6 +115,18 @@ class AppleController extends ApiController
         return $this->recentFor($request, $this->podcastConfig());
     }
 
+    // GET /api/platforms/apple/podcast/accounts — every connected show.
+    public function podcastAccounts(Request $request): JsonResponse
+    {
+        return $this->accountsFor($request, self::PODCAST);
+    }
+
+    // DELETE /api/platforms/apple/podcast/accounts/{id} — remove one show.
+    public function removePodcastAccount(Request $request, string $id): JsonResponse
+    {
+        return $this->removeAccountFor($request, self::PODCAST, $id);
+    }
+
     // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
     public function podcastHighlights(SaveApplePodcastHighlightsRequest $request): JsonResponse
     {
@@ -117,7 +141,7 @@ class AppleController extends ApiController
         // Gate runs per-platform so each delete ability fires independently.
         foreach ([self::MUSIC, self::PODCAST] as $platform) {
             $this->activePlatform = $platform;
-            $this->forgetConnection($user);
+            $this->forgetAllConnections($user);
         }
 
         return $this->success(['music' => null, 'podcast' => null]);
@@ -202,23 +226,52 @@ class AppleController extends ApiController
             'latest' => $latest,
             'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
         ];
-        $this->writeConnection($user, $selection);
+        $row = $this->writeAccountConnection($user, $input, $selection);
+        if ($row === null) {
+            return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+        }
 
-        return $this->success($this->wrapAppleSelection($cfg['platform'], $selection));
+        return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
     }
 
     private function selectionFor(Request $request, string $platform): JsonResponse
     {
         $this->activePlatform = $platform;
-        $payload = $this->readConnection($this->currentUser($request));
+        $payload = $this->accountRows($this->currentUser($request))->first()?->payload;
 
         return $this->success(['selection' => $payload ? $this->wrapAppleSelection($platform, $payload) : null]);
+    }
+
+    private function accountsFor(Request $request, string $platform): JsonResponse
+    {
+        $this->activePlatform = $platform;
+
+        return $this->success(['accounts' => $this->accountsListData(
+            $this->currentUser($request),
+            fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
+        )]);
+    }
+
+    private function removeAccountFor(Request $request, string $platform, string $id): JsonResponse
+    {
+        $this->activePlatform = $platform;
+        $user = $this->currentUser($request);
+        if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
+            return $this->error('Account not found.', 404);
+        }
+        $this->forgetConnection($user, $id);
+
+        return $this->success(['accounts' => $this->accountsListData(
+            $user,
+            fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
+        )]);
     }
 
     private function recentFor(Request $request, array $cfg): JsonResponse
     {
         $this->activePlatform = $cfg['platform'];
-        $input = data_get($this->readConnection($this->currentUser($request)), 'input');
+        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $input = data_get($row?->payload, 'input');
         if (! $input) {
             return $this->error($cfg['connectFirst'], 404);
         }
@@ -236,10 +289,12 @@ class AppleController extends ApiController
     {
         $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
+        $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated): JsonResponse {
-            $selection = $this->readConnection($user);
-            if (! $selection) {
+        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId): JsonResponse {
+            $row = $this->requestedAccountRow($user, $accountId);
+            $selection = $row?->payload;
+            if (! $row || ! $selection) {
                 return $this->error($cfg['connectFirst'], 404);
             }
             $items = ($cfg['fetch'])(data_get($selection, 'input'));
@@ -255,31 +310,30 @@ class AppleController extends ApiController
             }
 
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
-            $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection, $row->resource_id);
 
-            return $this->success($this->wrapAppleSelection($cfg['platform'], $selection));
+            return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
         });
     }
 
     private function forgetFor(Request $request, string $platform, string $responseKey): JsonResponse
     {
         $this->activePlatform = $platform;
-        $this->forgetConnection($this->currentUser($request));
+        $this->forgetAllConnections($this->currentUser($request));
 
         return $this->success([$responseKey => null]);
     }
 
     // ── internals ────────────────────────────────────────────────
 
-    // Preserve existing highlights only when reconnecting the SAME input.
+    // Preserve existing highlights only when re-adding an already-connected input.
     private function keptHighlights(User $user, string $platform, string $input): array
     {
         // Temporarily set activePlatform for the read; reset is implicit since
         // connectFor already set it before calling this.
         $this->activePlatform = $platform;
-        $existing = $this->readConnection($user);
 
-        return data_get($existing, 'input') === $input ? data_get($existing, 'highlights', []) : [];
+        return data_get($this->matchAccountRow($user, 'input', $input)?->payload, 'highlights', []);
     }
 
     /** Resolve the selection array through the platform-appropriate tile Resource. */

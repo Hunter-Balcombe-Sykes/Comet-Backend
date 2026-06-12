@@ -2,10 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectBandcampRequest;
 use App\Http\Requests\Platforms\SaveBandcampHighlightsRequest;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
@@ -17,11 +14,9 @@ use Illuminate\Http\Request;
 // URL (no auth — the /music page grid is scraped), an auto-latest release
 // tile, and up to 5 user-curated highlight releases via the recent picker.
 // Scraping lives in App\Services\Platforms\BandcampScraper.
-class BandcampController extends ApiController
+class BandcampController extends SingleSelectionPlatformController
 {
-    use ManagesIntegrationConnection;
     use RefreshesLatestTile;
-    use ResolveCurrentUser;
 
     private const MAX_HIGHLIGHTS = 5;
 
@@ -36,8 +31,19 @@ class BandcampController extends ApiController
         return 'bandcamp';
     }
 
+    protected function resourceClass(): string
+    {
+        return BandcampConnectionResource::class;
+    }
+
+    // Listen platform — multiple artist-page accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
+    }
+
     // POST /api/platforms/bandcamp/connect — resolve the artist page, store the
-    // latest release + artist profile. Highlights survive a same-page reconnect.
+    // latest release + artist profile. Highlights survive a same-page re-add.
     public function connect(ConnectBandcampRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -54,8 +60,9 @@ class BandcampController extends ApiController
         }
         $latest = $profile['items'][0];
 
-        $existing = $this->readConnection($user);
-        $kept = data_get($existing, 'url') === $origin ? data_get($existing, 'highlights', []) : [];
+        // Re-adding an already-connected page keeps that account's highlights.
+        $existing = $this->matchAccountRow($user, 'url', $origin)?->payload;
+        $kept = data_get($existing, 'highlights', []);
 
         $selection = [
             'url' => $origin,
@@ -68,15 +75,15 @@ class BandcampController extends ApiController
         // own og:image (artist avatar) when the release has none.
         $selection['thumbnail'] ??= $profile['thumbnail'];
 
-        $this->writeConnection($user, $selection);
-
-        return $this->success((new BandcampConnectionResource($selection))->resolve());
+        return $this->connected($user, $selection);
     }
 
-    // GET /api/platforms/bandcamp/recent — up to 15 releases for the picker.
+    // GET /api/platforms/bandcamp/recent?account={id} — up to 15 releases for
+    // the picker. Defaults to the first account when no account id is given.
     public function recent(Request $request): JsonResponse
     {
-        $url = data_get($this->readConnection($this->currentUser($request)), 'url');
+        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $url = data_get($row?->payload, 'url');
         if (! $url) {
             return $this->error('Connect a Bandcamp page first.', 404);
         }
@@ -89,15 +96,18 @@ class BandcampController extends ApiController
         return $this->success(['items' => array_slice($profile['items'], 0, 15)]);
     }
 
-    // POST /api/platforms/bandcamp/highlights — snapshot up to 5 chosen releases.
+    // POST /api/platforms/bandcamp/highlights?account={id} — snapshot up to 5
+    // chosen releases onto that account.
     public function highlights(SaveBandcampHighlightsRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validated();
+        $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
-            $selection = $this->readConnection($user);
-            if (! $selection) {
+        return $this->withConnectionLock($user, function () use ($user, $validated, $accountId): JsonResponse {
+            $row = $this->requestedAccountRow($user, $accountId);
+            $selection = $row?->payload;
+            if (! $row || ! $selection) {
                 return $this->error('Connect a Bandcamp page first.', 404);
             }
 
@@ -121,25 +131,9 @@ class BandcampController extends ApiController
                 ->take(self::MAX_HIGHLIGHTS)
                 ->values()
                 ->all();
-            $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection, $row->resource_id);
 
-            return $this->success((new BandcampConnectionResource($selection))->resolve());
+            return $this->success(['id' => $row->resource_id, ...(new BandcampConnectionResource($selection))->resolve()]);
         });
-    }
-
-    // GET /api/platforms/bandcamp/selection
-    public function selection(Request $request): JsonResponse
-    {
-        $payload = $this->readConnection($this->currentUser($request));
-
-        return $this->success(['selection' => $payload ? (new BandcampConnectionResource($payload))->resolve() : null]);
-    }
-
-    // DELETE /api/platforms/bandcamp
-    public function forget(Request $request): JsonResponse
-    {
-        $this->forgetConnection($this->currentUser($request));
-
-        return $this->success(['selection' => null]);
     }
 }

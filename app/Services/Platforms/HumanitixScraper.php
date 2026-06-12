@@ -51,6 +51,41 @@ class HumanitixScraper extends PlatformScraper
         return null;
     }
 
+    // Accept a single event-page URL (events.humanitix.com/<slug>) → canonical
+    // form, else null. Host pages and product chrome are rejected.
+    public function normalizeEventUrl(string $input): ?string
+    {
+        $input = PlatformInput::urlish($input);
+        if (preg_match('~^https?://events\.humanitix\.com/([a-z0-9][a-z0-9-]{2,})~i', $input, $m)
+            && ! in_array(strtolower($m[1]), self::NON_EVENT_SLUGS, true)) {
+            return 'https://events.humanitix.com/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * One event page → the stored event shape (same fields as fetchEvents
+     * items). Used for user-added standalone events — the host need not be
+     * connected. Null when the page can't be fetched or carries no event.
+     *
+     * @return array{name:?string, venue:?string, location:?string, startDate:?string, endDate:?string, price:?string, availability:?string, image:?string, link:string}|null
+     */
+    public function fetchSingleEvent(string $eventUrl): ?array
+    {
+        $res = $this->fetcher->tryFetch($eventUrl, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
+            return null;
+        }
+        foreach ($this->jsonLdNodes($res['body']) as $node) {
+            if (is_array($node) && isset($node['startDate'])) {
+                return $this->parseEventNode($node, $eventUrl);
+            }
+        }
+
+        return null;
+    }
+
     /**
      * The host's upcoming events, soonest first, up to $limit.
      *

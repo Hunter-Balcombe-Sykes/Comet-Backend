@@ -24,6 +24,12 @@ class TwitchController extends SingleSelectionPlatformController
         return TwitchConnectionResource::class;
     }
 
+    // Watch platform — multiple channel accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
+    }
+
     // POST /api/platforms/twitch/connect
     public function connect(ConnectTwitchRequest $request): JsonResponse
     {

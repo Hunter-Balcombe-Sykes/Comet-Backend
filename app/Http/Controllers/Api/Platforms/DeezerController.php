@@ -24,6 +24,12 @@ class DeezerController extends SingleSelectionPlatformController
         return MusicEmbedConnectionResource::class;
     }
 
+    // Listen platform — multiple artist accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
+    }
+
     // POST /api/platforms/deezer/connect
     public function connect(ConnectDeezerRequest $request): JsonResponse
     {
