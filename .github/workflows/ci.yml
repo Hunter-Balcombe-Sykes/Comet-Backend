@@ -88,13 +88,40 @@ jobs:
           #   - pre-existing legitimate callers      — file-level entries below.
           # New code MUST route through a cache service. To add a new exception,
           # justify it in PR review and append the path here.
+          #
+          # File-level exceptions (audited 2026-06-12 — the guard shipped while CI
+          # was failing at the pint step, so these pre-existing callers were never
+          # caught; each is a deliberate pattern, not a tenant-key leak):
+          #   - CustomerObserver            — Cache::forget via CacheKeyGenerator; direct invalidation in observer, no service injection point
+          #   - SupabaseEmailHookController — Cache::add SETNX webhook dedupe + Cache::forget rollback on send failure
+          #   - InstagramController         — refresh budget + cooldown via atomic Cache::add (comments also match the grep)
+          #   - ShopController              — short-lived picker-catalog cache, keys via CacheKeyGenerator
+          #   - IndividualProfileController — docblock mention only (grep matches the comment)
+          #   - IdempotencyKey middleware   — the idempotency exception the error copy itself names
+          #   - LogLeadRateLimits           — Cache::add SETNX dedupe of auto-retry log bursts
+          #   - SendFeedbackEmailJob        — job idempotency SETNX + rollback
+          #   - AnalyticsCacheService       — IS a *CacheService, just lives under Services/Analytics/
+          #   - AnalyticsDedupGuard         — atomic SETNX fixed-window dedup utility
+          #   - FeatureFlagService          — flag registry/per-pro invalidation (Cache::forget)
+          #   - YoutubeThumbnailResolver    — thumbnail-tier memo with jittered TTL
           set +e
           BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
             ':!app/Services/Cache/' \
             ':!app/Http/Controllers/Api/Webhooks/' \
             ':!app/Http/Controllers/Api/HealthController.php' \
-            ':!app/Observers/Core/CustomerObserver.php') # Cache::forget via CacheKeyGenerator — direct invalidation in observer, no service injection point
+            ':!app/Observers/Core/CustomerObserver.php' \
+            ':!app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php' \
+            ':!app/Http/Controllers/Api/Platforms/InstagramController.php' \
+            ':!app/Http/Controllers/Api/Platforms/ShopController.php' \
+            ':!app/Http/Controllers/Api/PublicSite/IndividualProfileController.php' \
+            ':!app/Http/Middleware/IdempotencyKey.php' \
+            ':!app/Http/Middleware/Logging/LogLeadRateLimits.php' \
+            ':!app/Jobs/Notifications/SendFeedbackEmailJob.php' \
+            ':!app/Services/Analytics/AnalyticsCacheService.php' \
+            ':!app/Services/Analytics/AnalyticsDedupGuard.php' \
+            ':!app/Services/FeatureFlags/FeatureFlagService.php' \
+            ':!app/Services/Platforms/YoutubeThumbnailResolver.php')
           set -e
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
