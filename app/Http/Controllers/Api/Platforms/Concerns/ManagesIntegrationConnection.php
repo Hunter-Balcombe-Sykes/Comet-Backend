@@ -148,4 +148,120 @@ trait ManagesIntegrationConnection
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
     }
+
+    // ── Multi-account support ────────────────────────────────────────────
+    // A platform can hold several connected accounts as SEPARATE rows: the
+    // legacy single row (resource_id = platform slug) plus rows keyed
+    // 'acct-<hash-of-canonical-input>'. Non-account rows under the same
+    // platform use other prefixes ('event-' standalone events, 'link-'
+    // custom links) and are excluded from the account view. The per-row
+    // model keeps PlatformRefresher + the public integrations endpoint
+    // working unchanged — each account refreshes and ships independently.
+
+    /** Max connected accounts per platform (mirrors shop's MAX_BRANDS). */
+    protected function maxAccounts(): int
+    {
+        return 5;
+    }
+
+    /** Stable account resource id from the platform-canonical input (URL / handle). */
+    protected function accountResourceId(string $canonicalKey): string
+    {
+        return 'acct-'.substr(sha1(strtolower(trim($canonicalKey))), 0, 16);
+    }
+
+    /**
+     * The user's account rows for this platform, ordered — the legacy
+     * default-id row (if any) plus every 'acct-*' row.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, IntegrationConnection>
+     */
+    protected function accountRows(User $user)
+    {
+        return $this->connectionsFor($user)->filter(
+            fn (IntegrationConnection $row) => ! str_starts_with($row->resource_id, 'event-')
+                && ! str_starts_with($row->resource_id, 'link-'),
+        )->values();
+    }
+
+    /**
+     * Resolve the account row a picker-style request targets: explicit
+     * `?account=<resourceId>` when present, else the first account row.
+     */
+    protected function requestedAccountRow(User $user, ?string $accountId): ?IntegrationConnection
+    {
+        $rows = $this->accountRows($user);
+        if ($accountId !== null && $accountId !== '') {
+            return $rows->firstWhere('resource_id', $accountId);
+        }
+
+        return $rows->first();
+    }
+
+    /**
+     * Upsert an account row keyed by its canonical input. Re-connecting an
+     * input that matches an existing row (by derived id, or by the canonical
+     * field stored in a legacy row's payload) updates that row in place;
+     * otherwise a new row is created, capped at maxAccounts(). Returns null
+     * when the cap is hit so the controller can shape the 422.
+     */
+    protected function writeAccountConnection(User $user, string $canonicalKey, array $payload): ?IntegrationConnection
+    {
+        $rid = $this->accountResourceId($canonicalKey);
+        $rows = $this->accountRows($user);
+
+        $needle = strtolower(trim($canonicalKey));
+        $existing = $rows->firstWhere('resource_id', $rid)
+            ?? $rows->first(function (IntegrationConnection $row) use ($needle) {
+                $stored = $row->payload ?? [];
+                // Candidate identity fields across the platform payload shapes
+                // (handle = YouTube, input = Apple, apiPath = Vimeo, channelId =
+                // YouTube Music, login = Twitch, url/link = everything else).
+                foreach (['handle', 'input', 'apiPath', 'channelId', 'login', 'url', 'link'] as $field) {
+                    $value = $stored[$field] ?? null;
+                    if (is_string($value) && strtolower(trim($value)) === $needle) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+
+        if (! $existing && $rows->count() >= $this->maxAccounts()) {
+            return null;
+        }
+
+        return $this->writeConnection($user, $payload, $existing?->resource_id ?? $rid);
+    }
+
+    /** First account row whose payload $field equals $value (account dedupe / lookups). */
+    protected function matchAccountRow(User $user, string $field, mixed $value): ?IntegrationConnection
+    {
+        return $this->accountRows($user)->first(
+            fn (IntegrationConnection $row) => data_get($row->payload, $field) === $value,
+        );
+    }
+
+    /**
+     * Account list in the dashboard wire shape: each row's payload shaped by
+     * $shape with the row's resource id attached as `id`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function accountsListData(User $user, callable $shape): array
+    {
+        return $this->accountRows($user)
+            ->map(fn (IntegrationConnection $row) => ['id' => $row->resource_id, ...$shape($row->payload ?? [])])
+            ->values()
+            ->all();
+    }
+
+    /** Soft-delete every row for this platform (accounts + standalone rows). */
+    protected function forgetAllConnections(User $user): void
+    {
+        foreach ($this->connectionsFor($user) as $connection) {
+            $this->authorizeForUser($user, 'delete', $connection);
+            $connection->delete();
+        }
+    }
 }

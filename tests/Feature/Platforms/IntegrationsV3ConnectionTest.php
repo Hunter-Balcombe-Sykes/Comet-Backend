@@ -158,6 +158,8 @@ it('twitch connect stores the og-scraped channel card', function () {
     actingAsUser($user)->postJson('/api/platforms/twitch/connect', ['url' => 'twitch.tv/loserfruit'])
         ->assertOk()
         ->assertExactJson([
+            // Multi-account platforms echo the account row id on connect.
+            'id' => 'acct-'.substr(sha1('https://www.twitch.tv/loserfruit'), 0, 16),
             'url' => 'https://www.twitch.tv/loserfruit',
             'login' => 'loserfruit',
             'name' => 'Loserfruit',
@@ -179,6 +181,8 @@ it('deezer connect stores the music-embed shape with the widget URL', function (
     actingAsUser($user)->postJson('/api/platforms/deezer/connect', ['url' => 'https://www.deezer.com/artist/134790'])
         ->assertOk()
         ->assertExactJson([
+            // Multi-account platforms echo the account row id on connect.
+            'id' => 'acct-'.substr(sha1('https://www.deezer.com/artist/134790'), 0, 16),
             'url' => 'https://www.deezer.com/artist/134790',
             'name' => 'Tame Impala',
             'thumbnail' => 'https://cdn.dzcdn.net/b.jpg',

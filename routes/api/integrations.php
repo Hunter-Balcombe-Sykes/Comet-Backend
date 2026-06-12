@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\BandcampController;
+use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
@@ -90,6 +91,8 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [YoutubeController::class, 'connect']);
             Route::get('/recent', [YoutubeController::class, 'recent']);
             Route::post('/highlights', [YoutubeController::class, 'highlights']);
+            Route::get('/accounts', [YoutubeController::class, 'accounts']);
+            Route::delete('/accounts/{id}', [YoutubeController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/selection', [YoutubeController::class, 'selection']);
             Route::delete('/', [YoutubeController::class, 'forget']);
         });
@@ -100,10 +103,14 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/music/connect', [AppleController::class, 'connectMusic']);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
+            Route::get('/music/accounts', [AppleController::class, 'musicAccounts']);
+            Route::delete('/music/accounts/{id}', [AppleController::class, 'removeMusicAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/music/selection', [AppleController::class, 'musicSelection']);
             Route::post('/podcast/connect', [AppleController::class, 'connectPodcast']);
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
+            Route::get('/podcast/accounts', [AppleController::class, 'podcastAccounts']);
+            Route::delete('/podcast/accounts/{id}', [AppleController::class, 'removePodcastAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/podcast/selection', [AppleController::class, 'podcastSelection']);
             Route::delete('/music', [AppleController::class, 'forgetMusic']);
             Route::delete('/podcast', [AppleController::class, 'forgetPodcast']);
@@ -117,6 +124,8 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [BandcampController::class, 'connect']);
             Route::get('/recent', [BandcampController::class, 'recent']);
             Route::post('/highlights', [BandcampController::class, 'highlights']);
+            Route::get('/accounts', [BandcampController::class, 'accounts']);
+            Route::delete('/accounts/{id}', [BandcampController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/selection', [BandcampController::class, 'selection']);
             Route::delete('/', [BandcampController::class, 'forget']);
         });
@@ -128,6 +137,8 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [VimeoController::class, 'connect']);
             Route::get('/recent', [VimeoController::class, 'recent']);
             Route::post('/highlights', [VimeoController::class, 'highlights']);
+            Route::get('/accounts', [VimeoController::class, 'accounts']);
+            Route::delete('/accounts/{id}', [VimeoController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/selection', [VimeoController::class, 'selection']);
             Route::delete('/', [VimeoController::class, 'forget']);
         });
@@ -140,8 +151,35 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [YoutubeMusicController::class, 'connect']);
             Route::get('/recent', [YoutubeMusicController::class, 'recent']);
             Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
+            Route::get('/accounts', [YoutubeMusicController::class, 'accounts']);
+            Route::delete('/accounts/{id}', [YoutubeMusicController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
             Route::get('/selection', [YoutubeMusicController::class, 'selection']);
             Route::delete('/', [YoutubeMusicController::class, 'forget']);
+        });
+
+    // Events platforms — organiser/host accounts + individually-added events.
+    foreach (['eventbrite' => EventbriteController::class, 'humanitix' => HumanitixController::class] as $slug => $controller) {
+        Route::prefix("{$base}/{$slug}")
+            ->middleware($middleware)
+            ->group(function () use ($controller) {
+                Route::post('/connect', [$controller, 'connect']);
+                Route::get('/accounts', [$controller, 'accounts']);
+                Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
+                Route::post('/events', [$controller, 'addEvent']);
+                Route::delete('/events/{id}', [$controller, 'removeEvent'])->where('id', '[A-Za-z0-9._-]+');
+                Route::get('/selection', [$controller, 'selection']);
+                Route::delete('/', [$controller, 'forget']);
+            });
+    }
+
+    // Custom links — arbitrary URLs attached as branded link cards.
+    Route::prefix("{$base}/custom")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::get('/links', [CustomLinksController::class, 'links']);
+            Route::post('/links', [CustomLinksController::class, 'addLink']);
+            Route::delete('/links/{id}', [CustomLinksController::class, 'removeLink'])->where('id', '[A-Za-z0-9._-]+');
+            Route::delete('/', [CustomLinksController::class, 'forget']);
         });
 
     // Everything else is the uniform connect / selection / forget shape —
@@ -155,8 +193,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'pinterest' => PinterestController::class,
         'tiktok' => TiktokController::class,
         'facebook' => FacebookController::class,
-        'eventbrite' => EventbriteController::class,
-        'humanitix' => HumanitixController::class,
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
@@ -166,13 +202,21 @@ $registerIntegrationRoutes = function (string $base): void {
         'threads' => ThreadsController::class,
         'reddit' => RedditController::class,
     ];
+    // Watch/listen platforms in the uniform shape that also take multiple
+    // accounts (the controller's supportsMultipleAccounts flag is the
+    // source of truth; this list only gates the extra routes).
+    $multiAccount = ['spotify', 'soundcloud', 'deezer', 'twitch'];
     foreach ($singleSelection as $slug => $controller) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
-            ->group(function () use ($controller) {
+            ->group(function () use ($controller, $slug, $multiAccount) {
                 Route::post('/connect', [$controller, 'connect']);
                 Route::get('/selection', [$controller, 'selection']);
                 Route::delete('/', [$controller, 'forget']);
+                if (in_array($slug, $multiAccount, true)) {
+                    Route::get('/accounts', [$controller, 'accounts']);
+                    Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
+                }
             });
     }
 };

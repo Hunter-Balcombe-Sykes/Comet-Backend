@@ -24,6 +24,33 @@ class EventbriteScraper extends PlatformScraper
         return null;
     }
 
+    // Accept a single event-page URL (/e/<slug>) → canonical form, else null.
+    public function normalizeEventUrl(string $input): ?string
+    {
+        if (preg_match('~https?://(?:www\.)?eventbrite\.[a-z.]+/e/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
+            return $m[0];
+        }
+
+        return null;
+    }
+
+    /**
+     * One event page → the stored event shape (same fields as fetchEvents
+     * items). Used for user-added standalone events — the organiser need not
+     * be connected. Null when the page can't be fetched or carries no event.
+     *
+     * @return array{name:?string, venue:?string, location:?string, startDate:?string, endDate:?string, price:?string, availability:?string, image:?string, link:string}|null
+     */
+    public function fetchSingleEvent(string $eventUrl): ?array
+    {
+        $res = $this->fetcher->tryFetch($eventUrl, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
+            return null;
+        }
+
+        return $this->parseEvent($res, $eventUrl);
+    }
+
     /**
      * The organiser's upcoming events, soonest first, up to $limit.
      *

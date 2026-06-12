@@ -34,6 +34,18 @@ class YoutubeMusicController extends SingleSelectionPlatformController
         return YoutubeMusicConnectionResource::class;
     }
 
+    // Listen platform — multiple artist accounts (shop-style list).
+    protected function supportsMultipleAccounts(): bool
+    {
+        return true;
+    }
+
+    // channelId is the canonical artist identity (urls vary per input form).
+    protected function accountKeyOf(array $selection): ?string
+    {
+        return is_string($selection['channelId'] ?? null) ? $selection['channelId'] : parent::accountKeyOf($selection);
+    }
+
     // POST /api/platforms/youtube-music/connect
     public function connect(ConnectYoutubeMusicRequest $request): JsonResponse
     {
@@ -52,12 +64,10 @@ class YoutubeMusicController extends SingleSelectionPlatformController
         $items = self::musicItems($feed['videos']);
         $url = 'https://music.youtube.com/channel/'.$channelId;
 
-        // Reconnecting the SAME channel keeps the chosen highlights; switching
-        // to a different one resets them (they belonged to the old channel).
-        $existing = $this->readConnection($user);
-        $highlights = data_get($existing, 'channelId') === $channelId
-            ? data_get($existing, 'highlights', [])
-            : [];
+        // Re-adding an already-connected channel keeps that account's chosen
+        // highlights; a new channel starts with none.
+        $existing = $this->matchAccountRow($user, 'channelId', $channelId)?->payload;
+        $highlights = data_get($existing, 'highlights', []);
 
         return $this->connected($user, [
             'url' => $url,
@@ -72,11 +82,13 @@ class YoutubeMusicController extends SingleSelectionPlatformController
         ]);
     }
 
-    // GET /api/platforms/youtube-music/recent — the latest releases for the
-    // highlights picker (the uploads feed caps at 15).
+    // GET /api/platforms/youtube-music/recent?account={id} — the latest releases
+    // for the highlights picker (the uploads feed caps at 15). Defaults to the
+    // first account when no account id is given.
     public function recent(Request $request): JsonResponse
     {
-        $channelId = data_get($this->readConnection($this->currentUser($request)), 'channelId');
+        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $channelId = data_get($row?->payload, 'channelId');
         if (! $channelId) {
             return $this->error('Connect a YouTube Music artist first.', 404);
         }
@@ -89,17 +101,20 @@ class YoutubeMusicController extends SingleSelectionPlatformController
         return $this->success(['videos' => self::musicItems($feed['videos'])]);
     }
 
-    // POST /api/platforms/youtube-music/highlights — snapshot up to 5 chosen
-    // releases (by itemId, from the recent list). An empty list clears them.
+    // POST /api/platforms/youtube-music/highlights?account={id} — snapshot up to
+    // 5 chosen releases (by itemId, from the recent list) onto that account.
+    // An empty list clears them.
     public function highlights(SaveYoutubeMusicHighlightsRequest $request): JsonResponse
     {
         $validated = $request->validated();
 
         $user = $this->currentUser($request);
+        $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
-            $selection = $this->readConnection($user);
-            if (! $selection) {
+        return $this->withConnectionLock($user, function () use ($user, $validated, $accountId): JsonResponse {
+            $row = $this->requestedAccountRow($user, $accountId);
+            $selection = $row?->payload;
+            if (! $row || ! $selection) {
                 return $this->error('Connect a YouTube Music artist first.', 404);
             }
 
@@ -122,9 +137,9 @@ class YoutubeMusicController extends SingleSelectionPlatformController
                 ->values()
                 ->all();
 
-            $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection, $row->resource_id);
 
-            return $this->success((new YoutubeMusicConnectionResource($selection))->resolve());
+            return $this->success(['id' => $row->resource_id, ...(new YoutubeMusicConnectionResource($selection))->resolve()]);
         });
     }
 

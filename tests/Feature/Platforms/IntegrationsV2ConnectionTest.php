@@ -111,6 +111,8 @@ it('spotify connect canonicalises the link and stores the embed profile', functi
     ])
         ->assertOk()
         ->assertExactJson([
+            // Multi-account platforms echo the account row id on connect.
+            'id' => 'acct-'.substr(sha1(strtolower('https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU')), 0, 16),
             'url' => 'https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU',
             'name' => 'Coldplay',
             'thumbnail' => 'https://i.scdn.co/img.jpg',
