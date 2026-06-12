@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -348,7 +349,7 @@ class PlatformRefresher
         if ($feed === null || $feed['videos'] === []) {
             return ['payload' => null, 'error' => 'youtube_music_no_releases', 'status' => 'unavailable'];
         }
-        $items = \App\Http\Controllers\Api\Platforms\YoutubeMusicController::musicItems($feed['videos']);
+        $items = YoutubeMusicController::musicItems($feed['videos']);
 
         return ['payload' => [
             ...$payload,

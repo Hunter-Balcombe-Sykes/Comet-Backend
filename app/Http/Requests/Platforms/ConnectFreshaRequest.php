@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Platforms;
 
+use App\Services\Platforms\PlatformInput;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ConnectFreshaRequest extends FormRequest
@@ -17,7 +18,7 @@ class ConnectFreshaRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('url'))) {
-            $this->merge(['url' => \App\Services\Platforms\PlatformInput::urlish((string) $this->input('url'))]);
+            $this->merge(['url' => PlatformInput::urlish((string) $this->input('url'))]);
         }
     }
 

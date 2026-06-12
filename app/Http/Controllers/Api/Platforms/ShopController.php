@@ -22,6 +22,7 @@ use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
 // A user connects up to 5 stores by URL alone; ShopProviderDetector works out
@@ -340,7 +341,7 @@ class ShopController extends ApiController
                 if ($live !== []) {
                     return $live;
                 }
-            } catch (\Symfony\Component\HttpKernel\Exception\HttpException) {
+            } catch (HttpException) {
                 // Fall through to the cached/stored catalog.
             }
 

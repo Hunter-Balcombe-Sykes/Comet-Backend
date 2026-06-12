@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -75,7 +76,7 @@ abstract class SingleSelectionPlatformController extends ApiController
     }
 
     /** Store + echo the freshly-connected selection (adds an account when multi). */
-    protected function connected(\App\Models\Core\User\User $user, array $selection): JsonResponse
+    protected function connected(User $user, array $selection): JsonResponse
     {
         $resource = $this->resourceClass();
 
@@ -94,7 +95,7 @@ abstract class SingleSelectionPlatformController extends ApiController
     }
 
     /** @return list<array<string, mixed>> */
-    protected function accountsData(\App\Models\Core\User\User $user): array
+    protected function accountsData(User $user): array
     {
         $resource = $this->resourceClass();
 

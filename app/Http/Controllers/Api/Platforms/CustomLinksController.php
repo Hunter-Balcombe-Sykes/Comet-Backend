@@ -12,6 +12,7 @@ use App\Services\SmartLinks\MetadataParser;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 // The 'custom' integration — arbitrary user-attached URLs rendered as a
 // Links section on the sitepage. Each link is one connection row
@@ -161,7 +162,7 @@ class CustomLinksController extends ApiController
     /**
      * Link rows ('link-*'), ordered.
      *
-     * @return \Illuminate\Support\Collection<int, IntegrationConnection>
+     * @return Collection<int, IntegrationConnection>
      */
     private function linkRows(User $user)
     {

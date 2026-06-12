@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartLinks;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -86,7 +87,7 @@ class SafeUrlFetcher
     {
         try {
             return $this->fetch($url, $headers);
-        } catch (SafeUrlException|\Illuminate\Http\Client\ConnectionException) {
+        } catch (SafeUrlException|ConnectionException) {
             return null;
         }
     }

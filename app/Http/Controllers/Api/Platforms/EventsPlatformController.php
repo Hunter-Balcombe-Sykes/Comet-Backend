@@ -11,6 +11,7 @@ use App\Services\Platforms\EventsPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 // Shared base for the events platforms (Eventbrite + Humanitix). Two row
 // kinds live under each platform:
@@ -296,7 +297,7 @@ abstract class EventsPlatformController extends ApiController
     /**
      * Standalone-event rows ('event-*'), ordered.
      *
-     * @return \Illuminate\Support\Collection<int, IntegrationConnection>
+     * @return Collection<int, IntegrationConnection>
      */
     protected function eventRows(User $user)
     {

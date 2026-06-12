@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms\Concerns;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 
@@ -174,7 +175,7 @@ trait ManagesIntegrationConnection
      * The user's account rows for this platform, ordered — the legacy
      * default-id row (if any) plus every 'acct-*' row.
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, IntegrationConnection>
+     * @return Collection<int, IntegrationConnection>
      */
     protected function accountRows(User $user)
     {
