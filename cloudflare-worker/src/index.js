@@ -201,6 +201,13 @@ async function serveIndividual(env, ctx, request, handleOverride) {
 
   const originRequest = withHandleHeader(request, handleOverride);
 
+  // Preview requests (?skeleton=) render a transient alternate skeleton — never
+  // cache them, or a stale variant would pin in the edge cache (incl. the 7-day
+  // SWR shadow). Always fetch fresh from origin.
+  if (new URL(request.url).searchParams.has("skeleton")) {
+    return env.PARTNA_PAGES.fetch(originRequest);
+  }
+
   // Only GETs are cacheable. POST / PUT / DELETE flow through to the Astro
   // Worker untouched so any future form-action paths can mutate state without
   // hitting a stale cached body.
