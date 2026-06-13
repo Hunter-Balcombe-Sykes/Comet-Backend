@@ -20,6 +20,10 @@
 -- type (request validation rejects it).
 
 ALTER TABLE core.users DROP CONSTRAINT IF EXISTS users_account_type_check;
+-- The dev DB also carries a second, directly-added constraint enforcing the same
+-- individual-only rule under a different name; drop it too or the backfill below
+-- is blocked. IF EXISTS keeps this a no-op on any DB that never had it.
+ALTER TABLE core.users DROP CONSTRAINT IF EXISTS users_account_type_individual;
 
 UPDATE core.users SET account_type = 'partna' WHERE account_type = 'individual';
 
