@@ -9,9 +9,7 @@ use App\Http\Requests\Platforms\SaveInstagramSelectionRequest;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\PlatformInput;
 use App\Services\SmartLinks\SafeUrlFetcher;
@@ -30,7 +28,6 @@ use Throwable;
 // Scraping lives in InstagramScraper; heavy mirroring in InstagramConnectJob.
 class InstagramController extends ApiController
 {
-    use JitteredTtl;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -63,7 +60,7 @@ class InstagramController extends ApiController
             return $username;
         }
 
-        if ($budgetError = $this->guardApifyBudget($user)) {
+        if ($budgetError = $this->guardApifyBudget()) {
             return $budgetError;
         }
 
@@ -210,47 +207,31 @@ class InstagramController extends ApiController
 
     // ── internals ────────────────────────────────────────────────
 
-    // Pilot cost guard: 429 when the global daily Apify cap is hit or the user
-    // is within their re-scrape cooldown; otherwise records the run and returns
-    // null. Both the daily counter and the per-user cooldown are handled
-    // atomically — Cache::increment is Redis INCR (atomic), so two concurrent
-    // requests can't both slip through the cap boundary the way a
-    // read-modify-write could.
-    private function guardApifyBudget(User $user): ?JsonResponse
+    // Pilot cost guard: 429 only when the GLOBAL daily Apify cap is hit — a hard
+    // ceiling on paid scrapes across the whole platform. There is intentionally
+    // NO per-user cooldown: connecting (or re-connecting / switching) an account
+    // must be friction-free, so the daily cap alone bounds cost. Cache::increment
+    // is Redis INCR (atomic), so two concurrent connects can't both slip past the
+    // cap boundary the way a Cache::get + Cache::put read-modify-write could.
+    private function guardApifyBudget(): ?JsonResponse
     {
         $dailyCap = (int) config('partna.limits.platforms.instagram.apify_daily_cap', 200);
-        $cooldownSeconds = (int) config('partna.limits.platforms.instagram.apify_cooldown_seconds', 600);
 
         $dayKey = CacheKeyGenerator::instagramDailyLimit(now()->format('Y-m-d'));
 
-        // Atomic daily cap: initialise the counter once (no-op if it already
-        // exists, preserving its TTL), then INCR. Cache::increment is atomic, so two
-        // concurrent connects can't both slip through the cap boundary the way a
-        // Cache::get + Cache::put read-modify-write did. $count is the post-increment
-        // value, so the Nth run sees N — reject when it exceeds the cap.
-        // The daily-cap TTL is intentionally NOT jittered: it's a hard cost cap
-        // and applyJitter is ±20%, which could expire the date-keyed counter
-        // before the calendar day ends and reset the cap mid-day. A single global
-        // counter has no stampede to spread anyway.
+        // Initialise the counter once (no-op if it already exists, preserving its
+        // TTL), then INCR. $count is the post-increment value, so the Nth run sees
+        // N — reject when it exceeds the cap. The TTL is intentionally NOT jittered:
+        // it's a hard cost cap, and a ±20% jitter could expire the date-keyed
+        // counter before the calendar day ends and reset the cap mid-day.
         Cache::add($dayKey, 0, now()->addDay());
         $count = Cache::increment($dayKey);
         if ($count > $dailyCap) {
-            // Over capacity — release the slot we just claimed and 429 WITHOUT
-            // touching the user's cooldown, so they can retry once capacity frees.
+            // Over capacity — release the slot we just claimed and 429 so they can
+            // retry once capacity frees.
             Cache::decrement($dayKey);
 
             return $this->error('Instagram is busy right now — please try again later.', 429);
-        }
-
-        // Per-user cooldown: only consume it once a daily slot is secured.
-        $cooldownKey = CacheKeyGenerator::instagramCooldown($user->id);
-        // Jitter the soft per-user cooldown (±20%) so a synchronised burst of
-        // re-connect attempts doesn't all clear at the same wall-clock second.
-        if (! Cache::add($cooldownKey, 1, self::applyJitter($cooldownSeconds))) {
-            // Within cooldown — release the daily slot we took (no scrape runs).
-            Cache::decrement($dayKey);
-
-            return $this->error('You refreshed Instagram recently — please wait a few minutes.', 429);
         }
 
         return null;

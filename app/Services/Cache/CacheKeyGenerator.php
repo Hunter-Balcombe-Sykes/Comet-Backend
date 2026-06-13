@@ -249,11 +249,6 @@ class CacheKeyGenerator
         return "yt_thumb:{$videoId}";
     }
 
-    public static function instagramCooldown(string $userId): string
-    {
-        return "platforms:instagram:cooldown:{$userId}";
-    }
-
     public static function instagramDailyLimit(string $date): string
     {
         return 'platforms:instagram:apify-daily:'.$date;

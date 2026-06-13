@@ -53,9 +53,9 @@ it('connect() returns 202 with a poll URL and dispatches InstagramConnectJob', f
     expect($conn->is_active)->toBeFalsy();
 });
 
-// ── cooldown blocks a rapid second connect BEFORE dispatch ───────────────────
+// ── no per-user cooldown: rapid re-connect is allowed ────────────────────────
 
-it('cooldown blocks a rapid second connect before the job is dispatched', function () {
+it('allows a rapid second connect (no per-user cooldown)', function () {
     Queue::fake();
     config(['services.apify.token' => 'test-token']);
 
@@ -66,14 +66,35 @@ it('cooldown blocks a rapid second connect before the job is dispatched', functi
         ->postJson('/api/platforms/instagram/connect', ['username' => 'testuser'])
         ->assertStatus(202);
 
-    Queue::assertPushed(InstagramConnectJob::class, 1);
-
-    // Second connect within cooldown: rejected before dispatch.
+    // Second connect immediately after: also succeeds — there is no per-user
+    // cooldown, so re-connecting / switching accounts is friction-free.
     actingAsUser($user)
+        ->postJson('/api/platforms/instagram/connect', ['username' => 'othername'])
+        ->assertStatus(202);
+
+    // Both connects queued a job.
+    Queue::assertPushed(InstagramConnectJob::class, 2);
+});
+
+// ── global daily cap still 429s (the one remaining cost guard) ────────────────
+
+it('429s once the global daily Apify cap is exceeded', function () {
+    Queue::fake();
+    config([
+        'services.apify.token' => 'test-token',
+        'partna.limits.platforms.instagram.apify_daily_cap' => 1,
+    ]);
+
+    // First connect consumes the single daily slot.
+    actingAsUser(igAsyncUser('igcap1'))
+        ->postJson('/api/platforms/instagram/connect', ['username' => 'testuser'])
+        ->assertStatus(202);
+
+    // A different user's connect tips over the global cap → 429, no dispatch.
+    actingAsUser(igAsyncUser('igcap2'))
         ->postJson('/api/platforms/instagram/connect', ['username' => 'testuser'])
         ->assertStatus(429);
 
-    // Still only 1 job in the queue.
     Queue::assertPushed(InstagramConnectJob::class, 1);
 });
 
