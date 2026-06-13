@@ -69,7 +69,7 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
 });
 
-it('requires auth, queues connect per-user (202), and rate-limits re-connect on Instagram', function () {
+it('requires auth, queues connect per-user (202), and allows immediate re-connect on Instagram', function () {
     $this->getJson('/api/platforms/instagram/selection')->assertUnauthorized();
 
     $user = scraperUser('iguser');
@@ -85,9 +85,10 @@ it('requires auth, queues connect per-user (202), and rate-limits re-connect on 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeTrue();
     Queue::assertPushed(InstagramConnectJob::class);
 
-    // Pilot cost guard: an immediate second connect is rate-limited (429).
+    // No per-user cooldown — an immediate second connect is allowed (the global
+    // daily cap is the only remaining cost guard).
     actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'iguser'])
-        ->assertStatus(429);
+        ->assertStatus(202);
 });
 
 it('requires auth on the fresha dashboard routes', function () {
