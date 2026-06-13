@@ -30,7 +30,7 @@ class UserFactory extends Factory
             'primary_email' => fake()->unique()->safeEmail(),
             'country_code' => 'AU',
             'timezone' => 'Australia/Sydney',
-            'account_type' => 'individual',
+            'account_type' => 'partna',
             'status' => 'active',
             'onboarding_step' => 0,
         ];

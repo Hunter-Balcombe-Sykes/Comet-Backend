@@ -1,9 +1,9 @@
 <?php
 
-// account_type foundation tests: enum cast + the account_type field on the
-// dashboard resource. The original migration-sequence schema-doc tests were
-// removed in the standalone strip — the incremental account_type migrations
-// were folded into the consolidated baseline.
+// account_type foundation tests: the two-type enum (partna + business, with a
+// legacy 'individual' value kept only so casting never throws on a pre-backfill
+// row), the enum cast on the User model, and the account_type field on the
+// dashboard resource.
 
 use App\Enums\AccountType;
 use App\Http\Resources\UserDashboardResource;
@@ -11,40 +11,44 @@ use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 
 describe('AccountType enum', function () {
-    it('has exactly one case — individual (brand and partner dropped in standalone strip)', function () {
+    it('exposes partna + business (plus the legacy individual value)', function () {
         $values = array_map(fn (AccountType $c) => $c->value, AccountType::cases());
         sort($values);
 
-        expect($values)->toBe(['individual']);
+        expect($values)->toBe(['business', 'individual', 'partna']);
     });
 });
 
-describe('Professional model cast', function () {
+describe('User model cast', function () {
     it('round-trips account_type through the AccountType enum', function () {
-        $pro = new User(['account_type' => 'individual']);
+        $pro = new User(['account_type' => 'business']);
 
         expect($pro->account_type)->toBeInstanceOf(AccountType::class);
-        expect($pro->account_type)->toBe(AccountType::Individual);
+        expect($pro->account_type)->toBe(AccountType::Business);
     });
 
-    it('isIndividual returns true for individual account_type', function () {
-        $individual = new User(['account_type' => 'individual']);
+    it('isIndividual is true for the standard Partna account; isBusiness for Business', function () {
+        $partna = new User(['account_type' => 'partna']);
+        $business = new User(['account_type' => 'business']);
 
-        expect($individual->isIndividual())->toBeTrue();
+        expect($partna->isIndividual())->toBeTrue();
+        expect($partna->isBusiness())->toBeFalse();
+        expect($business->isBusiness())->toBeTrue();
+        expect($business->isIndividual())->toBeFalse();
     });
 });
 
-describe('UserDashboardResource — Track B §28.8a unblock', function () {
+describe('UserDashboardResource — account_type', function () {
     it('includes account_type as a string value', function () {
-        $pro = new User(['account_type' => 'individual']);
+        $pro = new User(['account_type' => 'business']);
 
         $payload = (new UserDashboardResource($pro))->toArray(Request::create('/'));
 
         expect($payload)->toHaveKey('account_type');
-        expect($payload['account_type'])->toBe('individual');
+        expect($payload['account_type'])->toBe('business');
     });
 
-    it('emits null for account_type when the column is unset (pre-backfill rows)', function () {
+    it('emits null for account_type when the column is unset', function () {
         $pro = new User(['account_type' => null]);
 
         $payload = (new UserDashboardResource($pro))->toArray(Request::create('/'));
