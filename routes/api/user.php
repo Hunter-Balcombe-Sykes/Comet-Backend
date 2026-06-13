@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
+use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
@@ -91,6 +92,13 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::put('/site/workplace', [UserWorkplaceController::class, 'upsert']);
         Route::delete('/site/workplace', [UserWorkplaceController::class, 'destroy']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
+
+        // Custom domains (Cloudflare for SaaS) — connect your own domain instead of
+        // <handle>.partna.au. KV writes flow through SyncSubdomainToKvJob.
+        Route::get('/site/custom-domain', [CustomDomainController::class, 'show']);
+        Route::put('/site/custom-domain', [CustomDomainController::class, 'store']);
+        Route::post('/site/custom-domain/verify', [CustomDomainController::class, 'verify']);
+        Route::delete('/site/custom-domain', [CustomDomainController::class, 'destroy']);
 
         // Booking settings (manual mode — plain external-URL link)
         Route::patch('/booking/settings', [UserSiteController::class, 'updateBookingSettings']);
