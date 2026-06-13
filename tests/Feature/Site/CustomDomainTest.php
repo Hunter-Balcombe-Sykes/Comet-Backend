@@ -110,3 +110,25 @@ it('disconnects a custom domain and dispatches the retire job', function () {
 
     Queue::assertPushed(SyncSubdomainToKvJob::class, fn ($job) => $job->retireCustomDomain === 'bookwith.me');
 });
+
+it('auto-promotes the domain to primary on first successful verification', function () {
+    [$user, $site] = domainUserWithSite('domverify');
+    $site->custom_domain = 'bookwith.me';
+    $site->custom_domain_cf_id = 'ch_1';
+    $site->custom_domain_status = 'pending';
+    $site->custom_domain_primary = false;
+    $site->saveQuietly();
+
+    Http::fake(['api.cloudflare.com/*' => Http::response([
+        'success' => true,
+        'result' => ['id' => 'ch_1', 'status' => 'active', 'ssl' => ['status' => 'active']],
+    ], 200)]);
+    Queue::fake();
+
+    actingAsUser($user)->postJson('/api/site/custom-domain/verify')
+        ->assertOk()
+        ->assertJsonPath('status', 'active')
+        ->assertJsonPath('primary', true);
+
+    expect((bool) $site->fresh()->custom_domain_primary)->toBeTrue();
+});

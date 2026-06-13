@@ -76,11 +76,10 @@ class CustomDomainController extends ApiController
         $site->custom_domain_cf_id = $created['id'] ?? null;
         $site->custom_domain_status = $active ? 'active' : 'pending';
         $site->custom_domain_verified_at = $active ? now() : null;
-        // A pending (re)connect can't be the primary URL — drop the flag so a
-        // changed domain doesn't keep routing traffic before it's verified.
-        if (! $active) {
-            $site->custom_domain_primary = false;
-        }
+        // Connecting a domain means the user wants to use it: an instantly-active
+        // domain becomes their primary URL; a pending one can't be primary yet
+        // (it gets promoted on first verification — see verify()).
+        $site->custom_domain_primary = $active;
         $site->save();
 
         // Retire the old domain's KV entry; the job writes the new one once active.
@@ -114,6 +113,10 @@ class CustomDomainController extends ApiController
         $site->custom_domain_status = $active ? 'active' : ($broken ? 'error' : 'pending');
         if ($active && ! $site->custom_domain_verified_at) {
             $site->custom_domain_verified_at = now();
+            // First successful verification promotes the domain to the user's
+            // primary URL — verifying means they want to use it. They can switch
+            // back to their Partna handle anytime from settings.
+            $site->custom_domain_primary = true;
         }
         $site->save();
 
