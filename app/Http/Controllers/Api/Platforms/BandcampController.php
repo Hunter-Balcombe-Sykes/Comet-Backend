@@ -58,7 +58,8 @@ class BandcampController extends SingleSelectionPlatformController
         if ($profile === null || $profile['items'] === []) {
             return $this->error('Could not find releases on that Bandcamp page.', 404);
         }
-        $latest = $profile['items'][0];
+        // Enrich the latest tile with its buy price (1 fetch). Null-safe.
+        $latest = $this->scraper->enrichPrices([$profile['items'][0]])[0];
 
         // Re-adding an already-connected page keeps that account's highlights.
         $existing = $this->matchAccountRow($user, 'url', $origin)?->payload;
@@ -121,16 +122,18 @@ class BandcampController extends SingleSelectionPlatformController
             // connect would otherwise leave `latest` stale while only the
             // highlights updated.
             if (isset($items[0])) {
-                $selection = $this->refreshLatestTile($selection, $items[0], self::FLAT_FIELDS);
+                $selection = $this->refreshLatestTile($selection, $this->scraper->enrichPrices([$items[0]])[0], self::FLAT_FIELDS);
             }
 
             $byId = collect($items)->keyBy('itemId');
-            $selection['highlights'] = collect($validated['itemIds'])
+            $chosen = collect($validated['itemIds'])
                 ->map(fn (string $id) => $byId->get($id))
                 ->filter()
                 ->take(self::MAX_HIGHLIGHTS)
                 ->values()
                 ->all();
+            // Buy price for each curated highlight (bounded concurrent fetch).
+            $selection['highlights'] = $this->scraper->enrichPrices($chosen, self::MAX_HIGHLIGHTS);
             $this->writeConnection($user, $selection, $row->resource_id);
 
             return $this->success(['id' => $row->resource_id, ...(new BandcampConnectionResource($selection))->resolve()]);

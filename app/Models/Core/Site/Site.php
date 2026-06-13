@@ -47,6 +47,7 @@ class Site extends BaseModel
         'subdomain_changed_at' => 'datetime',
         'unpublished_at' => 'datetime',
         'custom_domain_verified_at' => 'datetime',
+        'custom_domain_primary' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

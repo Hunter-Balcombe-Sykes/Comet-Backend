@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\LinkedinController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\RedditController;
+use App\Http\Controllers\Api\Platforms\RefreshController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
@@ -81,6 +82,9 @@ $registerIntegrationRoutes = function (string $base): void {
                 Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
                 Route::post('/brands/{id}/catalog', [ShopController::class, 'catalog'])->where('id', '[A-Za-z0-9._-]+');
                 Route::put('/brands/{id}/selection', [ShopController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
+                // Individual products (no parent store) — add by product-page URL.
+                Route::post('/products', [ShopController::class, 'addProduct']);
+                Route::delete('/products/{productId}', [ShopController::class, 'removeProduct'])->where('productId', '[A-Za-z0-9._-]+');
                 Route::get('/selection', [ShopController::class, 'selection']);
                 Route::delete('/', [ShopController::class, 'forget']);
             });
@@ -231,6 +235,14 @@ $registerIntegrationRoutes = function (string $base): void {
                 }
             });
     }
+
+    // Manual per-platform refresh (dashboard refresh button) — re-pull the
+    // auto-content platforms on demand. {platform} is validated against
+    // PlatformRefresher::REFRESHABLE inside the controller; a per-user cooldown
+    // keeps it from hammering the upstream scrapers.
+    Route::post("{$base}/{platform}/refresh", [RefreshController::class, 'refresh'])
+        ->where('platform', '[a-z-]+')
+        ->middleware($middleware);
 };
 
 $registerIntegrationRoutes('integrations');

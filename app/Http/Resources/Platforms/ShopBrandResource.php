@@ -33,6 +33,9 @@ class ShopBrandResource extends ApiResource
             'favicon' => $this->resource['favicon'] ?? null,
             'logo' => $this->resource['logo'] ?? null,
             'discountCode' => $this->resource['discountCode'] ?? '',
+            // Reserved bucket of individually-added products (no parent store);
+            // the dashboard renders these without a store header.
+            'individual' => (bool) ($this->resource['individual'] ?? false),
             'products' => $this->resource['products'] ?? [],
         ];
     }

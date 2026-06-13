@@ -52,6 +52,68 @@ class GenericShopScraper extends PlatformScraper
     }
 
     /**
+     * Read ONE product off a single product-page URL — the universal fallback
+     * for "add an individual product" from any storefront (or a store we can't
+     * connect wholesale). Prefers schema.org Product JSON-LD, then OpenGraph
+     * product tags. Returns null when the page yields neither.
+     *
+     * @return array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}|null
+     */
+    public function fetchSingleProduct(string $url): ?array
+    {
+        $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
+        if ($res === null || $res['status'] !== 200) {
+            return null;
+        }
+        $html = $res['body'];
+        $origin = $this->originOf($res['finalUrl']) ?? $this->originOf($url) ?? $url;
+
+        $products = $this->productsFromJsonLd($html, $res['finalUrl'], $origin);
+
+        return $products[0] ?? $this->productFromOpenGraph($html, $res['finalUrl'], $origin);
+    }
+
+    /**
+     * OpenGraph product fallback — many storefronts (Shopify product pages,
+     * WooCommerce, custom) emit og:title/og:image + product:price:amount even
+     * when the page carries no Product JSON-LD.
+     *
+     * @return array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}|null
+     */
+    private function productFromOpenGraph(string $html, string $pageUrl, string $origin): ?array
+    {
+        $title = $this->metaContent($html, 'og:title')
+            ?? (preg_match('~<title[^>]*>([^<]+)</title>~i', $html, $m)
+                ? html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5)
+                : null);
+        if (! is_string($title) || trim($title) === '') {
+            return null;
+        }
+        $title = trim($title);
+
+        $image = $this->metaContent($html, 'og:image');
+        $price = $this->metaContent($html, 'product:price:amount')
+            ?? $this->metaContent($html, 'og:price:amount');
+        $currency = $this->metaContent($html, 'product:price:currency')
+            ?? $this->metaContent($html, 'og:price:currency');
+        $url = $this->absoluteUrl($this->metaContent($html, 'og:url') ?? $pageUrl, $origin);
+        $id = substr(md5($url.'|'.$title), 0, 16);
+
+        return [
+            'productId' => $id,
+            'title' => $title,
+            'handle' => $id,
+            'vendor' => null,
+            'image' => is_string($image) && $image !== '' ? $this->absoluteUrl($image, $origin) : null,
+            'price' => is_string($price) && trim($price) !== '' ? trim($price) : null,
+            'currency' => is_string($currency) && $currency !== '' ? strtoupper($currency) : null,
+            'variantId' => $id,
+            'available' => true,
+            'url' => $url,
+        ];
+    }
+
+    /**
      * Collect schema.org Product nodes — direct, inside @graph, or inside
      * ItemList.itemListElement (both ListItem.item and bare Product forms) —
      * and flatten to the canonical product shape.

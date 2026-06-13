@@ -379,6 +379,7 @@ function setupSitesTable(): void
         custom_domain_status TEXT NULL,
         custom_domain_verified_at TEXT NULL,
         custom_domain_cf_id TEXT NULL,
+        custom_domain_primary INTEGER NOT NULL DEFAULT 0,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -401,6 +402,11 @@ function setupSitesTable(): void
         } catch (Throwable $e) {
             // already exists / unsupported — ignore
         }
+    }
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS custom_domain_primary INTEGER NOT NULL DEFAULT 0');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
     }
 
     // site.smart_links — queried by IndividualProfilePayloadBuilder::buildSmartLinks

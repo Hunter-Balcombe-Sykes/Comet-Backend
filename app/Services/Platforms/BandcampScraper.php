@@ -88,4 +88,107 @@ class BandcampScraper extends PlatformScraper
             'items' => $items,
         ];
     }
+
+    /**
+     * Enrich release tiles with their buy price by fetching each release page
+     * and reading its schema.org offers / embedded TralbumData. Bounded +
+     * concurrent — only the handful of tiles that actually render on the
+     * sitepage (latest + curated highlights) are ever passed in. price/currency
+     * stay absent for "name your price", free, or unreadable releases, so
+     * callers never regress to broken tiles.
+     *
+     * @param  list<array<string,mixed>>  $items
+     * @return list<array<string,mixed>>
+     */
+    public function enrichPrices(array $items, int $cap = 6): array
+    {
+        $links = [];
+        foreach (array_slice($items, 0, $cap, true) as $i => $item) {
+            $link = $item['link'] ?? null;
+            if (is_string($link) && $link !== '') {
+                $links[$link] = $i;
+            }
+        }
+        if ($links === []) {
+            return $items;
+        }
+
+        foreach ($this->fetcher->fetchMany(array_keys($links), ['User-Agent' => self::USER_AGENT]) as $link => $res) {
+            if (! is_array($res) || ($res['status'] ?? null) !== 200) {
+                continue;
+            }
+            $price = $this->priceFromHtml($res['body']);
+            if ($price !== null) {
+                $i = $links[$link];
+                $items[$i] = [...$items[$i], 'price' => $price['price'], 'currency' => $price['currency']];
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * Buy price off a single release page: schema.org offers first, then the
+     * embedded `data-tralbum` current price. Null for free / name-your-price /
+     * unreadable so the tile shows no price.
+     *
+     * @return array{price:string, currency:?string}|null
+     */
+    private function priceFromHtml(string $html): ?array
+    {
+        if (preg_match_all('~<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>~is', $html, $blocks)) {
+            foreach ($blocks[1] as $json) {
+                $data = json_decode(trim($json), true);
+                if (! is_array($data)) {
+                    continue;
+                }
+                foreach ($this->jsonLdCandidates($data) as $node) {
+                    $offers = $node['offers'] ?? null;
+                    if (is_array($offers) && array_is_list($offers)) {
+                        $offers = $offers[0] ?? null;
+                    }
+                    if (! is_array($offers)) {
+                        continue;
+                    }
+                    $p = $offers['price'] ?? $offers['lowPrice'] ?? null;
+                    if (is_numeric($p) && (float) $p > 0) {
+                        $c = $offers['priceCurrency'] ?? null;
+
+                        return ['price' => (string) (0 + $p), 'currency' => is_string($c) ? strtoupper($c) : null];
+                    }
+                }
+            }
+        }
+
+        // data-tralbum carries the canonical current.price / current.currency.
+        if (preg_match('~data-tralbum="([^"]+)"~i', $html, $m)) {
+            $tralbum = json_decode(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5), true);
+            $price = data_get($tralbum, 'current.price');
+            if (is_numeric($price) && (float) $price > 0) {
+                $currency = data_get($tralbum, 'current.currency');
+
+                return ['price' => (string) (0 + $price), 'currency' => is_string($currency) ? strtoupper($currency) : null];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Flatten a JSON-LD payload to candidate nodes (@graph, list, or single).
+     *
+     * @param  array<mixed>  $data
+     * @return list<array<string,mixed>>
+     */
+    private function jsonLdCandidates(array $data): array
+    {
+        if (isset($data['@graph']) && is_array($data['@graph'])) {
+            return array_values(array_filter($data['@graph'], 'is_array'));
+        }
+        if (array_is_list($data)) {
+            return array_values(array_filter($data, 'is_array'));
+        }
+
+        return [$data];
+    }
 }

@@ -98,6 +98,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::get('/site/custom-domain', [CustomDomainController::class, 'show']);
         Route::put('/site/custom-domain', [CustomDomainController::class, 'store']);
         Route::post('/site/custom-domain/verify', [CustomDomainController::class, 'verify']);
+        Route::post('/site/custom-domain/primary', [CustomDomainController::class, 'setPrimary']);
         Route::delete('/site/custom-domain', [CustomDomainController::class, 'destroy']);
 
         // Booking settings (manual mode — plain external-URL link)

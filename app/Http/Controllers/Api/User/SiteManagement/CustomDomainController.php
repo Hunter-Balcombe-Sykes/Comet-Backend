@@ -76,6 +76,11 @@ class CustomDomainController extends ApiController
         $site->custom_domain_cf_id = $created['id'] ?? null;
         $site->custom_domain_status = $active ? 'active' : 'pending';
         $site->custom_domain_verified_at = $active ? now() : null;
+        // A pending (re)connect can't be the primary URL — drop the flag so a
+        // changed domain doesn't keep routing traffic before it's verified.
+        if (! $active) {
+            $site->custom_domain_primary = false;
+        }
         $site->save();
 
         // Retire the old domain's KV entry; the job writes the new one once active.
@@ -120,6 +125,25 @@ class CustomDomainController extends ApiController
         return $this->success([...$this->state($site), 'cloudflare' => $status]);
     }
 
+    // POST /me/site/custom-domain/primary — choose the canonical sitepage URL.
+    // primary=true promotes the custom domain (dashboard links, previews, share
+    // targets all switch to it); only permitted once the domain is verified
+    // active. primary=false swaps back to <handle>.partna.au.
+    public function setPrimary(Request $request): JsonResponse
+    {
+        $site = $this->siteOrFail($request);
+        $primary = $request->boolean('primary');
+
+        if ($primary && $site->custom_domain_status !== 'active') {
+            return $this->error('Verify your domain before making it your primary URL.', 422);
+        }
+
+        $site->custom_domain_primary = $primary;
+        $site->save();
+
+        return $this->success($this->state($site));
+    }
+
     public function destroy(Request $request): JsonResponse
     {
         $site = $this->siteOrFail($request);
@@ -137,6 +161,7 @@ class CustomDomainController extends ApiController
         $site->custom_domain_cf_id = null;
         $site->custom_domain_status = null;
         $site->custom_domain_verified_at = null;
+        $site->custom_domain_primary = false;
         $site->save();
 
         if ($previous) {
@@ -160,6 +185,7 @@ class CustomDomainController extends ApiController
         return [
             'domain' => $site->custom_domain,
             'status' => $site->custom_domain_status,
+            'primary' => (bool) $site->custom_domain_primary,
             'verified_at' => $site->custom_domain_verified_at?->toIso8601String(),
             'cname_target' => $this->cf->cnameTarget(),
         ];

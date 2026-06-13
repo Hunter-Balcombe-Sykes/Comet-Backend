@@ -15,6 +15,12 @@ class UserDashboardResource extends ApiResource
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
+            // Custom domain summary so the dashboard can show connection state
+            // and route every sitepage-URL reference through the custom domain
+            // when the user has made it their primary URL.
+            'custom_domain' => $this->site?->custom_domain,
+            'custom_domain_status' => $this->site?->custom_domain_status,
+            'custom_domain_primary' => (bool) ($this->site?->custom_domain_primary ?? false),
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'bio' => $this->bio,

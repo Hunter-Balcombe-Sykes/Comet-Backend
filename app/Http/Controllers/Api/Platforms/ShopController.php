@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddShopBrandRequest;
+use App\Http\Requests\Platforms\AddShopProductRequest;
 use App\Http\Requests\Platforms\SetShopProductsRequest;
 use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
@@ -43,6 +44,12 @@ class ShopController extends ApiController
     use ResolveCurrentUser;
 
     private const MAX_BRANDS = 5;
+
+    // Reserved brand bucket holding individually-added products (not tied to a
+    // connected store). Doesn't count against MAX_BRANDS.
+    private const INDIVIDUAL_BRAND_ID = 'individual';
+
+    private const MAX_INDIVIDUAL_PRODUCTS = 20;
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
@@ -91,7 +98,7 @@ class ShopController extends ApiController
 
         if ($detected === null) {
             return $this->error(
-                "Couldn't find a supported store at that URL. Shopify and WooCommerce stores connect automatically; other sites need standard product markup on the page you paste. Some stores block automated requests — if yours does, retry and we'll read it through your browser instead.",
+                "Couldn't connect that as a store — we look for Shopify, WooCommerce, or standard product markup on the page. Some sites block automated requests. You can still add individual products from any store: paste a product's own page URL instead.",
                 422,
             );
         }
@@ -101,8 +108,10 @@ class ShopController extends ApiController
 
         return $this->withConnectionLock($user, function () use ($user, $validated, $detected, $brand, $detectedProducts, $id) {
             $map = $this->brandMap($user);
-            if (! isset($map[$id]) && count($map) >= self::MAX_BRANDS) {
-                return $this->error('You can connect up to '.self::MAX_BRANDS.' brands.', 422);
+            // The reserved individual-products bucket doesn't occupy a store slot.
+            $storeCount = count(array_diff_key($map, [self::INDIVIDUAL_BRAND_ID => true]));
+            if (! isset($map[$id]) && $storeCount >= self::MAX_BRANDS) {
+                return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
             }
 
             $discount = array_key_exists('discountCode', $validated)
@@ -263,6 +272,80 @@ class ShopController extends ApiController
         $this->forgetConnection($this->currentUser($request));
 
         return $this->success(['brands' => []]);
+    }
+
+    // POST /api/platforms/shop/products — add a single product by URL, not tied
+    // to a connected store (mirrors standalone events). Scraped from its own
+    // page (JSON-LD → OpenGraph) and kept in the reserved 'individual' bucket.
+    public function addProduct(AddShopProductRequest $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $product = $this->generic->fetchSingleProduct($request->validated()['url']);
+        if ($product === null) {
+            return $this->error(
+                "Couldn't read a product from that link. Open the product's own page and paste its URL — it needs a title and price in standard product markup.",
+                422,
+            );
+        }
+
+        return $this->withConnectionLock($user, function () use ($user, $product) {
+            $map = $this->brandMap($user);
+            $brand = $map[self::INDIVIDUAL_BRAND_ID] ?? [
+                'id' => self::INDIVIDUAL_BRAND_ID,
+                'provider' => ShopProviderDetector::PROVIDER_GENERIC,
+                'url' => '',
+                'sourceUrl' => '',
+                'name' => null,
+                'currency' => $product['currency'] ?? null,
+                'favicon' => null,
+                'logo' => null,
+                'discountCode' => '',
+                'individual' => true,
+                'products' => [],
+            ];
+
+            // Newest first, de-duped by productId, capped.
+            $brand['products'] = collect($brand['products'] ?? [])
+                ->reject(fn ($p) => ($p['productId'] ?? null) === $product['productId'])
+                ->prepend($product)
+                ->take(self::MAX_INDIVIDUAL_PRODUCTS)
+                ->values()
+                ->all();
+            $map[self::INDIVIDUAL_BRAND_ID] = $brand;
+            $this->writeConnection($user, $map);
+
+            return $this->success((new ShopBrandResource($map[self::INDIVIDUAL_BRAND_ID]))->resolve());
+        });
+    }
+
+    // DELETE /api/platforms/shop/products/{productId} — remove one individual
+    // product; drops the reserved bucket entirely once it's empty.
+    public function removeProduct(Request $request, string $productId): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        return $this->withConnectionLock($user, function () use ($user, $productId) {
+            $map = $this->brandMap($user);
+            $brand = $map[self::INDIVIDUAL_BRAND_ID] ?? null;
+            if ($brand === null) {
+                return $this->error('Product not found.', 404);
+            }
+
+            $brand['products'] = collect($brand['products'] ?? [])
+                ->reject(fn ($p) => ($p['productId'] ?? null) === $productId)
+                ->values()
+                ->all();
+
+            if ($brand['products'] === []) {
+                unset($map[self::INDIVIDUAL_BRAND_ID]);
+            } else {
+                $map[self::INDIVIDUAL_BRAND_ID] = $brand;
+            }
+            $this->writeConnection($user, $map);
+
+            return $this->success(['brands' => ShopBrandResource::collection(array_values($map))->resolve()]);
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

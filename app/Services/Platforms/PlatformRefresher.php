@@ -222,7 +222,7 @@ class PlatformRefresher
         if ($profile === null || $profile['items'] === []) {
             return ['payload' => null, 'error' => 'bandcamp_no_releases', 'status' => 'unavailable'];
         }
-        $latest = $profile['items'][0];
+        $latest = $this->bandcamp->enrichPrices([$profile['items'][0]])[0];
 
         // Preserve url + curated highlights; refresh the artist name and the
         // auto-latest tile (flat fields mirror the connect shape).
