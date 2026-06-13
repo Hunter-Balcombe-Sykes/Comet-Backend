@@ -84,7 +84,7 @@ class CloudflarePurgeService
      * All URLs sit in the same Cloudflare zone (the configured public domain),
      * so one purge_cache request covers everything.
      */
-    public function purgeHandle(string $handle): void
+    public function purgeHandle(string $handle, ?string $customDomain = null): void
     {
         $h = strtolower(trim($handle));
         if ($h === '') {
@@ -107,6 +107,18 @@ class CloudflarePurgeService
             // pre-mutation content from the shadow.
             "https://{$h}.{$baseDomain}/_swr-shadow/",
         ];
+
+        // Custom domain (Cloudflare for SaaS): its sitepage is cached at the edge
+        // under its OWN host key (e.g. https://tuesdae.co/), entirely separate from
+        // the .partna.au URLs above — the router Worker keys caches.default by the
+        // full request URL incl. Host. Same zone, so one purge_cache call evicts
+        // both. Without these, a content change never busts the custom-domain cache.
+        $domain = strtolower(trim((string) $customDomain));
+        if ($domain !== '') {
+            $urls[] = "https://{$domain}/";
+            $urls[] = "https://{$domain}";
+            $urls[] = "https://{$domain}/_swr-shadow/";
+        }
 
         $apiBase = rtrim((string) config('app.url', ''), '/');
         if ($apiBase !== '') {

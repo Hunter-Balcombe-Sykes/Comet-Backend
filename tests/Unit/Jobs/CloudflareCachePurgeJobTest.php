@@ -22,7 +22,7 @@ it('delegates to CloudflarePurgeService::purgeHandle with the lowered handle', f
     $job = new CloudflareCachePurgeJob('Mixed-CASE');
 
     $purge = Mockery::mock(CloudflarePurgeService::class);
-    $purge->shouldReceive('purgeHandle')->once()->with('mixed-case');
+    $purge->shouldReceive('purgeHandle')->once()->with('mixed-case', null);
 
     $job->handle($purge);
 });
@@ -40,8 +40,18 @@ it('is unique per lowered handle so a burst of site touches coalesces to one pur
     $job = new CloudflareCachePurgeJob('Mixed-CASE');
 
     expect($job)->toBeInstanceOf(ShouldBeUnique::class)
-        ->and($job->uniqueId())->toBe('mixed-case')
+        ->and($job->uniqueId())->toBe('mixed-case|')
         ->and($job->uniqueFor)->toBe(120);
+});
+
+it('passes the custom domain through to the service and into uniqueId', function () {
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co');
+
+    expect($job->uniqueId())->toBe('jane|tuesdae.co');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->with('jane', 'Tuesdae.co');
+    $job->handle($purge);
 });
 
 it('reports to Nightwatch and logs on terminal failure', function () {

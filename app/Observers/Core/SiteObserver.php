@@ -35,11 +35,15 @@ class SiteObserver
             ]));
         }
 
-        // Cloudflare edge cache purge (§28.7).
+        // Cloudflare edge cache purge (§28.7). Pass the custom domain (when active)
+        // so its host-keyed edge cache is busted too — not just <handle>.partna.au.
         $handle = strtolower(trim((string) ($site->subdomain ?? '')));
         if ($handle !== '') {
+            $customDomain = $site->custom_domain_status === 'active' && $site->custom_domain
+                ? (string) $site->custom_domain
+                : null;
             try {
-                CloudflareCachePurgeJob::dispatch($handle)->afterCommit();
+                CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit();
             } catch (\Throwable $e) {
                 Log::warning('CloudflareCachePurgeJob dispatch failed on site save', $this->logContext(__METHOD__, [
                     'site_id' => $site->id,

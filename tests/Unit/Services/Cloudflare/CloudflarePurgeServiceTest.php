@@ -64,6 +64,26 @@ it('purgeHandle composes page URLs + the API subrequest URL', function () {
     ]);
 });
 
+it('purgeHandle also busts the custom domain edge cache when one is given', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake();
+
+    (new CloudflarePurgeService)->purgeHandle('jane', 'Tuesdae.co');
+
+    Http::assertSent(fn ($req) => $req['files'] === [
+        'https://jane.partna.au/',
+        'https://jane.partna.au',
+        'https://jane.partna.au/_swr-shadow/',
+        'https://tuesdae.co/',
+        'https://tuesdae.co',
+        'https://tuesdae.co/_swr-shadow/',
+        'https://dev-api.partna.au/api/public/profiles/jane',
+    ]);
+});
+
 it('purgeHandle strips trailing slash on app.url before composing API URL', function () {
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');

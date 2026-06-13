@@ -45,11 +45,15 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
 
     public function uniqueId(): string
     {
-        return strtolower(trim($this->handle));
+        // Include the custom domain so a purge that must also bust the custom
+        // domain isn't coalesced into a handle-only purge already in flight.
+        return strtolower(trim($this->handle)).'|'.strtolower(trim((string) $this->customDomain));
     }
 
-    public function __construct(public readonly string $handle)
-    {
+    public function __construct(
+        public readonly string $handle,
+        public readonly ?string $customDomain = null,
+    ) {
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery.
         $this->onQueue('cloudflare');
@@ -62,7 +66,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $purge->purgeHandle($h);
+        $purge->purgeHandle($h, $this->customDomain);
     }
 
     public function failed(Throwable $e): void
