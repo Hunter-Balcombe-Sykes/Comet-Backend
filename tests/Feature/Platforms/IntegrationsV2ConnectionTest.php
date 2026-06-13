@@ -164,6 +164,7 @@ it('bandcamp connect stores the latest release tile and preserves same-page high
         $m->shouldReceive('fetchProfile')->andReturn([
             'name' => 'Mock Artist', 'thumbnail' => 'https://f4.bcbits.com/img/avatar.jpg', 'items' => $items,
         ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn ($tiles) => $tiles);
     });
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com/music'])
@@ -188,6 +189,7 @@ it('bandcamp connect 404s when the page has no releases', function () {
     $this->mock(BandcampScraper::class, function ($m) {
         $m->shouldReceive('normalizeOrigin')->andReturn('https://artist.bandcamp.com');
         $m->shouldReceive('fetchProfile')->andReturn(['name' => 'X', 'thumbnail' => null, 'items' => []]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn ($tiles) => $tiles);
     });
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com'])
