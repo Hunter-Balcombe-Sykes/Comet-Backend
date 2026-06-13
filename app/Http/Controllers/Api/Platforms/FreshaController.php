@@ -70,6 +70,11 @@ class FreshaController extends ApiController
     {
         $user = $this->currentUser($request);
 
+        // Fresha + Square are mutually exclusive booking providers (XOR).
+        if ($this->hasConflictingConnection($user, 'square')) {
+            return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+        }
+
         $validated = $request->validated();
 
         $url = $this->stripLocale($validated['url']);

@@ -109,6 +109,19 @@ trait ManagesIntegrationConnection
     }
 
     /**
+     * True when the user already has a non-deleted connection under a different,
+     * mutually-exclusive platform. Booking providers (Fresha / Square) are XOR —
+     * only one may be connected at a time. Enforced here as defence-in-depth; the
+     * dashboard also disables the conflicting card.
+     */
+    protected function hasConflictingConnection(User $user, string $otherPlatform): bool
+    {
+        return $user->integrationConnections()
+            ->where('platform', $otherPlatform)
+            ->exists();
+    }
+
+    /**
      * Soft-delete one resource (or the default single selection).
      *
      * Authorization: only runs 'delete' when a row exists (same null-preserving
