@@ -145,8 +145,10 @@ function applySecurityHeaders(headers) {
   }
 }
 
-async function fetchAndCache(env, ctx, request, cache) {
-  const fresh = await env.PARTNA_PAGES.fetch(request);
+async function fetchAndCache(env, ctx, request, cache, originRequest) {
+  // `request` is the cache key; `originRequest` is what we send upstream (it
+  // carries the sanitized x-partna-handle header for custom-domain requests).
+  const fresh = await env.PARTNA_PAGES.fetch(originRequest ?? request);
 
   if (fresh.ok && request.method === "GET") {
     // Primary cache — short-ish, push-purged on edits.
@@ -161,6 +163,76 @@ async function fetchAndCache(env, ctx, request, cache) {
   }
 
   return fresh;
+}
+
+/**
+ * Build the request forwarded to partna-pages. ALWAYS strips any
+ * visitor-supplied `x-partna-handle` — it is a trusted, router-only signal, so a
+ * spoofed value must never reach partna-pages (it would let a visitor render
+ * someone else's page). Sets our own value only for custom-domain requests,
+ * where partna-pages can't derive the handle from the (non-partna.au) host.
+ */
+function withHandleHeader(request, handle) {
+  const headers = new Headers(request.headers);
+  headers.delete("x-partna-handle");
+  if (handle) {
+    headers.set("x-partna-handle", handle);
+  }
+  return new Request(request, {headers});
+}
+
+/**
+ * Serve an individual sitepage from partna-pages with the edge cache +
+ * stale-while-revalidate strategy. `handleOverride` is the resolved handle for
+ * custom-domain requests (injected as x-partna-handle); null for
+ * <handle>.partna.au, where partna-pages parses the handle from the Host. The
+ * cache is keyed on the original request (its URL already distinguishes the
+ * host); the forwarded request carries the sanitized handle header.
+ */
+async function serveIndividual(env, ctx, request, handleOverride) {
+  // Fail-fast if the binding hasn't been deployed yet.
+  if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
+    console.error("PARTNA_PAGES service binding missing");
+    return new Response("Service Unavailable", {
+      status: 503,
+      headers: {"Content-Type": "text/plain", "Cache-Control": "no-store"},
+    });
+  }
+
+  const originRequest = withHandleHeader(request, handleOverride);
+
+  // Preview requests (?skeleton=) render a transient alternate skeleton — never
+  // cache them, or a stale variant would pin in the edge cache (incl. the 7-day
+  // SWR shadow). Always fetch fresh from origin.
+  if (new URL(request.url).searchParams.has("skeleton")) {
+    return env.PARTNA_PAGES.fetch(originRequest);
+  }
+
+  // Only GETs are cacheable. POST / PUT / DELETE flow through to the Astro
+  // Worker untouched so any future form-action paths can mutate state without
+  // hitting a stale cached body.
+  if (request.method !== "GET") {
+    return env.PARTNA_PAGES.fetch(originRequest);
+  }
+
+  const cache = caches.default;
+
+  // 1) Primary cache HIT — fastest path.
+  const cached = await cache.match(request);
+  if (cached) {
+    return tagResponse(cached, "hit");
+  }
+
+  // 2) Primary MISS — serve the stale shadow if present, refresh in background.
+  const shadow = await cache.match(staleShadowKey(request));
+  if (shadow) {
+    ctx.waitUntil(fetchAndCache(env, ctx, request, cache, originRequest));
+    return tagResponse(shadow, "stale");
+  }
+
+  // 3) Cold miss — fetch from origin and populate both caches.
+  const fresh = await fetchAndCache(env, ctx, request, cache, originRequest);
+  return tagResponse(fresh, fresh.ok ? "origin" : "origin-error");
 }
 
 export default {
@@ -181,11 +253,26 @@ export default {
       return new Response(null, {status: 301, headers});
     }
 
-    // Apex and non-partna.au requests pass through untouched.
-    if (
-      hostname === PARTNA_DOMAIN ||
-      !hostname.endsWith("." + PARTNA_DOMAIN)
-    ) {
+    // Apex partna.au passes through untouched.
+    if (hostname === PARTNA_DOMAIN) {
+      return fetch(request);
+    }
+
+    // Custom domains (Cloudflare for SaaS): a host NOT under partna.au may be a
+    // user-connected domain. Resolve `domain:<host>` in KV → handle, then serve
+    // partna-pages with that handle injected. Unknown hosts pass through.
+    if (!hostname.endsWith("." + PARTNA_DOMAIN)) {
+      let custom = null;
+      try {
+        custom = await env.SUBDOMAIN_KV.get(`domain:${hostname}`, {type: "json"});
+      } catch (err) {
+        // KV transient failure — fail open to avoid blocking traffic.
+        console.error("KV custom-domain lookup failed", {hostname, err: String(err)});
+        return fetch(request);
+      }
+      if (custom && custom.type === "individual" && typeof custom.handle === "string") {
+        return serveIndividual(env, ctx, request, custom.handle);
+      }
       return fetch(request);
     }
 
@@ -233,46 +320,11 @@ export default {
       return new Response(null, {status: 301, headers: h});
     }
 
-    // Individual sitepage — served by the `partna-pages` Astro Worker via
-    // Service Binding. Caching strategy described at the top of file.
+    // Individual sitepage — served by the `partna-pages` Astro Worker via Service
+    // Binding (edge cache + SWR, see serveIndividual). partna-pages derives the
+    // handle from the Host, so no override here.
     if (entry.type === "individual") {
-      // Fail-fast if the binding hasn't been deployed yet.
-      if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
-        console.error("PARTNA_PAGES service binding missing", {subdomain});
-        return new Response("Service Unavailable", {
-          status: 503,
-          headers: {"Content-Type": "text/plain", "Cache-Control": "no-store"},
-        });
-      }
-
-      // Only GETs are cacheable. POST / PUT / DELETE flow through to the
-      // Astro Worker untouched so any future form-action paths in
-      // partna-pages can mutate state without hitting a stale cached body.
-      if (request.method !== "GET") {
-        return env.PARTNA_PAGES.fetch(request);
-      }
-
-      const cache = caches.default;
-
-      // 1) Primary cache HIT — fastest path. Tag and return.
-      const cached = await cache.match(request);
-      if (cached) {
-        return tagResponse(cached, "hit");
-      }
-
-      // 2) Primary MISS — check the stale shadow. If present, serve it
-      //    immediately and refresh both copies in the background. The
-      //    visitor sees a (possibly minutes-old) render instantly while
-      //    the new render lands for the NEXT visitor.
-      const shadow = await cache.match(staleShadowKey(request));
-      if (shadow) {
-        ctx.waitUntil(fetchAndCache(env, ctx, request, cache));
-        return tagResponse(shadow, "stale");
-      }
-
-      // 3) Cold miss — fetch from origin and populate both caches.
-      const fresh = await fetchAndCache(env, ctx, request, cache);
-      return tagResponse(fresh, fresh.ok ? "origin" : "origin-error");
+      return serveIndividual(env, ctx, request, null);
     }
 
     // Unknown type or unhandled entry — pass through to origin.

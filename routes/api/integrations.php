@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
 use App\Http\Controllers\Api\Platforms\SpotifyController;
+use App\Http\Controllers\Api\Platforms\SquareController;
 use App\Http\Controllers\Api\Platforms\StravaController;
 use App\Http\Controllers\Api\Platforms\ThreadsController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
@@ -53,6 +54,17 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/selection', [FreshaController::class, 'selection']);
             Route::post('/service-visibility', [FreshaController::class, 'setServiceVisibility']);
             Route::delete('/', [FreshaController::class, 'forget']);
+        });
+
+    // Square Appointments — "Book now" deep link (just a stored URL, no scraping).
+    // Fresha + Square are mutually exclusive booking providers (XOR), enforced in
+    // the controllers (connect 409s when the other is already connected).
+    Route::prefix("{$base}/square")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/connect', [SquareController::class, 'connect']);
+            Route::get('/selection', [SquareController::class, 'selection']);
+            Route::delete('/', [SquareController::class, 'forget']);
         });
 
     // Provider-agnostic shop endpoints. Registered under BOTH the canonical

@@ -59,7 +59,10 @@ class UserBootstrapService
                     'bio' => null,
                     'country_code' => $data['country_code'] ?? null,
                     'timezone' => $data['timezone'] ?? null,
-                    'account_type' => AccountType::Individual,
+                    // Defaults to Partna; the signup account-type step may send
+                    // 'business'. BootstrapRequest validates the value, so tryFrom
+                    // only ever resolves to Partna or Business here.
+                    'account_type' => AccountType::tryFrom((string) ($data['account_type'] ?? '')) ?? AccountType::Partna,
                     'status' => 'active',
                     'onboarding_step' => 0,
                     'phone' => $data['phone'] ?? null,

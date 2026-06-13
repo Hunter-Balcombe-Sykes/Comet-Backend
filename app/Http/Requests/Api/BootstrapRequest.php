@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Enums\AccountType;
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\User\User;
@@ -48,6 +49,10 @@ class BootstrapRequest extends BaseFormRequest
             // where the frontend doesn't explicitly collect country.
             'country_code' => ['nullable', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
             'timezone' => ['nullable', 'string', 'max:64'],
+            // Account type chosen on the signup first step. Optional (older clients
+            // omit it → defaults to Partna in the bootstrap service); 'individual'
+            // is intentionally not accepted.
+            'account_type' => ['sometimes', 'nullable', 'string', Rule::in([AccountType::Partna->value, AccountType::Business->value])],
             'handle_lc' => [
                 'sometimes',
                 'nullable',
@@ -118,6 +123,12 @@ class BootstrapRequest extends BaseFormRequest
         $resolvedCountry = $providedCountry !== '' ? $providedCountry : $this->detectCountryCode($this);
         if ($resolvedCountry !== null && $resolvedCountry !== '') {
             $merge['country_code'] = $resolvedCountry;
+        }
+
+        // Normalise account_type so case/whitespace from older clients still
+        // matches the Rule::in allow-list.
+        if (is_string($this->account_type) && trim($this->account_type) !== '') {
+            $merge['account_type'] = strtolower(trim($this->account_type));
         }
 
         $this->merge($merge);

@@ -49,21 +49,38 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
      *                                       gone (passed by UserObserver::deleted,
      *                                       since a hard-deleted row can't be looked
      *                                       up). Null for normal active-state syncs.
+     * @param  string|null  $retireCustomDomain  A custom domain to remove from KV
+     *                                           (the user disconnected or changed it).
+     *                                           Deleted regardless of user state.
      */
-    public function __construct(public readonly string $userId, public readonly ?string $capturedHandle = null)
-    {
+    public function __construct(
+        public readonly string $userId,
+        public readonly ?string $capturedHandle = null,
+        public readonly ?string $retireCustomDomain = null,
+    ) {
         // Isolated from user-facing work so a burst of platform-connection writes
         // can't delay notifications or mail delivery.
         $this->onQueue('cloudflare');
     }
 
+    // Include the retire-domain in the unique key so a domain-removal sync is not
+    // collapsed into a concurrent plain sync (which would drop the deletion).
     public function uniqueId(): string
     {
-        return $this->userId;
+        return $this->userId.($this->retireCustomDomain ? ':retire:'.strtolower(trim($this->retireCustomDomain)) : '');
     }
 
     public function handle(CloudflareKvService $kv): void
     {
+        // Retire a removed/changed custom domain first — independent of user state
+        // so a disconnected domain stops resolving even as the rest reconciles.
+        if ($this->retireCustomDomain) {
+            $retire = strtolower(trim($this->retireCustomDomain));
+            if ($retire !== '') {
+                $kv->delete("domain:{$retire}");
+            }
+        }
+
         // withTrashed so a soft-deleted user is still found here — the find()
         // exclusion was the original bug (deleted users left their KV live).
         $pro = User::withTrashed()->find($this->userId);
@@ -81,6 +98,25 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // All accounts are individual. The Astro Worker reads this entry via
         // Service Binding and renders the public profile page.
         $kv->put($current, ['type' => 'individual'], null);
+
+        // Publish an ACTIVE custom domain → handle route (Cloudflare for SaaS). The
+        // router Worker reads `domain:<host>` and forwards to partna-pages with the
+        // handle injected. Only 'active' domains are written; pending/errored ones
+        // stay dark until verified. The site read is guarded so a missing/corrupt
+        // site can never black-hole the core subdomain sync; the KV write itself
+        // stays unguarded so a real write failure still retries the job.
+        $site = null;
+        try {
+            $site = $pro->site;
+        } catch (Throwable $e) {
+            report($e);
+        }
+        if ($site) {
+            $customDomain = strtolower(trim((string) ($site->custom_domain ?? '')));
+            if ($customDomain !== '' && ($site->custom_domain_status ?? null) === 'active') {
+                $kv->put("domain:{$customDomain}", ['type' => 'individual', 'handle' => $current], null);
+            }
+        }
 
         // Pre-compute the canonical URL for alias-redirect entries. Format
         // matches site.compute_user_url() — `https://<handle>.partna.au` —

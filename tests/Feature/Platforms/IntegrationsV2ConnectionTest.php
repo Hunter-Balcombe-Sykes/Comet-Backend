@@ -262,15 +262,16 @@ it('skool connect 404s when the community cannot be read', function () {
         ->assertStatus(404);
 });
 
-// ── Removed link-only platforms (Ticketek / Square / Timely) ─────────────────
-// Dropped in v3: none could graduate past a bare URL (Ticketek's WAF blocks
-// automated reads; Square/Timely booking pages are empty JS shells). The
-// routes are gone entirely.
+// ── Removed link-only platforms (Ticketek / Timely) ──────────────────────────
+// Dropped in v3: neither could graduate past a bare URL (Ticketek's WAF blocks
+// automated reads; Timely booking pages are empty JS shells). The routes are
+// gone entirely. (Square was later re-added as a "Book now" link — see
+// SquareConnectionTest — so it is intentionally absent from this removed list.)
 
 it('no longer routes the removed link-only platforms', function () {
     $user = iv2User('lk1');
 
-    foreach (['ticketek', 'square', 'timely'] as $platform) {
+    foreach (['ticketek', 'timely'] as $platform) {
         actingAsUser($user)->postJson("/api/platforms/{$platform}/connect", ['url' => 'https://example.com'])
             ->assertNotFound();
     }

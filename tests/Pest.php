@@ -375,6 +375,10 @@ function setupSitesTable(): void
         unpublished_at TEXT NULL,
         settings TEXT NULL,
         moderation_state TEXT NOT NULL DEFAULT \'active\',
+        custom_domain TEXT NULL,
+        custom_domain_status TEXT NULL,
+        custom_domain_verified_at TEXT NULL,
+        custom_domain_cf_id TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -387,6 +391,16 @@ function setupSitesTable(): void
         );
     } catch (Throwable $e) {
         // Column already exists or SQLite doesn't support this syntax — ignore
+    }
+
+    // Custom-domain columns — defensive ALTER for any pre-existing test table
+    // (mirrors the moderation_state pattern above).
+    foreach (['custom_domain', 'custom_domain_status', 'custom_domain_verified_at', 'custom_domain_cf_id'] as $cdCol) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS {$cdCol} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists / unsupported — ignore
+        }
     }
 
     // site.smart_links — queried by IndividualProfilePayloadBuilder::buildSmartLinks

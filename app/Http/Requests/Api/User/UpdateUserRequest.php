@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\User;
 
+use App\Enums\AccountType;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ValidatesUserAbout;
 use App\Models\Core\User\User;
@@ -22,6 +23,10 @@ class UpdateUserRequest extends BaseFormRequest
 
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+
+            // Account-type switch from settings (the "Change account type" flow).
+            // 'individual' is not accepted — only the two user-selectable types.
+            'account_type' => ['sometimes', 'required', Rule::in([AccountType::Partna->value, AccountType::Business->value])],
 
             'primary_email' => [
                 'sometimes', 'required', 'email:rfc', 'max:255',

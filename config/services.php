@@ -73,6 +73,13 @@ return [
         // blast-radius can be reasoned about per surface. Used by
         // CloudflarePurgeService (§28.7) — never elsewhere.
         'cache_purge_token' => env('CLOUDFLARE_CACHE_PURGE_TOKEN'),
+        // Cloudflare for SaaS — custom hostnames for user-connected domains.
+        // saas_api_token needs Zone:SSL and Certificates:Edit + Zone:Read on the
+        // partna.au zone (falls back to api_token). saas_cname_target is the DNS
+        // value users point their domain at; it must resolve to the SaaS fallback
+        // origin running the subdomain-router Worker.
+        'saas_api_token' => env('CLOUDFLARE_SAAS_API_TOKEN'),
+        'saas_cname_target' => env('CLOUDFLARE_SAAS_CNAME_TARGET', 'cname.partna.au'),
     ],
 
     'twitch' => [
