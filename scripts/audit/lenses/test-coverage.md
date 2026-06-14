@@ -1,6 +1,6 @@
 # Test coverage: critical paths, idempotency, race-safety, policy abilities, mock-vs-integration discipline
 
-Audit the **test suite** for coverage of the code paths that the other five lenses identify as risky. A static-analysis audit finds *what could break*; a test-coverage audit finds *whether the safety net catches it*. The combination is what gives confidence at pilot.
+Audit the **test suite** for coverage of the code paths that the other lenses identify as risky. A static-analysis audit finds *what could break*; a test-coverage audit finds *whether the safety net catches it*. The combination is what gives confidence at pilot.
 
 This lens reads under `tests/`, `app/`, and `database/factories/`. It does not run the tests — that's CI's job. It looks for **missing tests, brittle tests, and tests that lie about coverage**.
 
@@ -8,82 +8,83 @@ This lens reads under `tests/`, `app/`, and `database/factories/`. It does not r
 
 Number them `TEST-1`, `TEST-2`, … sequentially.
 
-## Partna testing conventions (from CLAUDE.md + memory)
+## Partna testing conventions (current)
 
-- **Pest** is the framework. Feature tests under `tests/Feature/`, unit tests under `tests/Unit/`.
-- **Auth helpers**: `actingAsBrand($pro)`, `actingAsAffiliate($pro)`, `actingAsProfessional($pro)` — from `tests/Pest.php` (`ff7dc18`).
-- **Stripe webhook + mock helpers** also in `tests/Pest.php` for Stripe-touching tests.
-- **Real-DB integration**: per memory `feedback_workflow_preferences.md` / `feedback_shopify_integration_lessons.md`, integration tests must hit a real Supabase Postgres, never mocks of the database layer. Mocking the DB has historically hidden migration / FK / trigger bugs.
-- **Vendor mocks are fine** (Stripe, Shopify, Cloudflare, Hydrogen) — those are external services with stable SDKs.
-- **Policies + Form Requests are tested**: per `tests/Feature/Audit/*`, the codebase already has audit tests that assert structural invariants (e.g. financial models have no SoftDeletes — `29b7eb1`). Same pattern should cover the patterns this lens hunts.
+- **Pest 4 + PHPUnit, Mockery.** Feature tests under `tests/Feature/`, unit tests under `tests/Unit/`.
+- **SQLite in-memory** — NOT a real Supabase Postgres. Tests use attached schema stand-ins; schema-specific helpers in `tests/Pest.php`: `attachTestSchemas()`, `setup*Table()` helpers (e.g. `setupUsersTable()`, `setupSitesTable()`, `setupMediaTables()`), `shimPgAdvisoryLockForSqlite()`. `SQLITE_MAX_ATTACHED=10` is already full — `information_schema` tests seed a stand-in (exemplar: `WriteDesignKitTest.php`).
+- **Auth helpers in `tests/Pest.php`**: `actingAsUser($user)` and `actingAsStaff($user)`. No `actingAsBrand` / `actingAsAffiliate` helpers — those are removed.
+- **Vendor mocks are fine** — `Http::fake()`, Mockery for vendor SDKs (Twitch, Kick, Cloudflare, Postmark/Resend). Do not mock Eloquent models; the DB layer must be real (factory-seeded SQLite).
+- **Structural sweep tests** are the house pattern and the authoritative benchmark for what CI enforces: `tests/Feature/Security/` (PolicyCoverageTest, Aal2RouteCoverageTest, EmailVerifiedRouteCoverageTest, BotProtectionCoverageTest, PiiLogHygieneSweepTest, TenantIsolation/, FunctionSearchPathTest, DesignKitsRlsTest, AdminOnlyWritePoliciesTest, ModerationPolicyCoverageTest, StaffUserControllerFreshAal2Test…) and `tests/Feature/Queue/JobHygienePolicyTest.php`. New structural invariants should extend this pattern.
+- **Larastan/PHPStan** is active (`composer analyse` with a baseline). Do not re-flag symbol-existence issues (undefined methods/properties/classes/config keys) — Larastan already enforces those.
+- **SQLite PG-constraint gap**: SQLite cannot exercise Postgres CHECK / FK / UNIQUE constraints. Schema-invariant tests that must verify a constraint grep the migration SQL instead of inserting invalid rows. Verify how existing tests handle this before asserting a specific approach.
 
 ## Findings categories
 
-### (1) Critical-path coverage — financial flows
+### (1) Critical-path coverage
 
-Each of the following code paths handles money or payout state. They MUST have feature tests covering happy path + at least one failure path. Flag any without.
+Each of the following code paths is foundational to the platform's operation. They MUST have feature tests covering happy path + at least one failure path. Flag any without.
 
-- `CommissionPayoutService::processPayoutBatch` — happy path, in-flight, cancelled-by-revalidation, transfer-failure, race.
-- `CommissionVoidService` — void on expiry, void on refund, void on retry-loop.
-- `RetryPendingFundsPayoutsJob` — terminal failure → wallet credit; transient → re-queue.
-- `VoidExpiredPayoutsJob` — T-30 / T-7 / T-1 warning fires once; JSONB dedup respected.
-- `ReconcileStuckTransferringPayoutsJob` — picks up missed `transfer.paid`; logs reconciliation.
-- `StripeConnectService::creditWalletFromCheckoutSession` — idempotent on duplicate session ID.
-- Refund flows during grace — shrinks vs cancels in-flight payout.
-- `commission_paid_cents` analytics path — only counts `payout.status='completed'` (`c3df357`).
+- **Public sitepage resolution**: `IndividualProfileController` → `PublicSiteResolver` / `SiteCacheService` — cache hit path, cache miss path, unknown handle → 404.
+- **Handle alias 301s**: a renamed handle's old subdomain must 301 to the canonical URL; expired alias must return 404 (not redirect). `site.site_subdomain_aliases` / `core.user_handle_aliases` `->active()` scope.
+- **Handle rename lifecycle**: rename writes alias rows (`reclaim_until`, `expires_at`), old handle blocked during reclaim window, re-registration after expiry succeeds.
+- **Account deletion / GDPR export**: `GdprPolicy` gates, deletion audit trail in `audit` schema, export job happy path + failure path, stale-export sweep (`gdpr:sweep-stale-exports`).
+- **Analytics ingest**: `RecordAnalyticsEventJob` dedup logic — same event posted twice produces one row, not two.
+- **Moderation state machine**: state transitions (open → triaged → under_review → resolved/escalated) — each allowed transition, each forbidden transition returning the correct HTTP status.
+- **Uploads / media pipeline**: `ProcessImageVariantsJob` and `ProcessVideoVariantsJob` — happy path + variant-failure path; `DeleteMediaArtifactsJob` — confirmed artifact removal.
+- **KV sync job**: `SyncSubdomainToKvJob` — is the ONLY writer to Cloudflare KV; confirm tests verify it dispatches on site create/rename and that no other code path writes KV directly.
+- **AccountCapabilities gates**: confirm at least one test per capability-gated feature verifies the gate rejects the action when the capability is absent.
 
 ### (2) Webhook idempotency + signature tests
 
-- Every webhook controller in `app/Http/Controllers/Api/Webhooks/` should have at least two tests: signature pass and signature fail. Flag any without.
-- Re-delivery test: same `event_id` posted twice → second is a no-op. Flag any webhook without this.
+- Every webhook controller in `app/Http/Controllers/Api/Webhooks/` (currently `SupabaseAuthHookController`) and every inbound hook in `app/Http/Controllers/Api/Internal/` should have at least two tests: signature pass and signature fail. `tests/Feature/Webhooks/SupabaseAuthHookSignatureTest.php` exists — verify it covers both paths and a re-delivery (same payload twice → second is a no-op).
 - Malformed payload test — handler doesn't crash, returns 400 / 422 cleanly.
-- Webhook-event-ID dedup tested at the job layer (`ProcessShopifyOrderWebhookJob`, GDPR jobs, etc.).
+- `VerifySupabaseAuthHookSignature` / `VerifySupabaseEmailHookSignature` HMAC verification — confirm the middleware tests cover an invalid signature and a missing signature header separately.
 
 ### (3) Policy ability coverage
 
-- Every method on every `Policy` class should have at least one test asserting `allowed` and one asserting `denied` for the appropriate actor.
+- Every method on every Policy class (`app/Policies/`: BasePolicy, CasePolicy, CustomerPolicy, DecisionPolicy, EnquiryPolicy, FeatureFlagPolicy, FeedbackPolicy, GdprPolicy, IntegrationConnectionPolicy, NotificationPolicy, PartnaStaffPolicy, ServicePolicy, SitePolicy, UserSelfPolicy) should have at least one test asserting `allowed` and one asserting `denied` for the appropriate actor.
 - Sweep `app/Policies/*.php` — for each `public function` (excluding `BasePolicy` inherited methods), confirm a corresponding `it()` test exists in `tests/Feature/Policies/` or `tests/Feature/<domain>/`.
 - `authorizeForUser` calls in controllers without a paired policy test of the gate they invoke.
-- 404-on-not-yours assertion: per CLAUDE.md, denied-because-not-yours must 404, not 403. Flag policy tests that assert 403 where 404 is the contract.
+- **404-on-not-yours assertion**: per CLAUDE.md, denied-because-not-yours must 404, not 403. Flag policy tests that assert 403 where 404 is the contract.
+- `PolicyCoverageTest.php` sweeps model-to-policy registration; flag any new model in `app/Models/` that would fail this sweep (i.e. lacks a `Gate::policy()` registration or a justified `POLICY_EXEMPT` entry).
 
 ### (4) Mock-vs-integration discipline
 
-- DB mocks (`Mockery::mock(Model::class)`, `$this->mock(...)` on an Eloquent class, `Eloquent::shouldReceive`) — flag every instance. Per the memory rule, DB layer must be real.
-- Migration-dependent tests that don't run migrations (missing `RefreshDatabase` / `LazilyRefreshDatabase` trait).
-- Tests that mock observers / trigger-maintained tables — defeats the trigger correctness check (`brand_affiliate_rollup` is trigger-maintained; tests must hit the real trigger).
-- Vendor SDK call sites tested without mocking the vendor (real Stripe / Shopify calls in CI) — slow + flaky.
+- DB mocks (`Mockery::mock(Model::class)`, `$this->mock(...)` on an Eloquent class, `Eloquent::shouldReceive`) — flag every instance. The DB layer must be real (factory-seeded SQLite).
+- Tests that mock observers / trigger-side-effects — defeats the observer-correctness check.
+- Migration-dependent tests that don't call the relevant `setup*Table()` helper (or `attachTestSchemas()`) — will silently pass on stale schema.
+- Vendor SDK call sites tested without mocking the vendor (real Twitch/Kick/Cloudflare/Resend HTTP calls in CI) — slow and flaky. `Http::fake()` is the correct pattern.
 
 ### (5) Race-condition / concurrency tests
 
-- Financial flows that depend on `lockForUpdate` should have a test that asserts two concurrent paths produce a single correct outcome (Laravel's `DB::transaction` testing or a dispatched-twice-job test).
-- Wallet credit idempotency — concurrent dispatch produces one row, not two.
-- Webhook re-delivery during in-flight processing — second delivery returns early.
-- Status transitions racing with reconcile job.
+- Cache-lock paths that depend on `CacheLockService::rememberLocked` should have a test asserting two concurrent paths produce a single correct outcome (dispatch-twice-job test or a lock-contention assertion).
+- `SyncSubdomainToKvJob` concurrent dispatch — confirm two dispatches for the same site produce one KV write, not two stale overwrites.
+- Handle rename during in-flight alias lookup — confirm the `->active()` scope correctly filters the concurrent state.
 
 ### (6) Failed-job + retry coverage
 
-- Every job with a `failed()` handler should have a test that asserts `failed()` is reachable and produces the expected side-effect (failure notification, alert, retry counter increment).
-- Jobs with `$tries > 1` should have a test asserting backoff is respected (or document why it's untested).
+- Every job with a `failed()` handler should have a test asserting `failed()` is reachable and produces the expected side-effect (notification, alert, retry counter increment).
+- `$backoff` is CI-enforced by `JobHygienePolicyTest.php` — do not re-flag absence of `$backoff`. Do flag incorrect values (e.g. `$backoff = [1]` on a job calling a vendor API that needs exponential back-off).
 - Idempotency under retry — every job that mutates state should have a test that runs `handle()` twice and asserts identical end-state.
 
-### (7) Migration tests
+### (7) Migration / schema-invariant tests
 
-- Every migration introducing a CHECK constraint should have a test that asserts the constraint actually rejects invalid values.
-- Migrations adding UNIQUE should have a test that asserts duplicate inserts fail.
-- Migrations adding FK should have a test asserting orphan-creation fails.
-- The audit test pattern (`29b7eb1` — financial models without SoftDeletes) is the canonical example — extend it for new schema invariants the audits identify.
+- Every migration introducing a Postgres CHECK constraint should have an invariant test asserting the constraint's SQL is present in the migration file (grep pattern, not live DB insert — SQLite can't exercise Postgres constraints).
+- Migrations adding UNIQUE / FK should have parallel grep-based invariant assertions.
+- New `site.design_kits` columns must be NULLABLE with no DB-level DEFAULT (spec §8 hard rule) — confirm the existing `WriteDesignKitTest.php` exemplar pattern covers this assertion for new columns as they're added.
+- `site.themes` table must be absent after the skeleton-system cleanup migration lands — add an invariant that grepping migrations for `CREATE TABLE site.themes` produces no result after the drop migration.
 
 ### (8) Resource class + Form Request coverage
 
-- Every `Resource` class should have a snapshot test asserting the keys returned (catches accidental PII leaks on refactor).
+- Every `Resource` class should have a snapshot test asserting the keys returned (catches accidental PII leaks on refactor). Priority: `IndividualProfileResource`, `UserPublicResource`, `UserStaffResource` — the public/staff split is the highest-risk audience-confusion surface.
 - Every `FormRequest` should have a test asserting at least one valid + one invalid payload.
 - Form Requests behind feature-flagged routes need both flagged-on and flagged-off tests.
 
 ### (9) Seed determinism + factory hygiene
 
 - `database/factories/*` that call `faker->randomElement` on values that need to be deterministic for tests (e.g. status enums must produce all states across the test suite, not just one).
-- Factories that don't relate to the model's required FK (creating an order without a brand) — silently inserts nulls or fails on FK.
-- Factories used as fixtures in tests where a specific state matters but the factory's default is used — flag.
+- Factories that don't relate to the model's required FK (creating a `SiteMedia` without a `site_id`) — silently inserts nulls or fails on FK.
+- Factories used as fixtures in tests where a specific state matters but the factory's default is used — flag where the default is non-deterministic.
 
 ## Per-finding requirements
 
@@ -91,56 +92,58 @@ For every finding:
 - Cite the category number (1–9).
 - Name the canonical fix: `add it('happy path', ...)` + `it('failure path', ...)`, `assert dedup on re-delivery`, `replace Mockery::mock(Model) with real factory()`, `add denyAsNotFound assertion`, `add concurrent-dispatch test`.
 - Quote the file path of the production code that lacks coverage, AND (if it exists) the path of the closest existing test file that should host the new test.
-- A finding can be P0 if it's a financial-flow path with no coverage at all (regression risk = irreversible).
+- A finding can be P0 if it's a critical-path (category 1) with no coverage at all — regression risk on a foundational path.
 
 ## Out of scope — do NOT re-flag
 
-- Tests for booking / Fresha / Square (dropped).
-- Tests for the commerce schema rebuild — closed audit.
+- Tests for Shopify / Stripe / Square / Fresha / commerce / booking / brand / affiliate (all removed).
 - Code that's intentionally untested because it's a thin wrapper (Resource class straight-through, model getters without logic) — only flag when there's branching logic.
 - Coverage percentage targets — meaningless without context.
+- Symbol-existence issues (Larastan covers these).
+- Absence of `$backoff` on ShouldQueue jobs (JobHygienePolicyTest.php enforces this in CI — already covered).
 
 ## Suggested per-domain scope groups
 
-### Group A — Financial flow tests
+### Group A — Critical-path + webhook tests
 ```
---scope tests/Feature/Stripe
---scope tests/Feature/Commerce
---scope tests/Feature/Commission
---scope app/Services/Stripe
---scope app/Jobs/Stripe
---scope app/Policies/CommissionPolicy.php
---scope app/Policies/WalletMovementPolicy.php
-```
-
-### Group B — Webhook idempotency
-```
+--scope tests/Feature/PublicSite
+--scope tests/Feature/Subdomain
 --scope tests/Feature/Webhooks
---scope tests/Feature/Shopify
+--scope tests/Feature/Account
+--scope app/Http/Controllers/Api/PublicSite
 --scope app/Http/Controllers/Api/Webhooks
---scope app/Jobs/Shopify
---scope app/Jobs/Gdpr
+--scope app/Jobs/Cloudflare
 ```
 
-### Group C — Policy + auth coverage
+### Group B — Policy + auth coverage
 ```
 --scope tests/Feature/Policies
 --scope tests/Feature/Auth
+--scope tests/Feature/Security
 --scope app/Policies
 --scope app/Http/Middleware/Auth
 ```
 
-### Group D — Resource / Form Request structure
+### Group C — Resource / Form Request structure
 ```
---scope tests/Feature
+--scope tests/Feature/Resources
+--scope tests/Feature/Requests
 --scope app/Http/Resources
 --scope app/Http/Requests
 ```
 
-### Group E — Migration invariants
+### Group D — Jobs, analytics, media
 ```
---scope tests/Feature/Audit
---scope tests/Feature/Migrations
+--scope tests/Feature/Jobs
+--scope tests/Feature/Queue
+--scope tests/Feature/Analytics
+--scope tests/Feature/Media
+--scope app/Jobs
+```
+
+### Group E — Migration invariants + factories
+```
+--scope tests/Feature/Database
 --scope supabase/migrations
 --scope database/factories
 ```

@@ -10,7 +10,7 @@
 #     --drafts audit-drafts.md \
 #     --lens "auth/policy coverage" \
 #     --scope app/Policies/SitePolicy.php \
-#     --scope app/Http/Controllers/Api/Professional/Uploads/ \
+#     --scope app/Http/Controllers/Api/User/Uploads/ \
 #     [--out audit-2026-05-04-auth-policy-coverage.md]
 #
 # Required: `claude` CLI on PATH and you must be logged in (run `claude` once if not).

@@ -207,6 +207,8 @@ scripts/audit/audit.sh \
 
 This runs DeepSeek V4 Pro for the first-pass scan, then `claude -p --model sonnet` for adjudication, and emits `audit-YYYY-MM-DD-<lens-slug>.md` in the canonical format. Validated 2026-05-04: ~$0.06–0.25 per audit, ~5–7 minutes wall time, ship-quality output.
 
+**Stage-level audits** use named bundles (`--bundle <name> --scope <path>`): `core` (8 correctness lenses, = `--full`), `concurrency`, `pre-merge`, `code-quality`, `pre-pilot` (12-lens correctness sweep), `launch-readiness` (security + privacy + edge-worker + config + migrations + API contract), `scale-health` (caching/queue/observability graded against a 10k-user target), `full-sweep` (all 20 lenses). For a **whole-repo audit**, use codebase mode — `scripts/audit/audit.sh --codebase --bundle pre-pilot` — which scans every lens in the bundle against its own built-in scope map (chunked for scan recall) and emits one adjudicated audit file per lens into `audits/codebase-<bundle>-<date>/`. DeepSeek scans run parallel (`--scan-jobs`, default 4); adjudications are sequential by design — never run two `audit.sh` invocations at once. **To run a stage audit unattended**, paste `scripts/audit/PROMPT-stage-audit-launch.md` into a fresh session (runbook: `PROMPT-stage-audit-runner.md`). Architecture ground truth for all scans lives in `scripts/audit/system-prompt.md` + `adjudicate-prompt.md` — update those two first whenever the architecture shifts, then grep `scripts/audit/lenses/` for the changed term.
+
 - DeepSeek key lives in `scripts/audit/.env` (gitignored). Override by exporting `DEEPSEEK_API_KEY`.
 - Claude uses the local `claude` CLI's existing OAuth login. No `ANTHROPIC_API_KEY` required.
 

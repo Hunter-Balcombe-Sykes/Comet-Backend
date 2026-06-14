@@ -15,17 +15,19 @@ candidate that nobody wrapped.
 A read is a coverage gap **only if every one of these holds**. Two out of three
 is not a finding — drop it.
 
-1. **Hot path** — the read sits on a named hot path: dashboard controllers under
-   `app/Http/Controllers/Api/{Professional,Staff,Internal,PublicSite}`, the
-   site/handle/profile resolution path, capability lookups (`AccountCapabilities`),
-   the public-site payload, brand-connection status, notification unread-count,
-   embedded Shopify settings reads, or middleware that runs on most requests.
-   A read on an admin-only, rarely-hit, or one-shot path is **not** hot.
+1. **Hot path** — the read sits on a named hot path: the public sitepage payload
+   resolution path (`SiteCacheService` / `PublicSiteResolver` / `SitepageDataResolverService`),
+   handle/profile resolution, `AccountCapabilities` lookups, analytics summary
+   endpoints, notification unread-count, streaming live-status (`LiveStatusPoller` /
+   `LiveStatusInjector`), dashboard controllers under
+   `app/Http/Controllers/Api/{User,Staff,Internal,PublicSite}`, or middleware that
+   runs on most requests. A read on an admin-only, rarely-hit, or one-shot path
+   is **not** hot.
 2. **Expensive** — the read does real work each call: a multi-table join, an
    aggregate (`SUM`/`COUNT`/`GROUP BY`), a JSONB scan, an unindexed `WHERE`, a
-   fan-out of N queries, or a synchronous vendor API call (Shopify Admin/Storefront,
-   Stripe, Square, Cloudflare). A single indexed primary-key lookup is **not**
-   expensive — do not flag it.
+   fan-out of N queries, or a synchronous vendor API call (Twitch/Kick live-status
+   API, Cloudflare, SmartLinks metadata fetch, platform connector outbound read).
+   A single indexed primary-key lookup is **not** expensive — do not flag it.
 3. **Multi-caller / repeated** — the same logical value is recomputed across many
    requests or many callers within a TTL window, with no per-request reason for
    it to differ. A value that is genuinely unique per request (and so could never
@@ -53,29 +55,34 @@ with a key from `CacheKeyGenerator`.
 
 Site, handle, profile, or account-capability resolution that hits the database
 on every request because it is not memoised. These run on nearly every request —
-the highest-leverage gaps. Confirm there is genuinely no cache layer (not in
-the resolver, not in middleware, not in a service it delegates to) before flagging.
+the highest-leverage gaps. The public sitepage payload path (`PublicSiteResolver` →
+`SiteCacheService::getPublicSitePayload`) and the auth path (handle→user lookup via
+`LoadCurrentUser` middleware) are the canonical reference implementations — confirm
+a cache layer genuinely exists (in the resolver, in middleware, or in a service it
+delegates to) before flagging any adjacent resolution step.
 
 ### (3) Uncached synchronous vendor read
 
-A read path that calls a vendor API (Shopify catalog/settings, Stripe account
-status, Square, Cloudflare DNS state) synchronously on a hot request, with no
-cache. Vendor calls are both slow and rate-limited — uncached vendor reads on a
-hot path are the most expensive gap class. Canonical fix: cache the vendor
-response with a bounded TTL + push-invalidate on the relevant webhook.
+A read path that calls a vendor API (Twitch/Kick live-status, Cloudflare KV/DNS
+state, SmartLinks metadata, platform connector scrape) synchronously on a hot
+request, with no cache. Vendor calls are both slow and rate-limited — uncached
+vendor reads on a hot path are the most expensive gap class. Canonical fix: cache
+the vendor response with a bounded TTL + push-invalidate on the relevant webhook
+or job completion event.
 
 ### (4) Repeated identical read within one request
 
 The same expensive query issued more than once in a single request lifecycle
-(e.g. a controller and a Resource class both resolving the same brand/site, or
-a loop re-fetching an invariant). Canonical fix: request-scoped memoisation
-(a `once()` / static memo / passed-in value), not necessarily a Redis cache.
+(e.g. a controller and a Resource class both resolving the same site payload, or
+a loop re-fetching an invariant user/site row). Canonical fix: request-scoped
+memoisation (a `once()` / static memo / passed-in value), not necessarily a
+Redis cache.
 
 ### (5) Config / reference data read per request
 
-Slow-changing reference data (feature-flag matrix, plan/pricing tables, brand
-settings, design tokens, enum-like lookup tables) re-read from the database on
-every request instead of cached behind a version token. Canonical fix:
+Slow-changing reference data (feature-flag matrix, capability map, design kit
+column list, skeleton-id enum values, enum-like lookup tables) re-read from the
+database on every request instead of cached behind a version token. Canonical fix:
 `rememberLocked` with a long TTL + version-token bump on the (rare) write.
 
 ## Per-finding requirements
@@ -91,8 +98,9 @@ For every finding:
 - Default tier: **P2** for an uncached hot dashboard/resolution read (1, 2) and
   uncached synchronous vendor reads (3). **P3** for repeated-within-request (4)
   and reference-data gaps (5) — bounded impact. Escalate to P2 only with
-  evidence the path is genuinely hot at the scale target (200 brands ×
-  50 affiliates × ~100 orders/affiliate/year).
+  evidence the path is genuinely hot at the current scale target (thousands of
+  users; a single user's page going viral creates a fan-out of concurrent cache
+  misses against one Supabase Postgres primary).
 
 ## Out of scope — do NOT flag, defer to the sibling lens
 
@@ -115,15 +123,15 @@ For every finding:
 
 ### Group A — Resolution & capability paths (highest leverage)
 ```
---scope app/Services/Site
 --scope app/Services/PublicSite
 --scope app/Services/Accounts
+--scope app/Services/Site
 --scope app/Http/Middleware
 ```
 
 ### Group B — Dashboard read paths
 ```
---scope app/Http/Controllers/Api/Professional
+--scope app/Http/Controllers/Api/User
 --scope app/Http/Controllers/Api/Staff
 --scope app/Http/Controllers/Api/Internal
 --scope app/Http/Controllers/Api/PublicSite
@@ -132,9 +140,9 @@ For every finding:
 
 ### Group C — Synchronous vendor reads
 ```
---scope app/Services/Shopify
---scope app/Services/Stripe
---scope app/Services/Square
+--scope app/Services/Streaming
+--scope app/Services/SmartLinks
+--scope app/Services/Platforms
 --scope app/Services/Cloudflare
 ```
 

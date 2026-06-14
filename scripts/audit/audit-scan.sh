@@ -10,7 +10,7 @@
 #   scripts/audit/audit-scan.sh \
 #     --lens "auth/policy coverage on the new SitePolicy and migrated controllers" \
 #     --scope app/Policies/SitePolicy.php \
-#     --scope app/Http/Controllers/Api/Professional/Uploads/ \
+#     --scope app/Http/Controllers/Api/User/Uploads/ \
 #     --out audit-drafts.md
 #
 # Required env: DEEPSEEK_API_KEY
@@ -90,7 +90,8 @@ SYS_MSG="$TMP/system.md"
 
     for path in "${SCOPE_PATHS[@]}"; do
         if [[ -d "$path" ]]; then
-            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" \) | sort)
+            # .js/.ts cover the Cloudflare Worker; everything else is PHP/SQL.
+            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" -o -name "*.js" -o -name "*.ts" \) ! -path "*/node_modules/*" | sort)
         elif [[ -f "$path" ]]; then
             files="$path"
         else
@@ -147,6 +148,12 @@ jq -n \
 
 PAYLOAD_BYTES=$(wc -c < "$PAYLOAD")
 echo "→ Firing $MODEL (thinking: max) — payload ${PAYLOAD_BYTES} bytes (~$((PAYLOAD_BYTES / 4)) tokens)" >&2
+# Soft guard: oversized scopes degrade scan recall (truncated attention) before they hard-fail.
+if (( PAYLOAD_BYTES > 400000 )); then
+    echo "WARNING: payload exceeds ~100K tokens — scan recall degrades on oversized scopes." >&2
+    echo "         Consider splitting --scope into per-domain groups (see the lens's scope groups)" >&2
+    echo "         or using audit-pilot-splitscan.sh for byte-balanced chunks." >&2
+fi
 
 # --- Fire ---
 RESPONSE="$TMP/response.json"

@@ -1,0 +1,2 @@
+No transaction boundary violations found in the provided files. All `DB::transaction(...)` calls observed in the audited scope contain only database operations (reads, writes, lock-for-update) without external I/O, queue dispatches, cache writes, event dispatches, or intra-transaction observer side effects. All known problematic side effects (mail sends, cache purges, KV writes) occur outside or
+after the transactions, consistent with the gold standard.

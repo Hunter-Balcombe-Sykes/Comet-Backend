@@ -1,23 +1,25 @@
-# Webhook idempotency & delivery semantics
+# Inbound callbacks & idempotency semantics
 
-Hunt every webhook ingestion path in the codebase and measure it against the **Partna gold-standard webhook pattern** established by the Shopify orders pipeline post-rebuild (see `commerce.order_events` keyed by `shopify_event_id`, `docs/analytics-rebuild-plan.md` v3.1, deployed 2026-05-06).
+Hunt every inbound-callback path (Supabase auth/email hooks, `bot.token`-gated internal endpoints) and the client-supplied idempotency layer (`IdempotencyKey` middleware) against the **Partna gold-standard callback pattern**. The Shopify/Stripe/Square webhook surface is gone as of the 2026-05-22 standalone strip; this lens covers the surviving callback surface and lays down the doctrine that will hold future vendor webhooks to the same standard when they return post-pilot.
 
-Vendor webhooks are an adversarial input channel disguised as an integration: they retry aggressively on 5xx, stop retrying on 2xx (even if the work failed), arrive out of order, and replay events. A webhook that is "correct" in the happy path can still be wrong — a missing idempotency key replays a payout; a `dispatch()` swallowed in a `try/catch` 200s on Redis failure; an HMAC verified *after* the body is parsed leaks attacker-controlled JSON into logs and into the job constructor. This lens measures the diff between every webhook surface (Shopify, Stripe, Square, Fresha, Supabase Auth, internal) and the gold standard.
+Inbound callbacks are an adversarial input channel: they retry on 5xx, stop retrying on 2xx even when work failed, arrive out of order, and replay events. A callback that is "correct" in the happy path can still be wrong — a missing idempotency anchor replays a side effect; a `dispatch()` swallowed in a `try/catch` returns 200 on Redis failure; an HMAC verified *after* the body is parsed leaks attacker-controlled JSON into logs and into job constructors. This lens measures every callback surface against the gold standard and measures the `IdempotencyKey` middleware against the client-idempotency contract.
 
 ## The gold standard (what "correct" looks like here)
 
-Every webhook endpoint must satisfy **all** of:
+Every inbound callback endpoint must satisfy **all** of:
 
-1. **HMAC / signature verification BEFORE body parse.** Use the raw request body for HMAC. `$request->json()` / `$request->all()` after verification, never before. A failed signature returns 401 immediately with no work performed.
-2. **Idempotency key persisted, not just checked.** The vendor's unique event id (Shopify `X-Shopify-Webhook-Id`, Stripe `event.id`, Square `event_id`) is recorded in an append-only events table (`commerce.order_events.shopify_event_id` is the canonical reference). Reprocessing the same id is a no-op — `INSERT … ON CONFLICT DO NOTHING` or a unique-constraint catch.
-3. **200 only after dispatch succeeds.** The controller dispatches the processing job and returns 200 only when `dispatch()` itself returned successfully. If Redis is down, return 500 so the vendor retries. Never `try { dispatch() } catch { return 200; }`.
-4. **Processing job is idempotent end-to-end.** The job re-checks the idempotency key before mutating state, uses upserts not blind inserts, and is safe to run N times with the same input. No "first run = success, second run = duplicate row" failure modes.
-5. **No DB writes in the controller.** The controller verifies HMAC, persists the raw event (idempotency anchor), dispatches the job, returns 200. All domain mutations happen in the job. This separates "we received it" from "we processed it" — vendor retry semantics work correctly even mid-incident.
-6. **Out-of-order tolerant.** Webhooks arrive out of order. The processing job must check `updated_at` / `version` / `sequence` on the payload against current state and skip stale events. `orders/updated` arriving before `orders/create` is a normal occurrence, not a bug.
-7. **Payload archived raw.** The full vendor payload is stored verbatim (JSONB column) on the events table for replay and forensic use. Don't normalise on ingest — the projection is mutable, the event log is not.
-8. **Replay tooling exists.** A command or job can re-process the events table for a brand / date range without hitting the vendor. If the only way to recover from a bug is to ask Shopify to re-send, the pattern is broken.
-9. **Vendor retry budget respected.** Shopify retries 19 times over 48h; Stripe retries for 3 days; Square ~3 days. Jobs with `$tries = 3` and no backoff race the vendor's retry — flag mismatches.
-10. **No catch-all `200 OK` on validation failure.** Returning 200 on a payload that fails schema validation tells the vendor "processed" and the event is lost forever. Return 422 (or 400) so the vendor's dashboard shows the failure and an operator can re-send.
+1. **HMAC / signature verification BEFORE body parse.** Use `$request->getContent()` (raw bytes) for HMAC. `$request->json()` / `$request->all()` only after verification; never before. A failed signature returns 401 immediately with no work performed.
+2. **Idempotency anchor persisted, not just checked.** The sender's unique delivery id (Standard Webhooks `webhook-id`) is recorded — either in a DB table or via `Cache::add(key, true, ttl)` used as an atomic set-if-absent. A replay of the same id is a no-op. Ensure the idempotency check itself is atomic (cache `add` or `INSERT … ON CONFLICT DO NOTHING`) — a SELECT + conditional INSERT is a TOCTOU race under concurrent retries.
+3. **200 only after action succeeds.** If `Mail::queue()` or `dispatch()` throws, do not return 200. Return 500 so the sender retries. `try { … Mail::queue() … } catch { return 200; }` is wrong. On the email hook the idempotency marker must be reverted (`Cache::forget`) before the 500 response so the retry can re-acquire it.
+4. **Processing is idempotent end-to-end.** The handler or dispatched job re-checks the anchor before writing state. Running twice with the same input produces the same result. No "first run = success, second run = duplicate or error" failure modes.
+5. **No domain mutations in the controller beyond the idempotency anchor.** Verify signature → persist anchor → dispatch job or queue mail → return 200. All domain mutations happen in the job. This separates "we received it" from "we processed it."
+6. **Out-of-order tolerant.** Deliveries may arrive out of order and at any time. The handler must never assume a particular delivery order and must degrade gracefully on stale replays.
+7. **No catch-all 200 on validation failure.** Returning 200 on a payload that fails schema validation tells the sender "processed" and the delivery is lost permanently. Return 422 (or 400) so the sender's dashboard shows the failure.
+8. **Timestamp tolerance window enforced.** Standard Webhooks requires rejecting messages whose `webhook-timestamp` differs from now by more than the tolerance window (≤ 300s). Without this, a captured signature packet can be replayed indefinitely.
+
+### When vendor webhooks return post-pilot
+
+Future Shopify / Stripe / Square / Fresha webhook surfaces must be held to this same gold standard. Verify with `hash_equals` (not `===`). Use the vendor's unique event id (Shopify `X-Shopify-Webhook-Id`, Stripe `event.id`, Square `event_id`) as the idempotency anchor, persisted to an append-only events table (`INSERT … ON CONFLICT (event_id) DO NOTHING`). Match `$tries` / `$backoff` to the vendor's retry budget. Store the raw payload (JSONB) for replay without re-requesting from the vendor. A command or job must be able to re-process the events table by date range without hitting the vendor.
 
 ## Use the lens prefix `WHK` for findings
 
@@ -27,129 +29,122 @@ Number them `WHK-1`, `WHK-2`, … sequentially across the whole audit, regardles
 
 ### (1) HMAC verification ordering and correctness
 
-- HMAC computed against `$request->all()` / `$request->json()->all()` / `json_encode($request->json())` rather than the raw body — JSON round-trip can re-order keys and break the signature.
-- `$request->validate(...)` / Form Request validation that runs BEFORE the HMAC check — body is parsed (and potentially logged) before verification.
+- Signature verification called AFTER `$request->json()->all()` / `$request->all()` / `$request->validate()` — body is parsed (and potentially logged) before the signature is confirmed.
 - `hash_equals` missing — string `===` comparison on HMAC is a timing oracle.
-- Webhook secret read from a non-config source (`env()` outside config files cached out under `config:cache`).
-- Per-vendor verification helpers that drift: confirm Shopify uses `X-Shopify-Hmac-Sha256`, Stripe uses `Stripe-Signature` with timestamp tolerance window (`stripe-signature` library default = 5 minutes), Square uses `x-square-hmacsha256-signature` against URL+body.
-- Stripe specifically: missing timestamp tolerance check leaves replay window open indefinitely.
-- Canonical evidence to quote: the lines from receiving the request through to the `hash_equals` / library verifier call.
+- Webhook/hook secret read from `env()` directly rather than from a config key (breaks under `config:cache`).
+- Timestamp tolerance window missing or too wide — replay window left open.
+- `StandardWebhookVerifier::verify()` is the shared implementation; confirm both middleware adapters (`VerifySupabaseAuthHookSignature`, `VerifySupabaseEmailHookSignature`) call it with the raw body from `$request->getContent()` and that the tolerance constant (`TIMESTAMP_TOLERANCE = 300`) is enforced.
+- 503 on missing secret is correct (fail-closed); confirm it does not leak config detail in the response body.
+- Canonical evidence to quote: the lines from receiving the request through to the `hash_equals` / verifier call.
 
-### (2) Idempotency key handling
+### (2) Idempotency anchor handling
 
-- Controller / job that processes a webhook **without** consulting an events table or unique constraint keyed on the vendor's event id.
-- `Order::updateOrCreate(['shopify_order_id' => $id], ...)` used as the only idempotency anchor — this dedupes ORDERS but not EVENTS. The same `orders/updated` replayed re-applies the same mutation; for non-idempotent side effects (commission accrual, notification dispatch) this is a bug.
-- Idempotency check exists but is a `SELECT … WHERE event_id = ?` followed by `INSERT` outside a transaction (TOCTOU under concurrent vendor retries).
-- Idempotency table lacks a unique index on the vendor event id column — race-condition double-process.
-- Stripe webhooks keyed on `event.data.object.id` rather than `event.id` — these are NOT the same; `event.id` is the dedupe anchor.
-- Canonical fix: `INSERT INTO <events_table> (event_id, payload, ...) VALUES (?, ?, ...) ON CONFLICT (event_id) DO NOTHING RETURNING id;` — if no row returned, the event is a replay; skip processing.
+- Handler processes a hook delivery **without** an atomic uniqueness guard on `webhook-id`.
+- Cache-based dedup (e.g. `Cache::add("supabase:auth-hook:{$id}", true, ttl)`) that is absent when `$id` is an empty string — a sender that omits the `webhook-id` header bypasses dedup entirely. The anchor must either be unconditional or the controller must reject deliveries with no id.
+- TTL on the cache anchor is too short — a retry that arrives outside the TTL window can re-acquire a "new" slot and re-execute.
+- Cache anchor reverted on failure path (correct for email hook), but not for auth hook — check both paths consistently.
+- `INSERT … ON CONFLICT DO NOTHING RETURNING id` pattern missing where a DB-persisted anchor is warranted (e.g. once auth-factor events land in the DB the dedup moves there; until then flag any path that relies purely on in-memory/Redis dedup without a DB anchor).
+- Concurrent delivery race: two identical `webhook-id` deliveries arrive simultaneously; only one cache `add` wins — confirm both controllers handle the losing branch (not just the fast path).
 
-### (3) Dispatch failure swallowed → silent 200
+### (3) Dispatch / action failure swallowed → silent 200
 
-- `try { ... dispatch(...) ... } catch { return response('OK', 200); }` — Redis failure becomes invisible.
-- `dispatch()` called inside a controller that catches `\Throwable` broadly and returns 200 on any error.
-- Webhook controllers that return 200 unconditionally at the end of the method regardless of intermediate failure (no early-return on validation/auth/etc).
-- Webhook controllers that dispatch via `dispatch_sync()` — request thread does the work AND swallows exceptions on success-path return.
+- `try { Mail::queue($mailable) } catch { return response()->json(['ok' => true]) }` — Redis/mail failure becomes invisible to the sender.
+- Controllers that call `dispatch()` inside a catch-all that returns 200 on any error.
+- Auth hook controller: `$this->repo->record(...)` writes directly in the controller (no dispatched job) — any exception from the repository call must propagate as a 500, not be swallowed.
+- Email hook controller: exception path correctly reverts the dedup marker and returns 500 — confirm this behaviour is preserved under any refactor.
 - Canonical evidence to quote: the `catch` block + the `return` statement.
 
-### (4) DB writes in the controller (split-brain on retry)
+### (4) Domain mutations in the controller
 
-- Controllers that `Order::create(...)`, `Professional::update(...)`, etc. before dispatching the job. On vendor retry after a Redis failure, the controller writes the DB row, fails to dispatch, returns 500. Next retry: row already exists (depending on constraint), job dispatches, processing logic sees pre-existing state and behaves incorrectly.
-- Controllers that write to the events table AND mutate domain tables in the same request — the events table is fine, the domain tables aren't.
-- Acceptable: the controller writes a single idempotency-anchor row to the events table and dispatches. Everything else belongs in the job.
+- Controllers that write to domain tables (not just the idempotency anchor) before dispatching the job. On sender retry after a Redis failure the controller writes the row, fails to queue, returns 500. Next retry: row already exists; job queues but sees unexpected pre-existing state.
+- Acceptable: a single atomic cache `add` as the idempotency anchor + synchronous processing when the processing is light and bounded (auth hook brute-force check is ok; heavier work belongs in a job).
+- Flag any controller that both writes to a persistent store AND has non-trivial logic beyond the anchor.
 
-### (5) Job idempotency
+### (5) Job / mailable idempotency
 
-- Job `handle()` methods that `Model::create(...)` / blind-insert rather than upsert, when the job can run twice for the same event.
-- Job side-effects with no idempotency guard: dispatching a notification, calling Stripe to issue a refund, posting to Slack, incrementing a counter — flag every external side-effect and confirm it's keyed on the event id.
-- Jobs that mutate ledger rows / commission movements without re-checking whether the movement already exists for this event id.
-- `commission_movements` writes specifically: every insert must be keyed on (event_id, type) or equivalent — flag any path that lacks this.
-- Jobs that dispatch downstream jobs without passing the originating event id through, so the downstream job has no idempotency anchor either.
+- Mailable queued with `Mail::queue()` without a dedup guard at the mail driver level — if the mail queue processes twice for the same delivery id (Redis crash mid-dispatch) the user receives duplicate auth emails.
+- Auth-factor event `repo->record()` called in the controller rather than in a dedicated job — the controller's synchronous path is fine for lightweight work but must be audited for idempotency: two simultaneous valid deliveries for the same `webhook-id` could both pass the `Cache::add` check if the id is empty (`$id !== ''` guard skips the dedup entirely).
+- Jobs dispatched from hooks (if any) without passing the originating `webhook-id` as context — downstream job has no idempotency anchor.
 
 ### (6) Out-of-order handling
 
-- `orders/updated` handler that overwrites `commerce.orders` fields without comparing `updated_at` from the payload against the row's current `updated_at` — late-arriving older event wipes newer state.
-- `customers/update` / `products/update` paths missing version/timestamp guards.
-- Stripe `payment_intent.succeeded` handlers that don't check the current PI status before mutating — a later `payment_intent.canceled` may have already arrived.
-- Canonical fix: `WHERE source_updated_at <= EXCLUDED.source_updated_at` in upserts, or explicit guard in the job.
+- MFA verification hook: `countRecentFailures()` counts from DB rows; a replay of an older failed delivery could increment the failure counter incorrectly. Confirm the `repo->record()` path is safe when the same event is processed twice with an identical timestamp.
+- Email hook: action-type routing via `match` is pure — no stale-state risk. Flag if any mutable state depends on delivery order.
 
 ### (7) Schema validation returning 200 on bad payloads
 
-- Form Request validation in webhook controllers that returns 422 on failure but the route swallows it back to 200.
-- `try { $request->validate(...) } catch (ValidationException $e) { return response('OK'); }` — event is lost.
-- Webhook handlers without ANY schema validation — relying on optional-array-access patterns. Flag and recommend Form Request validation AFTER HMAC.
-- Canonical fix: 401 on HMAC failure, 422 on schema failure (vendor dashboard shows the bad event), 500 on dispatch failure, 200 ONLY on success.
+- Payload validation that returns 200 (or a non-422) on invalid shape — event is lost.
+- Auth hook controller: UUID regex validation on `userId`/`factorId` returns 400 on malformed payload — confirm this is not silently converted to 200 anywhere in the middleware stack.
+- Email hook controller: missing required fields return 422 — confirm no outer try/catch downgrades this to 200.
+- Canonical fix: 401 on HMAC failure, 422 on schema failure, 500 on processing failure, 200 ONLY on success.
 
-### (8) Retry / tries / backoff mismatch with vendor
+### (8) Client-supplied idempotency (`IdempotencyKey` middleware, alias `idempotent`)
 
-- Jobs processing Shopify webhooks with `$tries = 3` and 90s default backoff — Shopify gives up after 19 retries over 48h; our worker gives up in minutes.
-- Jobs with no `$backoff` array — exponential backoff vs. fixed retry has different recovery characteristics for transient vendor outages.
-- Jobs with `$tries = 0` (unlimited) on non-idempotent paths — repeat-forever amplifies a bug.
-- Missing `$timeout` on jobs that call external APIs — a hung Shopify call stalls the worker without Nightwatch surfacing slowness.
+The `IdempotencyKey` middleware (`app/Http/Middleware/IdempotencyKey.php`) provides replay-safe mutating endpoints for client-supplied keys. Audit it against:
 
-### (9) Raw payload archival
+- **Key scoping per user.** Cache key includes `supabase_uid` from request attributes — confirm user A cannot replay user B's response by reusing the same UUID v4 key. Verify: `cacheKey = idempotency:resp:{version}:{userId}:{route}:{key}`.
+- **Replay response fidelity.** Replayed responses must carry `Idempotency-Replayed: true` and restore all captured headers (Content-Type, Set-Cookie, Location, ETag, X-RateLimit-*). Missing header restoration silently breaks callers that depend on response headers on retry.
+- **TTL.** 24h response cache. Confirm this is appropriate for the mutation types the middleware guards — a payment-adjacent mutation replayed 23h later could be surprising.
+- **Race between concurrent identical requests.** The middleware acquires a distributed lock (`cache_locks` connection, 120s TTL). A second concurrent request gets 409 with `Retry-After: 1`. Confirm the 409 behaviour is surfaced correctly and does not bypass rate-limit budget (middleware position: after `VerifySupabaseJwt`, before `ThrottleRequests` — a replayed 409 consumes no rate-limit credit, which is correct).
+- **Fail-open on Redis failure.** Cache/lock exceptions are swallowed and the request proceeds. Confirm this is the documented intentional behaviour (fail-open rather than 503). The `Log::warning` on fail-open is breadcrumb-only — does not trigger Nightwatch alert.
+- **5xx responses not cached.** `shouldCache()` skips status ≥ 500 — transient infra failure is never replayed as permanent. Confirm this gate is in place.
+- **Key validation.** UUID v4 pattern enforced (`/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i`). Non-v4 UUIDs rejected with 400. Confirm the rejection does not expose timing information.
+- **Missing Idempotency-Key header.** Requests without the header pass through normally — the middleware is opt-in. Confirm no mandatory-key enforcement is silently bypassed by simply omitting the header on a route that should require it.
 
-- Events tables that store normalised columns only (no raw JSONB) — replay impossible without re-requesting from the vendor.
-- Payloads stored after redaction / mutation — flag and recommend storing raw, redacting at read-time if needed.
-- Missing payload archival entirely (controller dispatches with parsed array, no row written) — no audit trail.
+### (9) Bot-token-gated internal endpoints
 
-### (10) Replay capability
-
-- No artisan command or job to re-process the events table for a given (brand, date range, event type).
-- Replay path exists but bypasses the idempotency check (re-processing emits duplicate side-effects).
-- Replay path exists but uses live vendor API calls instead of the archived payload — defeats the purpose.
+- `VerifyBotToken` (alias `bot.token`) guards public-facing write paths (subscribe, signup, lead, enquiry, waitlist) — not the Supabase hook paths. Confirm the hook routes do NOT use `bot.token` (they use `supabase.auth-hook` / `supabase.email-hook` instead).
+- Internal endpoints without any auth middleware (e.g. `GET /internal/env-check`) — confirm these endpoints are read-only or appropriately scoped.
+- `fail_open = true` mode in `VerifyBotToken`: when the captcha provider is unreachable the request proceeds. Confirm this is the intended production posture and that Nightwatch will surface the `Log::warning('bot_protection.fail_open', ...)` correctly (it won't — `Log::warning` is invisible to Nightwatch alerts; flag if a circuit-open state needs to be escalated).
 
 ## Per-finding requirements
 
 For every finding:
-- Cite the category number (1–10).
-- Default tier: **P0** for HMAC ordering bugs that leak unverified payloads into logs/jobs (cat 1), and for silent 200 on dispatch failure on financial webhooks (cat 3 + Stripe/payout paths). **P1** for missing idempotency on non-idempotent side effects (cat 2 + cat 5), out-of-order vulnerability on commerce mutations (cat 6), and 200-on-validation-failure (cat 7). **P2** for missing payload archival, retry mismatch, replay tooling gaps.
-- Quote verbatim evidence: the controller method, the HMAC verifier, the `dispatch()` site, the `catch` block, the job's mutation site.
-- Name the canonical replacement: `commerce.order_events`-style events table, `INSERT … ON CONFLICT DO NOTHING`, `hash_equals`, `DB::afterCommit`, vendor-specific verifier (`Webhook::constructEvent` for Stripe, Shopify HMAC helper, Square notification verifier).
-- For each webhook surface, identify the events table or unique-constraint anchor used for idempotency — if none, that's a finding by itself.
+- Cite the category number (1–9).
+- Default tier: **P0** for HMAC ordering bugs that parse unverified bodies (cat 1), and for silent 200 on action failure where a sender's retry mechanism is bypassed (cat 3). **P1** for missing idempotency anchor on a non-idempotent side effect (cat 2, cat 5), 200-on-validation-failure (cat 7), key-scoping gaps in the `IdempotencyKey` middleware (cat 8). **P2** for out-of-order risks, missing anchor-reversal on failure path, bot-protection observability gaps (cat 6, cat 8 TTL/fail-open, cat 9). **P3** for hygiene.
+- Quote verbatim evidence: the controller method, the verifier call, the `dispatch()` / `Mail::queue()` site, the `catch` block, the idempotency anchor write.
+- Name the canonical replacement: `Cache::add(key, true, ttl)`, `INSERT … ON CONFLICT DO NOTHING`, `hash_equals`, `Cache::forget` on failure, `StandardWebhookVerifier::verify()` with raw body, 500 on dispatch failure.
 
 ## Out of scope — do NOT re-flag
 
-- `commerce.order_events` schema itself and its trigger that mirrors to `order_items` (this is the gold standard).
-- The `ShopifyOrderWebhookController` post-rebuild path if it's already on the pattern — confirm and skip rather than re-flag.
+- Commerce/financial idempotency anchors (`commerce.order_events`, Shopify event tables) — that surface is gone.
+- `ShopifyOrderWebhookController`, `StripeWebhookController`, `SquareCatalogWebhookController` — do not exist.
 - Test-only webhook helpers under `tests/`.
-- HMAC verification at the framework level (Laravel middleware) — focus on the controller-to-job path.
+- HMAC verification at the framework level in middleware already verified above — focus on the controller-to-job/mail path.
+- Pint style findings.
 
 ## Suggested per-domain scope groups
 
-### Group A — Shopify webhooks (largest surface, financial impact)
-```
---scope app/Http/Controllers/Api/Webhooks/Shopify
---scope app/Jobs/Shopify
-```
-
-### Group B — Stripe webhooks (financial, regulated)
-```
---scope app/Http/Controllers/Api/Webhooks/Stripe
---scope app/Jobs/Stripe
---scope app/Services/Stripe
-```
-
-### Group C — Other vendor webhooks
-```
---scope app/Http/Controllers/Api/Webhooks/FreshaCatalogWebhookController.php
---scope app/Http/Controllers/Api/Webhooks/SquareCatalogWebhookController.php
---scope app/Jobs/Fresha
---scope app/Jobs/Square
-```
-
-### Group D — Internal / Auth webhooks
+### Group A — Auth and email hooks (primary callback surface)
 ```
 --scope app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php
---scope app/Http/Controllers/Api/Internal
+--scope app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php
 ```
 
-### Group E — Webhook routing & middleware
+### Group B — Signature verification middleware and services
+```
+--scope app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php
+--scope app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php
+--scope app/Services/Webhooks/StandardWebhookVerifier.php
+--scope app/Services/Email/SupabaseEmailHookSignatureVerifier.php
+```
+
+### Group C — Client-supplied idempotency
+```
+--scope app/Http/Middleware/IdempotencyKey.php
+```
+
+### Group D — Internal endpoints and bot protection
+```
+--scope app/Http/Controllers/Api/Internal
+--scope app/Http/Middleware/VerifyBotToken.php
+```
+
+### Group E — Routing
 ```
 --scope routes/api.php
---scope app/Http/Middleware
 ```
 
 ## Exhaustiveness directive
 
-Walk every controller method that receives a vendor POST. Every `Route::post(...)` in `routes/api.php` that maps to a webhook controller is a candidate path; trace from route → controller → dispatch → job → side-effect, and emit a finding for every gold-standard property the path fails to satisfy. Three vendors each missing idempotency anchors = three findings (`WHK-1`, `WHK-2`, `WHK-3`), not one consolidated finding. A single controller missing both HMAC ordering AND silent-200 is two findings. The adjudicator dedupes and re-tiers — **under-reporting is the failure mode**. Be ruthless: webhook bugs are how money silently moves the wrong way.
+Walk every controller method that receives a POST from an external or semi-trusted sender. Every `Route::post(...)` in `routes/api.php` that maps to a hook controller or an internal write is a candidate path. Trace from route → middleware stack → controller → action/dispatch → job/mail → side-effect, and emit a finding for every gold-standard property the path fails to satisfy. A single controller missing both idempotency-anchor reversal AND silent-200 risk is two findings. The adjudicator dedupes and re-tiers — **under-reporting is the failure mode**. Be ruthless: hook bugs are how auth events get double-processed or auth emails get permanently dropped.
