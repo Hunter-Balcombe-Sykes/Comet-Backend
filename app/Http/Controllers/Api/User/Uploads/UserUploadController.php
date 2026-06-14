@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
 use App\Http\Requests\Api\User\Uploads\UploadImageRequest;
+use App\Http\Resources\SiteMediaResource;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\CacheKeyGenerator;
@@ -90,7 +91,7 @@ class UserUploadController extends ApiController
             return $this->error($e->getMessage(), 503);
         }
 
-        return $this->success($this->buildMediaPayload($media, includeVariants: true), 201);
+        return $this->success((new SiteMediaResource($media, includeVariants: true))->toArray(request()), 201);
     }
 
     /**
@@ -177,7 +178,7 @@ class UserUploadController extends ApiController
 
         $query->with('mediaVariants');
 
-        $items = $query->get()->map(fn (SiteMedia $item) => $this->buildMediaPayload($item, includeVariants: true));
+        $items = $query->get()->map(fn (SiteMedia $item) => (new SiteMediaResource($item, includeVariants: true))->toArray(request()));
 
         return [
             'images' => $items->values()->all(),
@@ -340,74 +341,5 @@ class UserUploadController extends ApiController
         return $request->boolean('remember_confirmation_preference')
             || $request->boolean('always_allow_confirmation')
             || $request->boolean('dont_ask_again');
-    }
-
-    /**
-     * Build a media item payload array suitable for API responses.
-     *
-     * @param  bool  $includeVariants  Whether to include resolved variant/stream maps.
-     * @return array<string, mixed>
-     */
-    private function buildMediaPayload(SiteMedia $media, bool $includeVariants = false): array
-    {
-        $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
-        $isReady = $media->processing_state === SiteMedia::PROCESSING_STATE_READY;
-        $isProcessing = $media->processing_state === SiteMedia::PROCESSING_STATE_PENDING
-            || $media->processing_state === SiteMedia::PROCESSING_STATE_PROCESSING;
-
-        $payload = [
-            'id' => $media->id,
-            'pool' => $media->pool,
-            'alt_text' => $media->alt_text,
-            'caption' => $media->caption,
-            'sort_order' => $media->sort_order,
-            'media_type' => $media->media_type,
-            'processing_state' => $media->processing_state,
-            'processing' => $isProcessing, // backward-compat boolean
-            'processing_error' => $media->processing_error,
-            'created_at' => $media->created_at?->toIso8601String(),
-            'updated_at' => $media->updated_at?->toIso8601String(),
-        ];
-
-        if ($isVideo) {
-            $payload['duration_ms'] = $media->duration_ms;
-            $payload['poster'] = null;
-        }
-
-        if (! $includeVariants) {
-            return $payload;
-        }
-
-        if ($isVideo) {
-            if ($isReady) {
-                $mvList = $media->relationLoaded('mediaVariants')
-                    ? $media->mediaVariants
-                    : $media->mediaVariants()->get();
-
-                $variants = [];
-                $poster = null;
-
-                // Two MP4 tiers (optimized 720p / maximized 1080p) + poster.
-                // HLS was removed (2026-05-29) — the dashboard plays the mp4
-                // directly, so we no longer emit a streams map.
-                foreach ($mvList as $mv) {
-                    if ($mv->artifact_type === 'mp4') {
-                        $variants[$mv->variant_key] = $mv->url;
-                    } elseif ($mv->artifact_type === 'poster') {
-                        $poster = $mv->url;
-                    }
-                }
-
-                $payload['variants'] = $variants;
-                $payload['poster'] = $poster;
-            } else {
-                $payload['variants'] = [];
-                $payload['poster'] = null;
-            }
-        } else {
-            $payload['variants'] = $isReady ? $media->variantUrls() : [];
-        }
-
-        return $payload;
     }
 }

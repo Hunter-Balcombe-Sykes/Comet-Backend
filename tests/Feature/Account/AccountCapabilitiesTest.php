@@ -3,7 +3,6 @@
 // Plan §28.3 / §9 capability matrix tests — individual-only after standalone strip.
 
 use App\Http\Resources\UserDashboardResource;
-use App\Http\Resources\UserResource;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
@@ -86,13 +85,13 @@ describe('UserDashboardResource — stripe_connect_status absent for individuals
     });
 });
 
-describe('UserResource — stripe_connect_status absent for individuals', function () {
+describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status for individuals', function () {
         $pro = new User([
             'account_type' => 'individual',
         ]);
 
-        $payload = (new UserResource($pro))->resolve(Request::create('/'));
+        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
 
         expect($payload)->not->toHaveKey('stripe_connect_status');
     });

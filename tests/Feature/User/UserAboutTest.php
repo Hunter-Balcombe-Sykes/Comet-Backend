@@ -1,11 +1,14 @@
 <?php
 
-use App\Http\Resources\UserResource;
+use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    // UserDashboardResource reads the `site` relationship (custom_domain fields),
+    // so the table must exist even though these users have no site row.
+    setupSitesTable();
 });
 
 function makeAboutUser(array $attrs = []): User
@@ -48,7 +51,7 @@ it('persists a full about payload and reads it back as an array', function () {
     expect($fresh->about['experience'][0]['end'])->toBeNull();
 });
 
-it('exposes about through UserResource', function () {
+it('exposes about through UserDashboardResource', function () {
     $pro = makeAboutUser([
         'about' => [
             'credentials' => [['title' => 'Cert', 'issuer' => 'Academy', 'year' => 2020]],
@@ -56,7 +59,7 @@ it('exposes about through UserResource', function () {
         ],
     ]);
 
-    $array = (new UserResource($pro->fresh()))->toArray(request());
+    $array = (new UserDashboardResource($pro->fresh()))->toArray(request());
 
     expect($array)->toHaveKey('about');
     expect($array['about']->credentials[0]['title'])->toBe('Cert');
@@ -66,7 +69,7 @@ it('exposes about through UserResource', function () {
 it('returns an object that JSON-encodes as {} when about has never been set', function () {
     $pro = makeAboutUser();
 
-    $array = (new UserResource($pro->fresh()))->toArray(request());
+    $array = (new UserDashboardResource($pro->fresh()))->toArray(request());
 
     // The resource casts $this->about to (object), so json_encode renders
     // an empty about as '{}' (not '[]').

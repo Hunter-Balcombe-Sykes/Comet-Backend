@@ -2,7 +2,7 @@
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
-use App\Http\Resources\UserResource;
+use App\Http\Resources\UserDashboardResource;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
@@ -29,6 +29,22 @@ beforeEach(function () {
         deleted_at TEXT,
         created_at TEXT,
         updated_at TEXT
+    )');
+
+    // UserDashboardResource (the self-service /me resource) reads the `site`
+    // relationship, so the table must exist for its query to run (returns null here).
+    try {
+        $conn->statement("ATTACH DATABASE ':memory:' AS site");
+    } catch (Throwable) {
+    }
+    $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        subdomain TEXT NULL,
+        custom_domain TEXT NULL,
+        custom_domain_status TEXT NULL,
+        custom_domain_primary INTEGER NULL,
+        deleted_at TEXT NULL
     )');
 });
 
@@ -82,7 +98,7 @@ it('exposes admin_notes in staff resource but not in self-service resource', fun
     $professional->display_name = 'Test';
 
     $staffShape = (new UserStaffResource($professional))->toArray(request());
-    $selfShape = (new UserResource($professional))->toArray(request());
+    $selfShape = (new UserDashboardResource($professional))->toArray(request());
 
     expect($staffShape)->toHaveKey('admin_notes')
         ->and($staffShape['admin_notes'])->toBe('Internal: do not contact this brand directly')

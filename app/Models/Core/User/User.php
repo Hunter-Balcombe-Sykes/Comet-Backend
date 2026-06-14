@@ -83,7 +83,7 @@ class User extends BaseModel
         'deletion_mail_sent_at',
 
         // Staff-only — surfaced through UserStaffResource. Never expose through
-        // UserResource (self-service /me).
+        // UserDashboardResource (self-service /me).
         'admin_notes',
     ];
 

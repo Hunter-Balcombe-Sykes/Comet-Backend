@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
+use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
 use Exception;
@@ -62,28 +63,9 @@ class StaffUserController extends ApiController
         $showPii = $staff && $staff->isAdmin();
 
         // Keep response light for list-view
-        $professionals = $page->getCollection()->map(function (User $p) use ($showPii) {
-            $site = $p->site;
-
-            return [
-                'id' => $p->id,
-                'handle' => $p->handle,
-                'display_name' => $p->display_name,
-                'status' => $p->status,
-                'primary_email' => $showPii ? $p->primary_email : null,
-                'phone' => $showPii ? $p->phone : null,
-                'created_at' => optional($p->created_at)->toISOString(),
-                'updated_at' => optional($p->updated_at)->toISOString(),
-
-                'site' => $site ? [
-                    'id' => $site->id,
-                    'subdomain' => $site->subdomain,
-                    'is_published' => (bool) $site->is_published,
-                    // skeleton_id replaces theme — skeletons are code constants, not DB rows.
-                    'skeleton_id' => $site->skeleton_id,
-                ] : null,
-            ];
-        });
+        $professionals = $page->getCollection()->map(
+            fn (User $p) => (new StaffUserListResource($p, $showPii))->toArray($request)
+        );
 
         $payload = $this->paginatedResponse($page, 'professionals');
         $payload['professionals'] = $professionals;

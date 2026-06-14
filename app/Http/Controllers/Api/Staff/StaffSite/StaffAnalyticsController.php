@@ -164,12 +164,12 @@ class StaffAnalyticsController extends ApiController
                     'to' => $to->toDateString(),
                 ],
                 'professional' => [
-                    'id' => $professional->id,
+                    'id' => (string) $professional->id,
                     'handle' => $professional->handle,
                     'display_name' => $professional->display_name,
                 ],
                 'site' => [
-                    'id' => $site->id,
+                    'id' => (string) $site->id,
                     'subdomain' => $site->subdomain,
                     'published' => (bool) $site->is_published,
                 ],
@@ -186,7 +186,12 @@ class StaffAnalyticsController extends ApiController
                     'visits_by_day' => $visitsByDay,
                     'clicks_by_day' => $clicksByDay,
                 ],
-                'top_links' => $topLinks,
+                // Cast block_id to string for type-stable UUID serialisation.
+                'top_links' => $topLinks->map(function (object $row): object {
+                    $row->block_id = (string) $row->block_id;
+
+                    return $row;
+                }),
             ];
         });
 

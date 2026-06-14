@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Uploads\UploadDesignMediaRequest;
+use App\Http\Resources\DesignMediaResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\MediaUploadService;
@@ -49,7 +50,7 @@ class UserDesignMediaController extends ApiController
         $images = [];
         foreach (SiteMedia::DESIGN_SINGLETON_PURPOSES as $purpose) {
             $media = $rows->get($purpose);
-            $images[$purpose] = $media instanceof SiteMedia ? $this->payload($media) : null;
+            $images[$purpose] = $media instanceof SiteMedia ? (new DesignMediaResource($media))->toArray(request()) : null;
         }
 
         return $this->success(['images' => $images]);
@@ -80,30 +81,6 @@ class UserDesignMediaController extends ApiController
             return $this->error($e->getMessage(), 500);
         }
 
-        return $this->success($this->payload($media), 201);
-    }
-
-    /**
-     * Build the dashboard payload for one singleton — id (for delete via
-     * /api/images/{id}), processing state, and the resolved WebP URL once ready.
-     *
-     * @return array<string, mixed>
-     */
-    private function payload(SiteMedia $media): array
-    {
-        $isReady = $media->processing_state === SiteMedia::PROCESSING_STATE_READY;
-        $variants = $isReady ? $media->variantUrls() : [];
-
-        return [
-            'id' => (string) $media->id,
-            'purpose' => $media->purpose,
-            'processing_state' => $media->processing_state,
-            'processing' => in_array($media->processing_state, [
-                SiteMedia::PROCESSING_STATE_PENDING,
-                SiteMedia::PROCESSING_STATE_PROCESSING,
-            ], true),
-            'url' => $variants['optimized'] ?? $variants['original'] ?? null,
-            'variants' => $variants,
-        ];
+        return $this->success((new DesignMediaResource($media))->toArray(request()), 201);
     }
 }

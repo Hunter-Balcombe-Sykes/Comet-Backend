@@ -37,8 +37,8 @@ class StaffUpdateUserRequest extends BaseFormRequest
             'location_postcode' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_country' => ['sometimes', 'nullable', 'string', 'max:255'],
 
-            // Staff-only — see UserStaffResource. Self-service UserResource
-            // must never expose admin_notes back to the brand.
+            // Staff-only — see UserStaffResource. Self-service UserDashboardResource
+            // must never expose admin_notes back to the professional.
             'admin_notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
         ], $this->aboutRules());
     }

@@ -39,7 +39,7 @@ class UserStaffResource extends ApiResource
                 false, // Stripe Connect removed in 2026-05-22 standalone strip; reintegrate post-pilot
                 fn () => $this->stripe_connect_status,
             ),
-            // Staff-only tribal knowledge — must NEVER appear in UserResource (/me).
+            // Staff-only tribal knowledge — must NEVER appear in UserDashboardResource (/me).
             'admin_notes' => $this->admin_notes,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

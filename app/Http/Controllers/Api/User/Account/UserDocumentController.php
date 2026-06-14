@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
+use App\Http\Resources\DocumentMediaResource;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,7 +38,7 @@ class UserDocumentController extends ApiController
             ->first();
 
         return $this->success([
-            'document' => $media ? $this->buildDocumentPayload($media) : null,
+            'document' => $media ? (new DocumentMediaResource($media))->toArray(request()) : null,
         ]);
     }
 
@@ -196,7 +197,7 @@ class UserDocumentController extends ApiController
             }
         }
 
-        return $this->success(['document' => $this->buildDocumentPayload($media)], 201);
+        return $this->success(['document' => (new DocumentMediaResource($media))->toArray(request())], 201);
     }
 
     /**
@@ -240,7 +241,7 @@ class UserDocumentController extends ApiController
             }
         }
 
-        return $this->success(['document' => $this->buildDocumentPayload($document->fresh())]);
+        return $this->success(['document' => (new DocumentMediaResource($document->fresh()))->toArray(request())]);
     }
 
     /**
@@ -271,30 +272,6 @@ class UserDocumentController extends ApiController
         $document->delete();
 
         return $this->success(['deleted' => true]);
-    }
-
-    /**
-     * @return array{id: string, title: string|null, caption: string|null, is_enabled: bool, original_mime: string|null, original_size_bytes: int|null, original_filename: string|null, preview_url: string, download_url: string, created_at: mixed, updated_at: mixed}
-     */
-    private function buildDocumentPayload(SiteMedia $media): array
-    {
-        $mediaDisk = config('partna.media_disk');
-        $previewUrl = Storage::disk($mediaDisk)->url((string) $media->path);
-
-        return [
-            'id' => $media->id,
-            'title' => $media->alt_text,
-            'caption' => $media->caption,
-            // is_enabled maps to is_active — the publish toggle reads and writes this.
-            'is_enabled' => (bool) $media->is_active,
-            'original_mime' => $media->original_mime,
-            'original_size_bytes' => $media->original_size_bytes,
-            'original_filename' => $media->original_filename,
-            'preview_url' => $previewUrl,
-            'download_url' => '/api/public/documents/'.$media->id.'/download',
-            'created_at' => $media->created_at?->toIso8601String(),
-            'updated_at' => $media->updated_at?->toIso8601String(),
-        ];
     }
 
     /**

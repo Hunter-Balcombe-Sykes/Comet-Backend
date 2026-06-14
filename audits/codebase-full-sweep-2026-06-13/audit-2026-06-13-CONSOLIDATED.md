@@ -471,14 +471,14 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B16. 1) No remaining unbounded `pluck`/`get` on user-scale tables; `chunkById` (not `chunk`, to avoid pagination drift under concurrent writes). 2) `Customer::redact()` bulk UPDATE erases the same columns as before. 3) Image streaming doesn't break variant output. 4) SCALE-7 queue matches the supervisor. 5) `composer test` green.
 
 ### Bundle B17: API Resource discipline (5 items) — Effort: M
-- [ ] **Bundle B17 complete**
+- [x] **Bundle B17 complete** — _API-6 implemented as a dedicated light `StaffUserListResource` (preserving B9's admin PII gate), NOT the heavy `UserStaffResource` which would reshape the list. API-2 uses intersect-allowlist semantics (drops unknown keys, never pads). UserResource tests repointed to the real /me resource `UserDashboardResource`; its dead-code-only shape test deleted._
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **API-1** · P2 — `UserResource` is dead code carrying unconditional PII — `app/Http/Resources/UserResource.php:10` → `audit-2026-06-13-api-contract.md`
-    - [ ] **API-2** · P2 — `StaffSiteResource` passes blocks as a raw JSONB array with no field gate — `app/Http/Resources/Staff/StaffSiteResource.php:43` → `audit-2026-06-13-api-contract.md`
-    - [ ] **API-5** · P3 — Three controllers build media/document payloads via private helpers instead of Resources — `audit-2026-06-13-api-contract.md`
-    - [ ] **API-6** · P3 — `StaffUserController::index` hand-rolls the professional list instead of `UserStaffResource` — `…/StaffUserController.php:60` → `audit-2026-06-13-api-contract.md`
-    - [ ] **API-7** · P3 — `StaffAnalyticsController` returns raw `stdClass`; model IDs lack explicit string casts — `…/StaffAnalyticsController.php:161` → `audit-2026-06-13-api-contract.md`
+    - [x] **API-1** · P2 — `UserResource` is dead code carrying unconditional PII — `app/Http/Resources/UserResource.php:10` → `audit-2026-06-13-api-contract.md`
+    - [x] **API-2** · P2 — `StaffSiteResource` passes blocks as a raw JSONB array with no field gate — `app/Http/Resources/Staff/StaffSiteResource.php:43` → `audit-2026-06-13-api-contract.md`
+    - [x] **API-5** · P3 — Three controllers build media/document payloads via private helpers instead of Resources — `audit-2026-06-13-api-contract.md`
+    - [x] **API-6** · P3 — `StaffUserController::index` hand-rolls the professional list instead of `UserStaffResource` — `…/StaffUserController.php:60` → `audit-2026-06-13-api-contract.md`
+    - [x] **API-7** · P3 — `StaffAnalyticsController` returns raw `stdClass`; model IDs lack explicit string casts — `…/StaffAnalyticsController.php:161` → `audit-2026-06-13-api-contract.md`
 - Rationale: All five are the same architectural rule (CLAUDE.md: never return raw models/arrays — use Resource classes). Dead `UserResource` carrying PII (API-1) and ungated JSONB (API-2) are the risk-bearing ones; the rest are consistency.
 - Suggested approach: Delete or gate `UserResource` (API-1); add a field allowlist to `StaffSiteResource` blocks (API-2); replace the private-helper payloads with Resource classes (API-5/6/7); add explicit string casts on IDs. Run `composer test`. Coordinate with B9 (`StaffUserController`).
 - Dependencies: API-6 touches `StaffUserController::index` — coordinate with B9 (PII gate) so they don't conflict.
