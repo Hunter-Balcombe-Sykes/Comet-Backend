@@ -82,7 +82,7 @@ class UpdateSiteAction
             }
         }
 
-        return DB::transaction(function () use ($professional, $site, $data, $options, $allowSubdomainOverride): Site {
+        return DB::connection('pgsql')->transaction(function () use ($professional, $site, $data, $options, $allowSubdomainOverride): Site {
             if (array_key_exists('subdomain', $data)) {
                 $incoming = strtolower($data['subdomain']);
                 $current = strtolower((string) $site->subdomain);
@@ -90,6 +90,16 @@ class UpdateSiteAction
                 if ($incoming === $current) {
                     unset($data['subdomain']);
                 } else {
+                    // LIFE-5: re-read subdomain_changed_at under a row lock INSIDE the tx. Reading the
+                    // pre-transaction snapshot let two concurrent renames both pass the 30-day cooldown;
+                    // the FOR UPDATE makes the second rename block until the first commits, then see the
+                    // updated timestamp. (lockForUpdate is a no-op on SQLite — fine for the test suite.)
+                    $lockedChangedAt = DB::table('site.sites')
+                        ->where('id', $site->id)
+                        ->lockForUpdate()
+                        ->value('subdomain_changed_at');
+                    $site->subdomain_changed_at = $lockedChangedAt !== null ? Carbon::parse($lockedChangedAt) : null;
+
                     if (! $allowSubdomainOverride && $site->subdomain_changed_at) {
                         // Days between allowed subdomain changes; mirrored in UserSelfController::show.
                         $cooldownDays = (int) config('partna.handle.subdomain_cooldown_days', 30);

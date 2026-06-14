@@ -86,11 +86,15 @@ class PlatformRefresher
                 ]);
             }
 
-            $connection->forceFill([
+            // Atomic increment so concurrent refreshes don't lose counts via
+            // read-modify-write races. increment() fires `updating`/`updated` (not `saved`);
+            // IntegrationConnectionObserver::updated() is a safe no-op on a failed refresh
+            // (it only acts when platform==='instagram' AND the payload _folder changed, and
+            // increment touches no payload), so there are no harmful observer side-effects.
+            $connection->increment('consecutive_failures', 1, [
                 'last_refresh_status' => $status,
                 'last_refresh_error' => $error,
-                'consecutive_failures' => (int) $connection->consecutive_failures + 1,
-            ])->saveQuietly();
+            ]);
 
             return $connection;
         }

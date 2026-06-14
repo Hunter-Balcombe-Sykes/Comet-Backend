@@ -571,15 +571,15 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B20. 1) No bare `Cache::put` remains on that path (GS-1 guard). 2) Single jitter applied; CCH-2 no longer double-jitters. 3) Idempotency TTL jittered without weakening the idempotency window. 4) `composer test` green.
 
 ### Bundle B21: Transaction pgsql-contract + concurrency counters (6 items) — Effort: M
-- [ ] **Bundle B21 complete**
+- [x] **Bundle B21 complete** — _opus-reviewed. LIFE-5 race closed via a same-connection `lockForUpdate` re-read of `subdomain_changed_at` inside the pgsql tx + a CI-runnable regression test. LIFE-11/12 use atomic `increment()`; LIFE-12 drops the failure-path observer (safe — no public data changes on a failed refresh)._
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **SEM-3** · P2 — `SiteProvisioningService::tryCreateSite` uses bare `DB::transaction()` for a savepoint that must be on pgsql — `app/Services/User/SiteProvisioningService.php:100` → `audit-2026-06-13-semantic-correctness.md`
-    - [ ] **LIFE-4** · P2 — `SiteProvisioningService` SQLSTATE-matches `'23505'` instead of the typed `UniqueConstraintViolationException` — `app/Services/User/SiteProvisioningService.php:115` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **LIFE-5** · P2 — `UpdateSiteAction` reads `subdomain_changed_at` from a stale pre-transaction snapshot; two concurrent renames both bypass the 30-day cooldown — `app/Services/Site/UpdateSiteAction.php:28` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **TXN-3** · P3 — Nested `DB::transaction` in `ReclaimHandleAction` is correct but undocumented — `app/Services/Site/ReclaimHandleAction.php:25` → `audit-2026-06-13-transaction-boundaries.md`
-    - [ ] **LIFE-11** · P3 — `PlatformRefresher` read-modify-write on `consecutive_failures` loses increments under concurrency — `app/Services/Platforms/PlatformRefresher.php:92` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **LIFE-12** · P3 — `SmartLinkRefresher` same lost-increment race — `app/Services/SmartLinks/SmartLinkRefresher.php:33` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **SEM-3** · P2 — `SiteProvisioningService::tryCreateSite` uses bare `DB::transaction()` for a savepoint that must be on pgsql — `app/Services/User/SiteProvisioningService.php:100` → `audit-2026-06-13-semantic-correctness.md`
+    - [x] **LIFE-4** · P2 — `SiteProvisioningService` SQLSTATE-matches `'23505'` instead of the typed `UniqueConstraintViolationException` — `app/Services/User/SiteProvisioningService.php:115` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **LIFE-5** · P2 — `UpdateSiteAction` reads `subdomain_changed_at` from a stale pre-transaction snapshot; two concurrent renames both bypass the 30-day cooldown — `app/Services/Site/UpdateSiteAction.php:28` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **TXN-3** · P3 — Nested `DB::transaction` in `ReclaimHandleAction` is correct but undocumented — `app/Services/Site/ReclaimHandleAction.php:25` → `audit-2026-06-13-transaction-boundaries.md`
+    - [x] **LIFE-11** · P3 — `PlatformRefresher` read-modify-write on `consecutive_failures` loses increments under concurrency — `app/Services/Platforms/PlatformRefresher.php:92` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **LIFE-12** · P3 — `SmartLinkRefresher` same lost-increment race — `app/Services/SmartLinks/SmartLinkRefresher.php:33` → `audit-2026-06-13-lifecycle-correctness.md`
     - Note: SEM-3 and LIFE-4 are the same `SiteProvisioningService` method — fix together.
 - Rationale: Transaction-correctness cluster — bare `DB::transaction()` off the pgsql pin (breaks the SQLite test suite + savepoint semantics), a stale-snapshot cooldown bypass (LIFE-5 is a real concurrency hole), lost-increment counters, and one doc gap. Grouped because they share the transaction/concurrency theme.
 - Suggested approach: Pin to `DB::connection('pgsql')->transaction()` (SEM-3); catch the typed `UniqueConstraintViolationException` (LIFE-4); re-read `subdomain_changed_at` inside the transaction with a row lock (LIFE-5); convert counter writes to atomic `increment()` (LIFE-11/12); add the doc comment (TXN-3). Run `composer test`.

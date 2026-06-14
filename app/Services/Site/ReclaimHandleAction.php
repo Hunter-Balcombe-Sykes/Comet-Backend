@@ -22,7 +22,12 @@ class ReclaimHandleAction
     {
         $handle = strtolower($handle);
 
-        DB::transaction(function () use ($professional, $handle, $context) {
+        // The outer pgsql transaction + the inner UpdateSiteAction transaction form a
+        // nested savepoint pair on the same connection. The lockForUpdate on the alias
+        // row serializes concurrent reclaim attempts for the same handle, so the
+        // reclaim-window check (reclaim_until > now()) cannot be raced between two
+        // requests arriving simultaneously.
+        DB::connection('pgsql')->transaction(function () use ($professional, $handle, $context) {
             $alias = UserHandleAlias::query()
                 ->where('user_id', $professional->id)
                 ->whereRaw('lower(handle) = ?', [$handle])

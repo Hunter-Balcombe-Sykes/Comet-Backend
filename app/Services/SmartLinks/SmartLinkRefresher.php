@@ -27,11 +27,15 @@ class SmartLinkRefresher
         $resolved = $this->resolver->resolve($rawUrl, $selection, bypassCache: true);
 
         if (! $resolved->valid || $resolved->data === null) {
-            $link->forceFill([
+            // Atomic increment so concurrent refreshes don't lose counts via
+            // read-modify-write races. increment() fires `updating`/`updated` but NOT
+            // `saved`; SmartLinkObserver is keyed on `saved`, so its cache bust is
+            // skipped — acceptable because a FAILED refresh changes no public-facing
+            // link data (the payload builder reads only is_active + title/image/metadata).
+            $link->increment('consecutive_failures', 1, [
                 'last_refreshed_at' => now(),
                 'last_refresh_status' => 'unavailable',
-                'consecutive_failures' => (int) $link->consecutive_failures + 1,
-            ])->save();
+            ]);
 
             return $link;
         }

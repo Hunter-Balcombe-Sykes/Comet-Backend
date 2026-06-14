@@ -3,7 +3,7 @@
 namespace App\Services\User;
 
 use App\Models\Core\Site\Site;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -97,7 +97,7 @@ class SiteProvisioningService
             // the retry loop can try the next candidate. SQLite doesn't abort on
             // statement error, which is why this bug is invisible in the SQLite
             // test suite (see SiteProvisioningSavepointTest, gated to real pgsql).
-            return DB::transaction(function () use ($userId, $candidate) {
+            return DB::connection('pgsql')->transaction(function () use ($userId, $candidate) {
                 // skeleton_id defaults to 'skeleton-1' at the DB level (TEXT CHECK
                 // enum DEFAULT 'skeleton-1'). New sites pick up the default
                 // automatically; no need to set it explicitly.
@@ -112,20 +112,13 @@ class SiteProvisioningService
 
                 return $site;
             });
-        } catch (QueryException $e) {
-            // Catch sits OUTSIDE the nested DB::transaction() call: by the time the
-            // exception surfaces here, Laravel has already rolled back to (and
-            // released) the savepoint, so the outer transaction is no longer in an
+        } catch (UniqueConstraintViolationException $e) {
+            // Catch sits OUTSIDE the nested DB::connection('pgsql')->transaction() call:
+            // by the time the exception surfaces here, Laravel has already rolled back to
+            // (and released) the savepoint, so the outer transaction is no longer in an
             // aborted state and the loop can safely retry.
-            if ($this->isUniqueViolation($e)) {
-                return null;
-            }
-            throw $e;
+            // Subdomain candidate taken — caller's retry loop tries the next one.
+            return null;
         }
-    }
-
-    private function isUniqueViolation(QueryException $e): bool
-    {
-        return $e->getCode() === '23505';
     }
 }
