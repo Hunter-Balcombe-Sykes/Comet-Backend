@@ -524,11 +524,11 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B18. 1) Pagination uses the project's envelope (no `meta` vs `pagination` drift); breaking-change flagged if so. 2) All four error paths standardized. 3) `per_page` default consistent + capped. 4) `composer test` green.
 
 ### Bundle B19: CORS configuration fixes (2 items) — Effort: S
-- [ ] **Bundle B19 complete**
+- [x] **Bundle B19 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **SEC-2** · P2 — CORS regex excludes the apex `partna.au`, silently denying CORS from the marketing site — `config/cors.php:21` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-4** · P2 — `config/cors.php` calls `config('partna.frontend_origins')` at require-time before `partna.php` loads → `allowed_origins` resolves to `[]` — `config/cors.php:14` → `audit-2026-06-13-security.md`
+    - [x] **SEC-2** · P2 — CORS regex excludes the apex `partna.au`, silently denying CORS from the marketing site — `config/cors.php:21` → `audit-2026-06-13-security.md`
+    - [x] **SEC-4** · P2 — `config/cors.php` calls `config('partna.frontend_origins')` at require-time before `partna.php` loads → `allowed_origins` resolves to `[]` — `config/cors.php:14` → `audit-2026-06-13-security.md`
 - Rationale: Both are `config/cors.php` correctness — one regex misses the apex domain, the other evaluates config before it's loaded (alphabetical config order), zeroing allowed origins. Same file, one fix.
 - Suggested approach: Fix the regex to include the apex label (SEC-2); defer the `frontend_origins` resolution to a closure/runtime so it isn't empty at require-time (SEC-4). Verify with an actual cross-origin request from the marketing apex + a subdomain.
 - Dependencies: None.
