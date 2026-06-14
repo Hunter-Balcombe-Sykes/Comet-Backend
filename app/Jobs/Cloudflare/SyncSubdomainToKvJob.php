@@ -85,15 +85,37 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // exclusion was the original bug (deleted users left their KV live).
         $pro = User::withTrashed()->find($this->userId);
 
-        // The user is gone (hard-deleted, soft-deleted, or has no handle) — remove
-        // the routing entry instead of upserting it.
-        if (! $pro || $pro->trashed() || ! $pro->handle) {
+        // Retire the routing entry whenever the profile is NOT publicly servable:
+        // the user is gone (hard/soft-deleted or no handle) OR the account is
+        // suspended/disabled/pending-deletion (status !== 'active'). A suspended
+        // user is NOT trashed, so without the isActive() gate a moderation
+        // takedown left the route — and the edge-cached page — live (EDGE-3).
+        // Mirrors the public read path (public_site_payload requires status='active').
+        if (! $pro || $pro->trashed() || ! $pro->handle || ! $pro->isActive()) {
             $this->retire($kv, $pro);
 
             return;
         }
 
         $current = strtolower(trim((string) $pro->handle));
+
+        // Read the site once — needed for both the moderation gate below and the
+        // custom-domain publish. Guarded so a missing/corrupt site row can never
+        // black-hole the core subdomain sync.
+        $site = null;
+        try {
+            $site = $pro->site;
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        // Moderation has hidden the site — retire the route so a hide_site
+        // takedown (which hides the SITE, not the user) also stops resolving.
+        if ($site && ($site->moderation_state ?? 'active') === 'hidden') {
+            $this->retire($kv, $pro);
+
+            return;
+        }
 
         // All accounts are individual. The Astro Worker reads this entry via
         // Service Binding and renders the public profile page.
@@ -102,15 +124,8 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // Publish an ACTIVE custom domain → handle route (Cloudflare for SaaS). The
         // router Worker reads `domain:<host>` and forwards to partna-pages with the
         // handle injected. Only 'active' domains are written; pending/errored ones
-        // stay dark until verified. The site read is guarded so a missing/corrupt
-        // site can never black-hole the core subdomain sync; the KV write itself
-        // stays unguarded so a real write failure still retries the job.
-        $site = null;
-        try {
-            $site = $pro->site;
-        } catch (Throwable $e) {
-            report($e);
-        }
+        // stay dark until verified. The KV write stays unguarded so a real write
+        // failure still retries the job.
         if ($site) {
             $customDomain = strtolower(trim((string) ($site->custom_domain ?? '')));
             if ($customDomain !== '' && ($site->custom_domain_status ?? null) === 'active') {

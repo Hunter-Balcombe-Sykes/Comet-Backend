@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Moderation\PurgeModerationCacheJob;
 use App\Models\Core\Site\Site;
@@ -65,4 +66,24 @@ it('is idempotent (running twice does not error and entry stays completed)', fun
     // within the uniqueness window is deduplicated — 1 is correct, not 2.
     Bus::assertDispatched(SyncSubdomainToKvJob::class);
     expect($entry->fresh()->status)->toBe('completed');
+});
+
+it('dispatches a real edge purge for the owner handle (EDGE-3)', function () {
+    Bus::fake();
+    // User but no Site row — isolates this job's own CloudflareCachePurgeJob
+    // dispatch from any SiteObserver side-effect of creating a site.
+    $user = User::factory()->create(['handle' => 'owneract', 'handle_lc' => 'owneract']);
+    $case = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_site']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'sync_subdomain_kv']);
+
+    (new PurgeModerationCacheJob($entry->id, $case->id))->handle();
+
+    // KV reconcile AND a real edge purge both fire — the KV sync alone leaves
+    // already-cached content live at the edge for up to 7 days (incl. CSAM).
+    Bus::assertDispatched(SyncSubdomainToKvJob::class);
+    Bus::assertDispatched(
+        CloudflareCachePurgeJob::class,
+        fn ($job) => strtolower($job->handle) === 'owneract',
+    );
 });

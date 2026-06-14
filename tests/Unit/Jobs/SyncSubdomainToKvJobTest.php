@@ -104,3 +104,66 @@ it('no-ops when the professional is gone and no handle was captured (#P2-45)', f
 
     (new SyncSubdomainToKvJob((string) Str::uuid()))->handle($kv);
 });
+
+it('retires the KV entry for a suspended (non-trashed) professional (EDGE-3)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+
+    // Suspended by moderation: status != 'active' but NOT soft-deleted. Before the
+    // isActive() gate this re-published the live route, leaving taken-down content
+    // resolvable at the edge.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'suspendedact',
+        'handle_lc' => 'suspendedact',
+        'account_type' => 'individual',
+        'status' => 'suspended',
+        'primary_email' => 's@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('suspendedact');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('retires the KV entry when the site is moderation-hidden (EDGE-3)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    // hide_site hides the SITE, leaving the user active — the moderation gate must
+    // still retire the route so the taken-down page stops resolving.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'hiddenact',
+        'handle_lc' => 'hiddenact',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 'h@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'subdomain' => 'hiddenact',
+        'is_published' => 1,
+        'moderation_state' => 'hidden',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('hiddenact');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});

@@ -784,10 +784,10 @@ These touch the single-writer KV contract, schema-wide RLS, raw `supabase/migrat
 > Skeptical review of S1. 1) Tests cover unknown/blank handle 404, deleted-race double-key bust, 200 cache-miss, alias 301. 2) `CacheLockService` mocked; no dependency on the DB view. 3) Tests fail if the resolve/deleted-race logic regresses. 4) `composer test` green.
 
 ### S2: Moderation/CSAM edge-cache purge (1 item) — Effort: M
-- [ ] **S2 complete**
+- [x] **S2 complete**
 - Models: plan=opus · impl=sonnet · review=opus
 - Findings:
-    - [ ] **EDGE-3** · P0 — Moderation enforcement bypasses edge purge; taken-down content (incl. CSAM auto-suspend) survives in the stale shadow up to 7 days — `app/Services/Moderation/ModerationActionDispatcher.php:26`, `app/Jobs/Moderation/PurgeModerationCacheJob.php:39`, `app/Jobs/Moderation/SuspendSiteJob.php:56`, `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:96` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-3** · P0 — Moderation enforcement bypasses edge purge; taken-down content (incl. CSAM auto-suspend) survives in the stale shadow up to 7 days — `app/Services/Moderation/ModerationActionDispatcher.php:26`, `app/Jobs/Moderation/PurgeModerationCacheJob.php:39`, `app/Jobs/Moderation/SuspendSiteJob.php:56`, `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:96` → `audit-2026-06-13-edge-worker.md`
 - Why standalone: touches the single-writer KV contract (`SyncSubdomainToKvJob`) AND the moderation/CSAM enforcement path — a safety- and legal-critical flow that must not run unattended. Opus plan + review.
 - Dependencies: Pairs with B1 (`CloudflarePurgeService`). Do AFTER B1 lands the prefix-purge so the moderation path can dispatch a real purge.
 

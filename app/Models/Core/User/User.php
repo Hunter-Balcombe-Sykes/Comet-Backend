@@ -126,6 +126,15 @@ class User extends BaseModel
         return mb_strtolower(trim((string) ($this->status ?? ''))) === 'pending_deletion';
     }
 
+    // Account is in the normal, publicly-servable state (not suspended, disabled,
+    // or pending deletion). Canonical predicate so the literal status string lives
+    // in one place — SyncSubdomainToKvJob retires the subdomain route when false,
+    // mirroring the public read path (public_site_payload requires status='active').
+    public function isActive(): bool
+    {
+        return mb_strtolower(trim((string) ($this->status ?? ''))) === 'active';
+    }
+
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');

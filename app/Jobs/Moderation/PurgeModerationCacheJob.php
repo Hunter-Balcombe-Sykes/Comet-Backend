@@ -2,8 +2,10 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
+use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Bus\Queueable;
@@ -43,7 +45,27 @@ class PurgeModerationCacheJob implements ShouldQueue
         $this->markDispatched($entry);
 
         if ($case->reportable_owner_user_id !== null) {
-            SyncSubdomainToKvJob::dispatch($case->reportable_owner_user_id);
+            $ownerId = $case->reportable_owner_user_id;
+
+            // Reconcile the KV routing entry (the single writer). Now that the sync
+            // retires routing for suspended/hidden owners, this takes a taken-down
+            // page out of the Worker's routing table.
+            SyncSubdomainToKvJob::dispatch($ownerId);
+
+            // Retiring KV stops NEW requests resolving, but Cloudflare may already
+            // hold the rendered page (primary cache + 7-day SWR shadow). Dispatch a
+            // real edge purge so taken-down content — including CSAM auto-suspends —
+            // is evicted immediately instead of surviving up to 7 days. withTrashed
+            // so a simultaneously soft-deleted owner's handle is still resolvable.
+            $owner = User::withTrashed()->find($ownerId);
+            if ($owner && $owner->handle) {
+                $site = $owner->site;
+                $customDomain = ($site && $site->custom_domain_status === 'active' && $site->custom_domain)
+                    ? (string) $site->custom_domain
+                    : null;
+
+                CloudflareCachePurgeJob::dispatch((string) $owner->handle, $customDomain);
+            }
         }
 
         $this->markCompleted($entry);
