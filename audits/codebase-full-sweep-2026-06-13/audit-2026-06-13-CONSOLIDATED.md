@@ -362,13 +362,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B12. 1) Faked-success paths now `report()` + `fail()` (engaging retry) without breaking legitimate empty results. 2) All 18 `onFailure` callbacks report; the shared helper is actually wired to each. 3) 429 path backs off and preserves prior live state; no false-offline. 4) `composer test` green.
 
 ### Bundle B13: Fail-open middleware + log hygiene (4 items) — Effort: S
-- [ ] **Bundle B13 complete**
+- [x] **Bundle B13 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **WHK-4** · P2 — `IdempotencyKey` fail-open invisible to Nightwatch; Redis degradation silently removes idempotency from all mutating endpoints — `app/Http/Middleware/IdempotencyKey.php` → `audit-2026-06-13-webhook-idempotency.md`
-    - [ ] **WHK-5** · P2 — `VerifyBotToken` circuit-open/unreachable use `Log::warning`; bot-protection degradation invisible — `app/Http/Middleware/VerifyBotToken.php:187` → `audit-2026-06-13-webhook-idempotency.md`
-    - [ ] **JOB-10** · P2 — `SendFeedbackEmailJob` silently discards when the row is deleted — `app/Jobs/Notifications/SendFeedbackEmailJob.php:53` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **OBS-12** · P3 — `SendTransactionalNotificationEmailJob` emits `Log::debug` on prod control-flow paths without an env guard — `app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php:76` → `audit-2026-06-13-observability.md`
+    - [x] **WHK-4** · P2 — `IdempotencyKey` fail-open invisible to Nightwatch; Redis degradation silently removes idempotency from all mutating endpoints — `app/Http/Middleware/IdempotencyKey.php` → `audit-2026-06-13-webhook-idempotency.md`
+    - [x] **WHK-5** · P2 — `VerifyBotToken` circuit-open/unreachable use `Log::warning`; bot-protection degradation invisible — `app/Http/Middleware/VerifyBotToken.php:187` → `audit-2026-06-13-webhook-idempotency.md`
+    - [x] **JOB-10** · P2 — `SendFeedbackEmailJob` silently discards when the row is deleted — `app/Jobs/Notifications/SendFeedbackEmailJob.php:53` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **OBS-12** · P3 — `SendTransactionalNotificationEmailJob` emits `Log::debug` on prod control-flow paths without an env guard — `app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php:76` → `audit-2026-06-13-observability.md`
 - Rationale: Fail-open guards (idempotency, bot-protection) that degrade silently, plus two log-hygiene items. When Redis/circuit degrade, ops should know — these add the missing `report()` and clean up noisy debug logs.
 - Suggested approach: `report()` (rate-limited) on the fail-open branches of `IdempotencyKey` and `VerifyBotToken`; `report()` the deleted-row discard in `SendFeedbackEmailJob`; gate the OBS-12 `Log::debug` calls behind an env check. Run `composer test`.
 - Dependencies: None.

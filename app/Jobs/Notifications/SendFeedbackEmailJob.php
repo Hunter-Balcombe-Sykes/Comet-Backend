@@ -52,6 +52,7 @@ class SendFeedbackEmailJob implements ShouldQueue
 
         $feedback = Feedback::query()->with('user:id,primary_email')->find($this->feedbackId);
         if ($feedback === null) {
+            report(new \RuntimeException('SendFeedbackEmailJob: feedback row not found: '.$this->feedbackId));
             Log::warning('SendFeedbackEmailJob: feedback row not found', [
                 'feedback_id' => $this->feedbackId,
             ]);

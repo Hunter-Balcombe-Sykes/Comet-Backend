@@ -145,6 +145,19 @@ final class IdempotencyKey
             'reason' => $e->getMessage(),
             'operation' => __METHOD__,
         ]);
+
+        // report() — the Log::warning above is breadcrumb-only. Throttled to one per
+        // minute via the isolated cache_locks connection (mirrors VerifySupabaseJwt::jwksOutage)
+        // so a sustained Redis outage can't flood Nightwatch; report anyway if the
+        // throttle layer is itself unreachable.
+        try {
+            $lock = Cache::lock('idempotency:fail-open-reported', 60);
+            if ($lock->get()) {
+                report($e);
+            }
+        } catch (Throwable) {
+            report($e);
+        }
     }
 
     private function cacheKey(string $version, string $userId, string $route, string $key): string

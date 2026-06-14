@@ -73,9 +73,11 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     public function handle(): void
     {
         if (! config('partna.notifications.email_enabled', false)) {
-            Log::debug('Notification email skipped: feature disabled', [
-                'category' => $this->category,
-            ]);
+            if (config('app.debug')) {
+                Log::debug('Notification email skipped: feature disabled', [
+                    'category' => $this->category,
+                ]);
+            }
 
             return;
         }
@@ -84,9 +86,11 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
         // Avoids unnecessary DB queries when there's nothing to send.
         $class = config("partna.notifications.mailables.{$this->category}");
         if (! is_string($class) || ! class_exists($class)) {
-            Log::debug('Notification email skipped: category has no mailable', [
-                'category' => $this->category,
-            ]);
+            if (config('app.debug')) {
+                Log::debug('Notification email skipped: category has no mailable', [
+                    'category' => $this->category,
+                ]);
+            }
 
             return;
         }
@@ -103,13 +107,15 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             // the row vanishes between dispatch and run.
             $pro = User::find($this->userId);
             if (! $pro || ! AccountCapabilities::for($pro)->{$capabilityProperty}) {
-                Log::debug('Transactional email skipped: capability gate', [
-                    'user_id' => $this->userId,
-                    'category' => $this->category,
-                    'capability' => $capabilityProperty,
-                    'professional_found' => $pro !== null,
-                    'job' => self::class,
-                ]);
+                if (config('app.debug')) {
+                    Log::debug('Transactional email skipped: capability gate', [
+                        'user_id' => $this->userId,
+                        'category' => $this->category,
+                        'capability' => $capabilityProperty,
+                        'professional_found' => $pro !== null,
+                        'job' => self::class,
+                    ]);
+                }
 
                 return;
             }
@@ -124,20 +130,24 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
             ->first();
 
         if (! $recipient || $recipient->status !== 'active') {
-            Log::debug('Transactional email skipped: account not active', [
-                'user_id' => $this->userId,
-                'category' => $this->category,
-                'status' => $recipient?->status,
-            ]);
+            if (config('app.debug')) {
+                Log::debug('Transactional email skipped: account not active', [
+                    'user_id' => $this->userId,
+                    'category' => $this->category,
+                    'status' => $recipient?->status,
+                ]);
+            }
 
             return;
         }
 
         if (! NotificationPublisher::resolveEmailEnabled($this->userId, $this->category)) {
-            Log::debug('Notification email skipped: user preference disabled', [
-                'category' => $this->category,
-                'user_id' => $this->userId,
-            ]);
+            if (config('app.debug')) {
+                Log::debug('Notification email skipped: user preference disabled', [
+                    'category' => $this->category,
+                    'user_id' => $this->userId,
+                ]);
+            }
 
             return;
         }

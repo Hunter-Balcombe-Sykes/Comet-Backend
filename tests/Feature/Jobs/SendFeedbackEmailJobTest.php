@@ -3,6 +3,7 @@
 use App\Jobs\Notifications\SendFeedbackEmailJob;
 use App\Mail\FeedbackSubmittedMail;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -69,9 +70,12 @@ it('does not throw when notify_emails is empty (logs and returns)', function () 
 
 it('logs and returns when the feedback row is missing', function () {
     config(['partna.feedback.notify_emails' => ['a@partna.test']]);
+    // JOB-10: a missing feedback row now report()s so the lost email is visible.
+    Exceptions::fake();
     Log::shouldReceive('warning')->once();
 
     (new SendFeedbackEmailJob((string) Str::uuid()))->handle();
 
     Mail::assertNothingSent();
+    Exceptions::assertReported(RuntimeException::class);
 });

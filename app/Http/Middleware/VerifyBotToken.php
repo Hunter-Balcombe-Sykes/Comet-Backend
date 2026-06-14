@@ -189,6 +189,7 @@ final class VerifyBotToken
                     'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
                     'request_id' => $request->header('X-Request-Id'),
                 ]);
+                report(new \RuntimeException("bot_protection fail-open [{$driver}:{$reason}] action={$action}"));
             }
         } catch (Throwable $e) {
             // Silent — observability failure must not break the request.
@@ -211,6 +212,7 @@ final class VerifyBotToken
                 Log::warning('bot_protection.breaker_unavailable', [
                     'driver' => $driver, 'action' => $action, 'route' => $request->path(),
                 ]);
+                report(new \RuntimeException("bot_protection circuit-breaker unavailable [{$driver}] action={$action}"));
             }
         } catch (Throwable $e) {
             // Silent — observability failure must not break the request.

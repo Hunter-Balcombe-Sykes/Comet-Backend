@@ -3,6 +3,7 @@
 use App\Http\Middleware\IdempotencyKey;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -296,6 +297,9 @@ it('fails open when the cache lookup throws (Redis outage)', function () {
 
     // Simulate Redis being unreachable on the lookup call.
     Cache::shouldReceive('get')->andThrow(new RuntimeException('connection refused'));
+    // WHK-4: the fail-open path now report()s (throttled) so the outage is visible.
+    // Intercept so it doesn't hit the real handler (which would call Log::error on the mock).
+    Exceptions::fake();
     Log::shouldReceive('warning')
         ->once()
         ->withArgs(fn (string $msg, array $ctx) => str_contains($msg, 'Idempotency') && ($ctx['stage'] ?? null) === 'lookup');
@@ -307,6 +311,7 @@ it('fails open when the cache lookup throws (Redis outage)', function () {
     expect($callCount)->toBe(1);
     expect($response->getStatusCode())->toBe(200);
     expect(json_decode($response->getContent(), true))->toBe(['ok' => true]);
+    Exceptions::assertReported(RuntimeException::class);
 });
 
 it('integrates via the "idempotent" alias and replays through the HTTP stack', function () {
