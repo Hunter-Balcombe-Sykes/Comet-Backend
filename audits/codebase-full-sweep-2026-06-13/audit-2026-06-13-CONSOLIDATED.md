@@ -761,11 +761,11 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 These touch the single-writer KV contract, schema-wide RLS, raw `supabase/migrations/` DDL, large test authoring, or need a human design decision. Each gets its own PR + dedicated review. **DB-DDL items are also a prod-deploy concern** — prod is still on the pre-standalone schema (a gated re-baseline), so apply on dev first and sequence prod carefully.
 
 ### S1: Public-profile API test coverage (2 items) — Effort: L
-- [ ] **S1 complete**
+- [x] **S1 complete**
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **TEST-1** · P0 — `IndividualProfileController` (the primary public-profile API, the Astro Worker's subrequest target) has zero tests — `app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:56` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-2** · P1 — `PublicSiteController::show` (domain-routing alias redirect) untested; diverges from the tested `showByHeader` — `app/Http/Controllers/Api/PublicSite/PublicSiteController.php:23` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-1** · P0 — `IndividualProfileController` (the primary public-profile API, the Astro Worker's subrequest target) has zero tests — `app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:56` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-2** · P1 — `PublicSiteController::show` (domain-routing alias redirect) untested; diverges from the tested `showByHeader` — `app/Http/Controllers/Api/PublicSite/PublicSiteController.php:23` → `audit-2026-06-13-test-coverage.md` — _note: the 301-happy path was already covered by SubdomainChangeTest; added the uncovered 404 divergences (evicted-canonical + expired-alias)_
 - Why standalone: L-effort test authoring against the two-level cache + deleted-race + alias-redirect paths; its own PR and careful review (this endpoint serves every public page).
 - Dependencies: None, but high value — the recent custom-domains merge routes more traffic here.
 
