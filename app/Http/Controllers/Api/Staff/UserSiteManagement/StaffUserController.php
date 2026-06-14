@@ -31,7 +31,7 @@ class StaffUserController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status'); // optional: active|suspended
-        $perPage = $this->normalizePerPage($request, 25, 100);
+        $perPage = $this->normalizePerPage($request, (int) config('partna.staff.pagination.per_page', 25), (int) config('partna.staff.pagination.per_page_max', 100));
         $searchLike = $this->prepareSearchLike($request, 'q');
 
         $query = User::query()

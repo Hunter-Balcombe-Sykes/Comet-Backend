@@ -23,6 +23,6 @@ class HandleReclaimController extends ApiController
             'user_agent' => substr((string) $request->userAgent(), 0, 1024),
         ]);
 
-        return response()->json(['status' => 'ok']);
+        return $this->success(['status' => 'ok']);
     }
 }

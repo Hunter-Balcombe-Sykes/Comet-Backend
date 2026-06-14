@@ -1173,6 +1173,27 @@ return [
         'require_fresh_aal2_for_profile_update' => (bool) env('SIDEST_MFA_REQUIRE_FRESH_AAL2_FOR_PROFILE_UPDATE', false),
     ],
 
+    /*
+    |----------------------------------------------------------------------
+    | Staff pagination defaults
+    |----------------------------------------------------------------------
+    | Central defaults for staff list endpoints so per_page behaviour is
+    | consistent and tunable via config without touching controller code.
+    | Controllers read config('partna.staff.pagination.per_page') as the
+    | default and config('partna.staff.pagination.per_page_max') as the cap
+    | for NormalizesPerPage. Callers may still override via ?per_page=N.
+    |
+    | StaffEmailSubscriberController intentionally deviates (50 default) — its
+    | subscriber lists are large and require a higher page density; see the
+    | docblock in that controller for the rationale.
+    */
+    'staff' => [
+        'pagination' => [
+            'per_page' => 25,
+            'per_page_max' => 100,
+        ],
+    ],
+
     'feedback' => [
         /*
         | Comma-separated recipients for the FeedbackSubmittedMail notification.

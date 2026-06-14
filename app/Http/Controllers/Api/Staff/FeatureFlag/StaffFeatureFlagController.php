@@ -23,7 +23,7 @@ class StaffFeatureFlagController extends ApiController
     /** GET /staff/feature-flags — list all flags with override counts. */
     public function index(Request $request): JsonResponse
     {
-        $flags = FeatureFlag::withCount('overrides')->orderBy('key')->paginate(50);
+        $flags = FeatureFlag::withCount('overrides')->orderBy('key')->paginate((int) config('partna.staff.pagination.per_page', 25));
         $flags->through(fn (FeatureFlag $flag) => FeatureFlagResource::make($flag)->resolve());
 
         return $this->success($this->paginatedResponse($flags, 'flags'));

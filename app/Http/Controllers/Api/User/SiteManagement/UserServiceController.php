@@ -56,7 +56,8 @@ class UserServiceController extends ApiController
             $servicesQuery->withTrashed();
         }
 
-        $services = $servicesQuery->orderBy('sort_order')->orderBy('created_at')->get();
+        // Bound the query at scale (B18/API-4). True pagination is a frontend-coordinated change, deferred.
+        $services = $servicesQuery->orderBy('sort_order')->orderBy('created_at')->limit(500)->get();
 
         if (! $grouped) {
             return $this->success([

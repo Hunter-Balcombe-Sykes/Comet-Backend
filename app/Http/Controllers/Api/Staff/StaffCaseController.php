@@ -44,7 +44,7 @@ class StaffCaseController extends Controller
 
         $query->orderByDesc('severity')->orderBy('priority')->orderBy('created_at');
 
-        return CaseResource::collection($query->paginate(25));
+        return CaseResource::collection($query->paginate((int) config('partna.staff.pagination.per_page', 25)));
     }
 
     /**

@@ -25,7 +25,7 @@ class StaffEnquiryController extends ApiController
         $page = Enquiry::query()
             ->where('user_id', $professional->id)
             ->orderByDesc('created_at')
-            ->paginate((int) $request->integer('per_page', 20));
+            ->paginate((int) $request->integer('per_page', (int) config('partna.staff.pagination.per_page', 25)));
 
         // See UserEnquiryController::index for the rationale on
         // ->through() + paginatedResponse() (#P2-34).

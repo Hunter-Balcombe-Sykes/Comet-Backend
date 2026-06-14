@@ -37,6 +37,9 @@ class StaffEmailSubscriberController extends ApiController
         $status = $request->query('status', 'subscribed'); // subscribed|unsubscribed|all
         $status = is_string($status) ? trim($status) : 'subscribed';
 
+        // Intentionally uses 50 as the default (not config('partna.staff.pagination.per_page') = 25).
+        // Subscriber lists are large and staff need higher page density to process them efficiently.
+        // The max cap (200) is likewise elevated above the standard 100. See B18/API-9 for context.
         $perPage = $this->normalizePerPage($request, 50, 200);
         $search = $request->query('search');
         $searchLike = $this->prepareSearchLike($request, 'search');

@@ -498,13 +498,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B17. 1) No raw-model/array returns remain in the cited controllers. 2) `StaffSiteResource` block allowlist drops unknown keys. 3) IDs cast to string explicitly. 4) No contract change beyond the intended PII/field tightening (characterization test if a shape changed). 5) `composer test` green.
 
 ### Bundle B18: API payload shape, pagination & error contract (4 items) — Effort: M
-- [ ] **Bundle B18 complete**
+- [ ] **Bundle B18 complete** — _API-3/4/9 done (non-breaking). API-8 PARTIAL: Session + HandleReclaim standardized (byte-identical output); Mfa + PublicReport DEFERRED 2026-06-14 — moving `code: mfa_fresh_required` into the errors bag risks the frontend MFA re-prompt flow, and PublicReportController is a public endpoint — both are client-visible error-shape changes needing frontend coordination. API-4 addressed via non-breaking `->limit()` caps (500/500/200); a true pagination envelope would break bare-array consumers and is deferred._
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **API-3** · P3 — `UserSelfController::show` hand-rolls the site payload instead of `SiteResource` — `app/Http/Controllers/Api/User/Account/UserSelfController.php:36` → `audit-2026-06-13-api-contract.md`
-    - [ ] **API-4** · P3 — Three user-facing list endpoints return unbounded collections with no pagination — `audit-2026-06-13-api-contract.md`
-    - [ ] **API-8** · P3 — Four controllers return non-standard error shapes diverging from `ApiController::error()` — `audit-2026-06-13-api-contract.md`
-    - [ ] **API-9** · P3 — Staff list endpoints use four different `per_page` defaults — `audit-2026-06-13-api-contract.md`
+    - [x] **API-3** · P3 — `UserSelfController::show` hand-rolls the site payload instead of `SiteResource` — `app/Http/Controllers/Api/User/Account/UserSelfController.php:36` → `audit-2026-06-13-api-contract.md`
+    - [x] **API-4** · P3 — Three user-facing list endpoints return unbounded collections with no pagination — `audit-2026-06-13-api-contract.md` — _non-breaking limit caps; pagination envelope deferred (frontend-coordinated)_
+    - [ ] **API-8** · P3 — Four controllers return non-standard error shapes diverging from `ApiController::error()` — `audit-2026-06-13-api-contract.md` — _Session + HandleReclaim done; Mfa + PublicReport deferred (client-visible auth/public contract)_
+    - [x] **API-9** · P3 — Staff list endpoints use four different `per_page` defaults — `audit-2026-06-13-api-contract.md`
 - Rationale: API contract consistency — pagination (also a scale concern), standardized error envelope, and a consistent `per_page`. Low-risk but reduce client-side surprise and unbounded payloads.
 - Suggested approach: Add pagination to the three unbounded list endpoints (API-4); route the four divergent error returns through `ApiController::error()` (API-8); standardize `per_page` defaults (API-9); use `SiteResource` in `UserSelfController::show` (API-3). Run `composer test`.
 - Dependencies: None.

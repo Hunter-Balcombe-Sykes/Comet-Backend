@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\UpdateUserRequest;
 use App\Http\Requests\Api\User\UserShowRequest;
+use App\Http\Resources\SiteResource;
 use App\Http\Resources\UserDashboardResource;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
@@ -26,31 +27,22 @@ class UserSelfController extends ApiController
 
         $cache = app(UserCacheService::class);
 
-        $siteSettings = [];
-        if ($pro->site) {
-            $siteSettings = is_array($pro->site->settings) ? $pro->site->settings : [];
-        }
-
         $payload = [
             'professional' => new UserDashboardResource($pro),
-            'site' => $pro->site ? [
-                'id' => $pro->site->id,
-                'subdomain' => $pro->site->subdomain,
-                // ISO timestamp at which the next subdomain change is allowed (null = available now,
-                // never been changed). Mirrors the cooldown enforced in UpdateSiteAction so the UI
-                // can disable the field upfront instead of relying on a 422 round-trip.
-                'subdomain_change_available_at' => $pro->site->subdomain_changed_at
-                    ? $pro->site->subdomain_changed_at->copy()->addDays((int) config('partna.handle.subdomain_cooldown_days', 30))->toIso8601String()
-                    : null,
-                'is_published' => (bool) $pro->site->is_published,
-                // skeleton_id is a TEXT enum on site.sites (replaces the
-                // old theme model). The dashboard's design editor reads
-                // this to highlight the active skeleton; without it,
-                // map-snapshot-to-account falls through to null and the
-                // picker defaults to skeleton-1 on every render.
-                'skeleton_id' => $pro->site->skeleton_id,
-                'settings' => $siteSettings,
-            ] : null,
+            // B18/API-3: use SiteResource (superset of the old hand-rolled array) merged with
+            // the computed cooldown key. All previously-present keys remain; new ones (user_id,
+            // subdomain_changed_at, unpublished_at, created_at, updated_at) are additive only.
+            'site' => $pro->site ? array_merge(
+                (new SiteResource($pro->site))->resolve($request),
+                [
+                    // ISO timestamp at which the next subdomain change is allowed (null = available
+                    // now / never changed). Mirrors the cooldown enforced in UpdateSiteAction so
+                    // the UI can disable the field upfront instead of relying on a 422 round-trip.
+                    'subdomain_change_available_at' => $pro->site->subdomain_changed_at
+                        ? $pro->site->subdomain_changed_at->copy()->addDays((int) config('partna.handle.subdomain_cooldown_days', 30))->toIso8601String()
+                        : null,
+                ],
+            ) : null,
         ];
 
         $services = $cache->getActiveServices($pro->id);

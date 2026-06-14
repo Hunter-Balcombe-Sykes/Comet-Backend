@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\User\Account;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\ApiController;
 use App\Services\Auth\TokenRevocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +19,7 @@ use Illuminate\Http\Request;
  * refreshes within a single login). Backend has no concept of sessions until
  * one is seen — VerifySupabaseJwt tracks each session_id on first sight.
  */
-class SessionController extends Controller
+class SessionController extends ApiController
 {
     public function __construct(private readonly TokenRevocationService $revocation) {}
 
@@ -87,9 +87,7 @@ class SessionController extends Controller
         // what /logout is for, and clearing it here without the client-side
         // cleanup would leave the user in a half-logged-out state.
         if ($sessionId === $currentSessionId) {
-            return response()->json([
-                'message' => 'Use /sessions/logout to end the current session.',
-            ], 400);
+            return $this->error('Use /sessions/logout to end the current session.', 400);
         }
 
         // Only act on sessions the user actually owns. listSessionsForUser

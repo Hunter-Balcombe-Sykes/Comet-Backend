@@ -35,7 +35,8 @@ class UserServiceCategoryController extends ApiController
             $q->withTrashed();
         }
 
-        $categories = $q->orderBy('sort_order')->orderBy('created_at')->get();
+        // Bound the query at scale (B18/API-4). True pagination is a frontend-coordinated change, deferred.
+        $categories = $q->orderBy('sort_order')->orderBy('created_at')->limit(200)->get();
 
         return $this->success([
             'categories' => ServiceCategoryResource::collection($categories),

@@ -41,11 +41,13 @@ class UserSmartLinkController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
+        // Bound the query at scale (B18/API-4). True pagination is a frontend-coordinated change, deferred.
         $links = SmartLink::query()
             ->where('site_id', $site->id)
             ->orderBy('family')
             ->orderBy('sort_order')
             ->orderBy('created_at')
+            ->limit(500)
             ->get();
 
         return $this->success(['smart_links' => SmartLinkResource::collection($links)]);
