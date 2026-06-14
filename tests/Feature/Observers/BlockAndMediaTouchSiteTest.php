@@ -187,6 +187,22 @@ it('SiteMedia::delete clears the public payload cache via SiteObserver (invalida
 // via the query builder). The controllers explicitly call `$site->touch()`
 // after the transaction commits to bridge the gap. Pin that contract here.
 
+// EDGE-4: deleting a site must purge the Cloudflare edge cache, not just Redis —
+// otherwise the deleted page is served from the edge for up to 24h/7d. SiteObserver::deleted
+// dispatches the purge mirroring saved(). (Account-purge cascades via DB FK and bypasses
+// this observer, handling edge invalidation separately — this covers the direct-delete path.)
+
+it('Site::delete dispatches CloudflareCachePurgeJob for the deleted handle (EDGE-4)', function () {
+    $fixture = seedTouchFixture();
+    Queue::fake();
+
+    Site::find($fixture['site_id'])->delete();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'touchtest';
+    });
+});
+
 it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
     Queue::fake();

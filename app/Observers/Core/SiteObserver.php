@@ -96,5 +96,27 @@ class SiteObserver
                 'message' => $e->getMessage(),
             ]));
         }
+
+        // Purge the Cloudflare edge cache so a deleted site isn't served from
+        // the edge for up to 24h (primary) / 7d (stale shadow) after deletion.
+        // (Site is hard-deleted — no SoftDeletes — so `deleted` fires on the real
+        // row removal; account-purge cascades via DB FK and bypasses this observer,
+        // invalidating the edge separately.)
+        $handle = strtolower(trim((string) ($site->subdomain ?? '')));
+        if ($handle !== '') {
+            $customDomain = $site->custom_domain_status === 'active' && $site->custom_domain
+                ? (string) $site->custom_domain
+                : null;
+            try {
+                CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit();
+            } catch (\Throwable $e) {
+                Log::warning('CloudflareCachePurgeJob dispatch failed on site delete', $this->logContext(__METHOD__, [
+                    'site_id' => $site->id,
+                    'user_id' => $site->user_id,
+                    'subdomain' => $handle,
+                    'message' => $e->getMessage(),
+                ]));
+            }
+        }
     }
 }
