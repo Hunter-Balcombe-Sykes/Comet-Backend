@@ -45,6 +45,13 @@ class ExportUserDataJob implements ShouldQueue
         $audit = DataExportAudit::find($this->auditId);
 
         if (! $audit) {
+            // The dispatch is deferred to afterCommit (DataExportService), so the audit
+            // row is committed before this job runs — a missing row is a real anomaly
+            // (deleted/rolled back), not a timing race. report() it so a lost GDPR request
+            // is visible to ops instead of the job "succeeding" silently.
+            report(new \RuntimeException(
+                "ExportUserDataJob: audit row not found for audit_id={$this->auditId}"
+            ));
             Log::warning('ExportUserDataJob: audit row not found', ['audit_id' => $this->auditId]);
 
             return;

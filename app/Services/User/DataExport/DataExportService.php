@@ -56,7 +56,12 @@ class DataExportService
                 'send_to' => $sendTo,
             ]);
 
-            ExportUserDataJob::dispatch($audit->id);
+            // afterCommit(): this dispatch is inside the pgsql transaction, so without
+            // it a fast worker can pick the job up before the audit row commits — the job
+            // would then find no row and the GDPR export would be silently lost (LIFE-3).
+            // (Set on the dispatch, not as a $afterCommit property — the Queueable trait
+            // already declares that property, and redeclaring it conflicts.)
+            ExportUserDataJob::dispatch($audit->id)->afterCommit();
 
             return $audit;
         });

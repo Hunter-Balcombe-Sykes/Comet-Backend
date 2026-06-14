@@ -176,11 +176,11 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B5. 1) Both methods use `DB::connection('pgsql')->transaction()`; email + site restore are atomic within it. 2) Shared helper is genuinely shared (no residual copy). 3) `purge()` failure path `report()`s and surfaces; no silent `pending_deletion` trap. 4) Bootstrap cache invalidation is `afterCommit`. 5) `composer test` green incl. the SQLite suite (the pgsql pin must not break tests). GDPR flow — verify no data is left undeleted on the failure path.
 
 ### Bundle B6: GDPR export dispatch + missing-row visibility (2 items) — Effort: S
-- [ ] **Bundle B6 complete**
+- [x] **Bundle B6 complete**
 - Models: plan=— · impl=sonnet · review=opus
 - Findings:
-    - [ ] **LIFE-3** (≡ **TXN-1**) · P1 — `ExportUserDataJob` dispatched inside a transaction without `$afterCommit=true`; GDPR exports silently lost on fast worker pickup — `app/Services/User/DataExport/DataExportService.php:59`, `app/Jobs/Gdpr/ExportUserDataJob.php:31` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **JOB-3** · P2 — `ExportUserDataJob` silently succeeds when the audit row is missing; lost GDPR request invisible to ops — `app/Jobs/Gdpr/ExportUserDataJob.php:45` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **LIFE-3** (≡ **TXN-1**) · P1 — `ExportUserDataJob` dispatched inside a transaction without `$afterCommit=true`; GDPR exports silently lost on fast worker pickup — `app/Services/User/DataExport/DataExportService.php:59`, `app/Jobs/Gdpr/ExportUserDataJob.php:31` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **JOB-3** · P2 — `ExportUserDataJob` silently succeeds when the audit row is missing; lost GDPR request invisible to ops — `app/Jobs/Gdpr/ExportUserDataJob.php:45` → `audit-2026-06-13-job-queue-correctness.md`
 - Rationale: Both are the GDPR export job's reliability — one loses the job to a transaction race, the other hides a lost job. Same file, same session.
 - Suggested approach: Add `public $afterCommit = true;` to `ExportUserDataJob` (or `->afterCommit()` on dispatch); on missing audit row, `report()` a domain exception instead of returning. Run `composer test`.
 - Dependencies: None.
