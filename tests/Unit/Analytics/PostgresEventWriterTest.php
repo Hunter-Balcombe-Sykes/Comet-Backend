@@ -45,6 +45,21 @@ it('persists a pageview to site_visits', function () {
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
 });
 
+it('sanitizes referrer query strings and caps user_agent before persisting (PRIV-5/6)', function () {
+    $t = createBrandTenant('writer-priv');
+    pgWriter()->write(baseEvent([
+        'user_id' => $t->id,
+        'site_id' => $t->site->id,
+        'referrer' => 'https://ads.example.com/x?utm_content=leak%40example.com',
+        'user_agent' => str_repeat('U', 400),
+    ]));
+
+    $row = DB::connection('pgsql')->table('analytics.site_visits')->first();
+    expect($row->referrer)->toBe('https://ads.example.com/x');
+    expect($row->referrer)->not->toContain('leak@example.com');
+    expect(strlen($row->user_agent))->toBe(256);
+});
+
 it('is idempotent — the same minted id inserts exactly one row', function () {
     $t = createBrandTenant('writer-idem');
     $e = baseEvent(['user_id' => $t->id, 'site_id' => $t->site->id]);

@@ -230,6 +230,60 @@ it('exports handle_change_log entries with actor_id redacted to coarse actor_kin
     expect($actorKinds)->toBe(['self', 'staff', 'system']);
 });
 
+it('redacts the staff recipient email and staff UUID from the data_export_audit section (PRIV-1)', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+    $staffId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('audit.data_export_audit')->insert([
+        // Self-service export sent to the professional — recipient_email is their own.
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'triggered_by' => 'self',
+            'triggered_by_staff_id' => null,
+            'recipient_email' => 'jane@example.com',
+            'send_to' => 'professional',
+            'status' => 'completed',
+            'created_at' => '2026-05-01T00:00:00Z',
+        ],
+        // Staff-triggered export delivered to the staff member — recipient_email
+        // holds THEIR work email, a third party who never consented to disclosure.
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'triggered_by' => 'staff',
+            'triggered_by_staff_id' => $staffId,
+            'recipient_email' => 'support-agent@partna.au',
+            'send_to' => 'staff',
+            'status' => 'completed',
+            'created_at' => '2026-05-02T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $rows = $payload['audit']['data_export_audit'];
+    expect($rows)->toHaveCount(2);
+
+    // The staff UUID is never disclosed — triggered_by already records self-vs-staff.
+    foreach ($rows as $row) {
+        expect($row)->not->toHaveKey('triggered_by_staff_id');
+    }
+
+    $proRow = collect($rows)->firstWhere('send_to', 'professional');
+    $staffRow = collect($rows)->firstWhere('send_to', 'staff');
+
+    // The professional's own recipient email is disclosed...
+    expect($proRow['recipient_email'])->toBe('jane@example.com');
+    // ...but the staff member's email is redacted.
+    expect($staffRow['recipient_email'])->toBe('[redacted]');
+    expect($staffRow['recipient_email'])->not->toBe('support-agent@partna.au');
+});
+
 it('exports lead_submissions in the payload (P2-38 regression guard)', function () {
     $pro = seedProForPayload((string) Str::uuid());
 

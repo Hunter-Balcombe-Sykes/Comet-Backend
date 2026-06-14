@@ -678,13 +678,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B24. 1) Each cited branch exercised (self-edit/self-delete, broadcast, lock-acquire, idempotency). 2) New policy test files follow the enforcement-test convention. 3) `composer test` green; assertions are meaningful.
 
 ### Bundle B25: GDPR export content + analytics PII minimization (4 items) — Effort: S
-- [ ] **Bundle B25 complete**
+- [ ] **Bundle B25 complete** — _PRIV-1/5/6 done; SEM-1 deferred to Lane C (needs reporter_email backfill)_
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **PRIV-1** · P1 — Data export includes a staff member's email in the professional's package — `app/Services/User/DataExport/DataExportPayloadBuilder.php:610` → `audit-2026-06-13-privacy-compliance.md`
-    - [ ] **SEM-1** · P1 — GDPR Art. 15: `reporter_email` stored un-normalised but queried lowercased (export misses rows) — `app/Services/User/DataExport/DataExportPayloadBuilder.php:462`, `app/Services/Moderation/ContentReportService.php:79` → `audit-2026-06-13-semantic-correctness.md`
-    - [ ] **PRIV-5** · P2 — Analytics referrer stored with full query string — UTM-embedded emails land in the warehouse — `app/Services/Analytics/Writers/PostgresEventWriter.php` → `audit-2026-06-13-privacy-compliance.md`
-    - [ ] **PRIV-6** · P2 — User-agent strings stored verbatim across all analytics tables — `app/Services/Analytics/Writers/PostgresEventWriter.php` → `audit-2026-06-13-privacy-compliance.md`
+    - [x] **PRIV-1** · P1 — Data export includes a staff member's email in the professional's package — `app/Services/User/DataExport/DataExportPayloadBuilder.php:610` → `audit-2026-06-13-privacy-compliance.md`
+    - [ ] **SEM-1** · P1 — GDPR Art. 15: `reporter_email` stored un-normalised but queried lowercased (export misses rows) — `app/Services/User/DataExport/DataExportPayloadBuilder.php:462`, `app/Services/Moderation/ContentReportService.php:79` → `audit-2026-06-13-semantic-correctness.md` — _deferred 2026-06-14: Lane C (normalise-on-write + backfill is a data migration)_
+    - [x] **PRIV-5** · P2 — Analytics referrer stored with full query string — UTM-embedded emails land in the warehouse — `app/Services/Analytics/Writers/PostgresEventWriter.php` + `LogLeadRateLimits` + `PublicEnquiryController`/`PublicCustomerLeadController` lead writers → `audit-2026-06-13-privacy-compliance.md`
+    - [x] **PRIV-6** · P2 — User-agent strings stored verbatim across all analytics tables — `app/Services/Analytics/Writers/PostgresEventWriter.php` (+ lead writers) → `audit-2026-06-13-privacy-compliance.md`
     - Note (SEM-1): normalise `reporter_email` on write AND backfill, so export queries match.
 - Rationale: GDPR data-quality + minimization — the export leaks a third party's email (PRIV-1) and misses rows due to a normalization mismatch (SEM-1), and analytics over-collects PII (referrer query strings, raw UA). All are code-level (no schema migration), grouped as the "export correctness + collection minimization" PR.
 - Suggested approach: Strip/omit the staff email from the export package (PRIV-1); normalise `reporter_email` on write + match the export query (SEM-1); strip query strings from stored referrers + truncate/parse UA (PRIV-5/6). Run `composer test`.

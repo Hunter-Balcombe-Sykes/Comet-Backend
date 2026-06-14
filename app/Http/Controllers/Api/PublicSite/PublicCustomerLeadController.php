@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
 use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\Notifications\EmailSubscription;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -143,8 +144,9 @@ class PublicCustomerLeadController extends ApiController
             'user_id' => $userId,
             'customer_id' => $customerId,
             'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => $request->userAgent(),
-            'referrer' => $request->headers->get('referer'),
+            // PRIV-5/6: cap the UA and strip referrer query strings (UTM PII).
+            'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
+            'referrer' => AnalyticsEventSanitizer::referrer($request->headers->get('referer')),
             'outcome' => $outcome,
             'form_started_at_ms' => $formStartedAtMs,
         ]);

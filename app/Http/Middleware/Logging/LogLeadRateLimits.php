@@ -4,11 +4,11 @@ namespace App\Http\Middleware\Logging;
 
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Models\Analytics\LeadSubmission;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -29,8 +29,6 @@ class LogLeadRateLimits
     use HashesClientData;
 
     private const DEDUP_TTL_SECONDS = 10;
-
-    private const REFERRER_MAX_LENGTH = 512;
 
     public function handle(Request $request, Closure $next)
     {
@@ -62,8 +60,9 @@ class LogLeadRateLimits
                 'occurred_at' => now(),
                 'subdomain' => $subdomain,
                 'ip_hash' => $ipHash,
-                'user_agent' => $request->userAgent(),
-                'referrer' => $this->sanitizeReferrer($request->headers->get('referer')),
+                // PRIV-5/6: cap the UA and strip referrer query strings (UTM PII).
+                'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
+                'referrer' => AnalyticsEventSanitizer::referrer($request->headers->get('referer')),
                 'outcome' => 'rate_limited',
                 'form_started_at_ms' => null,
             ]);
@@ -82,27 +81,5 @@ class LogLeadRateLimits
         $raw = (string) ($request->route('subdomain') ?? explode('.', $request->getHost())[0] ?? '');
 
         return $raw !== '' ? strtolower($raw) : null;
-    }
-
-    /**
-     * Strip query string + fragment from the Referer header and cap length.
-     * Returns null for missing or unparseable referrers.
-     */
-    private function sanitizeReferrer(?string $referer): ?string
-    {
-        if ($referer === null || $referer === '') {
-            return null;
-        }
-
-        $parts = parse_url($referer);
-        if ($parts === false || empty($parts['host'])) {
-            return null;
-        }
-
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'];
-        $path = $parts['path'] ?? '';
-
-        return Str::limit($scheme.'://'.$host.$path, self::REFERRER_MAX_LENGTH, '');
     }
 }

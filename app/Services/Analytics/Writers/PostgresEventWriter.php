@@ -7,6 +7,7 @@ use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
 use App\Models\Core\Site\Block;
 use App\Services\Analytics\AnalyticsEvent;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
 use App\Services\Analytics\TrackableBlockTypes;
 use Illuminate\Support\Carbon;
@@ -99,8 +100,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            'user_agent' => $e->userAgent,
-            'referrer' => $e->referrer,
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
+            'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
@@ -167,8 +169,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            'user_agent' => $e->userAgent,
-            'referrer' => $e->referrer,
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
+            'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
@@ -215,8 +218,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            'user_agent' => $e->userAgent,
-            'referrer' => $e->referrer,
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
+            'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
@@ -262,7 +266,8 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 $e->countryCode,
                 $e->regionCode,
                 $e->deviceType,
-                $e->referrer,
+                // PRIV-5: strip referrer query strings (UTM-embedded PII).
+                AnalyticsEventSanitizer::referrer($e->referrer),
                 now()->toISOString(),
             ]
         );

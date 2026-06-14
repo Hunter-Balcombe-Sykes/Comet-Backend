@@ -12,6 +12,7 @@ use App\Models\Analytics\LeadSubmission;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\User\Customer;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\Notifications\EnquirySpamBlocklist;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -195,8 +196,9 @@ class PublicEnquiryController extends ApiController
             'user_id' => $userId,
             'customer_id' => null,
             'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => $request->userAgent(),
-            'referrer' => $request->headers->get('referer'),
+            // PRIV-5/6: cap the UA and strip referrer query strings (UTM PII).
+            'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
+            'referrer' => AnalyticsEventSanitizer::referrer($request->headers->get('referer')),
             'outcome' => $outcome,
             'form_started_at_ms' => $formStartedAtMs,
         ]);

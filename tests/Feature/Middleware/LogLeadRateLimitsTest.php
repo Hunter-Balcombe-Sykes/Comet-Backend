@@ -108,6 +108,16 @@ it('caps the Referer at 512 characters', function () {
     expect(strlen($row->referrer))->toBeLessThanOrEqual(512);
 });
 
+it('caps the stored user_agent at 256 characters (PRIV-6)', function () {
+    $this->middleware->terminate(
+        makeLeadRequest(['server' => ['HTTP_USER_AGENT' => str_repeat('U', 400)]]),
+        new IlluminateResponse('throttled', 429)
+    );
+
+    $row = DB::connection('pgsql')->table('analytics.lead_submissions')->first();
+    expect(strlen($row->user_agent))->toBe(256);
+});
+
 it('stores null for a missing or unparseable Referer', function () {
     $this->middleware->terminate(
         makeLeadRequest(['server' => ['HTTP_REFERER' => '']]),

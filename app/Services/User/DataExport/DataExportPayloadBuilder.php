@@ -607,13 +607,33 @@ class DataExportPayloadBuilder
         );
     }
 
+    /**
+     * Export-request audit trail. PRIV-1: an explicit allowlist (like every other
+     * sensitive builder) — the bare DB::table() returned all columns, leaking
+     * third-party PII. recipient_email is the professional's own address only when
+     * send_to === 'professional'; for a staff-recipient export it holds the staff
+     * member's email — a third party who never consented to disclosure — so redact
+     * it. triggered_by_staff_id (the staff UUID) is dropped entirely; the
+     * triggered_by marker already records whether self or staff triggered the export.
+     */
     private function streamAudit(string $userId): Generator
     {
-        return $this->lazyRows(
+        foreach ($this->lazyRows(
             DB::connection('pgsql')
                 ->table('audit.data_export_audit')
+                ->select([
+                    'id', 'user_id', 'professional_handle_snapshot', 'professional_email_snapshot',
+                    'triggered_by', 'recipient_email', 'send_to', 'status', 'file_size_bytes',
+                    'file_sha256', 'record_counts', 'error_message', 'email_sent_at',
+                    'email_delivery_status', 'created_at', 'completed_at',
+                ])
                 ->where('user_id', $userId)
-        );
+        ) as $row) {
+            if (($row['send_to'] ?? null) !== 'professional') {
+                $row['recipient_email'] = '[redacted]';
+            }
+            yield $row;
+        }
     }
 
     /**
