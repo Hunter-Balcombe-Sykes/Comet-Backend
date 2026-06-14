@@ -18,20 +18,20 @@ class PruneExpiredHandleAliases extends Command
         $dry = (bool) $this->option('dry-run');
         $pgsql = DB::connection('pgsql');
 
-        // Snapshot expired IDs before deletion to avoid TOCTOU: a rename between
-        // the count query and the delete would produce a wrong affected-pro list.
-        $expiredHandleIds = $pgsql->table('core.user_handle_aliases')
-            ->whereNotNull('expires_at')
-            ->where('expires_at', '<', now())
-            ->pluck('id');
+        // Fix the expiry boundary once so the counts, the affected-pro lookup, and
+        // the deletes all see the same cutoff — a rename mid-run can't shift the
+        // set (the TOCTOU the old id-snapshot guarded against). SCALE-9: delete
+        // in-place by this predicate instead of plucking every expired id into
+        // memory and issuing DELETE ... WHERE id IN (huge list).
+        $cutoff = now();
 
-        $expiredSubdomainIds = $pgsql->table('site.site_subdomain_aliases')
-            ->whereNotNull('expires_at')
-            ->where('expires_at', '<', now())
-            ->pluck('id');
+        $expiredHandles = fn () => $pgsql->table('core.user_handle_aliases')
+            ->whereNotNull('expires_at')->where('expires_at', '<', $cutoff);
+        $expiredSubdomains = fn () => $pgsql->table('site.site_subdomain_aliases')
+            ->whereNotNull('expires_at')->where('expires_at', '<', $cutoff);
 
-        $handleCount = $expiredHandleIds->count();
-        $subdomainCount = $expiredSubdomainIds->count();
+        $handleCount = $expiredHandles()->count();
+        $subdomainCount = $expiredSubdomains()->count();
 
         $this->info("Expired handle aliases: {$handleCount}");
         $this->info("Expired subdomain aliases: {$subdomainCount}");
@@ -40,27 +40,16 @@ class PruneExpiredHandleAliases extends Command
             return self::SUCCESS;
         }
 
-        // Capture affected pro IDs before deletion for KV re-sync.
-        $affectedProIds = $expiredHandleIds->isNotEmpty()
-            ? $pgsql->table('core.user_handle_aliases')
-                ->whereIn('id', $expiredHandleIds)
-                ->pluck('user_id')
-                ->unique()
-                ->values()
+        // Capture affected pro IDs before deletion for KV re-sync. Only the
+        // distinct user_ids (one per affected pro) are materialised — not every
+        // expired alias id.
+        $affectedProIds = $handleCount > 0
+            ? $expiredHandles()->distinct()->pluck('user_id')->filter()->values()
             : collect();
 
-        $pgsql->transaction(function () use ($pgsql, $expiredHandleIds, $expiredSubdomainIds) {
-            if ($expiredHandleIds->isNotEmpty()) {
-                $pgsql->table('core.user_handle_aliases')
-                    ->whereIn('id', $expiredHandleIds)
-                    ->delete();
-            }
-
-            if ($expiredSubdomainIds->isNotEmpty()) {
-                $pgsql->table('site.site_subdomain_aliases')
-                    ->whereIn('id', $expiredSubdomainIds)
-                    ->delete();
-            }
+        $pgsql->transaction(function () use ($expiredHandles, $expiredSubdomains) {
+            $expiredHandles()->delete();
+            $expiredSubdomains()->delete();
         });
 
         foreach ($affectedProIds as $proId) {

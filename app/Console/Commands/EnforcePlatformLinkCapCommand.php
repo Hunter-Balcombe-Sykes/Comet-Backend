@@ -58,20 +58,25 @@ class EnforcePlatformLinkCapCommand extends Command
             'blocks_soft_deleted' => 0,
         ];
 
-        // Collect distinct professional IDs that have any non-deleted link blocks.
+        // Stream distinct professional IDs that have any non-deleted link blocks.
         // Categories are filtered in PHP rather than via JSON DB operators so this
         // command runs identically against SQLite (tests) and PostgreSQL (prod).
-        $userIds = Block::query()
+        // SCALE-1: cursor() over SELECT DISTINCT user_id yields ids lazily instead
+        // of materialising every professional's id into memory at 10k+ scale.
+        $userIdStream = Block::query()
             ->where('block_group', 'links')
             ->whereNull('deleted_at')
+            ->select('user_id')
             ->distinct()
-            ->pluck('user_id')
-            ->filter()
-            ->values();
+            ->cursor();
 
         $now = Carbon::now()->toDateTimeString();
 
-        foreach ($userIds as $proId) {
+        foreach ($userIdStream as $row) {
+            $proId = $row->user_id;
+            if (! $proId) {
+                continue;
+            }
             $stats['professionals_scanned']++;
 
             // Load all non-deleted link blocks in the capped scope for this

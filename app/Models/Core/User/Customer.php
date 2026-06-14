@@ -4,6 +4,7 @@ namespace App\Models\Core\User;
 
 use App\Models\BaseModel;
 use App\Models\Core\Notifications\EmailSubscription;
+use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -110,7 +111,29 @@ class Customer extends BaseModel
             'redacted_at' => now(),
         ]);
 
-        Enquiry::where('customer_id', $this->id)
-            ->each(fn ($e) => $e->redact());
+        // SCALE-4: erase all linked enquiries in ONE bulk UPDATE instead of N
+        // per-row redact() calls. Capture linked notification ids first and
+        // redact them in a single UPDATE too — preserving Enquiry::redact()'s
+        // full erasure semantics (the same nulled fields AND the notification
+        // title/body scrub) without loading every enquiry into memory.
+        $notificationIds = Enquiry::where('customer_id', $this->id)
+            ->whereNotNull('notification_id')
+            ->distinct()
+            ->pluck('notification_id');
+
+        Enquiry::where('customer_id', $this->id)->update([
+            'name' => null,
+            'email' => null,
+            'phone' => null,
+            'message' => null,
+            'ip_hash' => null,
+            'user_agent' => null,
+            'redacted_at' => now(),
+        ]);
+
+        if ($notificationIds->isNotEmpty()) {
+            Notification::whereIn('id', $notificationIds)
+                ->update(['title' => '[redacted]', 'body' => '[redacted]']);
+        }
     }
 }

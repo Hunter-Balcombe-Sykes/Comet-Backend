@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Tests\TestCase;
@@ -94,6 +95,10 @@ it('SyncSubdomainToKvJob is dispatched to the cloudflare queue', function () {
 
 it('WarmPublicSiteCacheJob is dispatched to the cache-warm queue', function () {
     expect((new WarmPublicSiteCacheJob('test-subdomain'))->queue)->toBe('cache-warm');
+});
+
+it('DeleteMirroredMediaJob is dispatched to the scraping queue (SCALE-7)', function () {
+    expect((new DeleteMirroredMediaJob('platforms/instagram/1'))->queue)->toBe('scraping');
 });
 
 // ---------------------------------------------------------------------------

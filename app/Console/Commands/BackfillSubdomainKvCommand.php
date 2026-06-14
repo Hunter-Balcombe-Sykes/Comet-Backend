@@ -37,23 +37,33 @@ class BackfillSubdomainKvCommand extends Command
             return self::FAILURE;
         }
 
-        $ids = $all
-            ? User::query()
-                ->whereNotNull('handle')
-                ->where('handle', '!=', '')
-                ->pluck('id')
-            : collect([$proId]);
-
-        $this->info("Resyncing KV for {$ids->count()} professional(s) (mode: ".($useQueue ? 'queue' : 'sync').').');
-
-        foreach ($ids as $id) {
+        $dispatch = function (string $id) use ($useQueue): void {
             if ($useQueue) {
-                SyncSubdomainToKvJob::dispatch((string) $id);
+                SyncSubdomainToKvJob::dispatch($id);
                 $this->line("  queued: {$id}");
             } else {
-                SyncSubdomainToKvJob::dispatchSync((string) $id);
+                SyncSubdomainToKvJob::dispatchSync($id);
                 $this->line("  done:   {$id}");
             }
+        };
+
+        if ($all) {
+            // SCALE-2: stream every professional with chunkById instead of plucking
+            // all ids into memory — bounded memory at 10k+ users.
+            $query = User::query()
+                ->whereNotNull('handle')
+                ->where('handle', '!=', '');
+
+            $this->info('Resyncing KV for '.$query->count().' professional(s) (mode: '.($useQueue ? 'queue' : 'sync').').');
+
+            $query->select('id')->chunkById(500, function ($users) use ($dispatch): void {
+                foreach ($users as $user) {
+                    $dispatch((string) $user->id);
+                }
+            });
+        } else {
+            $this->info('Resyncing KV for 1 professional(s) (mode: '.($useQueue ? 'queue' : 'sync').').');
+            $dispatch((string) $proId);
         }
 
         $this->info('Backfill complete.');

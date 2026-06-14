@@ -445,13 +445,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 - [ ] **Bundle B16 complete**
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **SCALE-1** · P2 — `EnforcePlatformLinkCapCommand` plucks all user IDs then one query per user — `app/Console/Commands/EnforcePlatformLinkCapCommand.php:64` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-2** · P2 — `BackfillSubdomainKvCommand --all` plucks every user ID into memory — `app/Console/Commands/BackfillSubdomainKvCommand.php:40` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-3** · P2 — `GcOrphanedVideoArtifactsCommand` loads the entire `videos/` R2 listing into a PHP array — `app/Console/Commands/GcOrphanedVideoArtifactsCommand.php:43` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-4** · P2 — `Customer::redact()` issues N UPDATEs per enquiry instead of a bulk erasure — `app/Models/Core/User/Customer.php:113` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-5** · P2 — `ProcessImageVariantsJob` loads the full original into PHP memory instead of streaming — `app/Jobs/ProcessImageVariantsJob.php:148` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-7** · P2 — `DeleteMirroredMediaJob` has no `onQueue()` despite its docblock promising `scraping` — `app/Jobs/Platforms/DeleteMirroredMediaJob.php:47` → `audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **SCALE-9** · P3 — `PruneExpiredHandleAliases` plucks expired IDs before deletion rather than deleting in-place — `app/Console/Commands/PruneExpiredHandleAliases.php:23` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **SCALE-1** · P2 — `EnforcePlatformLinkCapCommand` plucks all user IDs then one query per user — `app/Console/Commands/EnforcePlatformLinkCapCommand.php:64` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **SCALE-2** · P2 — `BackfillSubdomainKvCommand --all` plucks every user ID into memory — `app/Console/Commands/BackfillSubdomainKvCommand.php:40` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [ ] **SCALE-3** · P2 — `GcOrphanedVideoArtifactsCommand` loads the entire `videos/` R2 listing into a PHP array — `app/Console/Commands/GcOrphanedVideoArtifactsCommand.php:43` → `audit-2026-06-13-database-and-queue-scaling.md` — _deferred 2026-06-14: storage-listing stream (not a DB chunk) in a destructive GC command; safe fix = Flysystem-generator + chunk-flush rewrite relying on adapter listing-order, needs dedicated R2 verification; P2 off-peak backstop_
+    - [x] **SCALE-4** · P2 — `Customer::redact()` issues N UPDATEs per enquiry instead of a bulk erasure — `app/Models/Core/User/Customer.php:113` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [ ] **SCALE-5** · P2 — `ProcessImageVariantsJob` loads the full original into PHP memory instead of streaming — `app/Jobs/ProcessImageVariantsJob.php:148` → `audit-2026-06-13-database-and-queue-scaling.md` — _deferred per session scope (media job)_
+    - [x] **SCALE-7** · P2 — `DeleteMirroredMediaJob` has no `onQueue()` despite its docblock promising `scraping` — `app/Jobs/Platforms/DeleteMirroredMediaJob.php:47` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **SCALE-9** · P3 — `PruneExpiredHandleAliases` plucks expired IDs before deletion rather than deleting in-place — `app/Console/Commands/PruneExpiredHandleAliases.php:23` → `audit-2026-06-13-database-and-queue-scaling.md`
 - Rationale: Console commands and an erasure path that load unbounded result sets into memory — fine at 100 users, OOM/slow at 10k. All fixed with `chunkById`/`cursor`/bulk-UPDATE/streaming. SCALE-7 (missing `onQueue`) rides along as a same-area job fix.
 - Suggested approach: Replace `pluck`-then-loop with `chunkById`/`cursor` (SCALE-1/2/3/9); convert `Customer::redact()` to a single bulk UPDATE (SCALE-4); stream the image original instead of full-read (SCALE-5); add the missing `onQueue('scraping')` (SCALE-7). Run `composer test`.
 - Dependencies: SCALE-7 queue name should match B4/B15's queue decision. `[@10k]` — schedule after launch-blockers.

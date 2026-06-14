@@ -21,9 +21,10 @@ use Throwable;
  * is now orphaned — this job reclaims it (CONS-21). Dispatched from
  * IntegrationConnectionObserver with the folder recorded in `payload._folder`.
  *
- * Queued on `scraping` (the existing platform queue — no Horizon supervisor
- * change) since cleanup is not latency-sensitive. ShouldBeUnique keyed on the
- * folder so a burst of writes can't queue duplicate deletes of the same prefix.
+ * Queued on `scraping` (the platform queue, consumed by supervisor-scraping)
+ * since cleanup is not latency-sensitive — isolated from the `default` queue so
+ * a burst of disconnects can't crowd out user-facing jobs. ShouldBeUnique keyed
+ * on the folder so a burst of writes can't queue duplicate deletes of the prefix.
  */
 class DeleteMirroredMediaJob implements ShouldBeUnique, ShouldQueue
 {
@@ -44,7 +45,12 @@ class DeleteMirroredMediaJob implements ShouldBeUnique, ShouldQueue
     /**
      * @param  string  $folder  R2 prefix to delete, e.g. "platforms/instagram/1717000000".
      */
-    public function __construct(public readonly string $folder) {}
+    public function __construct(public readonly string $folder)
+    {
+        // SCALE-7: actually land on the scraping queue the docblock promises —
+        // without this the job ran on `default`, contending with user-facing jobs.
+        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+    }
 
     public function uniqueId(): string
     {
