@@ -7,7 +7,7 @@ use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * V2: Authorization for GDPR-related records (GdprRequest, DataExportAudit).
+ * V2: Authorization for GDPR-related records (DataExportAudit).
  *
  * Owner-only access. denyIfPendingDeletion is intentionally NOT applied here —
  * these endpoints drive the deletion process itself, so a professional in

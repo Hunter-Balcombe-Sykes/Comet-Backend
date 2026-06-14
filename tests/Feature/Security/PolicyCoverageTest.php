@@ -3,7 +3,6 @@
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
-use App\Models\Core\Gdpr\GdprRequest;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\UserHandleAlias;
@@ -51,11 +50,6 @@ const POLICY_EXEMPT = [
     // are FK metadata, not authorization keys. A Policy class would be meaningless
     // here because there is no controller action to gate.
     StaffAuditEntry::class,
-
-    // GDPR request submissions — write-only via the GDPR submission endpoint;
-    // mutations are user-initiated, reads are staff-only via SQL. Parent
-    // DataExportAudit has GdprPolicy; GdprRequest itself has no separate controller.
-    GdprRequest::class,
 
     // Moderation write-only / child models — no user-facing API endpoints;
     // access is via staff tooling and SQL. Parent resources (ModerationCase,

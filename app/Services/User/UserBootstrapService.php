@@ -163,6 +163,7 @@ class UserBootstrapService
 
     private function createWelcomeNotification(User $professional): void
     {
+        // firstOrCreate dedups the welcome notification at the app level — there is NO DB unique constraint on (user_id, type, title), so a rare concurrent double-bootstrap could still race. Acceptable for a one-time bootstrap; the DB-level constraint is deferred to the schema standalone (S8). (DINT-12)
         Notification::query()->firstOrCreate(
             [
                 'user_id' => $professional->id,

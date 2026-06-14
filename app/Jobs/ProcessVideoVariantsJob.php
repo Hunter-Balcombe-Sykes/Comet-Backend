@@ -36,7 +36,8 @@ class ProcessVideoVariantsJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $backoff = 60;
+    // Exponential backoff (JOB-11): transient R2/transcode failures get progressively longer retry gaps.
+    public array $backoff = [60, 300, 900];
 
     public int $timeout = 720;
 

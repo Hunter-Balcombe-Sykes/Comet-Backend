@@ -33,7 +33,8 @@ it('has correct reliability properties on ProcessVideoVariantsJob', function () 
     $job = new ProcessVideoVariantsJob('media-id', 'videos/test/original.mp4', 'videos/test/media-id');
 
     expect($job->tries)->toBe(2);
-    expect($job->backoff)->toBe(60);
+    // JOB-11: exponential backoff (was a flat 60).
+    expect($job->backoff)->toBe([60, 300, 900]);
     expect($job->timeout)->toBe(720);
 });
 

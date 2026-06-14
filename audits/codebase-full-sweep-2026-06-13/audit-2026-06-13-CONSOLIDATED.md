@@ -730,13 +730,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B26 (opus — routing/KV). 1) Worker `RESERVED` matches backend config (or is generated from it); reserved subdomains pass through, not 404. 2) Staging binds a distinct `SUBDOMAIN_KV`; prod routing can't be poisoned from staging; Laravel staging env matches. 3) Smoke test covers reserved + normal + alias. 4) `wrangler` deploy clean.
 
 ### Bundle B27: Model cleanup + job backoff (4 items) — Effort: S
-- [ ] **Bundle B27 complete**
+- [x] **Bundle B27 complete** — _DINT-13: GdprRequest was test-referenced (not fully dead); deleted the model + its 3 redundant direct-policy-call tests (DataExportAudit coverage preserved) + the PolicyCoverageTest exempt entry. DINT-12's DB unique constraint stays deferred to S8._
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **DINT-12** · P3 — `UserBootstrapService::createWelcomeNotification` uses `firstOrCreate` without a DB unique constraint on `(user_id,type,title)` — `app/Services/User/UserBootstrapService.php:156` → `audit-2026-06-13-data-integrity.md`
-    - [ ] **DINT-13** · P3 — `GdprRequest` model references `core.gdpr_requests`, which doesn't exist in the standalone schema — `app/Models/Core/Gdpr/GdprRequest.php:33` → `audit-2026-06-13-data-integrity.md`
-    - [ ] **DINT-14** · P3 — `FeatureFlagOverride` hand-rolls UUID generation instead of `HasUuids` — `app/Models/Core/FeatureFlagOverride.php:32` → `audit-2026-06-13-data-integrity.md`
-    - [ ] **JOB-11** · P3 — `ProcessImageVariantsJob`/`ProcessVideoVariantsJob` use flat backoff where exponential is warranted — `app/Jobs/ProcessImageVariantsJob.php:35` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **DINT-12** · P3 — `UserBootstrapService::createWelcomeNotification` uses `firstOrCreate` without a DB unique constraint on `(user_id,type,title)` — `app/Services/User/UserBootstrapService.php:156` → `audit-2026-06-13-data-integrity.md`
+    - [x] **DINT-13** · P3 — `GdprRequest` model references `core.gdpr_requests`, which doesn't exist in the standalone schema — `app/Models/Core/Gdpr/GdprRequest.php:33` → `audit-2026-06-13-data-integrity.md`
+    - [x] **DINT-14** · P3 — `FeatureFlagOverride` hand-rolls UUID generation instead of `HasUuids` — `app/Models/Core/FeatureFlagOverride.php:32` → `audit-2026-06-13-data-integrity.md`
+    - [x] **JOB-11** · P3 — `ProcessImageVariantsJob`/`ProcessVideoVariantsJob` use flat backoff where exponential is warranted — `app/Jobs/ProcessImageVariantsJob.php:35` → `audit-2026-06-13-job-queue-correctness.md`
 - Rationale: Small model/job hygiene — a dead model referencing a non-existent table (DINT-13, a standalone-strip leftover), a hand-rolled UUID that should use the trait (DINT-14), an app-only uniqueness assumption (DINT-12), and a backoff tweak. Code-only (DINT-12's DB constraint is deferred to S-schema if wanted).
 - Suggested approach: Remove/repoint the dead `GdprRequest` model (DINT-13 — verify nothing uses it); switch `FeatureFlagOverride` to `HasUuids` (DINT-14); document/guard the `firstOrCreate` assumption (DINT-12 — note the DB constraint belongs with the schema standalone if added); change flat→exponential backoff (JOB-11). Run `composer test`.
 - Dependencies: DINT-12's optional DB unique constraint → see Standalone S8 if you want it enforced at the DB level.

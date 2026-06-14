@@ -3,11 +3,13 @@
 namespace App\Models\Core;
 
 use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Str;
 
 class FeatureFlagOverride extends BaseModel
 {
+    use HasUuids;
+
     protected $table = 'core.feature_flag_overrides';
 
     public $incrementing = false;
@@ -27,15 +29,6 @@ class FeatureFlagOverride extends BaseModel
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
-    }
-
-    protected static function booted(): void
-    {
-        static::creating(function (self $row): void {
-            if (empty($row->id)) {
-                $row->id = (string) Str::uuid();
-            }
-        });
     }
 
     public function flag(): BelongsTo
