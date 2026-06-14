@@ -45,7 +45,7 @@ class UserBootstrapService
         // DB::transaction() targets the default connection — 'sqlite' in feature
         // tests — making the wrapper a no-op and breaking rollback. Mirrors
         // AccountDeletionService::request().
-        return DB::connection('pgsql')->transaction(function () use ($uid, $data, $existing) {
+        $result = DB::connection('pgsql')->transaction(function () use ($uid, $data, $existing) {
             $createdProfessional = false;
             $professional = $existing;
 
@@ -98,8 +98,6 @@ class UserBootstrapService
                 $site = $this->siteProvisioning->createSiteWithRetry($professional->id, $base);
             }
 
-            $this->cache->invalidateUser($professional);
-
             if ($createdProfessional) {
                 $this->createWelcomeNotification($professional);
             }
@@ -110,6 +108,16 @@ class UserBootstrapService
                 'created' => $createdProfessional,
             ];
         });
+
+        // Invalidate after commit so a concurrent reader rewarms from committed state,
+        // not from a partial write that may still be in-flight inside the transaction.
+        // NOTE: this call uses the fresh() model (wasChanged() is false), so it busts
+        // only current-handle keys. Old-handle key busting on a rename is handled by
+        // UserObserver::updated() (afterCommit = true, dirty instance) — keep that in
+        // mind if the observer is ever refactored.
+        $this->cache->invalidateUser($result['professional']);
+
+        return $result;
     }
 
     private function guardAgainstEmailReuseByDifferentAuthUser(string $email, string $uid): void

@@ -351,48 +351,8 @@ class AccountDeletionService
             $previousStatus = 'active';
         }
 
-        // Recovery: same email-snapshot restore as the self-service cancel path.
-        $this->restoreEmailFromAuditSnapshot($professional);
-
-        DB::transaction(function () use ($professional, $previousStatus) {
-            $professional->update([
-                'status' => $previousStatus,
-                'deletion_requested_at' => null,
-                'deletion_confirmed_at' => null,
-                'deletion_previous_status' => null,
-                'deletion_token_hash' => null,
-            ]);
-
-            // Re-publish the site only if it was programmatically unpublished by our
-            // deletion flow (unpublished_at is the signal). A manually unpublished
-            // site (unpublished_at = null) must stay offline — we don't own that state.
-            // Re-read with a lock to avoid acting on a stale relation-cache snapshot —
-            // a concurrent manual-unpublish could otherwise flip unpublished_at to null
-            // between relation load and this check.
-            $site = Site::query()
-                ->where('user_id', $professional->id)
-                ->lockForUpdate()
-                ->first();
-            if ($site && $site->unpublished_at !== null) {
-                $site->update([
-                    'is_published' => true,
-                    'unpublished_at' => null,
-                ]);
-            }
-        });
-
-        try {
-            Mail::to($professional->primary_email)->send(
-                new AccountDeletionCancelledMail(
-                    displayName: (string) ($professional->display_name ?? 'there'),
-                )
-            );
-        } catch (\Throwable $e) {
-            Log::error('Account deletion cancelled mail failed', [
-                'user_id' => $professional->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $this->restoreSiteAndStatus($professional, $previousStatus);
+        $this->sendDeletionCancelledMail($professional);
 
         $this->logAuditEvent(
             $professional,
@@ -421,13 +381,34 @@ class AccountDeletionService
             $previousStatus = 'active';
         }
 
-        // Recovery: confirm() pseudonymises primary_email — restore the real one
-        // from the EVENT_CONFIRMED audit snapshot so the cancel mail reaches the
-        // user and downstream audit rows capture the real address. No-op if the
-        // user is cancelling before confirm (no snapshot row exists yet).
-        $this->restoreEmailFromAuditSnapshot($professional);
+        $this->restoreSiteAndStatus($professional, $previousStatus);
+        $this->sendDeletionCancelledMail($professional);
 
-        DB::transaction(function () use ($professional, $previousStatus) {
+        $this->logAuditEvent($professional, UserDeletionAuditEntry::EVENT_CANCELLED, $request);
+
+        return ['success' => true, 'code' => 200];
+    }
+
+    /**
+     * Restore status + re-publish site inside a single pgsql transaction.
+     *
+     * Email restore runs FIRST inside the transaction so that a rollback (e.g.
+     * lockForUpdate conflict) doesn't leave primary_email restored while the
+     * status update is still pending_deletion — that torn state would let a
+     * cancelled-but-still-scheduled account receive email as if it were active.
+     *
+     * Pinned to 'pgsql' (not bare DB::transaction) so the wrapper covers the
+     * same connection as the Eloquent writes inside — SQLite test DB otherwise
+     * makes the wrapper a no-op. See request() for the full rationale.
+     */
+    private function restoreSiteAndStatus(User $professional, string $previousStatus): void
+    {
+        DB::connection('pgsql')->transaction(function () use ($professional, $previousStatus) {
+            // Restore pseudonymised email inside the txn — if the status update rolls
+            // back, the email restore rolls back too; no torn state where the real
+            // email is live but the account is still pending_deletion.
+            $this->restoreEmailFromAuditSnapshot($professional);
+
             $professional->update([
                 'status' => $previousStatus,
                 'deletion_requested_at' => null,
@@ -453,7 +434,14 @@ class AccountDeletionService
                 ]);
             }
         });
+    }
 
+    /**
+     * Send the account-deletion-cancelled transactional mail.
+     * Called OUTSIDE any transaction — mail dispatch must not hold a DB lock.
+     */
+    private function sendDeletionCancelledMail(User $professional): void
+    {
         try {
             Mail::to($professional->primary_email)->send(
                 new AccountDeletionCancelledMail(
@@ -466,10 +454,6 @@ class AccountDeletionService
                 'error' => $e->getMessage(),
             ]);
         }
-
-        $this->logAuditEvent($professional, UserDeletionAuditEntry::EVENT_CANCELLED, $request);
-
-        return ['success' => true, 'code' => 200];
     }
 
     /**
@@ -493,6 +477,9 @@ class AccountDeletionService
                 ['reason' => 'supabase_deletion_failed'],
                 UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
             );
+
+            // report() surfaces to Nightwatch while return false preserves batch-safe continue.
+            report(new \RuntimeException("AccountDeletionService::purge() — Supabase auth deletion failed for user {$professional->id}"));
 
             return false;
         }
@@ -551,6 +538,9 @@ class AccountDeletionService
                 ['reason' => 'force_delete_failed', 'error' => $e->getMessage()],
                 UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
             );
+
+            // report() surfaces to Nightwatch while return false preserves batch-safe continue.
+            report($e);
 
             return false;
         }

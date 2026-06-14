@@ -149,14 +149,14 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B4. 1) The job's queue name matches a supervisor in `defaults` + all env blocks of `config/horizon.php` (or is repointed to a consumed queue). 2) `ShouldBeUnique` + `uniqueId()` keyed so concurrent/retry dispatches dedupe; lock released appropriately. 3) Hard-failure path calls `$this->fail()` and engages backoff; doesn't burn Apify on a dead credential. 4) Mirror catches `report($e)`. 5) `composer test` green; a test asserts the queue assignment.
 
 ### Bundle B5: AccountDeletionService correctness (5 items) — Effort: M
-- [ ] **Bundle B5 complete**
+- [x] **Bundle B5 complete**
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **LIFE-2** · P1 — cancel/adminCancel restore primary email OUTSIDE the transaction (torn state on rollback) — `app/Services/User/AccountDeletionService.php:428,355` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **LIFE-6** · P2 — `purge()` returns false on every failure with only `Log::error`; users stuck in `pending_deletion`, no alert — `app/Services/User/AccountDeletionService.php:488` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **SLOP-1** · P2 — cancel/adminCancel duplicate the same DB-locking site-restore block — `app/Services/User/AccountDeletionService.php:357,430` → `audit-2026-06-13-code-quality-slop.md`
-    - [ ] **SEM-2** (≡ **LIFE-7**, **TXN-4**) · P2 — cancel/adminCancel use bare `DB::transaction()` off the pgsql contract — `app/Services/User/AccountDeletionService.php:357,430` → `audit-2026-06-13-semantic-correctness.md`
-    - [ ] **TXN-2** · P2 — cache invalidation inside the bootstrap transaction → stale-cache window — `app/Services/User/UserBootstrapService.php:101` → `audit-2026-06-13-transaction-boundaries.md`
+    - [x] **LIFE-2** · P1 — cancel/adminCancel restore primary email OUTSIDE the transaction (torn state on rollback) — `app/Services/User/AccountDeletionService.php:428,355` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **LIFE-6** · P2 — `purge()` returns false on every failure with only `Log::error`; users stuck in `pending_deletion`, no alert — `app/Services/User/AccountDeletionService.php:488` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **SLOP-1** · P2 — cancel/adminCancel duplicate the same DB-locking site-restore block — `app/Services/User/AccountDeletionService.php:357,430` → `audit-2026-06-13-code-quality-slop.md`
+    - [x] **SEM-2** (≡ **LIFE-7**, **TXN-4**) · P2 — cancel/adminCancel use bare `DB::transaction()` off the pgsql contract — `app/Services/User/AccountDeletionService.php:357,430` → `audit-2026-06-13-semantic-correctness.md`
+    - [x] **TXN-2** · P2 — cache invalidation inside the bootstrap transaction → stale-cache window — `app/Services/User/UserBootstrapService.php:101` → `audit-2026-06-13-transaction-boundaries.md`
 - Rationale: Four of the five are the same two methods (`cancel`/`adminCancel`); fixing transaction boundaries, the bare connection, the duplicated block, and the email-restore-in-tx together avoids re-touching the same code five times. LIFE-6 (`purge`) and TXN-2 (bootstrap) ride along as the same file's transaction-hygiene theme.
 - Suggested approach: Extract the shared site-restore block to one private method (SLOP-1); pin to `DB::connection('pgsql')->transaction()` (SEM-2/LIFE-7/TXN-4); move the email restore INSIDE the transaction (LIFE-2); add `report()` + a typed exception on `purge()` failure (LIFE-6); move the cache bust to `afterCommit` in bootstrap (TXN-2). Run `composer test`.
 - Dependencies: None, but it's GDPR-adjacent (account deletion) → review with opus.
