@@ -23,12 +23,22 @@ ALTER TABLE site.sites
     ADD COLUMN IF NOT EXISTS custom_domain_cf_id text;
 
 -- One site per domain (case-insensitive). Partial so multiple NULLs are allowed.
-CREATE UNIQUE INDEX IF NOT EXISTS sites_custom_domain_unique
+-- CONCURRENTLY (CONVENTIONS.md §1): builds without a SHARE lock on the hot
+-- site.sites table. The partial predicate matches zero rows at build time
+-- (custom_domain was just ADD COLUMN-ed → all NULL), so this is instant either
+-- way; CONCURRENTLY keeps it lock-safe for the eventual prod re-baseline. No
+-- BEGIN/COMMIT in this file, so the index op is outside any transaction block.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS sites_custom_domain_unique
     ON site.sites (lower(custom_domain)) WHERE custom_domain IS NOT NULL;
 
 ALTER TABLE site.sites
     DROP CONSTRAINT IF EXISTS sites_custom_domain_status_check;
 
+-- NOT VALID + VALIDATE (CONVENTIONS.md §2). custom_domain_status was just
+-- ADD COLUMN-ed (all NULL), so VALIDATE is a clean pass; this stays lock-safe
+-- on a populated table for the prod re-baseline.
 ALTER TABLE site.sites
     ADD CONSTRAINT sites_custom_domain_status_check
-    CHECK (custom_domain_status IS NULL OR custom_domain_status IN ('pending', 'active', 'error'));
+    CHECK (custom_domain_status IS NULL OR custom_domain_status IN ('pending', 'active', 'error')) NOT VALID;
+
+ALTER TABLE site.sites VALIDATE CONSTRAINT sites_custom_domain_status_check;

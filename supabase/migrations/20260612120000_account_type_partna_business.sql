@@ -29,5 +29,11 @@ UPDATE core.users SET account_type = 'partna' WHERE account_type = 'individual';
 
 ALTER TABLE core.users ALTER COLUMN account_type SET DEFAULT 'partna';
 
+-- NOT VALID + VALIDATE (CONVENTIONS.md §2): NOT VALID adds the constraint without
+-- an ACCESS EXCLUSIVE full-table scan; VALIDATE then checks existing rows under the
+-- lighter SHARE UPDATE EXCLUSIVE. The UPDATE above already normalised every row to a
+-- permitted value, so VALIDATE is a clean pass.
 ALTER TABLE core.users
-    ADD CONSTRAINT users_account_type_check CHECK (account_type IN ('partna', 'business'));
+    ADD CONSTRAINT users_account_type_check CHECK (account_type IN ('partna', 'business')) NOT VALID;
+
+ALTER TABLE core.users VALIDATE CONSTRAINT users_account_type_check;
