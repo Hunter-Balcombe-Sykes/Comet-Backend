@@ -625,14 +625,14 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B22. 1) No verbatim copies remain; shared definitions are behaviour-identical to the originals. 2) `PerTargetReportThrottle` uses `hash_hmac` matching the analytics path. 3) No behaviour change beyond consolidation. 4) `composer test` green.
 
 ### Bundle B23: Untested policies — coverage (5 items) — Effort: M
-- [ ] **Bundle B23 complete**
+- [x] **Bundle B23 complete** — _25 new Gate-based tests (allow/deny/404). FeatureFlagPolicy deny-all tests prove the contract but not registration (Gate defaults deny); PolicyCoverageTest already enforces registration._
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **TEST-5** · P2 — `CasePolicy` staff-only gate has no functional test — `app/Policies/CasePolicy.php:16` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-6** · P2 — `DecisionPolicy` abilities untested — `app/Policies/DecisionPolicy.php:14` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-7** · P2 — `FeatureFlagPolicy` deny-all for `User` actors untested — `app/Policies/FeatureFlagPolicy.php:21` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-8** · P2 — `GdprPolicy::view` ownership gate + 404-not-403 untested — `app/Policies/GdprPolicy.php:18` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-9** · P2 — `FeedbackPolicy` capability gate + owner-isolation untested — `app/Policies/FeedbackPolicy.php:20` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-5** · P2 — `CasePolicy` staff-only gate has no functional test — `app/Policies/CasePolicy.php:16` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-6** · P2 — `DecisionPolicy` abilities untested — `app/Policies/DecisionPolicy.php:14` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-7** · P2 — `FeatureFlagPolicy` deny-all for `User` actors untested — `app/Policies/FeatureFlagPolicy.php:21` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-8** · P2 — `GdprPolicy::view` ownership gate + 404-not-403 untested — `app/Policies/GdprPolicy.php:18` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-9** · P2 — `FeedbackPolicy` capability gate + owner-isolation untested — `app/Policies/FeedbackPolicy.php:20` → `audit-2026-06-13-test-coverage.md`
 - Rationale: Five policies that gate staff/GDPR/feedback access have zero functional tests — exactly the auth surface a regression would silently open. One session writing `tests/Feature/Security/PolicyEnforcement/` tests for all five.
 - Suggested approach: For each policy, write allow + deny cases (owner vs non-owner, staff vs user, the 404-not-403 path). Use `authorizeForUser` against real model skeletons. Run `composer test`.
 - Dependencies: None.
