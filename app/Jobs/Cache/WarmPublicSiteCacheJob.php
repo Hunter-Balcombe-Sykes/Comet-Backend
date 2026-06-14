@@ -78,6 +78,7 @@ class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
                 fn () => $builder->build($pro, $site),
             );
         } catch (\Throwable $e) {
+            report($e);
             Log::warning('WarmPublicSiteCacheJob: §28.8 warm failed', [
                 'subdomain' => $subdomain,
                 'message' => $e->getMessage(),

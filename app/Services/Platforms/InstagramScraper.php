@@ -41,6 +41,7 @@ class InstagramScraper extends PlatformScraper
                     ['usernames' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
                 );
         } catch (Throwable $e) {
+            report($e);
             Log::warning('instagram.apify.threw', ['username' => $username, 'user_id' => $userId, 'error' => $e->getMessage()]);
 
             return null;
@@ -48,6 +49,11 @@ class InstagramScraper extends PlatformScraper
 
         // 201 Created on success — ->ok() would only accept exactly 200.
         if (! $response->successful()) {
+            // Server errors (5xx) indicate genuine Apify infra failures worth alerting on;
+            // 4xx (e.g. 404 for an unknown username) are expected and log-only.
+            if ($response->status() >= 500) {
+                report(new \RuntimeException('Apify scrape failed with status '.$response->status()));
+            }
             Log::warning('instagram.apify.not_ok', [
                 'username' => $username,
                 'user_id' => $userId,

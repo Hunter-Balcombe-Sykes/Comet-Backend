@@ -3,6 +3,7 @@
 namespace App\Services\Streaming;
 
 use App\Exceptions\Streaming\KickRateLimitException;
+use App\Exceptions\Streaming\TwitchRateLimitException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
@@ -70,9 +71,16 @@ class LiveStatusPoller
     private function pollTwitch(array $handles): void
     {
         foreach (array_chunk($handles, self::TWITCH_BATCH_SIZE) as $batch) {
-            $liveSet = array_flip($this->twitch->getLiveHandles($batch));
-            foreach ($batch as $handle) {
-                $this->writeStatus('twitch', $handle, isset($liveSet[$handle]));
+            try {
+                $liveSet = array_flip($this->twitch->getLiveHandles($batch));
+                foreach ($batch as $handle) {
+                    $this->writeStatus('twitch', $handle, isset($liveSet[$handle]));
+                }
+            } catch (TwitchRateLimitException $e) {
+                Log::warning('streaming.rate_limit', ['platform' => 'twitch', 'retry_after' => $e->retryAfter]);
+
+                // Stop polling Twitch this cycle; handles keep their prior status until TTL (no false-offline).
+                return;
             }
         }
     }

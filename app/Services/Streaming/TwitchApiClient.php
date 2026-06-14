@@ -2,6 +2,7 @@
 
 namespace App\Services\Streaming;
 
+use App\Exceptions\Streaming\TwitchRateLimitException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -50,6 +51,12 @@ class TwitchApiClient
                 'Client-ID' => (string) config('services.twitch.client_id'),
             ])->get(self::STREAMS_URL.'?'.$query);
 
+            if ($response->status() === 429) {
+                $retryAfter = (int) $response->header('Retry-After') ?: null;
+                Log::warning('streaming.rate_limit', ['platform' => 'twitch', 'retry_after' => $retryAfter]);
+                throw new TwitchRateLimitException($retryAfter);
+            }
+
             if (! $response->successful()) {
                 // Privacy: Twitch error responses may echo back session data
                 // (auth tokens, channel metadata). Platform + status is enough
@@ -68,6 +75,8 @@ class TwitchApiClient
                 array_filter($data, fn ($s) => ($s['type'] ?? '') === 'live'),
                 'user_login'
             ));
+        } catch (TwitchRateLimitException $e) {
+            throw $e; // poller handles
         } catch (\Throwable $e) {
             report($e);
             Log::error('streaming.api_error', [

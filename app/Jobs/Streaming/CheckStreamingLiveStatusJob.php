@@ -47,6 +47,8 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
         try {
             $kickRateLimited = Redis::exists('streaming:kick:rate_limited');
         } catch (\Throwable $e) {
+            // Redis-down is reported to Nightwatch here (OBS-11). Not $this->fail(): in the
+            // sync/unit path $this->job is null so fail() — and thus failed()/its report() — no-ops.
             Log::error('streaming.redis_unavailable', ['message' => $e->getMessage()]);
             report($e);
 

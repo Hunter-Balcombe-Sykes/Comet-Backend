@@ -411,6 +411,7 @@ class MediaUploadService
                     basePath: $basePath,
                 );
             } catch (Throwable $syncError) {
+                report($syncError);
                 Log::error('Synchronous image variant processing also failed.', [
                     'image_id' => $imageId, 'error' => $syncError->getMessage(),
                 ]);

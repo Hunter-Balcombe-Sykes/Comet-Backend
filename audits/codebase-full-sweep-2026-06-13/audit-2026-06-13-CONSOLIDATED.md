@@ -334,16 +334,16 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B11. 1) `uniqueId()` keys are specific enough to dedupe but not so broad they suppress legitimate distinct sends. 2) Completion guard handles the retry-after-success case (not just in-flight). 3) `WithoutOverlapping` on the poller with a sane expiry. 4) No reliance on the audit-trail trait for idempotency. 5) `composer test` green.
 
 ### Bundle B12: Silent-success job/service observability (7 items) — Effort: S
-- [ ] **Bundle B12 complete**
+- [x] **Bundle B12 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **OBS-2** · P1 — `InstagramScraper::fetchProfile` swallows transport exceptions; paid Apify failures silent, job "succeeds" — `app/Services/Platforms/InstagramScraper.php:43` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-8** · P2 — All 18 `onFailure()` scheduler callbacks use `Log::error` only; crashes invisible to Nightwatch — `routes/console.php:36` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-9** · P2 — `MediaUploadService::dispatchImageJob` swallows the sync-fallback failure; SiteMedia stays `PENDING` — `app/Services/Media/MediaUploadService.php:413` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-10** · P2 — `StaffAuditService::record` swallows all Throwable; audit-write failures invisible — `app/Services/Audit/StaffAuditService.php:46` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-11** · P3 — `CheckStreamingLiveStatusJob` "succeeds" when Redis is unavailable — `app/Jobs/Streaming/CheckStreamingLiveStatusJob.php:39` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-13** · P3 — `WarmPublicSiteCacheJob` warm swallows all failures — `app/Jobs/Cache/WarmPublicSiteCacheJob.php:80` → `audit-2026-06-13-observability.md`
-    - [ ] **SCALE-8** · P2 — `TwitchApiClient` no 429 detection; rate-limit silently marks every handle offline — `app/Services/Streaming/TwitchApiClient.php:53` → `audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **OBS-2** · P1 — `InstagramScraper::fetchProfile` swallows transport exceptions; paid Apify failures silent, job "succeeds" — `app/Services/Platforms/InstagramScraper.php:43` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-8** · P2 — All 18 `onFailure()` scheduler callbacks use `Log::error` only; crashes invisible to Nightwatch — `routes/console.php:36` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-9** · P2 — `MediaUploadService::dispatchImageJob` swallows the sync-fallback failure; SiteMedia stays `PENDING` — `app/Services/Media/MediaUploadService.php:413` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-10** · P2 — `StaffAuditService::record` swallows all Throwable; audit-write failures invisible — `app/Services/Audit/StaffAuditService.php:46` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-11** · P3 — `CheckStreamingLiveStatusJob` "succeeds" when Redis is unavailable — `app/Jobs/Streaming/CheckStreamingLiveStatusJob.php:39` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-13** · P3 — `WarmPublicSiteCacheJob` warm swallows all failures — `app/Jobs/Cache/WarmPublicSiteCacheJob.php:80` → `audit-2026-06-13-observability.md`
+    - [x] **SCALE-8** · P2 — `TwitchApiClient` no 429 detection; rate-limit silently marks every handle offline — `app/Services/Streaming/TwitchApiClient.php:53` → `audit-2026-06-13-database-and-queue-scaling.md`
 - Rationale: Same theme as B3 but on jobs/scheduler/services that report false success. OBS-2 (paid Apify) and OBS-8 (all scheduled commands) are the high-value ones. Adding `report()`/`fail()` + 429 handling makes these failures visible.
 - Suggested approach: `report($e)` + `$this->fail()` where a job currently fakes success (OBS-2/11/13); wrap the 18 `onFailure` callbacks with `report()` (a shared closure); `report()` on audit-write + media-fallback failures; add 429 detection to `TwitchApiClient` (back off, don't mark offline). Run `composer test`.
 - Dependencies: OBS-2 overlaps B4's Instagram theme — fine to do here. None blocking.
