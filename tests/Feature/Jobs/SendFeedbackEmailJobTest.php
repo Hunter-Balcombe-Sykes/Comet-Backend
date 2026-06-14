@@ -79,3 +79,19 @@ it('logs and returns when the feedback row is missing', function () {
     Mail::assertNothingSent();
     Exceptions::assertReported(RuntimeException::class);
 });
+
+it('does not re-send to an already-emailed recipient when the job runs twice (per-recipient cache idempotency)', function () {
+    // TEST-3: the per-recipient Cache::add key prevents duplicate delivery on retry.
+    // Cache driver is 'array' (phpunit.xml CACHE_STORE=array) — not flushed between
+    // the two handle() calls to simulate a Horizon retry with the cache still warm.
+    config(['partna.feedback.notify_emails' => ['a@partna.test', 'b@partna.test']]);
+    $id = seedFeedbackRow();
+
+    (new SendFeedbackEmailJob($id))->handle();
+    (new SendFeedbackEmailJob($id))->handle(); // second run — both recipients already cached
+
+    // Exactly 2 mails total (one per recipient on the FIRST run). The second run
+    // hits the Cache::add guard for both and skips them, so the count stays at 2,
+    // not 4 — proving per-recipient idempotency across job retries.
+    Mail::assertSent(FeedbackSubmittedMail::class, 2);
+});

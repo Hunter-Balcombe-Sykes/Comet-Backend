@@ -3,9 +3,12 @@
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
 use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Requests\Api\User\UpdateUserRequest;
+use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -124,4 +127,79 @@ it('blocks pending-deletion professional from confirming deletion via policy (42
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(423);
     }
+});
+
+// ---------------------------------------------------------------------------
+// TEST-12 — Staff-actor abilities on UserSelfPolicy (via Gate)
+// staffManageBlock is already covered in StaffManageBlockPolicyTest — not duplicated.
+// ---------------------------------------------------------------------------
+
+// Helper — file-unique name to avoid collision with StaffManageBlockPolicyTest helpers.
+function userSelfPolicy_staffActor(string $role): PartnaStaff
+{
+    $actor = new PartnaStaff;
+    $actor->id = (string) Str::uuid();
+    $actor->role = $role;
+
+    return $actor;
+}
+
+function userSelfPolicy_userTarget(): User
+{
+    $target = new User;
+    $target->id = (string) Str::uuid();
+    $target->status = 'active';
+
+    return $target;
+}
+
+// ── staffManage ────────────────────────────────────────────────────────────
+
+it('staffManage: admin actor → allowed for any User target', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_ADMIN))
+            ->allows('staffManage', userSelfPolicy_userTarget())
+    )->toBeTrue();
+});
+
+it('staffManage: support actor → denied (403) for any User target', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_SUPPORT))
+            ->allows('staffManage', userSelfPolicy_userTarget())
+    )->toBeFalse();
+});
+
+// ── staffForceDelete ───────────────────────────────────────────────────────
+
+it('staffForceDelete: admin actor → allowed for any User target', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_ADMIN))
+            ->allows('staffForceDelete', userSelfPolicy_userTarget())
+    )->toBeTrue();
+});
+
+it('staffForceDelete: support actor → denied (403) for any User target', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_SUPPORT))
+            ->allows('staffForceDelete', userSelfPolicy_userTarget())
+    )->toBeFalse();
+});
+
+// ── staffBulkManage (actor-only — no User resource arg) ───────────────────
+// The ability signature is staffBulkManage(PartnaStaff $actor): bool.
+// Pass User::class so Gate resolves the policy from User → UserSelfPolicy
+// without needing a model instance (matches how bulkManage controllers call it).
+
+it('staffBulkManage: admin actor → allowed', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_ADMIN))
+            ->allows('staffBulkManage', User::class)
+    )->toBeTrue();
+});
+
+it('staffBulkManage: support actor → denied (403)', function () {
+    expect(
+        Gate::forUser(userSelfPolicy_staffActor(PartnaStaff::ROLE_SUPPORT))
+            ->allows('staffBulkManage', User::class)
+    )->toBeFalse();
 });

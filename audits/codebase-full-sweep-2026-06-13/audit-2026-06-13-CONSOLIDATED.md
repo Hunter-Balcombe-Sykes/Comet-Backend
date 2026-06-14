@@ -651,15 +651,15 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B23. 1) Each policy has positive + negative cases, not just happy-path. 2) 404-not-403 asserted where the standard requires it. 3) Tests use `authorizeForUser` (Auth::user() is null here). 4) `composer test` green; coverage genuinely exercises the gate (not a tautology).
 
 ### Bundle B24: Policy edge-cases + job-path tests (6 items) — Effort: M
-- [ ] **Bundle B24 complete**
+- [x] **Bundle B24 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **TEST-3** · P2 — `SendFeedbackEmailJob` per-recipient cache idempotency guard untested — `app/Jobs/Notifications/SendFeedbackEmailJob.php:80` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-4** · P2 — `ProcessImageVariantsJob` lock-acquire gate (concurrent-worker guard) untested — `app/Jobs/ProcessImageVariantsJob.php:69` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-10** · P2 — `NotificationPolicy::view` global-broadcast edge case untested — `app/Policies/NotificationPolicy.php:22` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-11** · P2 — `PartnaStaffPolicy` self-edit/self-delete guards untested — `app/Policies/PartnaStaffPolicy.php:31` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-12** · P2 — `UserSelfPolicy` staff-actor abilities untested — `app/Policies/UserSelfPolicy.php:85` → `audit-2026-06-13-test-coverage.md`
-    - [ ] **TEST-13** · P2 — `IntegrationConnectionPolicy` owner-isolation + 404-on-not-yours untested — `app/Policies/IntegrationConnectionPolicy.php:14` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-3** · P2 — `SendFeedbackEmailJob` per-recipient cache idempotency guard untested — `app/Jobs/Notifications/SendFeedbackEmailJob.php:80` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-4** · P2 — `ProcessImageVariantsJob` lock-acquire gate (concurrent-worker guard) untested — `app/Jobs/ProcessImageVariantsJob.php:69` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-10** · P2 — `NotificationPolicy::view` global-broadcast edge case untested — `app/Policies/NotificationPolicy.php:22` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-11** · P2 — `PartnaStaffPolicy` self-edit/self-delete guards untested — `app/Policies/PartnaStaffPolicy.php:31` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-12** · P2 — `UserSelfPolicy` staff-actor abilities untested — `app/Policies/UserSelfPolicy.php:85` → `audit-2026-06-13-test-coverage.md`
+    - [x] **TEST-13** · P2 — `IntegrationConnectionPolicy` owner-isolation + 404-on-not-yours untested — `app/Policies/IntegrationConnectionPolicy.php:14` → `audit-2026-06-13-test-coverage.md`
 - Rationale: Edge-case coverage on existing-but-partially-tested policies/jobs — the idempotency guard, the concurrency lock gate, and the staff/self/broadcast policy branches. Pairs naturally after B23.
 - Suggested approach: Add the missing branch tests to the existing test files where they exist; create files for `PartnaStaffPolicy`/`IntegrationConnectionPolicy`. Cover the concurrency lock gate (TEST-4) and per-recipient idempotency (TEST-3). Run `composer test`.
 - Dependencies: B23 (same area) — do consecutively.

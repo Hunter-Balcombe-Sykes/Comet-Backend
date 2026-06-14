@@ -9,6 +9,7 @@ use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -158,4 +159,27 @@ it('records the guard error message in processing_error so the frontend can surf
     expect($error)->toContain('8000');
     expect($error)->toContain('64000000');
     expect($error)->toContain('24000000');
+});
+
+it('returns early without processing when the Redis processing lock is already held by another worker', function () {
+    // TEST-4: GuardsMediaProcessing::acquireProcessingLock calls
+    //   Redis::set($key, '1', 'EX', $timeout + 60, 'NX')
+    // Redis returns null when SETNX fails (lock held). Cast to bool → false → early return.
+    $imageId = seedJobTestMediaRow();
+    $originalPath = "images/test/{$imageId}/original.jpg";
+
+    // Simulate the lock being held: SET NX returns null (another worker holds it).
+    Redis::shouldReceive('set')->once()->andReturn(null);
+
+    // The processing service must NOT be invoked when the lock cannot be acquired.
+    $service = Mockery::mock(ImageVariantService::class);
+    $service->shouldNotReceive('processVariants');
+    $service->shouldNotReceive('resolvedDiskName');
+
+    $job = new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}");
+    $job->handle($service);
+
+    // The media row must remain in its original PENDING state — no mutation occurred.
+    $row = SiteMedia::query()->findOrFail($imageId);
+    expect($row->processing_state)->toBe(SiteMedia::PROCESSING_STATE_PENDING);
 });

@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Models\Core\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -114,4 +115,42 @@ it('blocks a non-owner from calling dismiss on a targeted notification with 404'
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
     }
+});
+
+// ---------------------------------------------------------------------------
+// TEST-10 — Global broadcast edge cases (NotificationPolicy, via Gate)
+// ---------------------------------------------------------------------------
+// These assert the policy directly through the Gate so we cover the raw
+// ability contract without depending on a specific controller method name.
+
+it('global broadcast (null user_id): Gate view returns true for any user', function () {
+    $anyUser = createTenant('notif-global-view');
+    $n = new Notification;
+    $n->user_id = null;
+
+    expect(
+        Gate::forUser($anyUser)->allows('view', $n)
+    )->toBeTrue();
+});
+
+it('global broadcast (null user_id): Gate update returns 404 (no single owner)', function () {
+    $anyUser = createTenant('notif-global-update');
+    $n = new Notification;
+    $n->user_id = null;
+
+    $response = Gate::forUser($anyUser)->inspect('update', $n);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('global broadcast (null user_id): Gate delete returns 404 (no single owner)', function () {
+    $anyUser = createTenant('notif-global-delete');
+    $n = new Notification;
+    $n->user_id = null;
+
+    $response = Gate::forUser($anyUser)->inspect('delete', $n);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
 });
