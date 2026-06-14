@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -31,6 +32,15 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
     }
 
     public int $timeout = 90;
+
+    /**
+     * Drop overlapping ticks rather than re-queuing — the next scheduled tick covers any gap.
+     * expireAfter(120) self-clears a crashed worker's lock (just over the 90s timeout).
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('streaming:live-status'))->dontRelease()->expireAfter(120)];
+    }
 
     public function handle(LiveStatusPoller $poller): void
     {

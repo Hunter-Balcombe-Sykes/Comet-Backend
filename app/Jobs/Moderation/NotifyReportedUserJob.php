@@ -11,6 +11,7 @@ use App\Notifications\Moderation\AccountSuspendedNotification;
 use App\Notifications\Moderation\ContentHiddenNotification;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -18,12 +19,15 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class NotifyReportedUserJob implements ShouldQueue
+class NotifyReportedUserJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 60;
+
+    // 5-min lock expiry so a crashed worker can't hold the lock forever.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $actionLogId,
@@ -33,10 +37,19 @@ class NotifyReportedUserJob implements ShouldQueue
         $this->queue = 'notifications';
     }
 
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
+    }
+
     public function handle(): void
     {
         $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+        // Idempotency — a retry after success must not re-send.
+        if ($entry->status === 'completed') {
+            return;
+        }
         $this->markDispatched($entry);
 
         // No owner on record — nothing to notify, still mark complete.

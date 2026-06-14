@@ -6,15 +6,17 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Dispatched after an enquiry is saved — keeps the public POST response off the hot path.
-class DispatchEnquiryNotificationsJob implements ShouldQueue
+class DispatchEnquiryNotificationsJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -24,10 +26,18 @@ class DispatchEnquiryNotificationsJob implements ShouldQueue
 
     public int $timeout = 30;
 
+    // 5-min lock expiry so a crashed worker can't hold the lock forever.
+    public int $uniqueFor = 300;
+
     public function __construct(public readonly string $enquiryId)
     {
         // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
         $this->queue = 'notifications';
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->enquiryId;
     }
 
     public function handle(EnquiryNotificationDispatcher $dispatcher): void
@@ -49,7 +59,14 @@ class DispatchEnquiryNotificationsJob implements ShouldQueue
             return;
         }
 
+        // Idempotency guard — a retry after partial success must not re-send the notification.
+        if (Cache::has('enquiry:notified:'.$this->enquiryId)) {
+            return;
+        }
+
         $dispatcher->dispatch($enquiry, $block);
+
+        Cache::put('enquiry:notified:'.$this->enquiryId, true, now()->addDay());
     }
 
     public function failed(Throwable $e): void

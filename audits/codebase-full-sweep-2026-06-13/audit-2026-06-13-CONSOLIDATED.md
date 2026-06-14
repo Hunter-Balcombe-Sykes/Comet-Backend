@@ -278,7 +278,7 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B9 (opus — authz). 1) Every cited endpoint uses `authorizeForUser` against a registered Policy; `PolicyCoverageTest` green. 2) `denyIfPendingDeletion()` enforced on all four. 3) PII in `StaffUserController::index` role-gated; 404-not-403 semantics preserved. 4) Form Requests replace inline validation. 5) `composer test` green.
 
 ### Bundle B10: Observer cache-invalidation fan-out [@10k] (7 items) — Effort: M
-- [ ] **Bundle B10 complete**
+- [ ] **Bundle B10 complete** — _deferred 2026-06-14: the suggested fire-on-first Redis dirty-flag debounce introduces a stale-cache correctness regression — `SiteObserver::saved` dispatches `WarmPublicSiteCacheJob` (ShouldBeUnique 120s) which repopulates the cache, so suppressing later writes in a burst leaves write-1 data cached until the flag TTL. A correct trailing-coalesce (end-of-request flush) is L-effort hot-path work, out of scope for this [@10k] post-launch M-bundle. No customers pre-beta; not a correctness bug today._
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
     - [ ] **CACHE-1** · P2 — `PostgresEventWriter::writeMany()` breaks batch contract for session pings — `app/Services/Analytics/Writers/PostgresEventWriter.php:66` → `audit-2026-06-13-scaling-antipatterns.md`
@@ -307,15 +307,15 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B10. 1) Coalescing flushes once per request/batch; no missed invalidation (stale cache) on any path. 2) Single-row writes still bust correctly. 3) No cross-request leakage of the dirty set. 4) Benchmark shows the op-count drop. 5) `composer test` green.
 
 ### Bundle B11: Notification-job idempotency (6 items) — Effort: S
-- [ ] **Bundle B11 complete**
+- [x] **Bundle B11 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **JOB-1** · P1 — `DispatchEnquiryNotificationsJob` has no idempotency guard; retries duplicate notifications — `app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php:33` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **JOB-5** · P2 — `NotifyOnCallStaffJob` missing `ShouldBeUnique`/completion guard; duplicate on-call alerts — `app/Jobs/Moderation/NotifyOnCallStaffJob.php:20` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **JOB-6** · P2 — `NotifyReportedUserJob` missing guard; duplicate "content hidden"/"suspended" notices — `app/Jobs/Moderation/NotifyReportedUserJob.php:21` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **JOB-7** · P2 — `NotifyReporterJob` missing guard; duplicate "we reviewed your report" emails — `app/Jobs/Moderation/NotifyReporterJob.php:19` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **JOB-8** · P2 — `NotifyStaffOfCaseUpdateJob` missing `ShouldBeUnique`; duplicate staff threshold alerts — `app/Jobs/Moderation/NotifyStaffOfCaseUpdateJob.php:26` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **JOB-9** · P2 — `CheckStreamingLiveStatusJob` missing `WithoutOverlapping`; concurrent live-status writes — `app/Jobs/Streaming/CheckStreamingLiveStatusJob.php:17` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-1** · P1 — `DispatchEnquiryNotificationsJob` has no idempotency guard; retries duplicate notifications — `app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php:33` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-5** · P2 — `NotifyOnCallStaffJob` missing `ShouldBeUnique`/completion guard; duplicate on-call alerts — `app/Jobs/Moderation/NotifyOnCallStaffJob.php:20` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-6** · P2 — `NotifyReportedUserJob` missing guard; duplicate "content hidden"/"suspended" notices — `app/Jobs/Moderation/NotifyReportedUserJob.php:21` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-7** · P2 — `NotifyReporterJob` missing guard; duplicate "we reviewed your report" emails — `app/Jobs/Moderation/NotifyReporterJob.php:19` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-8** · P2 — `NotifyStaffOfCaseUpdateJob` missing `ShouldBeUnique`; duplicate staff threshold alerts — `app/Jobs/Moderation/NotifyStaffOfCaseUpdateJob.php:26` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **JOB-9** · P2 — `CheckStreamingLiveStatusJob` missing `WithoutOverlapping`; concurrent live-status writes — `app/Jobs/Streaming/CheckStreamingLiveStatusJob.php:17` → `audit-2026-06-13-job-queue-correctness.md`
 - Rationale: Same class of bug across six jobs — a retry or concurrent dispatch produces duplicate user-facing notifications (or overlapping writes). All fixed with `ShouldBeUnique`/`WithoutOverlapping` + a completion guard; one focused session.
 - Suggested approach: Add `ShouldBeUnique` + `uniqueId()` (keyed on the case/enquiry/recipient) and a "bail if already sent" completion check to the five notify jobs; add `WithoutOverlapping` to the streaming poller. Mind the `HasActionLogLifecycle` trait — it's an audit trail, not an idempotency guard.
 - Dependencies: None.

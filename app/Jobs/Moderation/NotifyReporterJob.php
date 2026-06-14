@@ -8,6 +8,7 @@ use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\ModerationCase;
 use App\Notifications\Moderation\ReportOutcomeNotification;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -16,12 +17,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
 
-class NotifyReporterJob implements ShouldQueue
+class NotifyReporterJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 60;
+
+    // 5-min lock expiry so a crashed worker can't hold the lock forever.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $actionLogId,
@@ -31,10 +35,19 @@ class NotifyReporterJob implements ShouldQueue
         $this->queue = 'notifications';
     }
 
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
+    }
+
     public function handle(): void
     {
         $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+        // Idempotency — a retry after success must not re-send.
+        if ($entry->status === 'completed') {
+            return;
+        }
         $this->markDispatched($entry);
 
         $decision = $case->decisions()->latest('decided_at')->firstOrFail();

@@ -9,6 +9,7 @@ use App\Models\Moderation\ModerationCase;
 use App\Notifications\Moderation\CaseEscalatedStaffNotification;
 use App\Notifications\Moderation\CsamAutoActionStaffNotification;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -17,12 +18,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
 
-class NotifyOnCallStaffJob implements ShouldQueue
+class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 30;
+
+    // 5-min lock expiry so a crashed worker can't hold the lock forever.
+    public int $uniqueFor = 300;
 
     public function __construct(public readonly string $actionLogId, public readonly string $caseId)
     {
@@ -30,10 +34,19 @@ class NotifyOnCallStaffJob implements ShouldQueue
         $this->queue = 'moderation_high';
     }
 
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
+    }
+
     public function handle(): void
     {
         $case = ModerationCase::query()->findOrFail($this->caseId);
         $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+        // Idempotency — a retry after success must not re-send.
+        if ($entry->status === 'completed') {
+            return;
+        }
         $this->markDispatched($entry);
 
         // On-call routing: all admin staff are treated as on-call.
