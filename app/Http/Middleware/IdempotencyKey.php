@@ -114,12 +114,15 @@ final class IdempotencyKey
 
             if ($this->shouldCache($response)) {
                 try {
+                    // CCH-3: ±20% jitter on the 24h TTL so a burst of same-second writes
+                    // don't all expire on the same tick (matches the caching gold standard).
+                    $jitter = (int) (self::TTL_SEC * 0.2);
                     Cache::put($cacheKey, [
                         'v' => 1, // schema version — bump if the payload shape ever changes
                         'status' => $response->getStatusCode(),
                         'body' => $response->getContent(),
                         'headers' => $this->captureHeaders($response),
-                    ], self::TTL_SEC);
+                    ], self::TTL_SEC + random_int(-$jitter, $jitter));
                 } catch (Throwable $e) {
                     // Handler already ran — don't lose the response just because
                     // we couldn't cache it. Log and return the live response.

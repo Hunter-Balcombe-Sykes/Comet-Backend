@@ -547,12 +547,12 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B19. 1) Regex matches apex + subdomains; no over-broad match (no `*.evil.com`). 2) `frontend_origins` resolved at runtime; `allowed_origins` non-empty. 3) Verified with a real preflight from apex + subdomain. 4) `composer test` green.
 
 ### Bundle B20: Caching jitter/lock hygiene (3 items) — Effort: S
-- [ ] **Bundle B20 complete**
+- [x] **Bundle B20 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **CCH-1** · P3 — Bare `Cache::put` in the auth-ID mismatch repair path bypasses `rememberLockedNullable` — `app/Services/Cache/UserCacheService.php:186` → `audit-2026-06-13-caching-gold-standard.md`
-    - [ ] **CCH-2** · P3 — Double-jitter on the `FeatureFlagService` integer TTL path — `app/Services/FeatureFlags/FeatureFlagService.php:262` → `audit-2026-06-13-caching-gold-standard.md`
-    - [ ] **CCH-3** · P3 — Unjittered 24h literal TTL on the idempotency response cache — `app/Http/Middleware/IdempotencyKey.php:16` → `audit-2026-06-13-caching-gold-standard.md`
+    - [x] **CCH-1** · P3 — Bare `Cache::put` in the auth-ID mismatch repair path bypasses `rememberLockedNullable` — `app/Services/Cache/UserCacheService.php:186` → `audit-2026-06-13-caching-gold-standard.md`
+    - [x] **CCH-2** · P3 — Double-jitter on the `FeatureFlagService` integer TTL path — `app/Services/FeatureFlags/FeatureFlagService.php:262` → `audit-2026-06-13-caching-gold-standard.md`
+    - [x] **CCH-3** · P3 — Unjittered 24h literal TTL on the idempotency response cache — `app/Http/Middleware/IdempotencyKey.php:16` → `audit-2026-06-13-caching-gold-standard.md`
 - Rationale: Three small deviations from the project's caching gold standard (locked writes + single jitter). Low-risk consistency fixes that prevent thundering-herd and cache-stampede edge cases.
 - Suggested approach: Route the repair-path write through `rememberLockedNullable` (CCH-1); remove the double-jitter (CCH-2); add jitter to the 24h idempotency TTL (CCH-3). Run `composer test`.
 - Dependencies: None. (Relates to the GS-1 no-raw-`Cache::` standard — see project notes.)

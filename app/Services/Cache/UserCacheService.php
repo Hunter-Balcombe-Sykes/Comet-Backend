@@ -175,15 +175,18 @@ class UserCacheService
             Cache::forget($modelKey);
             Cache::forget($modelKey.':stale');
 
-            $freshId = User::query()
-                ->where('auth_user_id', $authUserId)
-                ->value('id');
+            // CCH-1: re-cache the repaired auth-id → user-id mapping through the same
+            // locked-nullable helper the normal lookup uses, not a bare Cache::put
+            // (GS-1: no raw Cache:: writes; keeps the negative-cache + single-flight contract).
+            $freshId = $this->cacheLock->rememberLockedNullable(
+                $authIdKey,
+                (int) config('partna.cache.ttls.auth_id_lookup'),
+                fn () => User::query()->where('auth_user_id', $authUserId)->value('id'),
+            );
 
             if (! $freshId) {
                 return null;
             }
-
-            Cache::put($authIdKey, $freshId, (int) config('partna.cache.ttls.auth_id_lookup'));
 
             return User::query()->with(['site'])->find($freshId);
         }

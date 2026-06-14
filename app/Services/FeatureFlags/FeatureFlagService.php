@@ -22,7 +22,7 @@ use Throwable;
  *   5. Config fallback — config('partna.features.{key}', false)
  *
  * All lookups are served from Redis (via CacheLockService) with a 5-minute TTL
- * and ±60s jitter. Two cache keys are used per context:
+ * and ±20% jitter (applied by CacheLockService, not here — see CCH-2). Two cache keys are used per context:
  *   - ff:registry          — all FeatureFlag rows (defaults + rollout %)
  *   - ff:pro:{proId}       — all active overrides for a professional
  *
@@ -34,8 +34,6 @@ use Throwable;
 class FeatureFlagService
 {
     private const BASE_TTL_SECONDS = 300;
-
-    private const TTL_JITTER_SECONDS = 60;
 
     private const REGISTRY_KEY = 'ff:registry';
 
@@ -177,10 +175,10 @@ class FeatureFlagService
      * Flush the registry cache key. Per-pro override keys (ff:pro:{id})
      * are NOT flushed here — call forgetPro to invalidate individual scopes.
      *
-     * SWR stale copies persist up to ~72 min worst case; natural expiry is the only guarantee.
-     * Worst case math: base TTL 300s + ±60s service jitter = max 360s, then
+     * SWR stale copies persist up to ~60 min worst case; natural expiry is the only guarantee.
+     * Worst case math: base TTL 300s (un-jittered here since CCH-2), then
      * CacheLockService::writeWithJitter applies ±20% to (input × STALE_TTL_MULTIPLIER=10),
-     * so the stale key's TTL caps at round(360 × 10 × 1.2) = 4320s ≈ 72 min.
+     * so the stale key's TTL caps at round(300 × 10 × 1.2) = 3600s = 60 min.
      */
     public function flush(): void
     {
@@ -259,7 +257,9 @@ class FeatureFlagService
      */
     private function jitteredTtl(?Carbon $nearestExpiry = null): Carbon|int
     {
-        $base = self::BASE_TTL_SECONDS + random_int(-self::TTL_JITTER_SECONDS, self::TTL_JITTER_SECONDS);
+        // CCH-2: return the base TTL un-jittered. CacheLockService applies the single
+        // ±20% jitter to every int TTL it writes; adding jitter here too double-jittered it.
+        $base = self::BASE_TTL_SECONDS;
 
         if ($nearestExpiry !== null) {
             $secondsUntilExpiry = max(1, (int) $nearestExpiry->diffInSeconds(now(), false) * -1);
