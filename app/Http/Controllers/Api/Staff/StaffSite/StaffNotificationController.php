@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Requests\Api\Staff\Notifications\StaffStoreNotificationRequest;
 use App\Http\Resources\NotificationListingResource;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
@@ -11,7 +12,6 @@ use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 // V2: Staff creates global or targeted notifications with optional email broadcast,
 // and acts on behalf of a professional to clear stuck banners (NOTIF-1).
@@ -20,27 +20,9 @@ class StaffNotificationController extends ApiController
     public function __construct(private readonly NotificationListingService $listing) {}
 
     /** POST /staff/notifications */
-    public function store(Request $request): JsonResponse
+    public function store(StaffStoreNotificationRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'user_id' => ['nullable', 'uuid'],
-            'type' => ['required', 'string', 'max:50'],
-            'title' => ['required', 'string', 'max:255'],
-            'body' => ['required', 'string', 'max:5000'],
-            'cta_url' => ['nullable', 'string', 'max:2048'],
-            'primary_action_label' => ['nullable', 'string', 'max:255'],
-            'secondary_action_label' => ['nullable', 'string', 'max:255'],
-            'secondary_action_url' => ['nullable', 'string', 'max:2048'],
-            'severity' => ['nullable', 'string', 'in:info,warning,critical'],
-            'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
-            'send_email' => ['nullable', 'boolean'],
-            'email_list_key' => ['nullable', 'string', 'max:50'],
-            // Whitelisted to the three staff-broadcast categories only. Categories
-            // like 'commissions' / 'payouts' have canonical event sources and must
-            // not be manually issuable via this endpoint.
-            'category' => ['nullable', 'string', Rule::in(['policy_update', 'incident', 'feature_announcement'])],
-        ]);
+        $data = $request->validated();
 
         $data['type'] = Notification::normalizeFrontendType($data['type'] ?? null, $data['severity'] ?? null);
         $data['severity'] = Notification::severityForFrontendType($data['type']);

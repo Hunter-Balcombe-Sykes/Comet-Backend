@@ -113,6 +113,22 @@ class UserSelfPolicy extends BasePolicy
         return $actor->isAdmin();
     }
 
+    /**
+     * Staff management of blocks (sections + link blocks) on a professional's site.
+     * Admin-only, and denied (423) when the professional is pending deletion.
+     * Lives on UserSelfPolicy (not SitePolicy) because the controllers pass the
+     * User professional as the resource, so the Gate resolves the policy from
+     * User::class → UserSelfPolicy — a method on SitePolicy would never be reached.
+     */
+    public function staffManageBlock(PartnaStaff $actor, User $professional): bool|Response
+    {
+        if ($denied = $this->denyIfPendingDeletion($professional)) {
+            return $denied;
+        }
+
+        return $actor->isAdmin();
+    }
+
     // -------------------------------------------------------------------------
 
     /**

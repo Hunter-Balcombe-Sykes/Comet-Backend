@@ -11,6 +11,7 @@ use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Site\Block;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 // V2: Staff manages a professional's custom link blocks (CRUD + reorder).
@@ -66,13 +67,14 @@ class StaffLinkBlockManagementController extends ApiController
 
     public function update(StaffUpdateLinkRequest $request, User $professional, Block $linkBlock): JsonResponse
     {
-        // scoped binding guarantees ownership, but still enforce correct kind of block
-        abort_unless(
-            $linkBlock->user_id === $professional->id &&
-            $linkBlock->block_group === 'links' &&
-            $linkBlock->block_type === 'link',
-            404
-        );
+        // Policy gate: admin-only + blocks pending-deletion professional.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
+        // Business rule: only link-kind blocks belong to this endpoint.
+        if ($linkBlock->block_group !== 'links' || $linkBlock->block_type !== 'link') {
+            abort(404);
+        }
 
         $linkBlock->fill($request->validated());
         $linkBlock->save();
@@ -80,14 +82,16 @@ class StaffLinkBlockManagementController extends ApiController
         return $this->success(['block' => new LinkBlockResource($linkBlock->fresh())]);
     }
 
-    public function destroy(User $professional, Block $linkBlock): JsonResponse
+    public function destroy(Request $request, User $professional, Block $linkBlock): JsonResponse
     {
-        abort_unless(
-            $linkBlock->user_id === $professional->id &&
-            $linkBlock->block_group === 'links' &&
-            $linkBlock->block_type === 'link',
-            404
-        );
+        // Policy gate: admin-only + blocks pending-deletion professional.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
+        // Business rule: only link-kind blocks belong to this endpoint.
+        if ($linkBlock->block_group !== 'links' || $linkBlock->block_type !== 'link') {
+            abort(404);
+        }
 
         $linkBlock->delete();
 

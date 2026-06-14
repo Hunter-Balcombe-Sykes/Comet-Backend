@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
+use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
 use Exception;
@@ -56,8 +57,12 @@ class StaffUserController extends ApiController
 
         $page = $query->paginate($perPage);
 
+        // PII gate: only admin staff may see raw email + phone in the list view.
+        $staff = $request->attributes->get('partna_staff');
+        $showPii = $staff && $staff->isAdmin();
+
         // Keep response light for list-view
-        $professionals = $page->getCollection()->map(function (User $p) {
+        $professionals = $page->getCollection()->map(function (User $p) use ($showPii) {
             $site = $p->site;
 
             return [
@@ -65,8 +70,8 @@ class StaffUserController extends ApiController
                 'handle' => $p->handle,
                 'display_name' => $p->display_name,
                 'status' => $p->status,
-                'primary_email' => $p->primary_email,
-                'phone' => $p->phone,
+                'primary_email' => $showPii ? $p->primary_email : null,
+                'phone' => $showPii ? $p->phone : null,
                 'created_at' => optional($p->created_at)->toISOString(),
                 'updated_at' => optional($p->updated_at)->toISOString(),
 
@@ -109,7 +114,7 @@ class StaffUserController extends ApiController
      * PATCH /api/staff/professionals/{professional}/status
      * Body: { "status": "active" | "suspended" }
      */
-    public function updateStatus(Request $request, User $professional): JsonResponse
+    public function updateStatus(StaffUpdateUserStatusRequest $request, User $professional): JsonResponse
     {
         $gate = $this->requiresFreshAal2($request);
         if (! $gate->allowed()) {
@@ -122,9 +127,7 @@ class StaffUserController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
-        $data = $request->validate([
-            'status' => ['required', 'string', 'in:active,suspended'],
-        ]);
+        $data = $request->validated();
 
         $professional->status = $data['status'];
         $professional->save();

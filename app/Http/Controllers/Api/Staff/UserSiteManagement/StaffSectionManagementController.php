@@ -11,6 +11,7 @@ use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 // V2: Staff manages section block visibility (gallery, services, shop, booking, bio) with full control.
@@ -36,6 +37,9 @@ class StaffSectionManagementController extends ApiController
 
     public function upsert(UpsertSectionBlockRequest $request, User $professional, string $blockType): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
         $site = $this->currentSite($professional);
 
         $data = $request->validated();
@@ -98,6 +102,9 @@ class StaffSectionManagementController extends ApiController
 
     public function reorder(ReorderBlocksRequest $request, User $professional): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
         $ids = array_values(array_unique($request->validated()['ids'] ?? []));
         $site = $this->currentSite($professional);
 
@@ -152,8 +159,11 @@ class StaffSectionManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function remove(User $professional, string $blockType): JsonResponse
+    public function remove(Request $request, User $professional, string $blockType): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
         $site = $professional->site;
         if (! $site) {
             return $this->error('Professional has no site.', 422);

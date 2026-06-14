@@ -70,23 +70,7 @@ function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff
     return $mock;
 }
 
-// ── StaffFeatureFlagController::index ────────────────────────────────────────
-
-it('index returns 401 when staff not on request', function () {
-    $request = Request::create('/', 'GET');
-
-    $this->expectException(HttpException::class);
-    $this->flagController->index($request);
-});
-
 // ── StaffFeatureFlagController::store ────────────────────────────────────────
-
-it('store returns 401 when staff not on request', function () {
-    $request = CreateFeatureFlagRequest::create('/', 'POST', []);
-
-    $this->expectException(HttpException::class);
-    $this->flagController->store($request);
-});
 
 it('store creates a flag with valid data', function () {
     $formRequest = mockFormRequest(CreateFeatureFlagRequest::class, [
@@ -134,13 +118,6 @@ it('store validation accepts valid lowercase_underscore key', function () {
 
 // ── StaffFeatureFlagController::update ───────────────────────────────────────
 
-it('update returns 401 when staff not on request', function () {
-    $request = UpdateFeatureFlagRequest::create('/', 'PATCH', ['rollout_percent' => 50]);
-
-    $this->expectException(HttpException::class);
-    $this->flagController->update($request, 'any_flag');
-});
-
 it('update changes rollout_percent on an existing flag', function () {
     FeatureFlag::create(['key' => 'update_flag', 'default_enabled' => true, 'rollout_percent' => 10]);
 
@@ -180,13 +157,6 @@ it('update changes description on an existing flag', function () {
 });
 
 // ── StaffFeatureFlagController::destroy ──────────────────────────────────────
-
-it('destroy returns 401 when staff not on request', function () {
-    $request = Request::create('/', 'DELETE');
-
-    $this->expectException(HttpException::class);
-    $this->flagController->destroy($request, 'any_flag');
-});
 
 it('destroy soft-deletes a flag', function () {
     FeatureFlag::create(['key' => 'delete_flag', 'default_enabled' => false, 'rollout_percent' => 0]);

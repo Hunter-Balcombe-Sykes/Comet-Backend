@@ -26,6 +26,9 @@ class SiteVisibilityController extends ApiController
             ->where('user_id', $professional->id)
             ->firstOrFail();
 
+        // Ownership + pending-deletion guard before any mutation.
+        $this->authorizeForUser($professional, 'update', $site);
+
         $site->published = (bool) $request->validated('published');
         $site->save();
 

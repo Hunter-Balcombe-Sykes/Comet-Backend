@@ -250,15 +250,15 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B8 (opus — MFA/auth). 1) Every `record()` is in try/catch that forgets the anchor + returns 500 before the retry can short-circuit. 2) Reject path can't degrade to continue on retry. 3) Missing-header path fails closed. 4) Email + auth hooks are at parity. 5) Test proves anchor reversion. `composer test` green.
 
 ### Bundle B9: Staff-controller authorization via Policies (6 items) — Effort: M
-- [ ] **Bundle B9 complete**
+- [x] **Bundle B9 complete**
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **SEC-7** · P2 — `StaffUserController::index` returns `primary_email`+`phone` for every professional to all staff roles — `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:62` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-8** · P2 — `StaffSectionManagementController` query-scoped ownership, no Policy, bypasses `denyIfPendingDeletion()` — `…/StaffSectionManagementController.php:23` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-9** · P2 — `StaffLinkBlockManagementController` uses inline `abort_unless` instead of `authorizeForUser` — `…/StaffLinkBlockManagementController.php:70` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-10** · P2 — `SiteVisibilityController` resolves via query scope, bypassing `denyIfPendingDeletion()` — `app/Http/Controllers/Api/PublicSite/SiteVisibilityController.php:25` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-12** · P3 — Inline `$request->validate()` in staff mutations instead of Form Requests — `…/StaffNotificationController.php:25`, `…/StaffUserController.php:125` → `audit-2026-06-13-security.md`
-    - [ ] **SEC-13** · P3 — `StaffFeatureFlagController` redundant `abort_if(...===null,401)` already guaranteed by middleware — `…/StaffFeatureFlagController.php:26` → `audit-2026-06-13-security.md`
+    - [x] **SEC-7** · P2 — `StaffUserController::index` returns `primary_email`+`phone` for every professional to all staff roles — `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:62` → `audit-2026-06-13-security.md`
+    - [x] **SEC-8** · P2 — `StaffSectionManagementController` query-scoped ownership, no Policy, bypasses `denyIfPendingDeletion()` — `…/StaffSectionManagementController.php:23` → `audit-2026-06-13-security.md`
+    - [x] **SEC-9** · P2 — `StaffLinkBlockManagementController` uses inline `abort_unless` instead of `authorizeForUser` — `…/StaffLinkBlockManagementController.php:70` → `audit-2026-06-13-security.md`
+    - [x] **SEC-10** · P2 — `SiteVisibilityController` resolves via query scope, bypassing `denyIfPendingDeletion()` — `app/Http/Controllers/Api/PublicSite/SiteVisibilityController.php:25` → `audit-2026-06-13-security.md`
+    - [x] **SEC-12** · P3 — Inline `$request->validate()` in staff mutations instead of Form Requests — `…/StaffNotificationController.php:25`, `…/StaffUserController.php:125` → `audit-2026-06-13-security.md`
+    - [x] **SEC-13** · P3 — `StaffFeatureFlagController` redundant `abort_if(...===null,401)` already guaranteed by middleware — `…/StaffFeatureFlagController.php:26` → `audit-2026-06-13-security.md`
 - Rationale: The staff surface repeatedly bypasses the project's Policy/Form-Request mandate (per CLAUDE.md), which also skips `denyIfPendingDeletion()`. One pass through the staff controllers brings them to the standard and removes the PII over-exposure.
 - Suggested approach: Route each mutation through `authorizeForUser($user, 'manage', $resource)` (register policies as needed per CLAUDE.md); gate `StaffUserController::index` PII behind role; extract inline validation to Form Requests (SEC-12); drop redundant middleware re-checks (SEC-13).
 - Dependencies: May need new Policy registrations in `AppServiceProvider::boot()`; `PolicyCoverageTest` will enforce. Review with opus (authz).

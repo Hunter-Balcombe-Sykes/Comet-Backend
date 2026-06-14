@@ -3,11 +3,13 @@
 /** @phpstan-ignore-all */
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
+use App\Http\Requests\Api\Staff\Notifications\StaffStoreNotificationRequest;
 use App\Models\Core\Notifications\Notification;
-use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\ParameterBag;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Locks in the retention-days behaviour for staff broadcasts.
@@ -69,6 +71,25 @@ afterEach(function () {
     Carbon::setTestNow();
 });
 
+/**
+ * Build a mocked StaffStoreNotificationRequest whose ->validated() returns $data.
+ * Mirrors the mockFormRequest() helper in StaffFeatureFlagsControllerTest.
+ *
+ * @param  array<string,mixed>  $data
+ */
+function mockStaffStoreNotificationRequest(array $data): StaffStoreNotificationRequest
+{
+    $mock = Mockery::mock(StaffStoreNotificationRequest::class)->makePartial();
+    $mock->shouldReceive('validated')->andReturn($data);
+
+    // Symfony's $attributes property must be initialised before ->set() is usable.
+    $ref = new ReflectionClass(Request::class);
+    $prop = $ref->getProperty('attributes');
+    $prop->setValue($mock, new ParameterBag);
+
+    return $mock;
+}
+
 it('uses the default retention window when ends_at is not provided', function () {
     // Non-default semantic keys (invite, brand_status, ...) must NOT influence
     // staff broadcast retention: the controller has no category to key by, so
@@ -81,7 +102,7 @@ it('uses the default retention window when ends_at is not provided', function ()
 
     $controller = app(StaffNotificationController::class);
 
-    $request = Request::create('/staff/notifications', 'POST', [
+    $request = mockStaffStoreNotificationRequest([
         'type' => 'info',
         'title' => 'System maintenance',
         'body' => 'Planned maintenance tonight.',
@@ -106,7 +127,7 @@ it('honours an explicit ends_at on the request', function () {
 
     $explicit = '2026-05-01 09:30:00';
 
-    $request = Request::create('/staff/notifications', 'POST', [
+    $request = mockStaffStoreNotificationRequest([
         'type' => 'warning',
         'title' => 'Scheduled outage',
         'body' => 'We will be down briefly.',
