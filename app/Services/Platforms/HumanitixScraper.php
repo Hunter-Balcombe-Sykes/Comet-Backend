@@ -215,44 +215,6 @@ class HumanitixScraper extends PlatformScraper
         ];
     }
 
-    // AggregateOffer → a display string. "Free", "AUD 20.00", or "AUD 20.00 – 50.00".
-    private function formatPrice(array $offers): ?string
-    {
-        $low = data_get($offers, 'lowPrice') ?? data_get($offers, 'price');
-        if ($low === null) {
-            return null;
-        }
-        $high = data_get($offers, 'highPrice');
-        $cur = data_get($offers, 'priceCurrency');
-        $prefix = $cur ? $cur.' ' : '';
-
-        if ((float) $low === 0.0 && ($high === null || (float) $high === 0.0)) {
-            return 'Free';
-        }
-        if ($high !== null && (float) $high !== (float) $low) {
-            return "{$prefix}{$low} – {$high}";
-        }
-
-        return "{$prefix}{$low}";
-    }
-
-    // schema.org availability URL → "available" | "sold_out" | null.
-    private function normalizeAvailability(?string $availability): ?string
-    {
-        if (! $availability) {
-            return null;
-        }
-        $a = strtolower($availability);
-        if (str_contains($a, 'soldout')) {
-            return 'sold_out';
-        }
-        if (str_contains($a, 'instock') || str_contains($a, 'limited') || str_contains($a, 'presale') || str_contains($a, 'preorder')) {
-            return 'available';
-        }
-
-        return null;
-    }
-
     // og:title on the host page reads "<Host> | Humanitix" (or similar suffix).
     private function hostName(string $html): ?string
     {

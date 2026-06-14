@@ -25,7 +25,8 @@ class PerTargetReportThrottle
         $cap = config('partna.moderation.reporting.per_target_throttle.requests', 3);
         $window = config('partna.moderation.reporting.per_target_throttle.window_minutes', 60);
 
-        $ipHash = hash('sha256', $request->ip().'|'.config('app.key'));
+        // hash_hmac (not plain hash) so the IP hash matches the analytics/HashesClientData scheme — same IP, same hash, correlatable (SEC-14).
+        $ipHash = hash_hmac('sha256', (string) $request->ip(), config('app.key'));
         $type = $request->input('target_type', 'unknown');
         $handle = strtolower((string) $request->input('target_handle', 'unknown'));
         $key = "moderation:report:ip:{$ipHash}:target:{$type}:{$handle}";

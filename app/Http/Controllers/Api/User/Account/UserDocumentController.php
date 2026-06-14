@@ -9,6 +9,7 @@ use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
 use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
 use App\Http\Resources\DocumentMediaResource;
 use App\Models\Core\Site\SiteMedia;
+use App\Support\Concerns\NormalisesOptionalString;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Storage;
 // its R2 bytes synchronously before creating the new row.
 class UserDocumentController extends ApiController
 {
+    use NormalisesOptionalString;
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
@@ -272,20 +274,5 @@ class UserDocumentController extends ApiController
         $document->delete();
 
         return $this->success(['deleted' => true]);
-    }
-
-    /**
-     * Trim; coerce empty/whitespace-only strings to NULL so NULL and ""
-     * mean the same thing at rest.
-     */
-    private function normaliseOptionalString(?string $raw): ?string
-    {
-        if ($raw === null) {
-            return null;
-        }
-
-        $trimmed = trim($raw);
-
-        return $trimmed === '' ? null : $trimmed;
     }
 }

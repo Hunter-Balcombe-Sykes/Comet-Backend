@@ -154,8 +154,9 @@ class UserCustomerController extends ApiController
             $customer->delete(); // soft delete (archive)
         }
 
-        if ($this->shouldRememberConfirmationPreference($request)) {
-            app(ConfirmationPreferenceService::class)->enableForProfessional(
+        $confirmationService = app(ConfirmationPreferenceService::class);
+        if ($confirmationService->shouldRemember($request)) {
+            $confirmationService->enableForProfessional(
                 (string) $pro->id,
                 ConfirmationPreferenceService::ACTION_DELETE_CUSTOMER
             );
@@ -175,12 +176,5 @@ class UserCustomerController extends ApiController
         }
 
         return $this->success(['restored' => true, 'customer' => new CustomerResource($customer->fresh())]);
-    }
-
-    private function shouldRememberConfirmationPreference(Request $request): bool
-    {
-        return $request->boolean('remember_confirmation_preference')
-            || $request->boolean('always_allow_confirmation')
-            || $request->boolean('dont_ask_again');
     }
 }

@@ -326,20 +326,14 @@ class UserUploadController extends ApiController
 
         $image->delete();
 
-        if ($this->shouldRememberConfirmationPreference($request)) {
-            app(ConfirmationPreferenceService::class)->enableForProfessional(
+        $confirmationService = app(ConfirmationPreferenceService::class);
+        if ($confirmationService->shouldRemember($request)) {
+            $confirmationService->enableForProfessional(
                 (string) $pro->id,
                 ConfirmationPreferenceService::ACTION_DELETE_MEDIA
             );
         }
 
         return $this->success(['deleted' => true]);
-    }
-
-    private function shouldRememberConfirmationPreference(Request $request): bool
-    {
-        return $request->boolean('remember_confirmation_preference')
-            || $request->boolean('always_allow_confirmation')
-            || $request->boolean('dont_ask_again');
     }
 }

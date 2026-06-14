@@ -3,6 +3,7 @@
 namespace App\Services\User;
 
 use App\Models\Core\User\UserConfirmationPreference;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 // V2: Manages per-professional "skip confirmation" preferences for destructive actions (delete customer, delete media).
@@ -69,6 +70,13 @@ class ConfirmationPreferenceService
         });
 
         return $this->getForProfessional($userId);
+    }
+
+    public function shouldRemember(Request $request): bool
+    {
+        return $request->boolean('remember_confirmation_preference')
+            || $request->boolean('always_allow_confirmation')
+            || $request->boolean('dont_ask_again');
     }
 
     public function enableForProfessional(string $userId, string $actionKey): void

@@ -11,6 +11,7 @@ use App\Http\Resources\GalleryImageResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\ConfirmationPreferenceService;
+use App\Support\Concerns\NormalisesOptionalString;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 // V2: Gallery image management — listing, reordering, and deletion with variant cleanup.
 class UserGalleryController extends ApiController
 {
+    use NormalisesOptionalString;
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
@@ -140,20 +142,6 @@ class UserGalleryController extends ApiController
     }
 
     /**
-     * Trim, and coerce empty strings to null so NULL and "" mean the same.
-     */
-    private function normaliseOptionalString(?string $raw): ?string
-    {
-        if ($raw === null) {
-            return null;
-        }
-
-        $trimmed = trim($raw);
-
-        return $trimmed === '' ? null : $trimmed;
-    }
-
-    /**
      * Soft-delete the gallery image and clean up its variants from storage.
      */
     public function destroy(Request $request, SiteMedia $image): JsonResponse
@@ -166,20 +154,14 @@ class UserGalleryController extends ApiController
         $this->mediaService->deleteVariants($image->id, $image->path);
         $image->delete();
 
-        if ($this->shouldRememberConfirmationPreference($request)) {
-            app(ConfirmationPreferenceService::class)->enableForProfessional(
+        $confirmationService = app(ConfirmationPreferenceService::class);
+        if ($confirmationService->shouldRemember($request)) {
+            $confirmationService->enableForProfessional(
                 (string) $pro->id,
                 ConfirmationPreferenceService::ACTION_DELETE_MEDIA
             );
         }
 
         return $this->success(['deleted' => true]);
-    }
-
-    private function shouldRememberConfirmationPreference(Request $request): bool
-    {
-        return $request->boolean('remember_confirmation_preference')
-            || $request->boolean('always_allow_confirmation')
-            || $request->boolean('dont_ask_again');
     }
 }

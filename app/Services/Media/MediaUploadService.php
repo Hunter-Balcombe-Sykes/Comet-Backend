@@ -11,6 +11,7 @@ use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\Exceptions\VideoDispatchFailedException;
+use App\Support\Concerns\NormalisesOptionalString;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -39,6 +40,8 @@ use Throwable;
  */
 class MediaUploadService
 {
+    use NormalisesOptionalString;
+
     public function __construct(
         private readonly ImageVariantService $imageService,
         private readonly VideoVariantService $videoVariant,
@@ -445,20 +448,5 @@ class MediaUploadService
             originalPath: $originalPath,
             basePath: $basePath,
         );
-    }
-
-    /**
-     * Trim caption / alt_text-like input and coerce empty strings to null so
-     * NULL and "" mean the same thing at rest.
-     */
-    private function normaliseOptionalString(?string $raw): ?string
-    {
-        if ($raw === null) {
-            return null;
-        }
-
-        $trimmed = trim($raw);
-
-        return $trimmed === '' ? null : $trimmed;
     }
 }

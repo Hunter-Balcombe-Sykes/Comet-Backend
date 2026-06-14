@@ -600,13 +600,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B21 (opus). 1) LIFE-5: `subdomain_changed_at` re-read under `lockForUpdate` inside the tx; concurrency test proves two simultaneous renames can't both bypass. 2) Counters use DB-atomic `increment`. 3) `DB::connection('pgsql')->transaction()`; typed exception caught. 4) `composer test` green incl. SQLite suite.
 
 ### Bundle B22: Code dedup + IP-hash consistency (4 items) — Effort: S
-- [ ] **Bundle B22 complete**
+- [x] **Bundle B22 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **SLOP-2** · P3 — `formatPrice`/`normalizeAvailability` copy-pasted across two event scrapers — `app/Services/Platforms/EventbriteScraper.php:203`, `HumanitixScraper.php:219` → `audit-2026-06-13-code-quality-slop.md`
-    - [ ] **SLOP-3** · P3 — `shouldRememberConfirmationPreference` copy-pasted across three controllers — `audit-2026-06-13-code-quality-slop.md`
-    - [ ] **SLOP-4** · P3 — `normaliseOptionalString` copy-pasted across two controllers — `audit-2026-06-13-code-quality-slop.md`
-    - [ ] **SEC-14** · P3 — `PerTargetReportThrottle` uses plain `hash('sha256', ip|key)` while analytics uses `hash_hmac` — different hashes for the same IP — `app/Http/Middleware/Moderation/PerTargetReportThrottle.php:28` → `audit-2026-06-13-security.md`
+    - [x] **SLOP-2** · P3 — `formatPrice`/`normalizeAvailability` copy-pasted across two event scrapers — `app/Services/Platforms/EventbriteScraper.php:203`, `HumanitixScraper.php:219` → `audit-2026-06-13-code-quality-slop.md`
+    - [x] **SLOP-3** · P3 — `shouldRememberConfirmationPreference` copy-pasted across three controllers — `audit-2026-06-13-code-quality-slop.md`
+    - [x] **SLOP-4** · P3 — `normaliseOptionalString` copy-pasted across two controllers — `audit-2026-06-13-code-quality-slop.md` — _(actually 3 sites incl. MediaUploadService; all consolidated to App\Support\Concerns\NormalisesOptionalString)_
+    - [x] **SEC-14** · P3 — `PerTargetReportThrottle` uses plain `hash('sha256', ip|key)` while analytics uses `hash_hmac` — different hashes for the same IP — `app/Http/Middleware/Moderation/PerTargetReportThrottle.php:28` → `audit-2026-06-13-security.md`
 - Rationale: Three verbatim-duplication cleanups plus one consistency fix (the report throttle should hash IPs the same way the analytics path does). Low-risk; extract to shared helpers/traits.
 - Suggested approach: Extract the duplicated scraper helpers into the shared `PlatformScraper` base (SLOP-2); move `shouldRememberConfirmationPreference` to the existing `ConfirmationPreferenceService` (SLOP-3); extract `normaliseOptionalString` to a shared helper/trait (SLOP-4); switch `PerTargetReportThrottle` to `hash_hmac` (SEC-14). Run `composer test`.
 - Dependencies: None.
