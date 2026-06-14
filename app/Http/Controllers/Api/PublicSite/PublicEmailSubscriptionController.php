@@ -40,6 +40,31 @@ class PublicEmailSubscriptionController extends ApiController
     {
         $data = $request->validated();
 
+        // Bot protection — mirrors PublicCustomerLeadController.
+
+        // 1) Honeypot: real browsers leave this hidden field empty; bots fill it.
+        //    Pretend success so bots can't fingerprint the gate.
+        $honeypot = $data['website'] ?? null;
+        if (is_string($honeypot) && trim($honeypot) !== '') {
+            Log::info('email_subscribe.honeypot_hit', ['email_hash' => hash('sha256', (string) ($data['email'] ?? ''))]);
+
+            return $this->success(['ok' => true, 'subscribed' => true, 'list_key' => $data['list_key'] ?? 'marketing']);
+        }
+
+        // 2) Timing check: enforce only when form_started_at_ms is present.
+        //    (Field is nullable until the frontend sends it — tighten to required then.)
+        $startedMs = $data['form_started_at_ms'] ?? null;
+        if (is_int($startedMs)) {
+            $nowMs = (int) floor(microtime(true) * 1000);
+            $delta = $nowMs - $startedMs;
+            $minMs = (int) config('partna.form_timing.min_ms', 2500);
+            $maxMs = (int) config('partna.form_timing.max_ms', 12 * 60 * 60 * 1000);
+
+            if ($delta < $minMs || $delta > $maxMs) {
+                return $this->error('Invalid submission.', 422);
+            }
+        }
+
         $subdomain = $this->resolveSiteSubdomain($request);
         if (! $subdomain) {
             return $this->error('Could not determine site from URL.', 400);

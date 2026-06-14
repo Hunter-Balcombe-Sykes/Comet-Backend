@@ -17,7 +17,12 @@ class MetadataParser
         $dom = new \DOMDocument;
         $prev = libxml_use_internal_errors(true);
         // Force UTF-8 so multibyte titles/og survive parsing.
-        $dom->loadHTML('<?xml encoding="UTF-8">'.$html);
+        // LIBXML_NONET is the load-bearing guard: it blocks ALL network access during
+        // parsing, so a malicious page can't trigger SSRF via an external entity/DTD/
+        // stylesheet fetch. (loadHTML doesn't process DTDs anyway, but NONET is belt-and-
+        // braces across libxml versions.) LIBXML_NOENT substitutes internal entity refs
+        // to literal text; combined with NONET there is no external fetch.
+        $dom->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NONET | LIBXML_NOENT);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
 

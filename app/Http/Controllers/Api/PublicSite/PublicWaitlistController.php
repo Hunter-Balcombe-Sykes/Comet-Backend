@@ -8,6 +8,7 @@ use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;
 use App\Models\Core\Waitlist\WaitlistSignup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // V2: Captures waitlist signups with applicant type, industry, team size, and pilot program opt-in.
@@ -18,6 +19,31 @@ class PublicWaitlistController extends ApiController
     public function store(PublicWaitlistSignupRequest $request): JsonResponse
     {
         $data = $request->validated();
+
+        // Bot protection — mirrors PublicCustomerLeadController.
+
+        // 1) Honeypot: pretend success so bots can't fingerprint the gate.
+        $honeypot = $data['website'] ?? null;
+        if (is_string($honeypot) && trim($honeypot) !== '') {
+            Log::info('waitlist.honeypot_hit', ['email_hash' => hash('sha256', mb_strtolower(trim((string) ($data['email'] ?? ''))))]);
+
+            return $this->success(['ok' => true], 201);
+        }
+
+        // 2) Timing check: enforce only when form_started_at_ms is present.
+        //    (Field is nullable until the frontend sends it — tighten to required then.)
+        $startedMs = $data['form_started_at_ms'] ?? null;
+        if (is_int($startedMs)) {
+            $nowMs = (int) floor(microtime(true) * 1000);
+            $delta = $nowMs - $startedMs;
+            $minMs = (int) config('partna.form_timing.min_ms', 2500);
+            $maxMs = (int) config('partna.form_timing.max_ms', 12 * 60 * 60 * 1000);
+
+            if ($delta < $minMs || $delta > $maxMs) {
+                return $this->error('Invalid submission.', 422);
+            }
+        }
+
         $email = mb_strtolower(trim((string) $data['email']));
         $submittedAt = now();
 

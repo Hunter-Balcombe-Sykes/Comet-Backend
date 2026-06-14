@@ -92,8 +92,7 @@ it('allows null driver + enforce mode outside production', function () {
     expect(true)->toBeTrue();
 });
 
-it('boot-guard warns when mode is off in production', function () {
-    Log::spy();
+it('boot-guard throws CaptchaConfigurationException when mode is off in production', function () {
     config([
         'partna.bot_protection.driver' => 'null',
         'partna.bot_protection.mode' => 'off',
@@ -101,15 +100,11 @@ it('boot-guard warns when mode is off in production', function () {
     app()->detectEnvironment(fn () => 'production');
     bp_test_proxies_set('*'); // configure proxies so guard-5 doesn't also fire
 
-    (new BotProtectionServiceProvider(app()))->boot();
-
-    Log::shouldHaveReceived('warning')
-        ->withArgs(fn ($msg) => $msg === 'bot_protection.mode_off_in_production')
-        ->once();
+    expect(fn () => (new BotProtectionServiceProvider(app()))->boot())
+        ->toThrow(CaptchaConfigurationException::class, 'MODE=off in production');
 });
 
-it('boot-guard does not warn for mode off outside production', function () {
-    Log::spy();
+it('boot-guard does not throw for mode off outside production', function () {
     config([
         'partna.bot_protection.driver' => 'null',
         'partna.bot_protection.mode' => 'off',
@@ -117,13 +112,12 @@ it('boot-guard does not warn for mode off outside production', function () {
     app()->detectEnvironment(fn () => 'local');
     bp_test_proxies_set('*');
 
+    // Must not throw
     (new BotProtectionServiceProvider(app()))->boot();
-
-    Log::shouldNotHaveReceived('warning', fn ($msg) => $msg === 'bot_protection.mode_off_in_production');
+    expect(true)->toBeTrue();
 });
 
-it('boot-guard does not warn for mode off in testing env', function () {
-    Log::spy();
+it('boot-guard does not throw for mode off in testing env', function () {
     config([
         'partna.bot_protection.driver' => 'null',
         'partna.bot_protection.mode' => 'off',
@@ -131,16 +125,17 @@ it('boot-guard does not warn for mode off in testing env', function () {
     app()->detectEnvironment(fn () => 'testing');
     bp_test_proxies_set('*');
 
+    // Must not throw
     (new BotProtectionServiceProvider(app()))->boot();
-
-    Log::shouldNotHaveReceived('warning', fn ($msg) => $msg === 'bot_protection.mode_off_in_production');
+    expect(true)->toBeTrue();
 });
 
 it('guard-5 logs warning when trusted proxies are unconfigured in a deployed env', function () {
     Log::spy();
     config([
         'partna.bot_protection.driver' => 'null',
-        'partna.bot_protection.mode' => 'off',
+        // Use shadow (not off) so guard-4's new throw doesn't preempt guard-5.
+        'partna.bot_protection.mode' => 'shadow',
     ]);
     app()->detectEnvironment(fn () => 'production');
     bp_test_proxies_set(null);
@@ -156,7 +151,8 @@ it('guard-5 stays quiet when trusted proxies are configured', function () {
     Log::spy();
     config([
         'partna.bot_protection.driver' => 'null',
-        'partna.bot_protection.mode' => 'off',
+        // Use shadow (not off) so guard-4's new throw doesn't preempt guard-5.
+        'partna.bot_protection.mode' => 'shadow',
     ]);
     app()->detectEnvironment(fn () => 'production');
     bp_test_proxies_set('*');

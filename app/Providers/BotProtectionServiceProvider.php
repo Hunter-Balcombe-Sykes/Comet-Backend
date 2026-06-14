@@ -59,14 +59,14 @@ final class BotProtectionServiceProvider extends ServiceProvider
             }
         }
 
-        // Guard 4: mode=off in production. Soft warn — log only, do not refuse boot.
-        // If .env.example was copied verbatim and BOT_PROTECTION_MODE left as 'off',
-        // every bot.token:* endpoint silently accepts unlimited submissions. Warn so
-        // the misconfiguration surfaces in Nightwatch rather than failing the deploy.
+        // Guard 4: mode=off in production — fail-closed (throws, matching Guards 1-3).
+        // BOT_PROTECTION_MODE=off disables all bot verification on every protected
+        // endpoint; silently accepting unlimited bot submissions in prod is a security
+        // misconfiguration that must block the deploy rather than log a warning.
         if ($env === 'production' && $mode === 'off') {
-            Log::warning('bot_protection.mode_off_in_production', [
-                'note' => 'BOT_PROTECTION_MODE=off disables all bot verification on every protected endpoint; set MODE=shadow or MODE=enforce in production.',
-            ]);
+            throw new CaptchaConfigurationException(
+                'BOT_PROTECTION_MODE=off in production disables all bot verification; set MODE=shadow or MODE=enforce.'
+            );
         }
 
         // Guard 5: Trusted proxies unconfigured. Soft warn — log only, do not refuse boot.
