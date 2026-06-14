@@ -193,6 +193,59 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
     Http::assertNotSent(fn ($req) => str_contains($req->url(), '169.254.169.254'));
 });
 
+// ── JOB-4: an empty scrape hard-fails the job instead of silently "succeeding" ──
+
+it('InstagramConnectJob hard-fails (does not silently succeed) when the scrape returns no profile (JOB-4)', function () {
+    $user = igAsyncUser('igfail1');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturnNull();
+
+    // Partial mock runs the real constructor + handle() but spies only on fail():
+    // a null profile must call $this->fail() so Horizon records a failure (previously
+    // it markFailed()+returned, so Horizon marked the job "succeeded" and hid the
+    // broken connect). The Class[method] form applies partialness before the
+    // constructor runs, so the constructor's onQueue() call passes through.
+    $job = Mockery::mock(
+        InstagramConnectJob::class.'[fail]',
+        [$user->id, 'testuser', $connection->id]
+    );
+    $job->shouldReceive('fail')->once();
+
+    $job->handle($scraper);
+
+    // The happy path must NOT have run — the connection is never marked 'ok'.
+    expect($connection->fresh()->last_refresh_status)->not->toBe('ok');
+});
+
+it('InstagramConnectJob.failed() marks the connection unavailable for the user', function () {
+    $user = igAsyncUser('igfail2');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))
+        ->failed(new RuntimeException('apify down'));
+
+    $connection->refresh();
+    expect($connection->last_refresh_status)->toBe('unavailable');
+    expect($connection->last_refresh_error)->toBe('job_failed');
+    expect((int) $connection->consecutive_failures)->toBe(1);
+});
+
 // ── status endpoint: pending state ───────────────────────────────────────────
 
 it('connectStatus returns pending when the job has not finished yet', function () {

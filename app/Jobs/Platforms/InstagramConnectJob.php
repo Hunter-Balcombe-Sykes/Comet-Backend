@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\Pool;
@@ -28,7 +29,7 @@ use Throwable;
 // The connection row is written with last_refresh_status='pending' by the
 // controller BEFORE this job is dispatched, so the status endpoint can respond
 // before the job runs.
-class InstagramConnectJob implements ShouldQueue
+class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -43,6 +44,11 @@ class InstagramConnectJob implements ShouldQueue
     // One content failure (e.g. Apify returned bad data) should surface quickly
     // rather than silently retrying twice.
     public int $maxExceptions = 2;
+
+    // One auto-connect per connection at a time. The window exceeds $timeout
+    // (150s) so a duplicate dispatch can't slip in, bill a second Apify scrape,
+    // and tear the connection row while the first run is still in flight (LIFE-1).
+    public int $uniqueFor = 180;
 
     // Instagram CDN hosts we'll fetch from. URLs come from the scraper, but we
     // still (1) restrict to known CDN hosts and (2) fetch with redirects DISABLED
@@ -64,6 +70,15 @@ class InstagramConnectJob implements ShouldQueue
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
+    // Key on connection + username: dedups a true duplicate (retry / double-submit
+    // of the same connect, which would re-bill Apify and tear the row), but NOT a
+    // legitimate account switch — the connection row is reused via updateOrCreate,
+    // so connecting a different username must still run (no per-user cooldown).
+    public function uniqueId(): string
+    {
+        return $this->connectionId.':'.$this->username;
+    }
+
     public function handle(InstagramScraper $scraper): void
     {
         // ::find() respects the soft-delete scope, so a null result already covers
@@ -76,7 +91,13 @@ class InstagramConnectJob implements ShouldQueue
         $profile = $scraper->fetchProfile($this->username, $this->userId);
 
         if (! $profile) {
-            $this->markFailed($connection, 'apify_fetch_failed');
+            // Hard-fail loudly so Horizon records a failure and Nightwatch alerts —
+            // a silent markFailed()+return made Horizon mark the job "succeeded",
+            // hiding a broken auto-connect (JOB-4). No retry: re-running re-bills the
+            // Apify scrape. failed() marks the connection 'unavailable' for the user.
+            $this->fail(new \RuntimeException(
+                "Instagram scrape returned no profile for @{$this->username} (user {$this->userId})"
+            ));
 
             return;
         }
@@ -175,8 +196,10 @@ class InstagramConnectJob implements ShouldQueue
             try {
                 Storage::disk('media')->put($path, $response->body());
                 $out[] = Storage::disk('media')->url($path);
-            } catch (Throwable) {
-                // Single image write failure — skip, don't abort the whole batch.
+            } catch (Throwable $e) {
+                // Single image write failure — skip it, don't abort the batch, but
+                // report so a systemic R2 outage surfaces in Nightwatch (OBS-7).
+                report($e);
             }
         }
 
@@ -209,7 +232,10 @@ class InstagramConnectJob implements ShouldQueue
             Storage::disk('media')->put($path, $response->body());
 
             return Storage::disk('media')->url($path);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            // Report so a systemic mirror/R2 failure surfaces in Nightwatch (OBS-7).
+            report($e);
+
             return null;
         }
     }

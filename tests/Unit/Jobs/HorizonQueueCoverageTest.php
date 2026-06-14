@@ -3,6 +3,8 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Platforms\InstagramConnectJob;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -47,6 +49,39 @@ it('cache-warm queue is covered in the local environment', function () {
     expect(envCoversQueue('local', 'cache-warm'))->toBeTrue(
         'cache-warm queue must appear in at least one local supervisor queue list'
     );
+});
+
+it('scraping queue is covered in the production environment (JOB-2)', function () {
+    expect(envCoversQueue('production', 'scraping'))->toBeTrue(
+        'supervisor-scraping must be registered in production — InstagramConnectJob never ran without it'
+    );
+});
+
+it('scraping queue is covered in the development environment (JOB-2)', function () {
+    expect(envCoversQueue('development', 'scraping'))->toBeTrue(
+        'scraping queue must appear in at least one development supervisor queue list'
+    );
+});
+
+it('scraping queue is covered in the local environment (JOB-2)', function () {
+    expect(envCoversQueue('local', 'scraping'))->toBeTrue(
+        'scraping queue must appear in at least one local supervisor queue list'
+    );
+});
+
+it('InstagramConnectJob is dispatched to the scraping queue', function () {
+    expect((new InstagramConnectJob('u', 'someuser', 'c'))->queue)->toBe('scraping');
+});
+
+it('InstagramConnectJob is unique per connection to prevent double-billing Apify (LIFE-1)', function () {
+    $job = new InstagramConnectJob('u', 'someuser', 'conn-123');
+
+    expect($job)->toBeInstanceOf(ShouldBeUnique::class)
+        // Keyed on connection + username so a true duplicate dedups but an account
+        // switch (same row, different username) still runs.
+        ->and($job->uniqueId())->toBe('conn-123:someuser')
+        // Window must outlast the run so a duplicate can't slip in mid-scrape.
+        ->and($job->uniqueFor)->toBeGreaterThanOrEqual($job->timeout);
 });
 
 it('CloudflareCachePurgeJob is dispatched to the cloudflare queue', function () {

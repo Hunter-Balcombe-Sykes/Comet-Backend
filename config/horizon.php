@@ -60,6 +60,7 @@ return [
         'redis:images' => 300,
         'redis:streaming' => 120,
         'redis:mail' => 120,
+        'redis:scraping' => 300,
         'redis_gdpr:gdpr' => 600,
         'redis_video:videos' => 300,
     ],
@@ -207,6 +208,27 @@ return [
             'timeout' => 300,
             'nice' => 10,
         ],
+        // Platform scraping jobs (InstagramConnectJob — billed Apify scrape + parallel
+        // image mirroring, 150s timeout; DeleteMirroredMediaJob cleanup). Isolated on
+        // its own supervisor so a burst of connects can't starve user-facing queues —
+        // and, crucially, so the `scraping` queue is actually consumed (previously no
+        // supervisor ran it, so InstagramConnectJob never executed in any env). External
+        // APIs are rate-limited, not CPU-bound → low process count, nice'd. timeout 180
+        // exceeds the job's 150s so Horizon doesn't SIGKILL mid-scrape (and stays under
+        // the redis connection's retry_after=360 so the job can't be re-queued mid-run).
+        'supervisor-scraping' => [
+            'connection' => 'redis',
+            'queue' => ['scraping'],
+            'balance' => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 180,
+            'nice' => 10,
+        ],
         // Must use the redis_gdpr connection (retry_after=660), NOT the default redis
         // connection (retry_after=360). RedactShopJob has $timeout=600; with the default
         // connection the job would be re-queued mid-run, causing concurrent duplicate
@@ -251,6 +273,7 @@ return [
             'supervisor-analytics' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-streaming' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-images' => ['minProcesses' => 1, 'maxProcesses' => 2],
+            'supervisor-scraping' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-gdpr' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 2],
         ],
@@ -258,7 +281,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -287,7 +310,7 @@ return [
             // redis_gdpr connection (see supervisor-gdpr note above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,

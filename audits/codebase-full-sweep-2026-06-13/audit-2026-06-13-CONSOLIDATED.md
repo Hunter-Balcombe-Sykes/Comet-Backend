@@ -123,13 +123,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B3. 1) `report($e)` first statement in every cited catch; no double-report up the stack. 2) Caller contracts unchanged. 3) No `report()` added to normal control-flow catches. 4) OBS-14 severity corrected without losing the message. 5) `composer test` green.
 
 ### Bundle B4: InstagramConnectJob — fix the broken connect pipeline (4 items) — Effort: M
-- [ ] **Bundle B4 complete**
-- Models: plan=sonnet · impl=sonnet · review=sonnet
+- [x] **Bundle B4 complete** — _prod needs a Horizon restart on deploy to pick up supervisor-scraping; ShouldBeUnique requires CACHE_STORE=redis (the default)_
+- Models: plan=sonnet · impl=sonnet · review=sonnet → opus (prod-config blast radius)
 - Findings:
-    - [ ] **JOB-2** (≡ **OBS-6**) · P1 — dispatches to a `scraping` queue no Horizon supervisor consumes; auto-connect silently broken in all envs — `app/Jobs/Platforms/InstagramConnectJob.php:64`, `config/horizon.php` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **LIFE-1** · P1 — missing `ShouldBeUnique` → double-billed Apify scrapes on retry — `app/Jobs/Platforms/InstagramConnectJob.php:31` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **JOB-4** · P2 — `markFailed()` + return without `$this->fail()`; Horizon marks it "succeeded" on empty scrape — `app/Jobs/Platforms/InstagramConnectJob.php:76` → `audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **OBS-7** · P2 — per-image R2 write failures dropped with empty catch blocks — `app/Jobs/Platforms/InstagramConnectJob.php:178` → `audit-2026-06-13-observability.md`
+    - [x] **JOB-2** (≡ **OBS-6**) · P1 — dispatches to a `scraping` queue no Horizon supervisor consumes; auto-connect silently broken in all envs — `app/Jobs/Platforms/InstagramConnectJob.php:64`, `config/horizon.php` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **LIFE-1** · P1 — missing `ShouldBeUnique` → double-billed Apify scrapes on retry — `app/Jobs/Platforms/InstagramConnectJob.php:31` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **JOB-4** · P2 — `markFailed()` + return without `$this->fail()`; Horizon marks it "succeeded" on empty scrape — `app/Jobs/Platforms/InstagramConnectJob.php:76` → `audit-2026-06-13-job-queue-correctness.md`
+    - [x] **OBS-7** · P2 — per-image R2 write failures dropped with empty catch blocks — `app/Jobs/Platforms/InstagramConnectJob.php:178` → `audit-2026-06-13-observability.md`
 - Rationale: One job class is broken four ways — it never runs (no supervisor), would double-bill if it did (no uniqueness), reports false success, and hides partial failures. Fix as one PR so the whole connect path is correct and observable.
 - Suggested approach: Add a `scraping` supervisor in `config/horizon.php` (all envs) OR repoint the job to an existing consumed queue per JOB-2's What-to-do; add `ShouldBeUnique` + `uniqueId()`; replace the silent `markFailed`+return with `$this->fail(...)` on hard failures; add `report($e)` in the mirror catches. Run `composer test`.
 - Dependencies: Touches `config/horizon.php` (coordinate with any queue-config bundle). Restart Horizon after deploy.
