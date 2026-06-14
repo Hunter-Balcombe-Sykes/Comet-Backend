@@ -397,6 +397,7 @@ class SectionVisibilityService
                 $block->save();
             }
         } catch (\Throwable $e) {
+            report($e);
             Log::warning('Section is_enabled reevaluation failed', [
                 'user_id' => $userId,
                 'site_id' => $siteId,

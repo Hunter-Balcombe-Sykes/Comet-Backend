@@ -68,11 +68,12 @@ it('logs an error and returns empty array on 5xx response', function () {
     expect($liveHandles)->toBe([]);
 });
 
-it('logs critical and returns empty array when token is unavailable', function () {
+it('logs error and returns empty array when token is unavailable', function () {
     $manager = Mockery::mock(StreamingTokenManager::class);
     $manager->shouldReceive('getToken')->with('twitch')->andReturn(null);
 
-    Log::shouldReceive('critical')->once()->with('streaming.auth_failure', Mockery::any());
+    // OBS-14: recoverable auth failure logs at error, not critical.
+    Log::shouldReceive('error')->once()->with('streaming.auth_failure', Mockery::any());
 
     $client = new TwitchApiClient($manager);
     $liveHandles = $client->getLiveHandles(['someuser']);

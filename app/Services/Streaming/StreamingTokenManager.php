@@ -79,7 +79,7 @@ class StreamingTokenManager
             ]);
 
             if (! $response->successful()) {
-                Log::critical('streaming.auth_failure', [
+                Log::error('streaming.auth_failure', [
                     'platform' => $platform,
                     'status' => $response->status(),
                 ]);
@@ -95,7 +95,8 @@ class StreamingTokenManager
 
             return $token;
         } catch (\Throwable $e) {
-            Log::critical('streaming.auth_failure', [
+            report($e);
+            Log::error('streaming.auth_failure', [
                 'platform' => $platform,
                 'message' => $e->getMessage(),
             ]);

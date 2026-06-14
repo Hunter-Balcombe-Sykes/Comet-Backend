@@ -32,7 +32,7 @@ class TwitchApiClient
 
         $token = $this->tokens->getToken('twitch');
         if (! $token) {
-            Log::critical('streaming.auth_failure', ['platform' => 'twitch']);
+            Log::error('streaming.auth_failure', ['platform' => 'twitch']);
 
             return [];
         }
@@ -69,6 +69,7 @@ class TwitchApiClient
                 'user_login'
             ));
         } catch (\Throwable $e) {
+            report($e);
             Log::error('streaming.api_error', [
                 'platform' => 'twitch',
                 'message' => $e->getMessage(),

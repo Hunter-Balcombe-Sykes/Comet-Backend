@@ -49,6 +49,7 @@ class RefreshSmartLinksCommand extends Command
                 $refreshed = $refresher->refresh($link);
                 $refreshed->last_refresh_status === 'ok' ? $ok++ : $failed++;
             } catch (\Throwable $e) {
+                report($e);
                 $failed++;
                 Log::warning('smartlinks:refresh failed for a link', [
                     'smart_link_id' => $link->id,

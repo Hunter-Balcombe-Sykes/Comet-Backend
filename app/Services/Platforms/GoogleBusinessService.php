@@ -158,7 +158,7 @@ class GoogleBusinessService extends PlatformScraper
         // Photo refs → servable image URLs (one billed media call per photo,
         // pooled). Street View availability is a free metadata probe.
         if (isset($mapped['photos']) && is_array($mapped['photos'])) {
-            $mapped['photos'] = $this->resolvePhotoUrls($key, $mapped['photos']);
+            $mapped['photos'] = $this->resolvePhotoUrls($key, $placeId, $mapped['photos']);
         }
         if (isset($mapped['lat'], $mapped['lng'])
             && ($pano = $this->streetViewPano($key, (float) $mapped['lat'], (float) $mapped['lng'])) !== null) {
@@ -306,7 +306,7 @@ class GoogleBusinessService extends PlatformScraper
      * @param  array<int, array<string,mixed>>  $photos
      * @return array<int, array<string,mixed>>
      */
-    private function resolvePhotoUrls(string $key, array $photos): array
+    private function resolvePhotoUrls(string $key, string $placeId, array $photos): array
     {
         try {
             $responses = Http::pool(fn (Pool $pool) => array_map(
@@ -320,7 +320,11 @@ class GoogleBusinessService extends PlatformScraper
                 array_values($photos),
             ));
         } catch (\Throwable $e) {
-            Log::warning('google_business.photo_resolve_failed', ['message' => $e->getMessage()]);
+            report($e);
+            Log::warning('google_business.photo_resolve_failed', [
+                'place_id' => $placeId,
+                'message' => $e->getMessage(),
+            ]);
 
             return $photos;
         }
@@ -352,7 +356,14 @@ class GoogleBusinessService extends PlatformScraper
                 'source' => 'outdoor',
                 'key' => $key,
             ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('google_business.streetview_probe_failed', [
+                'lat' => $lat,
+                'lng' => $lng,
+                'message' => $e->getMessage(),
+            ]);
+
             return null;
         }
 

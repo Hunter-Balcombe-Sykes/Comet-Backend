@@ -42,7 +42,7 @@ class KickApiClient
 
         $token = $this->tokens->getToken('kick');
         if (! $token) {
-            Log::critical('streaming.auth_failure', ['platform' => 'kick']);
+            Log::error('streaming.auth_failure', ['platform' => 'kick']);
 
             return [];
         }
@@ -96,6 +96,7 @@ class KickApiClient
         } catch (KickRateLimitException $e) {
             throw $e; // poller handles
         } catch (\Throwable $e) {
+            report($e);
             Log::error('streaming.api_error', [
                 'platform' => 'kick',
                 'message' => $e->getMessage(),

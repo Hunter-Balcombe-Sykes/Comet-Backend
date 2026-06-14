@@ -94,17 +94,17 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B2. 1) `Set-Cookie` stripped on primary + stale-shadow puts; no path caches it. 2) `applySecurityHeaders` (incl. CSP) hits preview, non-GET, 503, and all pass-through returns. 3) Cache key normalised/allowlisted — no unbounded variant explosion; legitimate query params preserved. 4) Alias redirect validated as same-site absolute. 5) CSP verified against a live Astro render (no console blocks). 6) `wrangler` deploy/preview clean.
 
 ### Bundle B3: Vendor/stream exception-reporting sweep (8 items) — Effort: S
-- [ ] **Bundle B3 complete**
+- [x] **Bundle B3 complete**
 - Models: plan=— · impl=haiku · review=sonnet
 - Findings:
-    - [ ] **OBS-1** · P1 — `RefreshSmartLinksCommand` swallows per-link exceptions, no alert — `app/Console/Commands/RefreshSmartLinksCommand.php:51` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-3** · P1 — `TwitchApiClient::getLiveHandles` swallows transport exceptions — `app/Services/Streaming/TwitchApiClient.php:71` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-4** · P1 — `KickApiClient::getLiveHandles` swallows non-rate-limit exceptions — `app/Services/Streaming/KickApiClient.php:98` → `audit-2026-06-13-observability.md`
-    - [ ] **OBS-5** · P1 — `StreamingTokenManager::refreshToken` swallows auth-credential failures — `app/Services/Streaming/StreamingTokenManager.php:81` → `audit-2026-06-13-observability.md`
-    - [ ] **LIFE-8** · P3 — `SectionVisibilityService::reevaluateEnabled` swallows `\Throwable` — `app/Services/User/SectionVisibilityService.php:392` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **LIFE-9** · P3 — `GoogleBusinessService::streetViewPano` catches `\Throwable` with no log — `app/Services/Platforms/GoogleBusinessService.php:355` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **LIFE-10** · P3 — `GoogleBusinessService::resolvePhotoUrls` logs without `placeId` — `app/Services/Platforms/GoogleBusinessService.php:322` → `audit-2026-06-13-lifecycle-correctness.md`
-    - [ ] **OBS-14** · P3 — `Log::critical` severity inflation on recoverable streaming auth paths — `app/Services/Streaming/KickApiClient.php:45` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-1** · P1 — `RefreshSmartLinksCommand` swallows per-link exceptions, no alert — `app/Console/Commands/RefreshSmartLinksCommand.php:51` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-3** · P1 — `TwitchApiClient::getLiveHandles` swallows transport exceptions — `app/Services/Streaming/TwitchApiClient.php:71` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-4** · P1 — `KickApiClient::getLiveHandles` swallows non-rate-limit exceptions — `app/Services/Streaming/KickApiClient.php:98` → `audit-2026-06-13-observability.md`
+    - [x] **OBS-5** · P1 — `StreamingTokenManager::refreshToken` swallows auth-credential failures — `app/Services/Streaming/StreamingTokenManager.php:81` → `audit-2026-06-13-observability.md`
+    - [x] **LIFE-8** · P3 — `SectionVisibilityService::reevaluateEnabled` swallows `\Throwable` — `app/Services/User/SectionVisibilityService.php:392` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **LIFE-9** · P3 — `GoogleBusinessService::streetViewPano` catches `\Throwable` with no log — `app/Services/Platforms/GoogleBusinessService.php:355` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **LIFE-10** · P3 — `GoogleBusinessService::resolvePhotoUrls` logs without `placeId` — `app/Services/Platforms/GoogleBusinessService.php:322` → `audit-2026-06-13-lifecycle-correctness.md`
+    - [x] **OBS-14** · P3 — `Log::critical` severity inflation on recoverable streaming auth paths — `app/Services/Streaming/KickApiClient.php:45` → `audit-2026-06-13-observability.md`
 - Rationale: Identical mechanical pattern — a swallowed/under-reported exception in a service method. Adding `report($e)` (and fixing one log severity / one missing context key) across eight call sites is one focused sweep with no interaction effects.
 - Suggested approach: For each cited catch, add `report($e)` as the first statement before the existing log/return. OBS-14: downgrade `Log::critical`→`Log::warning`. LIFE-10: add `placeId` to the log context. Run `composer test`.
 - Dependencies: None.

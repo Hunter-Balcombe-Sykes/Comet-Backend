@@ -80,11 +80,12 @@ it('returns empty array and logs error on 5xx', function () {
     expect($client->getLiveHandles(['anyuser']))->toBe([]);
 });
 
-it('returns empty array and logs critical when token is unavailable', function () {
+it('returns empty array and logs error when token is unavailable', function () {
     $manager = Mockery::mock(StreamingTokenManager::class);
     $manager->shouldReceive('getToken')->with('kick')->andReturn(null);
 
-    Log::shouldReceive('critical')->once()->with('streaming.auth_failure', Mockery::any());
+    // OBS-14: recoverable auth failure logs at error, not critical.
+    Log::shouldReceive('error')->once()->with('streaming.auth_failure', Mockery::any());
 
     $client = new KickApiClient($manager);
     expect($client->getLiveHandles(['anyuser']))->toBe([]);
