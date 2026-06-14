@@ -48,7 +48,7 @@ class ProcessImageVariantsJob implements ShouldQueue
         public readonly string $basePath,
         public readonly string $siteId = '',
     ) {
-        $this->onQueue('images');
+        $this->onQueue(config('partna.queues.images', 'images'));
     }
 
     public function handle(ImageVariantService $service): void

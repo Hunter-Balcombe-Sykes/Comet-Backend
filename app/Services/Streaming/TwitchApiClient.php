@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Log;
  */
 class TwitchApiClient
 {
-    private const STREAMS_URL = 'https://api.twitch.tv/helix/streams';
+    // Fallback URL — overridden at runtime by config('services.twitch.streams_url').
+    private const STREAMS_URL_DEFAULT = 'https://api.twitch.tv/helix/streams';
 
     public function __construct(
         private StreamingTokenManager $tokens
@@ -46,10 +47,11 @@ class TwitchApiClient
         ));
 
         try {
+            $streamsUrl = (string) config('services.twitch.streams_url', self::STREAMS_URL_DEFAULT);
             $response = Http::withHeaders([
                 'Authorization' => "Bearer {$token}",
                 'Client-ID' => (string) config('services.twitch.client_id'),
-            ])->get(self::STREAMS_URL.'?'.$query);
+            ])->get($streamsUrl.'?'.$query);
 
             if ($response->status() === 429) {
                 $retryAfter = (int) $response->header('Retry-After') ?: null;

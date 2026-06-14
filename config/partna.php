@@ -235,6 +235,15 @@ return [
         // Hard cap on blocks with live_check_enabled=true per site — prevents a single
         // user from monopolizing the polling budget. Enforced in UpdateLinkBlockRequest.
         'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 5)),
+
+        // Cold-handle demotion TTLs (seconds). Handles offline for N consecutive reads
+        // get a longer TTL, skipping most API budget on rarely-live handles.
+        // LiveStatusPoller reads these at runtime so they can be tuned without redeploy.
+        'live_ttl_seconds' => (int) env('PARTNA_STREAMING_LIVE_TTL', 180),
+        'warm_offline_ttl' => (int) env('PARTNA_STREAMING_WARM_OFFLINE_TTL', 180),
+        'cool_offline_ttl' => (int) env('PARTNA_STREAMING_COOL_OFFLINE_TTL', 600),
+        'cold_offline_ttl' => (int) env('PARTNA_STREAMING_COLD_OFFLINE_TTL', 1800),
+        'ttl_skip_threshold' => (int) env('PARTNA_STREAMING_TTL_SKIP_THRESHOLD', 60),
     ],
 
     'limits' => [
@@ -794,6 +803,8 @@ return [
     'analytics_raw_event_retention_days' => (int) env('PARTNA_ANALYTICS_RAW_EVENT_RETENTION_DAYS', env('ANALYTICS_RAW_EVENT_RETENTION_DAYS', 90)),
 
     'throttle' => [
+        // Intentionally defaults true (unlike other *_ENABLED flags): rate limiting is a protective
+        // security control, not an opt-in feature — fail-closed = ON.
         'enabled' => (bool) env('PARTNA_THROTTLE_ENABLED', env('SIDEST_THROTTLE_ENABLED', true)),
         // Max notification emails sent per brand inbox per hour regardless of how many enquiries arrive.
         'enquiry_notification_per_hour' => (int) env('PARTNA_ENQUIRY_NOTIFY_PER_HOUR', env('SIDEST_ENQUIRY_NOTIFY_PER_HOUR', 10)),
@@ -986,6 +997,19 @@ return [
         // Transactional confirmation emails (enquiry + subscription). Set
         // PARTNA_QUEUE_NOTIFICATIONS in .env to route to a different lane.
         'notifications' => env('PARTNA_QUEUE_NOTIFICATIONS', 'notifications'),
+        // Staff broadcast leaf job emails (SendStaffBroadcastEmailToSubscriberJob batches).
+        'mail' => env('PARTNA_QUEUE_MAIL', 'mail'),
+        // Cloudflare KV sync and cache-purge jobs.
+        'cloudflare' => env('PARTNA_QUEUE_CLOUDFLARE', 'cloudflare'),
+        // Public site cache pre-warm (WarmPublicSiteCacheJob).
+        // NOTE: value keeps the hyphen to match the Horizon supervisor-cache-warm lane.
+        'cache_warm' => env('PARTNA_QUEUE_CACHE_WARM', 'cache-warm'),
+        // Image variant processing (ProcessImageVariantsJob).
+        'images' => env('PARTNA_QUEUE_IMAGES', 'images'),
+        // Streaming live-status polling (CheckStreamingLiveStatusJob).
+        'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
+        // Platform scraping jobs (InstagramConnectJob etc).
+        'scraping' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
     ],
 
     'video_variants' => [
@@ -1205,9 +1229,9 @@ return [
         'shadow_timeout_ms' => 500,
 
         'circuit_breaker' => [
-            'failure_threshold' => 5,
-            'window_seconds' => 60,
-            'cooldown_seconds' => 300,
+            'failure_threshold' => (int) env('BOT_PROTECTION_CB_FAILURE_THRESHOLD', 5),
+            'window_seconds' => (int) env('BOT_PROTECTION_CB_WINDOW_SECONDS', 60),
+            'cooldown_seconds' => (int) env('BOT_PROTECTION_CB_COOLDOWN_SECONDS', 300),
         ],
 
         'drivers' => [

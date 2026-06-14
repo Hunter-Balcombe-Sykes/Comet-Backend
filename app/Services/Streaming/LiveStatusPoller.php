@@ -26,16 +26,17 @@ class LiveStatusPoller
 
     private const KICK_RATE_LIMITED_TTL = 300;
 
-    // TTLs by tier. Keys stale at TTL <= TTL_SKIP_THRESHOLD are re-polled.
-    private const LIVE_TTL_SECONDS = 180;        // Live handle — freshness 2 min
+    // TTL defaults — actual values read from config('partna.streaming.*') at runtime
+    // so ops can tune demotion aggressiveness without a code deploy.
+    private const LIVE_TTL_DEFAULT = 180;
 
-    private const WARM_OFFLINE_TTL = 180;         // 1-2 offline reads — still poll every cycle
+    private const WARM_OFFLINE_DEFAULT = 180;
 
-    private const COOL_OFFLINE_TTL = 600;         // 3-10 offline reads — poll ~every 10 min
+    private const COOL_OFFLINE_DEFAULT = 600;
 
-    private const COLD_OFFLINE_TTL = 1800;        // 11+ offline reads — poll ~every 30 min
+    private const COLD_OFFLINE_DEFAULT = 1800;
 
-    private const TTL_SKIP_THRESHOLD = 60;        // Skip handles whose TTL hasn't dropped under 60s yet
+    private const TTL_SKIP_DEFAULT = 60;
 
     private const TWITCH_BATCH_SIZE = 100;
 
@@ -118,7 +119,7 @@ class LiveStatusPoller
         $countKey = self::OFFLINE_COUNT_PREFIX."{$platform}:{$handle}";
 
         if ($isLive) {
-            Redis::set($liveKey, '1', 'EX', self::LIVE_TTL_SECONDS);
+            Redis::set($liveKey, '1', 'EX', (int) config('partna.streaming.live_ttl_seconds', self::LIVE_TTL_DEFAULT));
             Redis::del($countKey);
 
             return;
@@ -130,9 +131,9 @@ class LiveStatusPoller
         Redis::expire($countKey, 86400);
 
         $ttl = match (true) {
-            $count >= 11 => self::COLD_OFFLINE_TTL,
-            $count >= 3 => self::COOL_OFFLINE_TTL,
-            default => self::WARM_OFFLINE_TTL,
+            $count >= 11 => (int) config('partna.streaming.cold_offline_ttl', self::COLD_OFFLINE_DEFAULT),
+            $count >= 3 => (int) config('partna.streaming.cool_offline_ttl', self::COOL_OFFLINE_DEFAULT),
+            default => (int) config('partna.streaming.warm_offline_ttl', self::WARM_OFFLINE_DEFAULT),
         };
 
         Redis::set($liveKey, '0', 'EX', $ttl);
@@ -154,7 +155,7 @@ class LiveStatusPoller
             $ttl = Redis::ttl($key);
 
             // -2 = key doesn't exist, -1 = no TTL, any value <= threshold = stale
-            return $ttl < self::TTL_SKIP_THRESHOLD;
+            return $ttl < (int) config('partna.streaming.ttl_skip_threshold', self::TTL_SKIP_DEFAULT);
         }));
     }
 }

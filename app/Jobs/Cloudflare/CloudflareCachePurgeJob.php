@@ -56,7 +56,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     ) {
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery.
-        $this->onQueue('cloudflare');
+        $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
     }
 
     public function handle(CloudflarePurgeService $purge): void

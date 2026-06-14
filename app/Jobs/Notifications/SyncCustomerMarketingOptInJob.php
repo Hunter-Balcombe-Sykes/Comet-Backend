@@ -41,7 +41,7 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
         public readonly string $userId,
         public readonly string $subscriptionId,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void

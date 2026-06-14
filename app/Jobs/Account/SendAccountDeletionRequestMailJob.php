@@ -49,7 +49,7 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
         public readonly string $confirmationUrl,
         public readonly string $tokenHash,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
         // afterCommit prevents the worker from picking up the job before
         // AccountDeletionService::request()'s wrapping DB::transaction commits.
         // Set on the instance (not as a typed property) because the Queueable

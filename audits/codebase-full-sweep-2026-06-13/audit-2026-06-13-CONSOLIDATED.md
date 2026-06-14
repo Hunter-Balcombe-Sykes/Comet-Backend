@@ -413,16 +413,16 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B14. 1) All cited keys present in `.env.example`; none missing vs `EnvCheckService::REQUIRED`. 2) Defaults are safe (no secrets, no prod values). 3) `GDPR_REDACT_PLACEHOLDER_DOMAIN` matches the config default. 4) `.env` unmodified. 5) `composer test` green.
 
 ### Bundle B15: Config fail-safe + hardcoded→config (7 items) — Effort: M
-- [ ] **Bundle B15 complete**
+- [x] **Bundle B15 complete** — _CFG-6 resolved by comment, NOT default-flip: throttle is a protective security control; defaulting it false would be a fail-open regression (per the backref's own recommendation)._
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **CFG-4** · P2 — Supabase webhook HMAC secrets absent from `EnvCheckService`; missing secrets give a false `status: ok` while hooks 503 — `app/Services/Diagnostics/EnvCheckService.php:23` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-5** · P2 — `MediaDiskResolver` superglobal probe invisible to `EnvCheckService`; cached-vs-runtime disk split — `app/Services/Media/MediaDiskResolver.php:33` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-6** · P3 — `PARTNA_THROTTLE_ENABLED` defaults `true`, inconsistent with the `false` baseline of other flags — `config/partna.php:797` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-9** · P3 — Queue names hardcoded in 13 jobs while 4 use `config()`; an env rename strands the hardcoded ones — multiple jobs → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-10** · P3 — `CircuitBreaker` constructor defaults ignore `config/partna.php` circuit-breaker values — `app/Services/BotProtection/CircuitBreaker.php:10` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-11** · P3 — `LiveStatusPoller` cold-demotion TTLs hardcoded, no config path — `app/Services/Streaming/LiveStatusPoller.php:26` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-12** · P3 — Twitch/Kick API base URLs hardcoded as class constants — `app/Services/Streaming/KickApiClient.php:20` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-4** · P2 — Supabase webhook HMAC secrets absent from `EnvCheckService`; missing secrets give a false `status: ok` while hooks 503 — `app/Services/Diagnostics/EnvCheckService.php:23` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-5** · P2 — `MediaDiskResolver` superglobal probe invisible to `EnvCheckService`; cached-vs-runtime disk split — `app/Services/Media/MediaDiskResolver.php:33` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-6** · P3 — `PARTNA_THROTTLE_ENABLED` defaults `true`, inconsistent with the `false` baseline of other flags — `config/partna.php:797` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-9** · P3 — Queue names hardcoded in 13 jobs while 4 use `config()`; an env rename strands the hardcoded ones — multiple jobs → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-10** · P3 — `CircuitBreaker` constructor defaults ignore `config/partna.php` circuit-breaker values — `app/Services/BotProtection/CircuitBreaker.php:10` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-11** · P3 — `LiveStatusPoller` cold-demotion TTLs hardcoded, no config path — `app/Services/Streaming/LiveStatusPoller.php:26` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-12** · P3 — Twitch/Kick API base URLs hardcoded as class constants — `app/Services/Streaming/KickApiClient.php:20` → `audit-2026-06-13-configuration-hygiene.md`
 - Rationale: Two are fail-safe gaps (a missing secret reports healthy; CFG-4 in particular masks total hook failure), the rest are hardcoded values that should read `config()` so they're tunable without a deploy. Grouped as "make config honest".
 - Suggested approach: Add the HMAC secrets + media-disk probe to `EnvCheckService::REQUIRED` (CFG-4/5); flip `PARTNA_THROTTLE_ENABLED` default to `false` (CFG-6); route the 13 hardcoded queue names + CircuitBreaker/poller/base-URL constants through `config()` (CFG-9/10/11/12). Run `composer test`.
 - Dependencies: CFG-9 overlaps B4 (InstagramConnectJob queue) — coordinate so the queue name resolves consistently.

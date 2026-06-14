@@ -57,7 +57,7 @@ class SendStaffBroadcastEmailsJob implements ShouldBeUnique, ShouldQueue
     ) {
         // Coordinator job: long chunkById walk over EmailSubscription. Keep it off
         // the default queue so a large broadcast doesn't back-pressure unrelated work.
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
@@ -91,7 +91,7 @@ class SendStaffBroadcastEmailsJob implements ShouldBeUnique, ShouldQueue
                 // a single failure cancels remaining (still-pending) jobs in the batch.
                 foreach (array_chunk($jobs, (int) config('partna.notifications.batch_chunk_size', 200)) as $chunk) {
                     $batch = Bus::batch($chunk)
-                        ->onQueue('mail')
+                        ->onQueue(config('partna.queues.mail', 'mail'))
                         ->name('staff-broadcast:'.$notification->id)
                         ->allowFailures()
                         ->dispatch();

@@ -61,7 +61,7 @@ class InstagramConnectJob implements ShouldQueue
         public readonly string $username,
         public readonly string $connectionId,
     ) {
-        $this->onQueue('scraping');
+        $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
     public function handle(InstagramScraper $scraper): void

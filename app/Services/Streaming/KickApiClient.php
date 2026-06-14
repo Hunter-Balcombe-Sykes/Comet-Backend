@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Log;
  */
 class KickApiClient
 {
-    private const CHANNELS_URL = 'https://api.kick.com/public/v1/channels';
+    // Fallback URL — overridden at runtime by config('services.kick.channels_url').
+    private const CHANNELS_URL_DEFAULT = 'https://api.kick.com/public/v1/channels';
 
     public const KICK_BATCH_SIZE = 50;
 
@@ -48,10 +49,11 @@ class KickApiClient
         }
 
         try {
+            $channelsUrl = (string) config('services.kick.channels_url', self::CHANNELS_URL_DEFAULT);
             $response = Http::withHeaders([
                 'Authorization' => "Bearer {$token}",
                 'Accept' => 'application/json',
-            ])->get(self::CHANNELS_URL, ['slug' => $handles]);
+            ])->get($channelsUrl, ['slug' => $handles]);
 
             if ($response->status() === 429) {
                 $retryAfter = (int) ($response->header('Retry-After') ?? 60);

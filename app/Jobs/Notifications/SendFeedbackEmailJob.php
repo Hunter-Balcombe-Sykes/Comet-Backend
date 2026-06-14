@@ -36,7 +36,7 @@ class SendFeedbackEmailJob implements ShouldQueue
     public function __construct(
         public readonly string $feedbackId,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void

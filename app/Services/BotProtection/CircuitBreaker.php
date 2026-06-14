@@ -7,11 +7,23 @@ use Illuminate\Support\Facades\Redis;
 
 final class CircuitBreaker
 {
+    private int $failureThreshold;
+
+    private int $windowSeconds;
+
+    private int $cooldownSeconds;
+
     public function __construct(
-        private int $failureThreshold = 5,
-        private int $windowSeconds = 60,
-        private int $cooldownSeconds = 300,
-    ) {}
+        ?int $failureThreshold = null,
+        ?int $windowSeconds = null,
+        ?int $cooldownSeconds = null,
+    ) {
+        // Coalesce to config so ops can tune thresholds without a code deploy.
+        // Explicit args (e.g. from tests) override config when supplied.
+        $this->failureThreshold = $failureThreshold ?? (int) config('partna.bot_protection.circuit_breaker.failure_threshold', 5);
+        $this->windowSeconds = $windowSeconds ?? (int) config('partna.bot_protection.circuit_breaker.window_seconds', 60);
+        $this->cooldownSeconds = $cooldownSeconds ?? (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300);
+    }
 
     public function isOpen(string $driver): bool
     {

@@ -53,6 +53,12 @@ class EnvCheckService
             'supabase.jwks_url' => 'SUPABASE_JWKS_URL',
             'supabase.service_role_key' => 'SUPABASE_SERVICE_ROLE_KEY',
         ],
+        'Supabase Webhooks' => [
+            // Auth hook secret (VerifySupabaseAuthHookSignature) — missing = every auth hook delivery 503s.
+            'supabase.auth_hook_secret' => 'SUPABASE_AUTH_HOOK_SECRET',
+            // Email hook secret (VerifySupabaseEmailHookSignature) — missing = every send-email hook delivery 503s.
+            'services.supabase.email_hook_secret' => 'SUPABASE_EMAIL_HOOK_SECRET',
+        ],
         'Cloudflare (DNS + KV + Purge)' => [
             'services.cloudflare.zone_id' => 'CLOUDFLARE_ZONE_ID',
             'services.cloudflare.account_id' => 'CLOUDFLARE_ACCOUNT_ID',
@@ -91,6 +97,12 @@ class EnvCheckService
         ],
         'Analytics' => [
             'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
+        ],
+        'Media' => [
+            // Drift between this config value and the $_ENV superglobal probe in
+            // MediaDiskResolver emits a Log::info breadcrumb but still works — listed
+            // here so a staging deploy with a mismatched env surfaces in the report.
+            'partna.media_disk' => 'PARTNA_MEDIA_DISK',
         ],
     ];
 

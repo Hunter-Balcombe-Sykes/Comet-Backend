@@ -28,7 +28,7 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
     public function __construct()
     {
         // Isolated queue prevents the 90s polling window from blocking short jobs on default.
-        $this->onQueue('streaming');
+        $this->onQueue(config('partna.queues.streaming', 'streaming'));
     }
 
     public int $timeout = 90;

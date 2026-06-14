@@ -60,7 +60,7 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
     ) {
         // Isolated from user-facing work so a burst of platform-connection writes
         // can't delay notifications or mail delivery.
-        $this->onQueue('cloudflare');
+        $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
     }
 
     // Include the retire-domain in the unique key so a domain-removal sync is not

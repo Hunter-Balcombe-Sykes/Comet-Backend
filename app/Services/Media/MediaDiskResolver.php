@@ -23,6 +23,9 @@ use Illuminate\Support\Facades\Log;
  * The direct $_ENV/$_SERVER probes are intentional: Laravel Cloud caches
  * config at deploy time but injects platform env vars into the process
  * environment at runtime, so env()/config() won't reflect them.
+ *
+ * IMPORTANT: Always call resolve() rather than reading config('partna.media_disk')
+ * directly — the superglobal probe may override config at runtime.
  */
 final class MediaDiskResolver
 {
@@ -33,7 +36,18 @@ final class MediaDiskResolver
         $explicit = $_ENV['PARTNA_MEDIA_DISK'] ?? $_SERVER['PARTNA_MEDIA_DISK']
             ?? $_ENV['SIDEST_MEDIA_DISK'] ?? $_SERVER['SIDEST_MEDIA_DISK'] ?? null;
         if (is_string($explicit) && trim($explicit) !== '') {
-            return trim($explicit);
+            $resolved = trim($explicit);
+            // Log a breadcrumb when the runtime superglobal diverges from the config value —
+            // turns a silent split (images and videos landing in different buckets) into a
+            // visible event. Does not change resolution order.
+            if ($resolved !== $configured) {
+                Log::info('media.disk_runtime_override', [
+                    'resolved' => $resolved,
+                    'configured' => $configured,
+                ]);
+            }
+
+            return $resolved;
         }
 
         if ($configured === 'media') {

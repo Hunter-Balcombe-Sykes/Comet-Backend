@@ -51,7 +51,7 @@ class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
         // Isolated on its own queue so a burst of cache-warm dispatches after a
         // publish event doesn't compete with user-facing notifications or mail.
         // Workers are configured in config/horizon.php under supervisor-cache-warm.
-        $this->onQueue('cache-warm');
+        $this->onQueue(config('partna.queues.cache_warm', 'cache-warm'));
     }
 
     public function handle(

@@ -67,7 +67,7 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
         public readonly string $category,
         public readonly string $userId,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
