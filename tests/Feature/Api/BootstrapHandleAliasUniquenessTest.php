@@ -107,7 +107,10 @@ function validBootstrapPayload(array $overrides = []): array
         'primary_email' => 'testuser@example.com',
         'phone' => '0400000000',
         'first_name' => 'Test',
-        'account_type' => 'individual',
+        // Post account-type merge, BootstrapRequest rejects 'individual'
+        // (Rule::in([partna, business])). Use a currently-valid type so these
+        // fixtures exercise handle/alias uniqueness, not account_type validation.
+        'account_type' => 'partna',
     ], $overrides);
 }
 

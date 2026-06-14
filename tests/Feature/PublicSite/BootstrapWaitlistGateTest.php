@@ -14,6 +14,11 @@ beforeEach(function () {
     // TestCase::setUp redirects 'pgsql' to in-memory SQLite. Use the shared
     // helper to attach 'core' and create core.users.
     setupUsersTable();
+    // The 200 path serialises the professional via UserDashboardResource, which
+    // reads $this->site?->custom_domain (custom-domain merge) — so site.sites must
+    // exist or the resource throws "no such table". Empty table → $this->site is
+    // null → the null-safe reads return null, which is all this gate test needs.
+    setupSitesTable();
 })->group('bootstrap-waitlist-gate');
 
 it('blocks bootstrap for new users when waitlist mode is enabled', function () {
