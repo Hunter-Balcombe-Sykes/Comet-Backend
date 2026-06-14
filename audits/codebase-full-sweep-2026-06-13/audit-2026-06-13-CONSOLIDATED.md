@@ -387,14 +387,14 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B13. 1) Fail-open branches `report()` but rate-limited (no Nightwatch flood under sustained Redis outage). 2) `SendFeedbackEmailJob` discard reported. 3) `Log::debug` calls env-guarded; no behaviour change. 4) `composer test` green.
 
 ### Bundle B14: .env.example documentation drift (5 items) — Effort: S
-- [ ] **Bundle B14 complete**
+- [x] **Bundle B14 complete**
 - Models: plan=— · impl=haiku · review=sonnet
 - Findings:
-    - [ ] **CFG-1** · P2 — `FRONTEND_URL` consumed by code + `EnvCheckService::REQUIRED` but absent from `.env.example` — `config/app.php:18`, `app/Services/Diagnostics/EnvCheckService.php:29` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-2** · P2 — Five `config/services.php` keys used by active features absent from `.env.example` — `config/services.php:18,59` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-3** · P2 — Fourteen operational-tuning env keys absent from `.env.example` — `config/partna.php`, `config/queue.php:101` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-7** · P3 — `.env.example` has `GDPR_REDACT_PLACEHOLDER_DOMAIN=gdpr.sidest.io`; config default is `gdpr.partna.au` — `.env.example:292` → `audit-2026-06-13-configuration-hygiene.md`
-    - [ ] **CFG-8** · P3 — Four queue-connection tuning vars absent from `.env.example` — `config/queue.php:72` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-1** · P2 — `FRONTEND_URL` consumed by code + `EnvCheckService::REQUIRED` but absent from `.env.example` — `config/app.php:18`, `app/Services/Diagnostics/EnvCheckService.php:29` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-2** · P2 — Five `config/services.php` keys used by active features absent from `.env.example` — `config/services.php:18,59` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-3** · P2 — Fourteen operational-tuning env keys absent from `.env.example` — `config/partna.php`, `config/queue.php:101` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-7** · P3 — `.env.example` has `GDPR_REDACT_PLACEHOLDER_DOMAIN=gdpr.sidest.io`; config default is `gdpr.partna.au` — `.env.example:292` → `audit-2026-06-13-configuration-hygiene.md`
+    - [x] **CFG-8** · P3 — Four queue-connection tuning vars absent from `.env.example` — `config/queue.php:72` → `audit-2026-06-13-configuration-hygiene.md`
 - Rationale: Pure documentation drift — keys the code reads but a new deploy can't discover from `.env.example` (or has the wrong stale value). Zero logic change; one edit to `.env.example` (do NOT touch `.env`).
 - Suggested approach: Add every cited key to `.env.example` with a safe default + a one-line comment; fix the stale `GDPR_REDACT_PLACEHOLDER_DOMAIN` value to `gdpr.partna.au`. Confirm against `EnvCheckService::REQUIRED`.
 - Dependencies: None. (CLAUDE.md: never modify `.env` directly — only `.env.example`.)
