@@ -225,12 +225,12 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B7. 1) SEC-1: a `site_id`-only payload no longer resolves to any tenant's site; all four analytics requests enforce it; the route/header subdomain merge still works for legit beacons. 2) SEC-6: honeypot + timing present and validated. 3) SEC-3: `LIBXML_NONET` set; parser can't make network calls. 4) SEC-11: prod boot fails closed on `mode=off`; non-prod still permissive. 5) `composer test` green; a test asserts the IDOR is closed. Review with opus (tenant isolation).
 
 ### Bundle B8: Webhook & MFA idempotency hardening (3 items) — Effort: S
-- [ ] **Bundle B8 complete**
+- [x] **Bundle B8 complete**
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **WHK-1** · P0 — Auth-hook dedup anchor not reverted on `record()` failure; a brute-force reject silently flips to "allow" on Supabase's retry — `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:73,92,108` → `audit-2026-06-13-webhook-idempotency.md`
-    - [ ] **WHK-2** · P2 — Auth-hook dedup conditional on a non-empty `webhook-id`; not hardened against a missing header — `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:44` → `audit-2026-06-13-webhook-idempotency.md`
-    - [ ] **WHK-3** · P2 — Email-hook has the same conditional-dedup latent gap — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php:72` → `audit-2026-06-13-webhook-idempotency.md`
+    - [x] **WHK-1** · P0 — Auth-hook dedup anchor not reverted on `record()` failure; a brute-force reject silently flips to "allow" on Supabase's retry — `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:73,92,108` → `audit-2026-06-13-webhook-idempotency.md`
+    - [x] **WHK-2** · P2 — Auth-hook dedup conditional on a non-empty `webhook-id`; not hardened against a missing header — `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:44` → `audit-2026-06-13-webhook-idempotency.md`
+    - [x] **WHK-3** · P2 — Email-hook has the same conditional-dedup latent gap — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php:72` → `audit-2026-06-13-webhook-idempotency.md`
 - Rationale: All three are the Supabase hook idempotency contract. WHK-1 is a security bypass (MFA lockout → allow); WHK-2/3 are the latent missing-header variant of the same dedup logic. Fixing together brings both hooks to parity.
 - Suggested approach: Wrap the three `record()` calls in `try/catch`, `Cache::forget` the anchor + return 500 on failure (mirror the email hook's existing pattern); treat a missing `webhook-id` as fail-closed (reject) rather than skipping dedup. Add a test that mocks `record()` throwing and asserts the anchor is cleared.
 - Dependencies: None. Security-critical — sequence early.

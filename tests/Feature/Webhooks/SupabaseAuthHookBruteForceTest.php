@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use App\Services\Auth\AuthFactorEventRepository;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -123,4 +126,72 @@ it('returns reject on the 6th failed attempt in the window', function () {
         ->where('event_type', 'verify_rejected_by_hook')
         ->first();
     expect($rejection)->not->toBeNull();
+});
+
+it('WHK-1: reverts the dedup anchor and returns 500 when record() throws', function () {
+    $webhookId = 'msg_'.Str::uuid();
+
+    // Simulate a DB outage: every record() write throws.
+    $this->mock(AuthFactorEventRepository::class, function ($mock) {
+        $mock->shouldReceive('record')->andThrow(new RuntimeException('db outage'));
+        $mock->shouldReceive('countRecentFailures')->andReturn(0);
+    });
+
+    postSignedHook([
+        'user_id' => (string) Str::uuid(),
+        'factor_id' => (string) Str::uuid(),
+        'factor_type' => 'totp',
+        'valid' => true,
+    ], null, $webhookId)->assertStatus(500);
+
+    // The anchor must be gone so Supabase's retry re-evaluates rather than
+    // short-circuiting to {decision: continue}.
+    expect(Cache::has("supabase:auth-hook:{$webhookId}"))->toBeFalse();
+});
+
+it('WHK-1: a record() failure on the reject path does not degrade to allow on retry', function () {
+    $webhookId = 'msg_'.Str::uuid();
+    $calls = 0;
+
+    // User is already at the lockout threshold. record() throws on the first
+    // delivery (DB outage), then succeeds on Supabase's retry.
+    $this->mock(AuthFactorEventRepository::class, function ($mock) use (&$calls) {
+        $mock->shouldReceive('countRecentFailures')->andReturn(5);
+        $mock->shouldReceive('record')->andReturnUsing(function () use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                throw new RuntimeException('db outage');
+            }
+
+            return (string) Str::uuid();
+        });
+    });
+
+    $payload = [
+        'user_id' => (string) Str::uuid(),
+        'factor_id' => (string) Str::uuid(),
+        'factor_type' => 'totp',
+        'valid' => false,
+    ];
+
+    // First delivery: the rejection write fails → 500, anchor reverted.
+    postSignedHook($payload, null, $webhookId)->assertStatus(500);
+    expect(Cache::has("supabase:auth-hook:{$webhookId}"))->toBeFalse();
+
+    // Retry with the SAME webhook-id must still REJECT — never flip to continue.
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()
+        ->assertJson(['decision' => 'reject']);
+});
+
+it('WHK-2: fails closed (400) when the webhook-id header is absent', function () {
+    // Exercises the controller guard directly — the signature middleware would
+    // normally 401 an empty webhook-id before the controller, so this proves the
+    // controller is independently hardened (defense-in-depth).
+    $controller = app(SupabaseAuthHookController::class);
+    $request = Request::create('/api/webhooks/supabase/auth/mfa-verification', 'POST');
+
+    $response = $controller->mfaVerification($request);
+
+    expect($response->getStatusCode())->toBe(400);
 });

@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail;
@@ -304,4 +306,26 @@ it('returns 422 when the payload is missing required fields', function (): void 
     ], $req['body']);
 
     expect($response->status())->toBe(422);
+});
+
+it('WHK-3: fails closed (400) when the webhook-id header is absent', function (): void {
+    // Exercises the controller guard directly — the signature middleware would
+    // normally 401 an empty webhook-id, so this proves the controller is
+    // independently hardened and never queues an email without an idempotency key.
+    $controller = app(SupabaseEmailHookController::class);
+    $request = Request::create(
+        '/api/internal/email-hooks/supabase',
+        'POST',
+        [], [], [],
+        ['CONTENT_TYPE' => 'application/json'],
+        json_encode([
+            'user' => ['email' => 'user@example.com'],
+            'email_data' => ['token_hash' => 'h', 'email_action_type' => 'recovery'],
+        ]),
+    );
+
+    $response = $controller($request);
+
+    expect($response->getStatusCode())->toBe(400);
+    Mail::assertNothingQueued();
 });

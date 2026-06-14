@@ -43,6 +43,14 @@ class SupabaseEmailHookController extends ApiController
         $webhookId = (string) $request->header('webhook-id', '');
         $requestId = (string) $request->header('X-Request-Id', '');
 
+        // WHK-3: fail closed when the idempotency key is absent. The signature
+        // middleware already rejects an empty webhook-id; harden the controller so
+        // it does not depend on that — without an id we cannot dedup retries, so
+        // queueing the email blindly risks duplicate sends on Supabase's retries.
+        if ($webhookId === '') {
+            return $this->error('Missing webhook-id', 400);
+        }
+
         $user = is_array($payload['user'] ?? null) ? $payload['user'] : null;
         $emailData = is_array($payload['email_data'] ?? null) ? $payload['email_data'] : null;
 
@@ -69,17 +77,14 @@ class SupabaseEmailHookController extends ApiController
         // the signature is valid. TTL matches the signature verifier's
         // TIMESTAMP_TOLERANCE (300s) — beyond that, replays fail signature
         // verification anyway, so the cache entry is no longer load-bearing.
-        $dedupKey = null;
-        if ($webhookId !== '') {
-            $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
-            if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
-                Log::info('supabase.email_hook.duplicate', [
-                    'webhook_id' => $webhookId,
-                    'request_id' => $requestId,
-                ]);
+        $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
+        if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
+            Log::info('supabase.email_hook.duplicate', [
+                'webhook_id' => $webhookId,
+                'request_id' => $requestId,
+            ]);
 
-                return response()->json(['ok' => true, 'handled' => false, 'duplicate' => true]);
-            }
+            return response()->json(['ok' => true, 'handled' => false, 'duplicate' => true]);
         }
 
         $verifyUrl = $this->buildConfirmUrl($tokenHash, $actionType, $redirectTo);
@@ -107,9 +112,7 @@ class SupabaseEmailHookController extends ApiController
             // Without this, the retry sees Cache::add return false, treats it as
             // a duplicate, returns 200 OK, and Supabase permanently drops the
             // email even though it was never actually queued.
-            if ($dedupKey !== null) {
-                Cache::forget($dedupKey);
-            }
+            Cache::forget($dedupKey);
 
             Log::error('supabase.email_hook.send_failed', [
                 'action' => $actionType,
