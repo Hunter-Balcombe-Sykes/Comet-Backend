@@ -27,7 +27,7 @@ class PublicIntegrationConnectionResource extends ApiResource
         'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'imagesDropped'],
         'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
-        'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'link', 'latest', 'highlights'],
+        'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights'],
         // Events platforms carry two row kinds: account rows ({url, organiser,
         // next, upcoming}) and standalone-event rows ({kind:'event', id, ...flat
         // event fields}). hiddenEventIds stays private (dashboard-only state).

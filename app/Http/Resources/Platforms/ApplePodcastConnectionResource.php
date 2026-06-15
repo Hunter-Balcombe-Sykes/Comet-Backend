@@ -3,9 +3,9 @@
 namespace App\Http\Resources\Platforms;
 
 /**
- * Apple Podcasts selection. Flat fields expose `description` (the music sibling
- * exposes `releaseDate` instead); the latest tile + highlights tail comes from
- * TileConnectionResource.
+ * Apple Podcasts selection. Flat fields expose `description` plus `releaseDate`
+ * (the latter for chronological sorting on the sitepage); the latest tile +
+ * highlights tail comes from TileConnectionResource.
  */
 class ApplePodcastConnectionResource extends TileConnectionResource
 {
@@ -19,6 +19,7 @@ class ApplePodcastConnectionResource extends TileConnectionResource
             'name' => $this->resource['name'] ?? null,
             'thumbnail' => $this->resource['thumbnail'] ?? null,
             'description' => $this->resource['description'] ?? null,
+            'releaseDate' => $this->resource['releaseDate'] ?? null,
             'link' => $this->resource['link'] ?? null,
         ];
     }

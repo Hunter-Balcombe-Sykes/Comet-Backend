@@ -81,10 +81,13 @@ const YTM_CHANNEL = 'UCa1b2c3d4e5f6g7h8i9j0kL';
 
 function ytmFeedXml(string $title, array $videos): string
 {
+    // $v = [videoId, title, published?]. <published> is the Atom upload timestamp
+    // the scraper threads through as the item `date` for chronological sorting.
     $entries = implode('', array_map(fn ($v) => <<<XML
         <entry>
             <yt:videoId>{$v[0]}</yt:videoId>
             <title>{$v[1]}</title>
+            <published>{$v[2]}</published>
             <media:description>desc</media:description>
         </entry>
     XML, $videos));
@@ -103,9 +106,9 @@ function fakeYtmFeed(string $title = 'Big Artist - Topic'): void
 {
     Http::fake([
         'www.youtube.com/feeds/videos.xml*' => Http::response(ytmFeedXml($title, [
-            ['vid00000001', 'Newest Single'],
-            ['vid00000002', 'Older Album Cut'],
-            ['vid00000003', 'Deep Catalogue'],
+            ['vid00000001', 'Newest Single', '2026-03-03T10:00:00+00:00'],
+            ['vid00000002', 'Older Album Cut', '2026-02-02T10:00:00+00:00'],
+            ['vid00000003', 'Deep Catalogue', '2026-01-01T10:00:00+00:00'],
         ])),
         // Thumbnail probes — pretend maxres exists for every id.
         'i.ytimg.com/*' => Http::response('img', 200),
@@ -127,7 +130,10 @@ it('connects youtube-music from a music.youtube.com artist channel url', functio
         ->assertJsonPath('latest.itemId', 'vid00000001')
         ->assertJsonPath('latest.link', 'https://music.youtube.com/watch?v=vid00000001')
         ->assertJsonPath('latest.embedUrl', 'https://www.youtube.com/embed/vid00000001')
-        ->assertJsonPath('items.2.itemId', 'vid00000003');
+        // The Atom <published> timestamp threads through as the item date.
+        ->assertJsonPath('latest.date', '2026-03-03T10:00:00+00:00')
+        ->assertJsonPath('items.2.itemId', 'vid00000003')
+        ->assertJsonPath('items.2.date', '2026-01-01T10:00:00+00:00');
 
     // channelId is the private re-fetch input — stored but never emitted.
     expect($res->json())->not->toHaveKey('channelId');
@@ -146,7 +152,8 @@ it('runs the youtube-music recent + highlights picker flow', function () {
     actingAsUser($user)->getJson('/api/platforms/youtube-music/recent')
         ->assertOk()
         ->assertJsonCount(3, 'videos')
-        ->assertJsonPath('videos.0.itemId', 'vid00000001');
+        ->assertJsonPath('videos.0.itemId', 'vid00000001')
+        ->assertJsonPath('videos.0.date', '2026-03-03T10:00:00+00:00');
 
     // Picks save in posted order; unknown ids drop silently.
     actingAsUser($user)->postJson('/api/platforms/youtube-music/highlights', [

@@ -177,7 +177,7 @@ class AppleController extends ApiController
             'idField' => 'collectionId',
             'fetch' => fn (string $input) => $this->apple->fetchAlbums($input),
             // Flat back-compat tile fields copied verbatim from the latest item.
-            // Music exposes releaseDate; podcast exposes description.
+            // Music exposes releaseDate; podcast exposes description + releaseDate.
             'flatFields' => ['name', 'thumbnail', 'releaseDate', 'link'],
             'recentKey' => 'albums',
             'notFound' => 'Could not find that Apple Music artist or an album.',
@@ -194,7 +194,7 @@ class AppleController extends ApiController
             'idsField' => 'episodeIds',
             'idField' => 'trackId',
             'fetch' => fn (string $input) => $this->apple->fetchEpisodes($input),
-            'flatFields' => ['name', 'thumbnail', 'description', 'link'],
+            'flatFields' => ['name', 'thumbnail', 'description', 'releaseDate', 'link'],
             'recentKey' => 'episodes',
             'notFound' => 'Could not find that Apple Podcast or an episode.',
             'connectFirst' => 'Connect an Apple Podcast first.',

@@ -100,7 +100,7 @@ it('youtube connect returns the canonical tile shape with latest passed through 
     $this->mock(YoutubeScraper::class, function ($m) {
         $m->shouldReceive('normalizeHandle')->andReturn('mychannel');
         $m->shouldReceive('fetchRecentVideos')->andReturn([
-            ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't'],
+            ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 't'],
         ]);
     });
 
@@ -114,7 +114,8 @@ it('youtube connect returns the canonical tile shape with latest passed through 
             'description' => 'd',
             'link' => 'l',
             'thumbnail' => 't',
-            'latest' => ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't'],
+            // `date` rides through verbatim inside the nested latest tile.
+            'latest' => ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 't'],
             'highlights' => [],
         ]);
 });
@@ -145,7 +146,7 @@ it('apple music + podcast connect return their per-platform flat fields', functi
             ['collectionId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l'],
         ]);
         $m->shouldReceive('fetchEpisodes')->andReturn([
-            ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
+            ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'releaseDate' => '2026-02-02T00:00:00Z', 'link' => 'l'],
         ]);
     });
 
@@ -162,8 +163,8 @@ it('apple music + podcast connect return their per-platform flat fields', functi
         ->assertOk()
         ->assertExactJson([
             'id' => 'acct-'.substr(sha1('show'), 0, 16),
-            'input' => 'Show', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l',
-            'latest' => ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
+            'input' => 'Show', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'releaseDate' => '2026-02-02T00:00:00Z', 'link' => 'l',
+            'latest' => ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'releaseDate' => '2026-02-02T00:00:00Z', 'link' => 'l'],
             'highlights' => [],
         ]);
 });

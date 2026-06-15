@@ -147,8 +147,8 @@ class YoutubeMusicController extends SingleSelectionPlatformController
      * Feed videos → the music item shape: links land on music.youtube.com and
      * each item carries the standard YouTube embed for inline playback.
      *
-     * @param  list<array{videoId:string, name:string, link:string, thumbnail:string}>  $videos
-     * @return list<array{itemId:string, name:string, thumbnail:string, link:string, embedUrl:string}>
+     * @param  list<array{videoId:string, name:string, link:string, date:?string, thumbnail:string}>  $videos
+     * @return list<array{itemId:string, name:string, thumbnail:string, link:string, date:?string, embedUrl:string}>
      */
     public static function musicItems(array $videos): array
     {
@@ -157,6 +157,9 @@ class YoutubeMusicController extends SingleSelectionPlatformController
             'name' => $v['name'],
             'thumbnail' => $v['thumbnail'],
             'link' => 'https://music.youtube.com/watch?v='.$v['videoId'],
+            // YT Music uses the uploads feed, so the upload <published> doubles as
+            // the release date — carried through for chronological sorting.
+            'date' => $v['date'] ?? null,
             'embedUrl' => 'https://www.youtube.com/embed/'.$v['videoId'],
         ], $videos);
     }

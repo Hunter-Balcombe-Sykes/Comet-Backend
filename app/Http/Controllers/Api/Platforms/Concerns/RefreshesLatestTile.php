@@ -19,7 +19,9 @@ trait RefreshesLatestTile
     {
         $out = [];
         foreach ($flatFields as $f) {
-            $out[$f] = $latest[$f];
+            // `?? null` so a field absent on a given item (e.g. a podcast episode
+            // with no releaseDate) yields null rather than an undefined-key warning.
+            $out[$f] = $latest[$f] ?? null;
         }
 
         return $out;

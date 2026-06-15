@@ -54,7 +54,7 @@ class YoutubeScraper extends PlatformScraper
      * feed itself caps at 15). Returns null when the channel or feed can't be
      * resolved; an empty array is possible for a channel with no uploads.
      *
-     * @return list<array{videoId:string, name:string, description:string, link:string, thumbnail:string}>|null
+     * @return list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string}>|null
      */
     public function fetchRecentVideos(string $handle, int $limit = 15): ?array
     {
@@ -71,7 +71,7 @@ class YoutubeScraper extends PlatformScraper
      * the most-recent videos (same shape as fetchRecentVideos). Null when the
      * feed can't be fetched.
      *
-     * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, thumbnail:string}>}|null
+     * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string}>}|null
      */
     public function fetchUploadsFeed(string $channelId, int $limit = 15): ?array
     {
@@ -112,12 +112,16 @@ class YoutubeScraper extends PlatformScraper
             $videoId = $vm[1];
             preg_match('~<title>([^<]+)</title>~', $entry, $tm);
             preg_match('~<media:description>(.*?)</media:description>~s', $entry, $dm);
+            // Atom <published> is the upload timestamp (ISO8601) — carried through
+            // so the sitepage can sort videos/releases chronologically.
+            preg_match('~<published>([^<]+)</published>~', $entry, $pm);
 
             $out[] = [
                 'videoId' => $videoId,
                 'name' => html_entity_decode($tm[1] ?? '', ENT_QUOTES | ENT_HTML5),
                 'description' => trim(html_entity_decode($dm[1] ?? '', ENT_QUOTES | ENT_HTML5)),
                 'link' => "https://www.youtube.com/watch?v={$videoId}",
+                'date' => trim($pm[1] ?? '') ?: null,
                 // Filled in below from a single batched maxres-vs-hq probe.
                 'thumbnail' => '',
             ];

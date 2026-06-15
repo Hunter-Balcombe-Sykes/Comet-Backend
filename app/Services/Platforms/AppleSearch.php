@@ -44,7 +44,7 @@ class AppleSearch extends PlatformScraper
     /**
      * The show's most-recent episodes, newest first, up to $limit.
      *
-     * @return list<array{trackId:string, name:?string, thumbnail:?string, description:string, link:?string}>|null
+     * @return list<array{trackId:string, name:?string, thumbnail:?string, description:string, releaseDate:?string, link:?string}>|null
      */
     public function fetchEpisodes(string $input, int $limit = 15): ?array
     {
@@ -67,6 +67,9 @@ class AppleSearch extends PlatformScraper
                     data_get($e, 'artworkUrl600') ?? data_get($e, 'artworkUrl160') ?? data_get($e, 'artworkUrl60')
                 ),
                 'description' => data_get($e, 'description') ?: (data_get($e, 'shortDescription') ?: ''),
+                // iTunes already returns releaseDate (we sort by it above); carry it
+                // through so the sitepage can sort episodes chronologically.
+                'releaseDate' => data_get($e, 'releaseDate'),
                 'link' => data_get($e, 'trackViewUrl'),
             ])
             ->values()
