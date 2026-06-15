@@ -68,13 +68,13 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 - [x] **Bundle B2 complete** — ✅ _2026-06-15: DEPLOYED to Cloudflare prod (version 50c07277) + on development (82ff6b6b). Smoke-tested live: sitepage 200 + all headers + CSP-Report-Only; 2nd request X-Partna-Cache:hit; ?utm collapses to same entry; apex pass-through; 404 no-store; ?skeleton fresh. CSP still Report-Only — flip to enforcing after reviewing console violations against a real render._
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **EDGE-1** · P0 — `Set-Cookie` from the Astro origin is edge-cached and replayed to every visitor — `cloudflare-worker/src/index.js:79` → `audit-2026-06-13-edge-worker.md`
-    - [ ] **EDGE-7** · P2 — Security headers absent on preview / non-GET / 503 / pass-through paths — `cloudflare-worker/src/index.js:207` → `audit-2026-06-13-edge-worker.md`
-    - [ ] **EDGE-8** · P2 — No `Content-Security-Policy` header — `cloudflare-worker/src/index.js:118` → `audit-2026-06-13-edge-worker.md`
-    - [ ] **EDGE-9** · P2 — Query-string variants mint unlimited cache entries; no normalisation/allowlist — `cloudflare-worker/src/index.js:221` → `audit-2026-06-13-edge-worker.md`
-    - [ ] **SEC-5** · P2 — 301 alias redirect uses the KV value with no URL validation (open-redirect if KV poisoned) — `cloudflare-worker/src/index.js:306` → `audit-2026-06-13-security.md`
-    - [ ] **EDGE-12** · P3 — Non-OK origin responses pass through with original `Cache-Control` (error-page caching) — `cloudflare-worker/src/index.js:148` → `audit-2026-06-13-edge-worker.md`
-    - [ ] **EDGE-13** · P3 — The two `ctx.waitUntil(cache.put(...))` calls fail silently — `cloudflare-worker/src/index.js:154` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-1** · P0 — `Set-Cookie` from the Astro origin is edge-cached and replayed to every visitor — `cloudflare-worker/src/index.js:79` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-7** · P2 — Security headers absent on preview / non-GET / 503 / pass-through paths — `cloudflare-worker/src/index.js:207` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-8** · P2 — No `Content-Security-Policy` header — `cloudflare-worker/src/index.js:118` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-9** · P2 — Query-string variants mint unlimited cache entries; no normalisation/allowlist — `cloudflare-worker/src/index.js:221` → `audit-2026-06-13-edge-worker.md`
+    - [x] **SEC-5** · P2 — 301 alias redirect uses the KV value with no URL validation (open-redirect if KV poisoned) — `cloudflare-worker/src/index.js:306` → `audit-2026-06-13-security.md`
+    - [x] **EDGE-12** · P3 — Non-OK origin responses pass through with original `Cache-Control` (error-page caching) — `cloudflare-worker/src/index.js:148` → `audit-2026-06-13-edge-worker.md`
+    - [x] **EDGE-13** · P3 — The two `ctx.waitUntil(cache.put(...))` calls fail silently — `cloudflare-worker/src/index.js:154` → `audit-2026-06-13-edge-worker.md`
 - Rationale: All seven live in `cloudflare-worker/src/index.js` and concern what the Worker stores/returns. One Worker PR with a re-test against a deployed preview is far safer than seven drip changes to edge code.
 - Suggested approach: Strip `Set-Cookie` before every `cache.put`; centralise `applySecurityHeaders` (+ CSP) and apply it to ALL return paths; normalise/allowlist the query string before cache key; validate the KV `redirect` value is a same-site absolute URL; set `no-store` on non-OK origin responses; log on `waitUntil` cache-put rejection. Deploy to a preview and re-test.
 - Dependencies: Independent. Coordinate the deploy with B1 (same file family) to avoid two Worker rollouts.
