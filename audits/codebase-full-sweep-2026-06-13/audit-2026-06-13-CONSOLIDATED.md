@@ -65,7 +65,7 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B1. 1) Prefix-purge payload covers root, sub-paths, `_swr-shadow`, and custom-domain host; no path left on exact-URL purge. 2) `SiteObserver::deleted` dispatches `CloudflareCachePurgeJob` with the correct handle (use `withTrashed` if the row is soft-deleted). 3) No double-purge storms on bulk ops. 4) `composer test` green. Confirm against a manual purge-then-fetch if possible.
 
 ### Bundle B2: Cloudflare Worker response hardening (7 items) — Effort: M
-- [ ] **Bundle B2 complete**
+- [ ] **Bundle B2 complete** — 🚧 _prepared 2026-06-15 (Lane B): all 7 written in `cloudflare-worker/src/index.js`; NOT git-pushed/deployed — awaiting Josh's `wrangler` preview deploy + smoke-test (esp. CSP shipped Report-Only; confirm a real sitepage renders, then flip to enforcing)_
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
     - [ ] **EDGE-1** · P0 — `Set-Cookie` from the Astro origin is edge-cached and replayed to every visitor — `cloudflare-worker/src/index.js:79` → `audit-2026-06-13-edge-worker.md`
@@ -682,7 +682,7 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
     - [x] **PRIV-1** · P1 — Data export includes a staff member's email in the professional's package — `app/Services/User/DataExport/DataExportPayloadBuilder.php:610` → `audit-2026-06-13-privacy-compliance.md`
-    - [ ] **SEM-1** · P1 — GDPR Art. 15: `reporter_email` stored un-normalised but queried lowercased (export misses rows) — `app/Services/User/DataExport/DataExportPayloadBuilder.php:462`, `app/Services/Moderation/ContentReportService.php:79` → `audit-2026-06-13-semantic-correctness.md` — _deferred 2026-06-14: Lane C (normalise-on-write + backfill is a data migration)_
+    - [x] **SEM-1** · P1 — GDPR Art. 15: `reporter_email` stored un-normalised but queried lowercased (export misses rows) — `app/Services/User/DataExport/DataExportPayloadBuilder.php:462`, `app/Services/Moderation/ContentReportService.php:79` → `audit-2026-06-13-semantic-correctness.md` — _2026-06-15: code pushed (normalise-on-write + case-insensitive export query, robust even pre-backfill, +test); backfill migration `20260615010000_backfill_reporter_email_normalisation.sql` written — awaiting Josh's `supabase db push`_
     - [x] **PRIV-5** · P2 — Analytics referrer stored with full query string — UTM-embedded emails land in the warehouse — `app/Services/Analytics/Writers/PostgresEventWriter.php` + `LogLeadRateLimits` + `PublicEnquiryController`/`PublicCustomerLeadController` lead writers → `audit-2026-06-13-privacy-compliance.md`
     - [x] **PRIV-6** · P2 — User-agent strings stored verbatim across all analytics tables — `app/Services/Analytics/Writers/PostgresEventWriter.php` (+ lead writers) → `audit-2026-06-13-privacy-compliance.md`
     - Note (SEM-1): normalise `reporter_email` on write AND backfill, so export queries match.
@@ -705,7 +705,7 @@ Themes that surfaced under 2+ lenses (high confidence — converged independentl
 > Skeptical review of B25 (opus — GDPR/PII). 1) Export no longer contains the staff email; no other third-party PII leaks. 2) `reporter_email` normalization consistent write↔read; backfill verified so existing rows export. 3) Referrer stored without query string; UA minimised. 4) `composer test` green; ideally an export-completeness test for the email-case path.
 
 ### Bundle B26: Cloudflare Worker config/constants sync (3 items) — Effort: M
-- [ ] **Bundle B26 complete**
+- [ ] **Bundle B26 complete** — 🚧 _prepared 2026-06-15 (Lane B): EDGE-6/11 done (full ~200-entry RESERVED mirror + cross-ref comment); EDGE-10 wrangler.toml staging KV override added with placeholder ids — Josh must `wrangler kv namespace create SUBDOMAIN_KV_STAGING` (+ `--preview`), paste the ids, and point staging Laravel `CLOUDFLARE_KV_NAMESPACE_ID` at it. NOT deployed_
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
     - [ ] **EDGE-6** · P1 — Worker `RESERVED` set (18) diverges from `config('partna.reserved_subdomains')` (~200); infra subdomains 404 instead of passing through — `cloudflare-worker/src/index.js:36`, `config/partna.php:53` → `audit-2026-06-13-edge-worker.md`
@@ -806,16 +806,16 @@ These touch the single-writer KV contract, schema-wide RLS, raw `supabase/migrat
 > Skeptical review of S2 (opus — moderation/CSAM/KV). 1) Every enforcement decision dispatches `CloudflareCachePurgeJob` for the owner's handle; mass-update paths covered (not observer-dependent). 2) `SyncSubdomainToKvJob` retires KV for suspended users; no live upsert. 3) Owner lookup uses `withTrashed`. 4) Manual takedown→fetch confirms purge. 5) `composer test` green. CSAM path verified end-to-end.
 
 ### S3: `site.smart_links` schema hardening (7 items) — Effort: M
-- [ ] **S3 complete**
+- [ ] **S3 complete** — 🚧 _prepared 2026-06-15 (Lane C): migrations written (`20260615000000_harden_smart_links.sql` DDL + `20260615000001_smart_links_canonical_idx.sql` CONCURRENTLY index); guard green. Awaiting Josh's `supabase db push` to DEV (then gated prod). SCHEMA-5/DINT-5 CHECKs deferred (see below); FORCE RLS → S5._
 - Models: plan=opus · impl=sonnet · review=opus
 - Findings:
-    - [ ] **SCHEMA-1** · P1 — `site.smart_links` has no Row Level Security — `supabase/migrations/20260531000000_create_smart_links.sql` → `audit-2026-06-13-schema-rls.md`
-    - [ ] **SCHEMA-3** · P2 — missing `id`/timestamp DB defaults + `updated_at` trigger → `audit-2026-06-13-schema-rls.md`
-    - [ ] **SCHEMA-4** · P2 — no dedup key; duplicate canonical URLs per site → `audit-2026-06-13-schema-rls.md`
-    - [ ] **SCHEMA-5** · P2 — `type`/`platform` have no CHECK constraints → `audit-2026-06-13-schema-rls.md`
-    - [ ] **DINT-4** · P2 — no UNIQUE on `(site_id, canonical_url)` → `audit-2026-06-13-data-integrity.md`
-    - [ ] **DINT-5** · P2 — `type`/`platform` bare `text NOT NULL`, no CHECK → `audit-2026-06-13-data-integrity.md`
-    - [ ] **DINT-9** · P3 — no `BEFORE UPDATE` trigger; `updated_at` stalls → `audit-2026-06-13-data-integrity.md`
+    - [x] **SCHEMA-1** · P1 — `site.smart_links` has no Row Level Security — `supabase/migrations/20260531000000_create_smart_links.sql` → `audit-2026-06-13-schema-rls.md`
+    - [x] **SCHEMA-3** · P2 — missing `id`/timestamp DB defaults + `updated_at` trigger → `audit-2026-06-13-schema-rls.md`
+    - [x] **SCHEMA-4** · P2 — no dedup key; duplicate canonical URLs per site → `audit-2026-06-13-schema-rls.md`
+    - [ ] **SCHEMA-5** · P2 — `type`/`platform` have no CHECK constraints → `audit-2026-06-13-schema-rls.md` — _deferred 2026-06-15: `platform` is semi-open ('generic' fallback + extractor values in SmartLinkResolver), so a CHECK would risk breaking resolution; needs a confirmed closed enum first_
+    - [x] **DINT-4** · P2 — no UNIQUE on `(site_id, canonical_url)` → `audit-2026-06-13-data-integrity.md`
+    - [ ] **DINT-5** · P2 — `type`/`platform` bare `text NOT NULL`, no CHECK → `audit-2026-06-13-data-integrity.md` — _deferred 2026-06-15: same as SCHEMA-5_
+    - [x] **DINT-9** · P3 — no `BEFORE UPDATE` trigger; `updated_at` stalls → `audit-2026-06-13-data-integrity.md`
 - Why standalone: raw `supabase/migrations/` DDL adding RLS + constraints to a tenant table; converges 7 findings (SCHEMA-4≡DINT-4, SCHEMA-5≡DINT-5) onto one new migration. DB change → dev-first, gated prod.
 - Dependencies: None. One migration covers all seven.
 

@@ -459,7 +459,10 @@ class DataExportPayloadBuilder
 
         $emailLc = $this->normaliseEmail($lookupEmail);
         if ($emailLc !== null) {
-            $query = $query->orWhere('reporter_email', $emailLc);
+            // SEM-1: case-insensitive match so a legacy mixed-case reporter_email
+            // (written before normalisation-on-write) still surfaces in the
+            // reporter's Article-15 export, even before the backfill runs.
+            $query = $query->orWhereRaw('lower(trim(reporter_email)) = ?', [$emailLc]);
         }
 
         foreach ($this->lazyRows($query) as $row) {

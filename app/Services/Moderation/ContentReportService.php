@@ -76,7 +76,10 @@ class ContentReportService
                 'case_id' => $case->id,
                 'signal_source' => 'content_report',
                 'signal_data' => ['details' => $dto->details],
-                'reporter_email' => $dto->reporterEmail,
+                // SEM-1: store normalised (lowercase + trim) so it matches the
+                // lowercased lookup the GDPR export uses — otherwise a mixed-case
+                // reporter email silently misses the reporter's Article-15 export.
+                'reporter_email' => $this->normaliseReporterEmail($dto->reporterEmail),
                 'reporter_ip_hash' => $reporterIpHash,
                 'reason_code' => $dto->reasonCode,
                 'reason_details' => $dto->details,
@@ -141,5 +144,19 @@ class ContentReportService
             'signal_count' => 1,
             'priority' => 5,
         ]);
+    }
+
+    /**
+     * Normalise a reporter email (lowercase + trim) so it matches the lowercased
+     * lookup the GDPR export uses (SEM-1). Empty / whitespace-only → null.
+     */
+    private function normaliseReporterEmail(?string $email): ?string
+    {
+        if ($email === null) {
+            return null;
+        }
+        $normalised = mb_strtolower(trim($email));
+
+        return $normalised === '' ? null : $normalised;
     }
 }

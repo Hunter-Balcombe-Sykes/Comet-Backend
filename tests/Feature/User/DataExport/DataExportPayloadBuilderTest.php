@@ -874,6 +874,45 @@ it('exports content_reports (cases against user and signals filed by user) exclu
     expect($signalRow)->not->toHaveKey('dedup_hash');
 });
 
+it('SEM-1: matches a legacy mixed-case + whitespace reporter_email in the export', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+    $caseId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('moderation.cases')->insert([
+        'id' => $caseId,
+        'case_type' => 'content_report',
+        'reportable_type' => 'Site',
+        'reportable_id' => (string) Str::uuid(),
+        'reportable_owner_user_id' => (string) Str::uuid(),
+        'severity' => 2,
+        'status' => 'open',
+        'signal_count' => 1,
+        'auto_actioned' => 0,
+        'created_at' => '2026-05-01T00:00:00Z',
+        'updated_at' => '2026-05-01T00:00:00Z',
+    ]);
+
+    // Filed by email only (no reporter_user_id), stored mixed-case + padded —
+    // i.e. before normalisation-on-write existed. The lowercased export lookup
+    // must still match it.
+    DB::connection('pgsql')->table('moderation.case_signals')->insert([
+        'id' => (string) Str::uuid(),
+        'case_id' => $caseId,
+        'signal_source' => 'content_report',
+        'reporter_user_id' => null,
+        'reporter_email' => '  JANE@Example.com ',
+        'reason_code' => 'spam',
+        'reason_details' => 'mixed case + whitespace',
+        'created_at' => '2026-05-02T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $filed = collect($payload['content_reports'])->where('record_type', 'filed_by_me')->values();
+    expect($filed)->toHaveCount(1);
+    expect($filed->first()['reason_code'])->toBe('spam');
+});
+
 it('exports design_kit for the user\'s site, yielding an empty result when no site exists (#P3-20)', function () {
     $pro = seedProForPayload((string) Str::uuid());
     $siteId = (string) Str::uuid();
