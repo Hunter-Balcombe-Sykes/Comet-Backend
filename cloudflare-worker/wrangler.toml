@@ -14,7 +14,8 @@ compatibility_date = "2025-01-01"
 pattern = "*/*"
 zone_name = "partna.au"
 
-# KV namespace holding the subdomain routing table.
+# KV namespace holding the subdomain routing table — this is the PRODUCTION
+# namespace (used by the default/production deploy).
 # Replace `id` with the namespace ID from `wrangler kv:namespace create`.
 # `preview_id` is used during `wrangler dev`; create with `--preview`.
 [[kv_namespaces]]
@@ -37,3 +38,16 @@ environment = "production"
 [[env.staging.services]]
 binding = "PARTNA_PAGES"
 service = "partna-pages-staging"
+
+# EDGE-10: staging MUST NOT share the production SUBDOMAIN_KV — without this
+# override a `--env staging` deploy (or a staging backend KV backfill) would
+# write into the production routing table and poison prod. Give staging its own
+# namespace. TODO(josh): create it and paste the id below —
+#   wrangler kv namespace create SUBDOMAIN_KV_STAGING
+#   wrangler kv namespace create SUBDOMAIN_KV_STAGING --preview
+# then point the STAGING Laravel env's CLOUDFLARE_KV_NAMESPACE_ID at the same id
+# so SyncSubdomainToKvJob writes to the staging namespace, not prod.
+[[env.staging.kv_namespaces]]
+binding = "SUBDOMAIN_KV"
+id = "REPLACE_WITH_STAGING_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_STAGING_KV_PREVIEW_ID"

@@ -22,36 +22,91 @@
  *   - Stale-while-revalidate (audit R3): on a cache MISS we also probe a
  *     long-lived "stale shadow" copy. If it's still around (last write
  *     within ~7 d) we serve it immediately and refresh the primary in the
- *     background via ctx.waitUntil. Effect: the first visitor after a
- *     purge / cold edge sees the previous render instantly while the
- *     refresh happens out-of-band.
+ *     background via ctx.waitUntil.
  *   - Tags (audit O3): each subrequest tags the response with `cf-cache-
- *     status` (`hit` / `stale` / `miss` / `origin`) so Cloudflare logs
- *     show the hit-rate distribution without us writing a custom tracker.
+ *     status` (`hit` / `stale` / `miss` / `origin`).
+ *
+ * Security hardening (audit B2 — EDGE-1/7/8/9/12/13, SEC-5):
+ *   - EVERY response path applies the baseline security headers (see
+ *     applySecurityHeaders) so no return path lags the API.
+ *   - Cached responses have Set-Cookie stripped (withCacheTtl) — an origin
+ *     cookie must NEVER be edge-cached and replayed to other visitors.
+ *   - The edge cache key drops the query string (cacheKeyFor) so tracking
+ *     params (utm_*, fbclid, …) can't mint unbounded distinct cache entries.
+ *   - Alias redirect targets are validated against partna.au before a 301
+ *     (no open redirect even if a KV entry is poisoned).
+ *   - A Content-Security-Policy is attached to sitepage responses in
+ *     Report-Only mode — flip to enforcing once a real render is validated.
  */
 
 const PARTNA_DOMAIN = "partna.au";
 
-// Mirrors `reserved_subdomains` in config/partna.php — these never go to KV.
+// Mirrors `reserved_subdomains` in config/partna.php (EDGE-6/EDGE-11). KEEP IN
+// SYNC: a subdomain missing here is sent to KV and 404s instead of passing
+// through to the apex origin. This is a manual mirror — when config changes,
+// update this set (or wire a build step that generates it from the PHP config).
 const RESERVED = new Set([
-  "www",
-  "api",
-  "admin",
-  "app",
-  "staff",
-  "dashboard",
-  "support",
-  "help",
-  "billing",
-  "static",
-  "cdn",
-  "assets",
-  "auth",
-  "docs",
-  "status",
-  "comet",
-  "sidest",
-  "partna",
+  // --- Platform infrastructure / DNS ---
+  "www", "api", "admin", "app", "apps", "staff", "dashboard",
+  "support", "help", "helpdesk", "billing", "static", "cdn", "assets",
+  "auth", "docs", "status", "comet", "sidest", "partna",
+  "mail", "email", "smtp", "imap", "pop", "pop3", "webmail",
+  "ns", "ns1", "ns2", "ns3", "mx", "dns", "ftp", "sftp", "ssh", "vpn",
+  "proxy", "gateway", "server", "host", "cloud", "edge", "worker", "workers",
+  "kv", "db", "database", "redis", "cache", "queue", "jobs", "cron",
+  "webhook", "webhooks", "callback", "callbacks", "localhost", "internal",
+  "public", "private", "secure", "security", "ssl", "tls",
+  // --- Environments / build stages ---
+  "dev", "development", "prod", "production", "staging", "stage",
+  "test", "tests", "testing", "qa", "uat", "sandbox", "preview",
+  "beta", "alpha", "demo", "local",
+  // --- Auth / account routes ---
+  "login", "logout", "signin", "signup", "signout", "register",
+  "account", "accounts", "settings", "profile", "profiles",
+  "user", "users", "member", "members", "me", "my", "mine",
+  "password", "reset", "forgot", "verify", "verification",
+  "confirm", "activate", "activation", "oauth", "sso", "saml", "jwt",
+  "token", "tokens", "key", "keys", "secret", "secrets",
+  "onboarding", "install", "setup", "start",
+  // --- Marketing / company pages ---
+  "home", "about", "team", "company", "contact", "careers",
+  "hiring", "press", "media", "news", "blog", "newsroom",
+  "investors", "enterprise", "pricing", "plans", "features",
+  "partner", "partners", "affiliate", "affiliates",
+  "referral", "referrals", "brand", "brands", "community",
+  // --- Commerce / store ---
+  "shop", "store", "stores", "marketplace", "cart", "checkout",
+  "order", "orders", "invoice", "invoices", "payment", "payments",
+  "refund", "refunds", "subscription", "subscriptions",
+  // --- Discovery / catalog ---
+  "search", "explore", "discover", "trending", "popular", "top",
+  "new", "latest", "featured", "browse", "category", "categories",
+  "tag", "tags", "topic", "topics", "sitemap", "robots", "feed", "rss",
+  // --- Legal / trust ---
+  "terms", "tos", "privacy", "legal", "dmca", "copyright",
+  "trademark", "abuse", "report", "compliance", "gdpr",
+  // --- Developer / system ---
+  "developer", "developers", "doc", "documentation",
+  "api-docs", "graphql", "rest", "rpc", "sdk", "cli",
+  "system", "service", "services", "root", "null", "undefined",
+  "true", "false", "nil", "none", "error", "errors", "config",
+  // --- AU government / regulators / common impersonation targets ---
+  "ato", "asic", "accc", "acma", "austrac", "apra", "rba",
+  "medicare", "mygov", "centrelink", "ndis", "ahpra", "fairwork",
+  "servicesaustralia", "gov", "government", "police", "afp",
+  "aec", "abs", "tga", "dva", "auspost",
+  // --- Brand impersonation (high-risk lookalikes) ---
+  "google", "apple", "microsoft", "amazon", "meta", "facebook",
+  "instagram", "tiktok", "twitter", "youtube", "linkedin",
+  "paypal", "stripe", "square", "shopify", "cloudflare",
+  "anthropic", "claude", "openai", "chatgpt",
+  // --- Profanity / slurs (exact-match only) ---
+  "fuck", "fucker", "fucking", "motherfucker", "shit", "bullshit",
+  "cunt", "bitch", "bastard", "asshole", "arsehole", "dick",
+  "cock", "pussy", "slut", "whore", "twat", "wanker",
+  "faggot", "fag", "nigger", "nigga", "retard", "tranny",
+  "kike", "spic", "chink", "gook", "wetback", "raghead",
+  "towelhead", "dyke", "shemale", "porn", "porno", "xxx", "nsfw",
 ]);
 
 /** Primary cache TTL in seconds — 24 h, push-purged on mutation. */
@@ -62,23 +117,60 @@ const PRIMARY_CACHE_TTL_S = 86_400;
  * successful origin hit. */
 const STALE_SHADOW_TTL_S = 7 * 86_400;
 
-/** Build a URL identifying the stale shadow for a given request. The
- * shadow lives under a different path so cache.match doesn't get
- * confused; the visitor never reaches this URL directly. */
-function staleShadowKey(request) {
+/**
+ * Content-Security-Policy for sitepage responses (EDGE-8). Shipped in
+ * Report-Only mode: it does NOT block anything (and is currently INERT —
+ * violations only surface in the browser console; `frame-ancestors` and other
+ * navigation directives are ignored until the header is enforcing, so today's
+ * clickjacking protection comes from X-Frame-Options, not this). It exists so a
+ * real page can be validated against it before flipping the header name to
+ * `Content-Security-Policy`. To collect violations centrally, add a `report-to`
+ * directive + endpoint. The loose `script-src 'unsafe-inline' https:` is a
+ * non-constraining baseline — tighten before enforcing.
+ */
+const SITEPAGE_CSP =
+  "default-src 'self'; " +
+  "img-src 'self' https: data:; " +
+  "style-src 'self' 'unsafe-inline' https:; " +
+  "font-src 'self' https: data:; " +
+  "script-src 'self' 'unsafe-inline' https:; " +
+  "connect-src 'self' https:; " +
+  "frame-ancestors 'self'; " +
+  "base-uri 'self'; " +
+  "object-src 'none'";
+
+/** Cache key for a request: the same URL with the query string and fragment
+ * dropped (EDGE-9). Sitepage output depends on host + path, never on query
+ * params, so collapsing every `?utm_*` / `?fbclid` variant to one key prevents
+ * a shared/marketing link from minting unbounded distinct edge-cache entries.
+ * The full original request (query intact) is still what we forward to origin. */
+function cacheKeyFor(request) {
   const u = new URL(request.url);
-  u.pathname = `/_swr-shadow${u.pathname}`;
-  return new Request(u.toString(), {method: "GET", headers: request.headers});
+  u.search = "";
+  u.hash = "";
+  return new Request(u.toString(), {method: "GET"});
 }
 
-/** Clone a response and overlay a long s-maxage so the EDGE cache stores
- * it for the requested TTL while the BROWSER continues to honour the
- * original max-age + stale-while-revalidate directives Astro set. Edits
- * the Cache-Control in place — preserves every directive except
- * s-maxage, which it replaces. */
+/** Build a URL identifying the stale shadow for a given cache key. The
+ * shadow lives under a different path so cache.match doesn't get confused;
+ * the visitor never reaches this URL directly. Operates on the (already
+ * query-stripped) cache key so the primary and shadow share normalisation. */
+function staleShadowKey(cacheKey) {
+  const u = new URL(cacheKey.url);
+  u.pathname = `/_swr-shadow${u.pathname}`;
+  return new Request(u.toString(), {method: "GET"});
+}
+
+/** Clone a response for the EDGE cache: overlay a long s-maxage so the edge
+ * stores it for the requested TTL while the BROWSER keeps the original
+ * max-age + stale-while-revalidate directives. EDGE-1: strip Set-Cookie so an
+ * origin session cookie can never be cached and replayed to other visitors. */
 async function withCacheTtl(response, ttlSeconds) {
   const body = await response.clone().arrayBuffer();
   const headers = new Headers(response.headers);
+
+  // EDGE-1: a cached copy must never carry a per-visitor cookie.
+  headers.delete("Set-Cookie");
 
   const original = headers.get("Cache-Control") ?? "";
   const directives = original
@@ -100,36 +192,14 @@ async function withCacheTtl(response, ttlSeconds) {
   });
 }
 
-/** Decorate the outgoing response with a CF cache-status hint header so
- * the dashboard surfaces hit/stale/miss/origin without bespoke metrics.
- * Also stamps the security-header set every visitor-facing response
- * needs (HSTS + the basic XFO / referrer / nosniff trio). */
-function tagResponse(response, status) {
-  const headers = new Headers(response.headers);
-  headers.set("X-Partna-Cache", status);
-  applySecurityHeaders(headers);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
 /** Apply the standard set of security headers in place on a Headers
- * instance. Mirrors the backend SecureHeaders middleware so the
- * sitepage stack doesn't lag behind the API on baseline hardening.
+ * instance. Mirrors the backend SecureHeaders middleware. Uses `has()`
+ * guards so we never clobber a header the origin already set.
  *
- * - HSTS: 1 year + includeSubDomains. Browsers that have ever loaded
- *   any partna.au page over HTTPS will refuse plain HTTP for the next
- *   year, eliminating the "Not Secure" Safari banner for repeat
- *   visitors. (First-time HTTP visit still relies on the HTTP→HTTPS
- *   redirect at the top of fetch(), below.)
+ * - HSTS: 1 year + includeSubDomains.
  * - X-Content-Type-Options: nosniff — blocks MIME sniffing.
- * - Referrer-Policy: strict-origin-when-cross-origin — leak less on
- *   outbound link clicks.
- * - X-Frame-Options: SAMEORIGIN — defence-in-depth against clickjacking
- *   for older browsers (CSP frame-ancestors is the modern equivalent;
- *   the sitepage doesn't ship a CSP yet). */
+ * - Referrer-Policy: strict-origin-when-cross-origin.
+ * - X-Frame-Options: SAMEORIGIN — clickjacking defence for older browsers. */
 function applySecurityHeaders(headers) {
   if (!headers.has("Strict-Transport-Security")) {
     headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -145,20 +215,66 @@ function applySecurityHeaders(headers) {
   }
 }
 
-async function fetchAndCache(env, ctx, request, cache, originRequest) {
-  // `request` is the cache key; `originRequest` is what we send upstream (it
-  // carries the sanitized x-partna-handle header for custom-domain requests).
-  const fresh = await env.PARTNA_PAGES.fetch(originRequest ?? request);
+/**
+ * Finalise any response before returning it to the visitor (EDGE-7): clone it,
+ * apply the baseline security headers, and (for sitepage responses) attach the
+ * Report-Only CSP. Every return path in this Worker goes through here so none
+ * lags on hardening.
+ *
+ * @param {Response} response
+ * @param {{cacheStatus?: string, sitepage?: boolean, noStore?: boolean}} opts
+ */
+function finalize(response, opts = {}) {
+  const headers = new Headers(response.headers);
+  applySecurityHeaders(headers);
 
-  if (fresh.ok && request.method === "GET") {
-    // Primary cache — short-ish, push-purged on edits.
+  if (opts.cacheStatus) {
+    headers.set("X-Partna-Cache", opts.cacheStatus);
+  }
+  if (opts.sitepage) {
+    headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
+  }
+  // EDGE-12: don't let a misconfigured origin error page get cached by browsers.
+  if (opts.noStore) {
+    headers.set("Cache-Control", "no-store");
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+/** Pass a request straight through to its origin (apex, reserved, custom, or
+ * unknown host) but still stamp the baseline security headers (EDGE-7). A
+ * WebSocket upgrade (101) is returned RAW — re-wrapping via new Response() would
+ * drop response.webSocket and break the connection. */
+async function passThrough(request) {
+  const response = await fetch(request);
+  if (response.status === 101 || response.webSocket) {
+    return response;
+  }
+  return finalize(response);
+}
+
+async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
+  // `cacheKey` is the normalised (query-stripped) cache key; `originRequest`
+  // carries the full URL + the sanitized x-partna-handle header upstream.
+  const fresh = await env.PARTNA_PAGES.fetch(originRequest);
+
+  if (fresh.ok && originRequest.method === "GET") {
+    // EDGE-13: surface cache.put failures instead of letting a rejected
+    // waitUntil promise vanish silently.
     ctx.waitUntil(
-      cache.put(request, await withCacheTtl(fresh, PRIMARY_CACHE_TTL_S)),
+      withCacheTtl(fresh, PRIMARY_CACHE_TTL_S)
+        .then((r) => cache.put(cacheKey, r))
+        .catch((err) => console.error("primary cache.put failed", {url: cacheKey.url, err: String(err)})),
     );
-    // Stale shadow — long-lived. Refreshed on every successful origin
-    // hit so the window never lapses while the page is being visited.
     ctx.waitUntil(
-      cache.put(staleShadowKey(request), await withCacheTtl(fresh, STALE_SHADOW_TTL_S)),
+      withCacheTtl(fresh, STALE_SHADOW_TTL_S)
+        .then((r) => cache.put(staleShadowKey(cacheKey), r))
+        .catch((err) => console.error("shadow cache.put failed", {url: cacheKey.url, err: String(err)})),
     );
   }
 
@@ -167,10 +283,9 @@ async function fetchAndCache(env, ctx, request, cache, originRequest) {
 
 /**
  * Build the request forwarded to partna-pages. ALWAYS strips any
- * visitor-supplied `x-partna-handle` — it is a trusted, router-only signal, so a
- * spoofed value must never reach partna-pages (it would let a visitor render
- * someone else's page). Sets our own value only for custom-domain requests,
- * where partna-pages can't derive the handle from the (non-partna.au) host.
+ * visitor-supplied `x-partna-handle` — a router-only signal a spoofed value
+ * must never reach partna-pages (it would let a visitor render someone else's
+ * page). Sets our own value only for custom-domain requests.
  */
 function withHandleHeader(request, handle) {
   const headers = new Headers(request.headers);
@@ -182,57 +297,59 @@ function withHandleHeader(request, handle) {
 }
 
 /**
- * Serve an individual sitepage from partna-pages with the edge cache +
- * stale-while-revalidate strategy. `handleOverride` is the resolved handle for
- * custom-domain requests (injected as x-partna-handle); null for
- * <handle>.partna.au, where partna-pages parses the handle from the Host. The
- * cache is keyed on the original request (its URL already distinguishes the
- * host); the forwarded request carries the sanitized handle header.
+ * Serve an individual sitepage from partna-pages with the edge cache + SWR
+ * strategy. `handleOverride` is the resolved handle for custom-domain requests;
+ * null for <handle>.partna.au, where partna-pages parses the handle from Host.
  */
 async function serveIndividual(env, ctx, request, handleOverride) {
   // Fail-fast if the binding hasn't been deployed yet.
   if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
     console.error("PARTNA_PAGES service binding missing");
-    return new Response("Service Unavailable", {
-      status: 503,
-      headers: {"Content-Type": "text/plain", "Cache-Control": "no-store"},
-    });
+    return finalize(
+      new Response("Service Unavailable", {status: 503, headers: {"Content-Type": "text/plain"}}),
+      {noStore: true},
+    );
   }
 
   const originRequest = withHandleHeader(request, handleOverride);
 
   // Preview requests (?skeleton=) render a transient alternate skeleton — never
-  // cache them, or a stale variant would pin in the edge cache (incl. the 7-day
-  // SWR shadow). Always fetch fresh from origin.
+  // cache them, or a stale variant would pin in the edge cache. Always fetch
+  // fresh. EDGE-7: still finalise so the preview carries security headers.
   if (new URL(request.url).searchParams.has("skeleton")) {
-    return env.PARTNA_PAGES.fetch(originRequest);
+    return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true, noStore: true});
   }
 
-  // Only GETs are cacheable. POST / PUT / DELETE flow through to the Astro
-  // Worker untouched so any future form-action paths can mutate state without
-  // hitting a stale cached body.
+  // Only GETs are cacheable. POST / PUT / DELETE flow through untouched so any
+  // future form-action paths can mutate state without hitting a stale body.
   if (request.method !== "GET") {
-    return env.PARTNA_PAGES.fetch(originRequest);
+    return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true});
   }
 
   const cache = caches.default;
+  const cacheKey = cacheKeyFor(request);
 
   // 1) Primary cache HIT — fastest path.
-  const cached = await cache.match(request);
+  const cached = await cache.match(cacheKey);
   if (cached) {
-    return tagResponse(cached, "hit");
+    return finalize(cached, {cacheStatus: "hit", sitepage: true});
   }
 
   // 2) Primary MISS — serve the stale shadow if present, refresh in background.
-  const shadow = await cache.match(staleShadowKey(request));
+  const shadow = await cache.match(staleShadowKey(cacheKey));
   if (shadow) {
-    ctx.waitUntil(fetchAndCache(env, ctx, request, cache, originRequest));
-    return tagResponse(shadow, "stale");
+    ctx.waitUntil(fetchAndCache(env, ctx, cacheKey, cache, originRequest));
+    return finalize(shadow, {cacheStatus: "stale", sitepage: true});
   }
 
   // 3) Cold miss — fetch from origin and populate both caches.
-  const fresh = await fetchAndCache(env, ctx, request, cache, originRequest);
-  return tagResponse(fresh, fresh.ok ? "origin" : "origin-error");
+  const fresh = await fetchAndCache(env, ctx, cacheKey, cache, originRequest);
+  return finalize(fresh, {
+    cacheStatus: fresh.ok ? "origin" : "origin-error",
+    sitepage: true,
+    // EDGE-12: never let an origin error response get cached by the browser.
+    noStore: !fresh.ok,
+  });
 }
 
 export default {
@@ -240,22 +357,17 @@ export default {
     const url = new URL(request.url);
     const hostname = url.hostname.toLowerCase();
 
-    // Force HTTPS for every partna.au request the router sees.
-    // Without this Safari labels the HTTP page "Not Secure" until HSTS
-    // is pinned in the browser, and ad-blockers + WAFs can downgrade
-    // mid-session. 301 (not 308) so caches treat it as a permanent
-    // upgrade; HSTS below handles the repeat-visit case.
+    // Force HTTPS for every request the router sees. 301 (permanent upgrade);
+    // HSTS (applied below) handles the repeat-visit case.
     if (url.protocol === "http:") {
       const httpsUrl = new URL(request.url);
       httpsUrl.protocol = "https:";
-      const headers = new Headers({Location: httpsUrl.toString()});
-      applySecurityHeaders(headers);
-      return new Response(null, {status: 301, headers});
+      return finalize(new Response(null, {status: 301, headers: {Location: httpsUrl.toString()}}));
     }
 
-    // Apex partna.au passes through untouched.
+    // Apex partna.au passes through untouched (but still hardened — EDGE-7).
     if (hostname === PARTNA_DOMAIN) {
-      return fetch(request);
+      return passThrough(request);
     }
 
     // Custom domains (Cloudflare for SaaS): a host NOT under partna.au may be a
@@ -268,19 +380,19 @@ export default {
       } catch (err) {
         // KV transient failure — fail open to avoid blocking traffic.
         console.error("KV custom-domain lookup failed", {hostname, err: String(err)});
-        return fetch(request);
+        return passThrough(request);
       }
       if (custom && custom.type === "individual" && typeof custom.handle === "string") {
         return serveIndividual(env, ctx, request, custom.handle);
       }
-      return fetch(request);
+      return passThrough(request);
     }
 
     const subdomain = hostname.slice(0, -1 * (PARTNA_DOMAIN.length + 1));
 
     // Multi-level subdomains and reserved labels pass through.
     if (subdomain === "" || subdomain.includes(".") || RESERVED.has(subdomain)) {
-      return fetch(request);
+      return passThrough(request);
     }
 
     let entry = null;
@@ -289,45 +401,62 @@ export default {
     } catch (err) {
       // KV transient failure — fail open to avoid blocking user traffic.
       console.error("KV lookup failed", {subdomain, err: String(err)});
-      return fetch(request);
+      return passThrough(request);
     }
 
     if (!entry) {
-      const h = new Headers({
-        "Content-Type": "text/plain",
-        "Cache-Control": "no-store",
-      });
-      applySecurityHeaders(h);
-      return new Response("Not Found", {status: 404, headers: h});
+      return finalize(
+        new Response("Not Found", {status: 404, headers: {"Content-Type": "text/plain"}}),
+        {noStore: true},
+      );
     }
 
-    // Alias entries redirect old subdomains to the canonical URL.
-    // Written by SyncSubdomainToKvJob when a professional renames their handle.
+    // Alias entries 301 old subdomains to the canonical URL (written by
+    // SyncSubdomainToKvJob on rename). SEC-5: validate the redirect target is a
+    // partna.au URL before trusting it — a poisoned KV entry must NOT become an
+    // open redirect to an attacker-controlled host.
     if (entry.type === "alias" && typeof entry.redirect === "string") {
-      // Preserve the deep link: a visitor hitting `/gallery?x=1` on the old
-      // handle must land on `/gallery?x=1` at the canonical handle, not the
-      // bare homepage. `entry.redirect` is always a bare origin
-      // (SyncSubdomainToKvJob writes `https://<handle>.partna.au`), so strip any
-      // trailing slash before appending to avoid emitting `…partna.au//gallery`.
-      const target = `${entry.redirect.replace(/\/$/, "")}${url.pathname}${url.search}`;
-      const h = new Headers({
-        Location: target,
-        // Without this, browsers cache 301s indefinitely. A handle rename
-        // would leave stale redirects in client caches until users manually clear.
-        "Cache-Control": "max-age=0, must-revalidate",
-      });
-      applySecurityHeaders(h);
-      return new Response(null, {status: 301, headers: h});
+      let redirectBase = null;
+      try {
+        const candidate = new URL(entry.redirect);
+        const okHost =
+          candidate.protocol === "https:" &&
+          (candidate.hostname === PARTNA_DOMAIN || candidate.hostname.endsWith("." + PARTNA_DOMAIN));
+        if (okHost) {
+          redirectBase = candidate;
+        }
+      } catch (err) {
+        // Malformed redirect value — treat as untrusted (redirectBase stays null).
+        console.error("alias redirect parse failed", {subdomain, err: String(err)});
+      }
+
+      if (redirectBase) {
+        // Preserve the deep link: `/gallery?x=1` on the old handle → same path
+        // on the canonical handle. entry.redirect is a bare origin, so build the
+        // target from its origin only (ignore any path it may carry).
+        const target = `${redirectBase.origin}${url.pathname}${url.search}`;
+        return finalize(
+          new Response(null, {
+            status: 301,
+            headers: {Location: target, "Cache-Control": "max-age=0, must-revalidate"},
+          }),
+        );
+      }
+
+      // Untrusted/invalid alias target — fail closed to 404 rather than redirect.
+      return finalize(
+        new Response("Not Found", {status: 404, headers: {"Content-Type": "text/plain"}}),
+        {noStore: true},
+      );
     }
 
-    // Individual sitepage — served by the `partna-pages` Astro Worker via Service
-    // Binding (edge cache + SWR, see serveIndividual). partna-pages derives the
-    // handle from the Host, so no override here.
+    // Individual sitepage — partna-pages derives the handle from Host, so no
+    // override here.
     if (entry.type === "individual") {
       return serveIndividual(env, ctx, request, null);
     }
 
     // Unknown type or unhandled entry — pass through to origin.
-    return fetch(request);
+    return passThrough(request);
   },
 };
