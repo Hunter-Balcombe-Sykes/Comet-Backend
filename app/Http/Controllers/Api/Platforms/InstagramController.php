@@ -88,7 +88,10 @@ class InstagramController extends ApiController
                 'resource_id' => $this->defaultResourceId(),
             ],
             [
-                'payload' => null,
+                // Empty (not null): platform_connections.payload is NOT NULL, so a
+                // null placeholder violates the constraint and 500s the connect. The
+                // job overwrites this with the real scrape once it completes.
+                'payload' => [],
                 'is_active' => false,
                 'last_refreshed_at' => null,
                 'last_refresh_status' => 'pending',

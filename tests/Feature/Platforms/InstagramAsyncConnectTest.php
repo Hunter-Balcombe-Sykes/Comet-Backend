@@ -51,6 +51,11 @@ it('connect() returns 202 with a poll URL and dispatches InstagramConnectJob', f
     expect($conn)->not->toBeNull();
     expect($conn->last_refresh_status)->toBe('pending');
     expect($conn->is_active)->toBeFalsy();
+    // Regression (SQLSTATE 23502): the placeholder payload must be a non-null
+    // empty array. platform_connections.payload is NOT NULL in Postgres, so a
+    // null here 500s the connect on the real DB — the test DB's nullable payload
+    // column (tests/Pest.php) hid this until it shipped to dev-api.
+    expect($conn->payload)->toBe([]);
 });
 
 // ── no per-user cooldown: rapid re-connect is allowed ────────────────────────
