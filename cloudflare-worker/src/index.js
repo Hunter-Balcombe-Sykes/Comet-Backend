@@ -135,7 +135,7 @@ const SITEPAGE_CSP =
   "font-src 'self' https: data:; " +
   "script-src 'self' 'unsafe-inline' https:; " +
   "connect-src 'self' https:; " +
-  "frame-ancestors 'self'; " +
+  "frame-ancestors 'self' https://app.partna.au; " +
   "base-uri 'self'; " +
   "object-src 'none'";
 
@@ -232,6 +232,12 @@ function finalize(response, opts = {}) {
     headers.set("X-Partna-Cache", opts.cacheStatus);
   }
   if (opts.sitepage) {
+    // Enforce ONLY frame-ancestors — it replaces X-Frame-Options (which can't
+    // allow-list a cross-origin embedder) so the /account/design preview iframe
+    // on app.partna.au can embed the sitepage, while every other origin stays
+    // refused. The rest of the policy remains Report-Only until it's validated.
+    headers.delete("X-Frame-Options");
+    headers.set("Content-Security-Policy", "frame-ancestors 'self' https://app.partna.au");
     headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
   }
   // EDGE-12: don't let a misconfigured origin error page get cached by browsers.
