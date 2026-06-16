@@ -56,6 +56,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         // google-business: placeId / phoneIntl / photos / priceLevel /
         // priceRange / detailsFetchedAt stay private.
         'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'rating', 'reviewCount', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'reviews', 'reviewSummary', 'editorialSummary', 'amenities'],
+        // opentable: the reservation-widget embed is public by design (it's a
+        // keyless booking widget). rid/url are public widget params, not secrets.
+        'opentable' => ['url', 'rid', 'name', 'embedUrl'],
         // shop: payload is a brand-keyed MAP, filtered per brand object (below).
     ];
 
