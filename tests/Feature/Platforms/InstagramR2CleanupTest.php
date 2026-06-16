@@ -124,7 +124,7 @@ it('the async connect job stores the R2 _folder in the payload', function () {
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'X']);
-    $scraper->shouldReceive('latestPost')->once()->andReturn(['type' => 'image', 'thumbnailUrl' => 'https://scontent.cdninstagram.com/i.jpg', 'videoUrl' => null, 'shortCode' => 'i']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => 'https://scontent.cdninstagram.com/i.jpg', 'shortCode' => 'i'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
 
     (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper);

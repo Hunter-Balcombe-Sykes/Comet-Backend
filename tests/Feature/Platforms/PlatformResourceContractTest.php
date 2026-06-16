@@ -239,8 +239,8 @@ it('instagram selection drops the internal _folder key', function () {
     seedPlatformConnection($user, 'instagram', [
         'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => 'https://media.partna.au/p/profile.jpg',
         'businessCategory' => null, 'followersCount' => 10, 'postsCount' => 3,
-        'mode' => 'automatic', 'type' => 'video', 'images' => ['https://media.partna.au/p/img-0.jpg'],
-        'videoUrl' => 'https://media.partna.au/p/reel.mp4', 'imagesDropped' => 0,
+        'mode' => 'automatic', 'images' => ['https://media.partna.au/p/img-0.jpg'],
+        'videoUrl' => 'https://media.partna.au/p/reel.mp4', 'videoPoster' => 'https://media.partna.au/p/reel-cover.jpg', 'imagesDropped' => 0,
         '_folder' => 'platforms/instagram/123', // internal — must NOT be emitted
     ]);
 
@@ -252,8 +252,8 @@ it('instagram selection drops the internal _folder key', function () {
     expect($selection)->toEqual([
         'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => 'https://media.partna.au/p/profile.jpg',
         'businessCategory' => null, 'followersCount' => 10, 'postsCount' => 3,
-        'mode' => 'automatic', 'type' => 'video', 'images' => ['https://media.partna.au/p/img-0.jpg'],
-        'videoUrl' => 'https://media.partna.au/p/reel.mp4', 'imagesDropped' => 0,
+        'mode' => 'automatic', 'images' => ['https://media.partna.au/p/img-0.jpg'],
+        'videoUrl' => 'https://media.partna.au/p/reel.mp4', 'videoPoster' => 'https://media.partna.au/p/reel-cover.jpg', 'imagesDropped' => 0,
     ]);
 });
 

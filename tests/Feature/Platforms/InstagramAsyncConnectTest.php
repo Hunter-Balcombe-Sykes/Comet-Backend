@@ -135,9 +135,9 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     $scraper->shouldReceive('fetchProfile')
         ->once()
         ->andReturn(['fullName' => 'Test User', 'followersCount' => 100, 'postsCount' => 10]);
-    $scraper->shouldReceive('latestPost')
+    $scraper->shouldReceive('latestMedia')
         ->once()
-        ->andReturn(['type' => 'image', 'thumbnailUrl' => $imgUrl1, 'videoUrl' => null, 'shortCode' => 'abc']);
+        ->andReturn(['photo' => ['thumbnailUrl' => $imgUrl1, 'shortCode' => 'abc'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')
         ->once()
         ->andReturn($picUrl);
@@ -152,21 +152,23 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     expect($connection->payload['mode'])->toBe('automatic');
     expect($connection->payload['username'])->toBe('testuser');
     expect($connection->payload['images'])->toBeArray();
-    // Single latest item — the one cover mirrored, no video.
+    // Latest photo mirrored, no reel.
     expect(count($connection->payload['images']))->toBe(1);
-    expect($connection->payload['type'])->toBe('image');
     expect($connection->payload['videoUrl'])->toBeNull();
+    expect($connection->payload['videoPoster'])->toBeNull();
 });
 
-it('InstagramConnectJob mirrors the latest reel as cover image + mp4 (type video)', function () {
+it('InstagramConnectJob mirrors both the latest photo and the latest reel (mp4 + poster)', function () {
     Storage::fake('media');
 
+    $photoUrl = 'https://scontent.cdninstagram.com/photo.jpg';
     $coverUrl = 'https://scontent.cdninstagram.com/cover.jpg';
     $videoUrl = 'https://scontent.cdninstagram.com/reel.mp4';
 
     Http::fake([
-        'scontent.cdninstagram.com/cover.jpg' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        // reel.mp4 first (specific) so the broad image rule below doesn't claim it.
         'scontent.cdninstagram.com/reel.mp4' => Http::response('video-bytes', 200, ['Content-Type' => 'video/mp4']),
+        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igreel1');
@@ -181,8 +183,10 @@ it('InstagramConnectJob mirrors the latest reel as cover image + mp4 (type video
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Reel User']);
-    $scraper->shouldReceive('latestPost')->once()
-        ->andReturn(['type' => 'video', 'thumbnailUrl' => $coverUrl, 'videoUrl' => $videoUrl, 'shortCode' => 'reel']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn([
+        'photo' => ['thumbnailUrl' => $photoUrl, 'shortCode' => 'pic'],
+        'video' => ['thumbnailUrl' => $coverUrl, 'videoUrl' => $videoUrl, 'shortCode' => 'reel'],
+    ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
 
     (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
@@ -190,10 +194,10 @@ it('InstagramConnectJob mirrors the latest reel as cover image + mp4 (type video
     $connection->refresh();
 
     expect($connection->last_refresh_status)->toBe('ok');
-    expect($connection->payload['type'])->toBe('video');
-    // Cover (poster) mirrored as the single image, and the reel mp4 mirrored to R2.
+    // Photo mirrored into images[0]; reel mp4 + its poster mirrored to R2.
     expect(count($connection->payload['images']))->toBe(1);
     expect($connection->payload['videoUrl'])->not->toBeNull();
+    expect($connection->payload['videoPoster'])->not->toBeNull();
 });
 
 // ── job drops images whose CDN URL responds with a redirect (SSRF guard) ──────
@@ -224,7 +228,7 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Test User']);
-    $scraper->shouldReceive('latestPost')->once()->andReturn(['type' => 'image', 'thumbnailUrl' => $redirectUrl, 'videoUrl' => null, 'shortCode' => 'r']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => $redirectUrl, 'shortCode' => 'r'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
 
     (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);

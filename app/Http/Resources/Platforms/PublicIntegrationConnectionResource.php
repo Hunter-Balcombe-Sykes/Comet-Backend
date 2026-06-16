@@ -24,7 +24,7 @@ class PublicIntegrationConnectionResource extends ApiResource
      * minus internal keys (e.g. Instagram's `_folder`, added by CONS-21).
      */
     private const ALLOWLIST = [
-        'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'type', 'images', 'videoUrl', 'imagesDropped'],
+        'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'videoUrl', 'videoPoster', 'imagesDropped'],
         'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
         'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights'],

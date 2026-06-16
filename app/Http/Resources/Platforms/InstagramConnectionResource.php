@@ -31,13 +31,12 @@ class InstagramConnectionResource extends ApiResource
             'followersCount' => $this->resource['followersCount'] ?? null,
             'postsCount' => $this->resource['postsCount'] ?? null,
             'mode' => $this->resource['mode'] ?? null,
-            // 'image' | 'video' | null — the latest post's type (drives skeleton-1's
-            // hero: a video autoplays, otherwise the cover image shows).
-            'type' => $this->resource['type'] ?? null,
-            // Single-element list: the cover (a photo, or a reel's poster frame).
+            // Single-element list: the most-recent photo.
             'images' => $this->resource['images'] ?? [],
-            // R2 url of the reel mp4 when the latest post is a playable video, else null.
+            // The most-recent reel: its mp4 url + poster (both R2), or null. Skeletons
+            // go video-first, falling back to the photo.
             'videoUrl' => $this->resource['videoUrl'] ?? null,
+            'videoPoster' => $this->resource['videoPoster'] ?? null,
             'imagesDropped' => $this->resource['imagesDropped'] ?? 0,
             // `_folder` intentionally omitted — see class docblock.
         ];

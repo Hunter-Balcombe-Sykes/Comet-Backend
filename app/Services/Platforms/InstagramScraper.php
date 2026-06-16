@@ -86,39 +86,92 @@ class InstagramScraper extends PlatformScraper
     }
 
     /**
-     * AUTO mode: the SINGLE most-recent post of ANY type — photo, carousel, or
-     * video/reel (the old auto path skipped videos; it no longer does). Returns
-     * its type + the poster/thumbnail url + the reel's video url, or null when the
-     * profile has no usable post. The job mirrors these to R2.
+     * AUTO mode: the most-recent PHOTO and the most-recent VIDEO/REEL for the
+     * account, picked independently. Apify returns pinned posts first (so a pinned
+     * still photo can sit ahead of a newer reel), so we sort by post timestamp —
+     * not array order — before picking, which is why latestPosts[0] alone gave the
+     * wrong "latest". Either side is null when the account has no post of that kind.
      *
-     * @return array{type:string, thumbnailUrl:?string, videoUrl:?string, shortCode:?string}|null
+     * @return array{photo: array{thumbnailUrl:string, shortCode:?string}|null, video: array{thumbnailUrl:?string, videoUrl:string, shortCode:?string}|null}
      */
-    public function latestPost(array $profile): ?array
+    public function latestMedia(array $profile, ?string $userId = null): array
     {
         $posts = data_get($profile, 'latestPosts');
-        if (! is_array($posts) || $posts === []) {
-            return null;
+        if (! is_array($posts)) {
+            return ['photo' => null, 'video' => null];
         }
 
-        // latestPosts is newest-first, so [0] is the latest post regardless of type.
-        $post = $posts[0];
-        $isVideo = data_get($post, 'type') === 'Video';
-        // displayUrl is the cover for every type (a video's poster frame too).
-        $thumb = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
-        $video = $isVideo ? data_get($post, 'videoUrl') : null;
+        // Sort newest-first by timestamp so pinned-but-older posts don't win. Posts
+        // missing a timestamp fall back to their original feed order.
+        $sorted = [];
+        foreach (array_values($posts) as $i => $post) {
+            if (is_array($post)) {
+                $sorted[] = ['post' => $post, 'i' => $i, 't' => $this->postTimestamp($post)];
+            }
+        }
+        usort($sorted, function ($a, $b) {
+            if ($a['t'] === $b['t']) {
+                return $a['i'] <=> $b['i'];
+            }
+            if ($a['t'] === null) {
+                return 1;
+            }
+            if ($b['t'] === null) {
+                return -1;
+            }
 
-        // Neither a usable image nor a video → treat as "no post".
-        $thumb = is_string($thumb) && $thumb !== '' ? $thumb : null;
-        $video = is_string($video) && $video !== '' ? $video : null;
-        if ($thumb === null && $video === null) {
-            return null;
+            return $b['t'] <=> $a['t'];
+        });
+
+        $photo = null;
+        $video = null;
+        foreach ($sorted as $entry) {
+            $post = $entry['post'];
+            // displayUrl is the cover for every type — a video's poster frame too.
+            $cover = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
+            $cover = is_string($cover) && $cover !== '' ? $cover : null;
+
+            if (data_get($post, 'type') === 'Video') {
+                $vid = data_get($post, 'videoUrl');
+                $vid = is_string($vid) && $vid !== '' ? $vid : null;
+                if ($video === null && $vid !== null) {
+                    $video = ['thumbnailUrl' => $cover, 'videoUrl' => $vid, 'shortCode' => data_get($post, 'shortCode')];
+                }
+            } elseif ($photo === null && $cover !== null) {
+                $photo = ['thumbnailUrl' => $cover, 'shortCode' => data_get($post, 'shortCode')];
+            }
+
+            if ($photo !== null && $video !== null) {
+                break;
+            }
         }
 
-        return [
-            'type' => $isVideo ? 'video' : 'image',
-            'thumbnailUrl' => $thumb,
-            'videoUrl' => $video,
-            'shortCode' => data_get($post, 'shortCode'),
-        ];
+        // Diagnostic: confirms from the dev logs whether Apify is returning reels at
+        // all for this account (vs. just mis-ordering them) when a reel doesn't show.
+        Log::info('instagram.latest_media', [
+            'user_id' => $userId,
+            'posts' => count($posts),
+            'videos' => count(array_filter($posts, fn ($p) => is_array($p) && data_get($p, 'type') === 'Video')),
+            'picked_photo' => $photo !== null,
+            'picked_video' => $video !== null,
+        ]);
+
+        return ['photo' => $photo, 'video' => $video];
+    }
+
+    // Post timestamp as a unix int for sorting, or null if absent/unparseable.
+    private function postTimestamp(array $post): ?int
+    {
+        $ts = data_get($post, 'timestamp');
+        if (is_int($ts)) {
+            return $ts;
+        }
+        if (is_string($ts) && $ts !== '') {
+            $t = strtotime($ts);
+
+            return $t === false ? null : $t;
+        }
+
+        return null;
     }
 }

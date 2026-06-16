@@ -108,21 +108,28 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
 
         $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
 
-        // The single latest post — photo or reel. The cover always mirrors (it's
-        // the <img>, and the <video>'s poster); a reel also mirrors its mp4. An
-        // oversized / failed video mirror leaves videoUrl null so the skeleton
-        // shows the cover instead of autoplaying.
-        $post = $scraper->latestPost($profile);
-        $type = $post['type'] ?? null;
+        // The most-recent photo AND the most-recent reel, picked independently. The
+        // photo mirrors as the image; the reel mirrors its mp4 plus its own poster.
+        // An oversized / failed video mirror leaves videoUrl null so a skeleton falls
+        // back to the photo.
+        $media = $scraper->latestMedia($profile, $this->userId);
+
         $images = [];
-        $videoUrl = null;
-        if ($post) {
-            $cover = $post['thumbnailUrl'] ? $this->mirrorOne($post['thumbnailUrl'], "{$folder}/cover.jpg") : null;
-            if ($cover) {
-                $images = [$cover];
+        if ($media['photo'] && $media['photo']['thumbnailUrl']) {
+            $photo = $this->mirrorOne($media['photo']['thumbnailUrl'], "{$folder}/photo.jpg");
+            if ($photo) {
+                $images = [$photo];
             }
-            if ($post['type'] === 'video' && $post['videoUrl']) {
-                $videoUrl = $this->mirrorVideo($post['videoUrl'], "{$folder}/reel.mp4");
+        }
+
+        $videoUrl = null;
+        $videoPoster = null;
+        if ($media['video'] && $media['video']['videoUrl']) {
+            $videoUrl = $this->mirrorVideo($media['video']['videoUrl'], "{$folder}/reel.mp4");
+            // Mirror the reel's poster only once its mp4 mirrored — it's the <video>'s
+            // poster frame, useless without the video.
+            if ($videoUrl && $media['video']['thumbnailUrl']) {
+                $videoPoster = $this->mirrorOne($media['video']['thumbnailUrl'], "{$folder}/reel-cover.jpg");
             }
         }
 
@@ -137,13 +144,14 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => 'automatic',
-            // 'image' | 'video' | null — drives the skeleton-1 hero (autoplay vs <img>).
-            'type' => $type,
-            // Single element: the cover (a photo, or a reel's poster). Kept as a
-            // list so existing consumers (skeleton-4 bg, dashboard) read images[0].
+            // Single element: the most-recent photo, mirrored. Kept as a list so
+            // existing consumers (skeleton-4 fallback, dashboard) read images[0].
             'images' => $images,
-            // R2 url of the reel mp4 when the latest is a playable video, else null.
+            // The most-recent reel: its mp4 + poster, both on R2. null when the
+            // account has no reel (or the mp4 mirror was dropped). Skeletons go
+            // video-first, falling back to images[0].
             'videoUrl' => $videoUrl,
+            'videoPoster' => $videoPoster,
             // Internal: R2 prefix these mirrored files live under, so the observer
             // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
             // public endpoint by PublicIntegrationConnectionResource.
