@@ -126,6 +126,16 @@ it('merges apify action links + socials and drops unsafe urls', function () {
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class));
 
+    // Lock the corrected actor input: socials come from the contacts add-on,
+    // never the object-shaped scrapeSocialMediaProfiles (a bool there 400s).
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+
+        return ($body['scrapeContacts'] ?? null) === true
+            && ($body['scrapePlaceDetailPage'] ?? null) === true
+            && ! array_key_exists('scrapeSocialMediaProfiles', $body);
+    });
+
     $conn->refresh();
     $p = $conn->payload;
 
