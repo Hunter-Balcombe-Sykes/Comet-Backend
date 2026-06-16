@@ -341,18 +341,14 @@ it('surfaces dropped Instagram images when mirroring fails (job-level)', functio
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')
         ->andReturn(['fullName' => 'Jane', 'businessCategoryName' => null]);
-    $scraper->shouldReceive('recentCoverImages')
-        ->andReturn([
-            'https://scontent.cdninstagram.com/1.jpg',
-            'https://scontent.cdninstagram.com/2.jpg',
-            'https://scontent.cdninstagram.com/3.jpg',
-        ]);
+    $scraper->shouldReceive('latestPost')
+        ->andReturn(['type' => 'image', 'thumbnailUrl' => 'https://scontent.cdninstagram.com/1.jpg', 'videoUrl' => null, 'shortCode' => 'a']);
     $scraper->shouldReceive('profilePicUrl')->andReturn(null);
 
     $job = new InstagramConnectJob($user->id, 'jane', $connection->id);
     $job->handle($scraper);
 
     $connection->refresh();
-    expect($connection->payload['images'])->toHaveCount(0);   // all mirrors failed
-    expect($connection->payload['imagesDropped'])->toBe(3);   // ...and that's surfaced
+    expect($connection->payload['images'])->toHaveCount(0);   // cover mirror failed → no image
+    expect($connection->payload['type'])->toBe('image');
 });

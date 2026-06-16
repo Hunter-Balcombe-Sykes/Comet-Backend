@@ -86,67 +86,39 @@ class InstagramScraper extends PlatformScraper
     }
 
     /**
-     * AUTO mode: the $count most-recent post cover images (skips videos),
-     * newest-first.
+     * AUTO mode: the SINGLE most-recent post of ANY type — photo, carousel, or
+     * video/reel (the old auto path skipped videos; it no longer does). Returns
+     * its type + the poster/thumbnail url + the reel's video url, or null when the
+     * profile has no usable post. The job mirrors these to R2.
      *
-     * @return list<string>
+     * @return array{type:string, thumbnailUrl:?string, videoUrl:?string, shortCode:?string}|null
      */
-    public function recentCoverImages(array $profile, int $count): array
+    public function latestPost(array $profile): ?array
     {
-        $out = [];
-        foreach ($this->nonVideoPosts($profile) as $post) {
-            $url = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
-            if (is_string($url) && $url !== '') {
-                $out[] = $url;
-            }
-            if (count($out) >= $count) {
-                break;
-            }
+        $posts = data_get($profile, 'latestPosts');
+        if (! is_array($posts) || $posts === []) {
+            return null;
         }
 
-        return $out;
-    }
+        // latestPosts is newest-first, so [0] is the latest post regardless of type.
+        $post = $posts[0];
+        $isVideo = data_get($post, 'type') === 'Video';
+        // displayUrl is the cover for every type (a video's poster frame too).
+        $thumb = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
+        $video = $isVideo ? data_get($post, 'videoUrl') : null;
 
-    /**
-     * MANUAL mode: recent posts, each with ALL its selectable image URLs (carousel
-     * children included — Apify returns them in `images[]`), for the picker. Live
-     * IG CDN urls; the controller mirrors only the chosen ones on save.
-     *
-     * @return list<array{shortCode:?string, type:?string, caption:?string, images:list<string>}>
-     */
-    public function recentPosts(array $profile): array
-    {
-        $out = [];
-        foreach ($this->nonVideoPosts($profile) as $post) {
-            $images = data_get($post, 'images');
-            if (! is_array($images) || empty($images)) {
-                $cover = data_get($post, 'displayUrl');
-                $images = is_string($cover) ? [$cover] : [];
-            }
-            $images = array_values(array_filter($images, fn ($u) => is_string($u) && $u !== ''));
-            if (empty($images)) {
-                continue;
-            }
-
-            $out[] = [
-                'shortCode' => data_get($post, 'shortCode'),
-                'type' => data_get($post, 'type'),
-                'caption' => data_get($post, 'caption'),
-                'images' => $images,
-            ];
+        // Neither a usable image nor a video → treat as "no post".
+        $thumb = is_string($thumb) && $thumb !== '' ? $thumb : null;
+        $video = is_string($video) && $video !== '' ? $video : null;
+        if ($thumb === null && $video === null) {
+            return null;
         }
 
-        return $out;
-    }
-
-    /** Non-video posts in feed order. */
-    private function nonVideoPosts(array $profile): array
-    {
-        $posts = data_get($profile, 'latestPosts', []);
-        if (! is_array($posts)) {
-            return [];
-        }
-
-        return array_filter($posts, fn ($post) => data_get($post, 'type') !== 'Video');
+        return [
+            'type' => $isVideo ? 'video' : 'image',
+            'thumbnailUrl' => $thumb,
+            'videoUrl' => $video,
+            'shortCode' => data_get($post, 'shortCode'),
+        ];
     }
 }

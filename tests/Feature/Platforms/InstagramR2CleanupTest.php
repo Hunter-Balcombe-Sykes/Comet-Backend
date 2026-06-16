@@ -105,7 +105,7 @@ it('does not dispatch cleanup on the pending→ready transition (null → folder
     Queue::assertNotPushed(DeleteMirroredMediaJob::class);
 });
 
-// ── _folder is persisted by BOTH write paths ─────────────────────────────────
+// ── _folder is persisted by the async connect job ───────────────────────────
 
 it('the async connect job stores the R2 _folder in the payload', function () {
     Queue::fake();
@@ -124,32 +124,11 @@ it('the async connect job stores the R2 _folder in the payload', function () {
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'X']);
-    $scraper->shouldReceive('recentCoverImages')->once()->andReturn(['https://scontent.cdninstagram.com/i.jpg']);
+    $scraper->shouldReceive('latestPost')->once()->andReturn(['type' => 'image', 'thumbnailUrl' => 'https://scontent.cdninstagram.com/i.jpg', 'videoUrl' => null, 'shortCode' => 'i']);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
 
     (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper);
     $conn->refresh();
 
     expect($conn->payload['_folder'])->toBe('platforms/instagram/'.$conn->created_at->timestamp);
-});
-
-it('a manual save stores the R2 _folder in the payload', function () {
-    Queue::fake();
-    Storage::fake('media');
-    config(['services.apify.token' => 'test-token']);
-
-    $user = r2CleanupUser('r2manual');
-
-    $scraper = Mockery::mock(InstagramScraper::class);
-    $scraper->shouldReceive('fetchProfile')->andReturn(['fullName' => 'X', 'followersCount' => 1, 'postsCount' => 1]);
-    $scraper->shouldReceive('profilePicUrl')->andReturn(null);
-    app()->instance(InstagramScraper::class, $scraper);
-
-    // Empty image set keeps the test HTTP-free; _folder is set regardless.
-    actingAsUser($user)
-        ->postJson('/api/platforms/instagram/selection', ['username' => 'creator', 'images' => []])
-        ->assertOk();
-
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
-    expect($conn->payload['_folder'])->toStartWith('platforms/instagram/');
 });

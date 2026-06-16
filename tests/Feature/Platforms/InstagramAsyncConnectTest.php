@@ -135,9 +135,9 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     $scraper->shouldReceive('fetchProfile')
         ->once()
         ->andReturn(['fullName' => 'Test User', 'followersCount' => 100, 'postsCount' => 10]);
-    $scraper->shouldReceive('recentCoverImages')
+    $scraper->shouldReceive('latestPost')
         ->once()
-        ->andReturn([$imgUrl1, $imgUrl2]);
+        ->andReturn(['type' => 'image', 'thumbnailUrl' => $imgUrl1, 'videoUrl' => null, 'shortCode' => 'abc']);
     $scraper->shouldReceive('profilePicUrl')
         ->once()
         ->andReturn($picUrl);
@@ -152,8 +152,48 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     expect($connection->payload['mode'])->toBe('automatic');
     expect($connection->payload['username'])->toBe('testuser');
     expect($connection->payload['images'])->toBeArray();
-    // Both images were successfully mirrored — the Http::fake returns 200 for all CDN requests.
-    expect(count($connection->payload['images']))->toBe(2);
+    // Single latest item — the one cover mirrored, no video.
+    expect(count($connection->payload['images']))->toBe(1);
+    expect($connection->payload['type'])->toBe('image');
+    expect($connection->payload['videoUrl'])->toBeNull();
+});
+
+it('InstagramConnectJob mirrors the latest reel as cover image + mp4 (type video)', function () {
+    Storage::fake('media');
+
+    $coverUrl = 'https://scontent.cdninstagram.com/cover.jpg';
+    $videoUrl = 'https://scontent.cdninstagram.com/reel.mp4';
+
+    Http::fake([
+        'scontent.cdninstagram.com/cover.jpg' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/reel.mp4' => Http::response('video-bytes', 200, ['Content-Type' => 'video/mp4']),
+    ]);
+
+    $user = igAsyncUser('igreel1');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => [],
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Reel User']);
+    $scraper->shouldReceive('latestPost')->once()
+        ->andReturn(['type' => 'video', 'thumbnailUrl' => $coverUrl, 'videoUrl' => $videoUrl, 'shortCode' => 'reel']);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
+
+    $connection->refresh();
+
+    expect($connection->last_refresh_status)->toBe('ok');
+    expect($connection->payload['type'])->toBe('video');
+    // Cover (poster) mirrored as the single image, and the reel mp4 mirrored to R2.
+    expect(count($connection->payload['images']))->toBe(1);
+    expect($connection->payload['videoUrl'])->not->toBeNull();
 });
 
 // ── job drops images whose CDN URL responds with a redirect (SSRF guard) ──────
@@ -184,16 +224,15 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Test User']);
-    $scraper->shouldReceive('recentCoverImages')->once()->andReturn([$okUrl, $redirectUrl]);
+    $scraper->shouldReceive('latestPost')->once()->andReturn(['type' => 'image', 'thumbnailUrl' => $redirectUrl, 'videoUrl' => null, 'shortCode' => 'r']);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
 
     (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
 
     $connection->refresh();
 
-    // Only the clean 200 image is mirrored; the redirect is counted as dropped.
-    expect(count($connection->payload['images']))->toBe(1);
-    expect($connection->payload['imagesDropped'])->toBe(1);
+    // The redirecting cover is refused → no image mirrored.
+    expect($connection->payload['images'])->toBe([]);
     // The internal metadata endpoint must never have been requested.
     Http::assertNotSent(fn ($req) => str_contains($req->url(), '169.254.169.254'));
 });

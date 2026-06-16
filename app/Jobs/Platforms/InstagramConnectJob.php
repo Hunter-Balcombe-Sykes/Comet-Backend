@@ -8,8 +8,6 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Http\Client\Pool;
-use Illuminate\Http\Client\Response;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
@@ -19,11 +17,12 @@ use Throwable;
 
 // Performs the full Instagram automatic-connect pipeline in the background so
 // connect() can return 202 immediately instead of blocking the PHP-FPM worker
-// for up to 150s (110s Apify + serial image mirroring).
+// for up to 150s (110s Apify + media mirroring).
 //
 // Pipeline:
 //   1. Apify scrape via InstagramScraper::fetchProfile (up to 110s).
-//   2. Parallel image mirror via Http::pool (8 images × ~8s collapsed into one round-trip).
+//   2. Mirror the SINGLE latest post to R2 — its cover image always, plus the
+//      reel mp4 when the latest is a video.
 //   3. Upsert the connection row with last_refresh_status='ok'/'unavailable'.
 //
 // The connection row is written with last_refresh_status='pending' by the
@@ -33,7 +32,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // Apify can take up to 110s; allow headroom for image mirroring on top.
+    // Apify can take up to 110s; allow headroom for media mirroring on top.
     public int $timeout = 150;
 
     public int $tries = 2;
@@ -50,17 +49,22 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
     // and tear the connection row while the first run is still in flight (LIFE-1).
     public int $uniqueFor = 180;
 
-    // Instagram CDN hosts we'll fetch from. URLs come from the scraper, but we
-    // still (1) restrict to known CDN hosts and (2) fetch with redirects DISABLED
-    // (withoutRedirecting below) so an allow-listed CDN URL can't 30x-redirect us
-    // to an internal address. Together these replace the per-hop SSRF guard the
-    // serial SafeUrlFetcher path gave us before this job parallelised mirroring.
-    private const ALLOWED_IMAGE_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
+    // Instagram CDN hosts we'll fetch media from. URLs come from the scraper, but
+    // we still (1) restrict to known CDN hosts and (2) fetch with redirects
+    // DISABLED (withoutRedirecting below) so an allow-listed CDN URL can't
+    // 30x-redirect us to an internal address (SSRF guard).
+    private const ALLOWED_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
 
-    private const AUTO_IMAGE_COUNT = 8;
-
-    // Per-image fetch timeout for the pool (IG CDN, usually fast).
+    // Per-image fetch timeout (IG CDN, usually fast).
     private const IMAGE_TIMEOUT_SECONDS = 10;
+
+    // Reels are larger + slower than a still, so they get their own timeout.
+    private const VIDEO_TIMEOUT_SECONDS = 30;
+
+    // Hard cap on a mirrored reel (50 MB). Instagram reels are short, so this is
+    // generous; it stops a pathological file filling the temp disk / R2, and an
+    // oversized reel simply falls back to its poster (no autoplay).
+    private const MAX_VIDEO_BYTES = 52428800;
 
     public function __construct(
         public readonly string $userId,
@@ -103,8 +107,24 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
         }
 
         $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
-        $coverUrls = $scraper->recentCoverImages($profile, self::AUTO_IMAGE_COUNT);
-        $images = $this->mirrorAllParallel($coverUrls, $folder);
+
+        // The single latest post — photo or reel. The cover always mirrors (it's
+        // the <img>, and the <video>'s poster); a reel also mirrors its mp4. An
+        // oversized / failed video mirror leaves videoUrl null so the skeleton
+        // shows the cover instead of autoplaying.
+        $post = $scraper->latestPost($profile);
+        $type = $post['type'] ?? null;
+        $images = [];
+        $videoUrl = null;
+        if ($post) {
+            $cover = $post['thumbnailUrl'] ? $this->mirrorOne($post['thumbnailUrl'], "{$folder}/cover.jpg") : null;
+            if ($cover) {
+                $images = [$cover];
+            }
+            if ($post['type'] === 'video' && $post['videoUrl']) {
+                $videoUrl = $this->mirrorVideo($post['videoUrl'], "{$folder}/reel.mp4");
+            }
+        }
 
         $picSrc = $scraper->profilePicUrl($profile);
         $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
@@ -117,8 +137,13 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => 'automatic',
+            // 'image' | 'video' | null — drives the skeleton-1 hero (autoplay vs <img>).
+            'type' => $type,
+            // Single element: the cover (a photo, or a reel's poster). Kept as a
+            // list so existing consumers (skeleton-4 bg, dashboard) read images[0].
             'images' => $images,
-            'imagesDropped' => count($coverUrls) - count($images),
+            // R2 url of the reel mp4 when the latest is a playable video, else null.
+            'videoUrl' => $videoUrl,
             // Internal: R2 prefix these mirrored files live under, so the observer
             // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
             // public endpoint by PublicIntegrationConnectionResource.
@@ -151,65 +176,11 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
         }
     }
 
-    /**
-     * Mirror images concurrently via Http::pool — one batch round-trip instead
-     * of up to 8 serial fetches. The pool key is the index so $responses[i]
-     * matches $urls[i].
-     *
-     * @param  list<string>  $urls
-     * @return list<string> public R2 URLs for successfully mirrored images
-     */
-    private function mirrorAllParallel(array $urls, string $folder): array
-    {
-        $allowed = array_values(array_filter($urls, fn ($u) => $this->isAllowedImageHost($u)));
-        if ($allowed === []) {
-            return [];
-        }
-
-        // Fetch all images concurrently. Redirects are DISABLED per-request: an
-        // allow-listed CDN URL that 30x-redirects must not be followed to a
-        // possibly-internal target (SSRF). A 3xx is treated as a drop below.
-        $responses = Http::pool(fn (Pool $pool) => array_map(
-            fn (int $i, string $url) => $pool->as((string) $i)
-                ->timeout(self::IMAGE_TIMEOUT_SECONDS)
-                ->withoutRedirecting()
-                ->withHeaders(['Accept' => 'image/*'])
-                ->get($url),
-            array_keys($allowed),
-            $allowed,
-        ));
-
-        $out = [];
-        foreach ($allowed as $i => $url) {
-            $response = $responses[(string) $i] ?? null;
-            // Drop anything that isn't a clean 2xx — including 3xx redirects we refused to follow.
-            if (! ($response instanceof Response) || $response->status() >= 300) {
-                continue;
-            }
-
-            $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
-            if (! str_starts_with($contentType, 'image/')) {
-                continue;
-            }
-
-            $path = "{$folder}/img-{$i}.jpg";
-            try {
-                Storage::disk('media')->put($path, $response->body());
-                $out[] = Storage::disk('media')->url($path);
-            } catch (Throwable $e) {
-                // Single image write failure — skip it, don't abort the batch, but
-                // report so a systemic R2 outage surfaces in Nightwatch (OBS-7).
-                report($e);
-            }
-        }
-
-        return $out;
-    }
-
-    // Mirror a single image (used for the profile pic — only one, pool overhead not worth it).
+    // Mirror a single image (cover or profile pic) to R2. SSRF guard: CDN host
+    // allowlist + redirects refused + content-type must be image/*.
     private function mirrorOne(string $url, string $path): ?string
     {
-        if (! $this->isAllowedImageHost($url)) {
+        if (! $this->isAllowedHost($url)) {
             return null;
         }
 
@@ -240,14 +211,73 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
         }
     }
 
-    private function isAllowedImageHost(string $url): bool
+    // Mirror a reel's mp4 to R2, STREAMED via a temp file so a large video never
+    // buffers fully in worker memory, and size-capped so a pathological file can't
+    // fill disk/R2. Same SSRF guard as mirrorOne (host allowlist + redirects
+    // refused). Returns null on any miss → the caller falls back to the poster.
+    private function mirrorVideo(string $url, string $path): ?string
+    {
+        if (! $this->isAllowedHost($url)) {
+            return null;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'igreel');
+        if ($tmp === false) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(self::VIDEO_TIMEOUT_SECONDS)
+                ->withoutRedirecting()
+                ->withHeaders(['Accept' => 'video/*'])
+                ->sink($tmp)
+                ->get($url);
+
+            // Drop non-2xx, including 3xx redirects we refuse to follow (SSRF guard).
+            if ($response->status() >= 300) {
+                return null;
+            }
+
+            $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+            if (! str_starts_with($contentType, 'video/')) {
+                return null;
+            }
+
+            // Oversized reel → drop the video (the poster still renders).
+            if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
+                return null;
+            }
+
+            // Stream temp file → R2 (no second in-memory copy of the video).
+            $stream = fopen($tmp, 'r');
+            if ($stream === false) {
+                return null;
+            }
+            Storage::disk('media')->put($path, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            return Storage::disk('media')->url($path);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        } finally {
+            if (file_exists($tmp)) {
+                @unlink($tmp);
+            }
+        }
+    }
+
+    private function isAllowedHost(string $url): bool
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         if ($host === '') {
             return false;
         }
 
-        foreach (self::ALLOWED_IMAGE_HOSTS as $allowed) {
+        foreach (self::ALLOWED_HOSTS as $allowed) {
             if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
                 return true;
             }

@@ -95,8 +95,6 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::post('/connect', [InstagramController::class, 'connect']);
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
-            Route::get('/posts', [InstagramController::class, 'posts']);
-            Route::post('/selection', [InstagramController::class, 'saveSelection']);
             Route::get('/selection', [InstagramController::class, 'selection']);
             Route::delete('/', [InstagramController::class, 'forget']);
         });

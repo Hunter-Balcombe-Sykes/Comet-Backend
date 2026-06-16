@@ -5,52 +5,33 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\SaveInstagramSelectionRequest;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\PlatformInput;
-use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
-use Throwable;
 
-// Instagram integration endpoints. Two connect modes, same final payload shape
-// (mirrored images[] + `mode` tag):
-//   automatic — connect() queues a background job that scrapes and mirrors up to
-//               8 most-recent post covers; responds 202 immediately.
-//   manual    — posts() lists recent posts for the picker; saveSelection() mirrors
-//               the chosen images synchronously (user-driven, bounded set).
-// Scraping lives in InstagramScraper; heavy mirroring in InstagramConnectJob.
+// Instagram integration endpoints. A single automatic connect: connect() queues a
+// background job (InstagramConnectJob) that scrapes the profile and mirrors the
+// SINGLE latest post — a photo, or a reel (cover + mp4) — to R2, responding 202
+// immediately; connectStatus() polls until it's ready. Scraping lives in
+// InstagramScraper; all mirroring in the job.
 class InstagramController extends ApiController
 {
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
-
-    private const AUTO_IMAGE_COUNT = 8;
-
-    private const MAX_MANUAL_IMAGES = 8;
-
-    // Hosts `mirror()` will fetch from — Instagram/Facebook CDNs only.
-    private const ALLOWED_IMAGE_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
-
-    public function __construct(
-        private readonly InstagramScraper $scraper,
-        private readonly SafeUrlFetcher $fetcher,
-    ) {}
 
     protected function platform(): string
     {
         return 'instagram';
     }
 
-    // POST /api/platforms/instagram/connect — AUTOMATIC: queue a scrape + mirror
-    // job and return 202 immediately. The cooldown guard runs HERE (not in the job)
-    // so rapid re-connects are throttled before anything is queued.
+    // POST /api/platforms/instagram/connect — queue a scrape + mirror job and
+    // return 202 immediately. The cooldown guard runs HERE (not in the job) so
+    // rapid re-connects are throttled before anything is queued.
     public function connect(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -108,9 +89,9 @@ class InstagramController extends ApiController
         ], 202);
     }
 
-    // GET /api/platforms/instagram/connect/status — poll endpoint for the automatic
-    // connect flow. Returns pending / ready (with payload) / failed. 404 when no
-    // connection exists for the caller.
+    // GET /api/platforms/instagram/connect/status — poll endpoint for the connect
+    // flow. Returns pending / ready (with payload) / failed. 404 when no connection
+    // exists for the caller.
     public function connectStatus(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -140,56 +121,6 @@ class InstagramController extends ApiController
             'status' => 'failed',
             'error' => $connection->last_refresh_error,
         ]);
-    }
-
-    // GET /api/platforms/instagram/posts?username=X — recent posts + their image
-    // urls (LIVE, un-mirrored) + profile, for the manual picker.
-    public function posts(Request $request): JsonResponse
-    {
-        $user = $this->currentUser($request);
-
-        $username = $this->validateUsername($request);
-        if ($username instanceof JsonResponse) {
-            return $username;
-        }
-
-        $profile = $this->scraper->fetchProfile($username, $user->id);
-        if (! $profile) {
-            return $this->error('Could not fetch that Instagram profile.', 422);
-        }
-
-        return $this->success([
-            'username' => $username,
-            'fullName' => data_get($profile, 'fullName'),
-            'profilePicUrl' => $this->scraper->profilePicUrl($profile),
-            'businessCategory' => data_get($profile, 'businessCategoryName'),
-            'posts' => $this->scraper->recentPosts($profile),
-        ]);
-    }
-
-    // POST /api/platforms/instagram/selection — MANUAL: mirror the chosen images, store.
-    public function saveSelection(SaveInstagramSelectionRequest $request): JsonResponse
-    {
-        $user = $this->currentUser($request);
-
-        $username = $this->validateUsername($request);
-        if ($username instanceof JsonResponse) {
-            return $username;
-        }
-
-        $profile = $this->scraper->fetchProfile($username, $user->id);
-        if (! $profile) {
-            return $this->error('Could not fetch that Instagram profile.', 422);
-        }
-
-        $folder = 'platforms/instagram/'.now()->timestamp;
-        $chosen = array_slice($request->input('images', []), 0, self::MAX_MANUAL_IMAGES);
-        $images = $this->mirrorAll($chosen, $folder);
-
-        $selection = $this->buildSelection($username, $profile, $folder, 'manual', $images, count($chosen) - count($images));
-        $this->writeConnection($user, $selection);
-
-        return $this->success((new InstagramConnectionResource($selection))->resolve());
     }
 
     // GET /api/platforms/instagram/selection — the authenticated user's saved selection.
@@ -258,99 +189,5 @@ class InstagramController extends ApiController
         }
 
         return $username;
-    }
-
-    // Shape the stored blob — identical across modes, plus the `mode` tag.
-    private function buildSelection(string $username, array $profile, string $folder, string $mode, array $images, int $imagesDropped = 0): array
-    {
-        $picSrc = $this->scraper->profilePicUrl($profile);
-        $profilePic = $picSrc ? $this->mirror($picSrc, "{$folder}/profile.jpg") : null;
-
-        return [
-            'username' => $username,
-            'fullName' => data_get($profile, 'fullName'),
-            'profilePicUrl' => $profilePic,
-            'businessCategory' => data_get($profile, 'businessCategoryName'),
-            'followersCount' => data_get($profile, 'followersCount'),
-            'postsCount' => data_get($profile, 'postsCount'),
-            'mode' => $mode,
-            'images' => $images,
-            // How many chosen/cover images failed to mirror (IG CDN hiccup or
-            // expired URL). Surfaced so the dashboard can warn "N couldn't load"
-            // instead of silently saving fewer images than the user picked.
-            'imagesDropped' => $imagesDropped,
-            // Internal: R2 prefix these mirrored files live under, so the observer
-            // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
-            // public endpoint by PublicIntegrationConnectionResource.
-            '_folder' => $folder,
-        ];
-    }
-
-    /**
-     * Mirror each url to a fresh R2 path under $folder; drop any that fail.
-     *
-     * @param  list<string>  $urls
-     * @return list<string>
-     */
-    private function mirrorAll(array $urls, string $folder): array
-    {
-        $out = [];
-        foreach (array_values($urls) as $i => $url) {
-            $mirrored = $this->mirror($url, "{$folder}/img-{$i}.jpg");
-            if ($mirrored) {
-                $out[] = $mirrored;
-            }
-        }
-
-        return $out;
-    }
-
-    // Download a (short-lived) Instagram CDN image and re-host it on the R2
-    // `media` disk. Returns the public URL, or null on failure.
-    //
-    // SSRF guard (manual mode's image URLs are client-supplied): the host is
-    // allowlisted to IG/FB CDNs, the fetch goes through SafeUrlFetcher (scheme +
-    // resolved-IP + per-redirect-hop validation against private/reserved ranges),
-    // and the body is only stored if the response is actually an image.
-    private function mirror(string $url, string $path): ?string
-    {
-        if (! $this->isAllowedImageHost($url)) {
-            return null;
-        }
-
-        try {
-            $res = $this->fetcher->fetch($url, ['Accept' => 'image/*']);
-            if ($res['status'] >= 400) {
-                return null;
-            }
-            $contentType = strtolower(trim(explode(';', $res['contentType'])[0]));
-            if (! str_starts_with($contentType, 'image/')) {
-                return null;
-            }
-            Storage::disk('media')->put($path, $res['body']);
-
-            return Storage::disk('media')->url($path);
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    // Legitimate mirror sources are always Instagram/Facebook CDNs (auto mode
-    // comes from the scraper; manual mode's URLs originate from the scraper-backed
-    // picker). True only when $url's host is one of those CDNs (or a subdomain).
-    private function isAllowedImageHost(string $url): bool
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        if ($host === '') {
-            return false;
-        }
-
-        foreach (self::ALLOWED_IMAGE_HOSTS as $allowed) {
-            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
