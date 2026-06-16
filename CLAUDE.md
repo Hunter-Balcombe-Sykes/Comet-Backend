@@ -18,6 +18,15 @@ Cross-project rules (git workflow, cost discipline, pre-agent gate) live in `../
 
 Feature branches off `development`. PR → merge into `development` → promote to `production` to deploy prod.
 
+**Laravel Cloud reality (2026-06-16) — the table is the *intended* split; here's what's actually running.** The **production** Laravel Cloud env is **stopped** and the **prod Supabase (`edplucmvkcnokyygxqsb`) is INACTIVE/paused**. The **development** env serves **both** `dev-api.partna.au` **and** `api.partna.au`, backed by the **dev Supabase (`glncumufgaqcmqhzwrxm`) — the live DB for everything, production sitepages included.** Therefore:
+- Pushing `development` (push-to-deploy) updates *both* API domains. There is no separate prod deploy step right now — do NOT "promote to production" (it would ship the ~530-commit divergence + unreviewed migrations to a paused env).
+- `migrate --force` is **commented out** in the env's deploy command, so Supabase migrations don't auto-run on deploy. Apply them with `supabase db push` or the Supabase MCP `apply_migration` against the **dev** ref `glncumufgaqcmqhzwrxm`.
+
+**`cloud` CLI beyond logs** (`/Users/tobiasbalcombeehrlich/.composer/vendor/bin/cloud`; arg form is just the env name, e.g. `development`):
+- `cloud deployment:list development` — deploy status (`build.running` / `deployment.succeeded` / `build.failed`); builds can transiently time out ("build timed out after 3600s") → re-trigger with `cloud deploy partna development --no-wait`.
+- `cloud tinker development --code='…'` — run PHP on the env (e.g. a manual CF cache purge: `app(\App\Services\Cloudflare\CloudflarePurgeService::class)->purgeHandle("<handle>")`).
+- `cloud command:run development …` — run an artisan command on the env.
+
 **Push semantics** — when the user says "push to supabase dev/prod", the action is:
 1. `supabase link --project-ref <matching-ref>` (interactive; user runs with `!` prefix)
 2. `supabase db push --dry-run`
@@ -244,6 +253,7 @@ Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.
 - Run `composer test` to verify changes pass.
 - After fixing bugs, check Nightwatch to confirm the issue is resolved and no new issues surfaced.
 - Ask yourself: "Would a staff engineer approve this?"
+- **Tests run on SQLite, prod is Postgres — and the schemas drift (2026-06-16).** The in-memory test schema (`tests/Pest.php`) does NOT mirror prod constraints: e.g. `site.platform_connections.payload` is `TEXT NULL` in tests but `NOT NULL` in prod, and Postgres CHECK constraints aren't enforced at all. So a write that violates a NOT NULL / CHECK passes CI green and only 500s on real Postgres (this bit the async Instagram connect twice — `payload => null`, then `last_refresh_status => 'pending'` missing from that column's CHECK). For constraint-bound writes, verify against the actual `supabase/migrations/` DDL, not just a passing suite.
 
 ### Learn Continuously
 - After any correction from the user: update memory with the pattern.
