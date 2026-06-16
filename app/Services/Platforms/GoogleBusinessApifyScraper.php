@@ -99,10 +99,10 @@ class GoogleBusinessApifyScraper extends PlatformScraper
     }
 
     /**
-     * Actor input — only the flags confirmed against the actor's input schema.
-     * maxReviews/maxImages 0 keeps the run to the net-new fields (Place Details
-     * already covers reviews + photos). Social + order + reservation enrichment
-     * is opt-in.
+     * Actor input — flags confirmed against the actor's input schema (verified
+     * 201 against a live place). maxReviews/maxImages 0 keeps the run to the
+     * net-new fields (Place Details already covers reviews + photos);
+     * maximumLeadsEnrichmentRecords 0 skips the B2B-leads add-on.
      *
      * @return array<string,mixed>
      */
@@ -116,9 +116,15 @@ class GoogleBusinessApifyScraper extends PlatformScraper
             'maxImages' => 0,
             'scrapeReviewsPersonalData' => false,
             'maximumLeadsEnrichmentRecords' => 0,
+            // The place detail page carries the menu / reservation / order links.
+            'scrapePlaceDetailPage' => true,
             'scrapeTableReservationProvider' => true,
             'scrapeOrderOnline' => true,
-            'scrapeSocialMediaProfiles' => true,
+            // Company-contacts add-on crawls the business website for the social
+            // profile URLs (instagrams / facebooks / linkedIns / …). NOT
+            // scrapeSocialMediaProfiles — that's an OBJECT-shaped per-profile
+            // follower-count enrichment we don't need (and it 400s as a bool).
+            'scrapeContacts' => true,
         ];
     }
 
