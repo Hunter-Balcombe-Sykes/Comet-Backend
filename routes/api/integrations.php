@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\LinkedinController;
+use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\RedditController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
@@ -210,6 +211,9 @@ $registerIntegrationRoutes = function (string $base): void {
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
+        // OpenTable reservations — connect by restaurant link, render the
+        // keyless reservation widget (rid read from the URL; no scraping).
+        'opentable' => OpenTableController::class,
         // Link-only socials (Facebook-style: store a canonical profile URL).
         'x' => XController::class,
         'linkedin' => LinkedinController::class,
