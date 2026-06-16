@@ -238,6 +238,13 @@ $registerIntegrationRoutes = function (string $base): void {
             });
     }
 
+    // OpenTable one-click connect: the rid-bearing link harvested from the
+    // user's Google Business reservation provider (OpenTable blocks us from
+    // resolving slug links ourselves). connect/selection/forget come from the
+    // single-selection loop above.
+    Route::get("{$base}/opentable/suggestion", [OpenTableController::class, 'suggestion'])
+        ->middleware($middleware);
+
     // Manual per-platform refresh (dashboard refresh button) — re-pull the
     // auto-content platforms on demand. {platform} is validated against
     // PlatformRefresher::REFRESHABLE inside the controller; a per-user cooldown

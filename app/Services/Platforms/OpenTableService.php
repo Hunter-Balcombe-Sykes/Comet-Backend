@@ -59,6 +59,40 @@ class OpenTableService
     }
 
     /**
+     * The rid-bearing OpenTable profile link we already harvested from a Google
+     * Business payload's reservation provider — so the user can one-click
+     * connect OpenTable without hunting for the right URL (OpenTable blocks us
+     * from resolving slug links ourselves). Null when the venue's reservation
+     * provider isn't OpenTable.
+     *
+     * @param  array<string,mixed>  $gbPayload
+     * @return array{url:string, name:?string}|null
+     */
+    public function suggestionFromGoogleBusiness(array $gbPayload): ?array
+    {
+        // The primary reservation.url plus every reservation.links[].url — one
+        // of them is the OpenTable profile link (with the rid) when OpenTable is
+        // the venue's reservation provider.
+        $candidates = array_filter([
+            data_get($gbPayload, 'reservation.url'),
+            ...array_map(
+                fn ($link) => data_get($link, 'url'),
+                (array) data_get($gbPayload, 'reservation.links', []),
+            ),
+        ]);
+
+        foreach ($candidates as $url) {
+            if (is_string($url) && $this->isOpenTableUrl($url) && $this->parseRid($url) !== null) {
+                $name = data_get($gbPayload, 'name');
+
+                return ['url' => $url, 'name' => is_string($name) ? $name : null];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Keyless OpenTable reservation-widget URL for an iframe — live availability
      * + in-browser booking. `domain` is OpenTable's locale code derived from the
      * host TLD (com / couk / comau). If the widget renders blank for a locale,

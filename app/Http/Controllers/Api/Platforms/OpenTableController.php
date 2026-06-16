@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\ConnectOpenTableRequest;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\OpenTableService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 // OpenTable — connect by restaurant link; the rid is read from the URL and the
 // keyless reservation widget embeds live availability + booking (no scraping,
@@ -46,5 +48,25 @@ class OpenTableController extends SingleSelectionPlatformController
             'name' => $this->service->nameFromUrl($url),
             'embedUrl' => $this->service->embedUrl($rid, $this->service->hostOf($url)),
         ]);
+    }
+
+    // GET /api/platforms/opentable/suggestion
+    // The OpenTable profile link (with the rid) already harvested from the
+    // user's Google Business connection, so the dashboard can offer a one-click
+    // connect — OpenTable blocks us from resolving slug links ourselves.
+    public function suggestion(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $gb = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'google-business')
+            ->first();
+
+        $suggestion = $gb && is_array($gb->payload)
+            ? $this->service->suggestionFromGoogleBusiness($gb->payload)
+            : null;
+
+        return $this->success(['suggestion' => $suggestion]);
     }
 }
