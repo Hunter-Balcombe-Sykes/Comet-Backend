@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
+use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\JsonResponse;
 
@@ -51,8 +52,25 @@ class GoogleBusinessController extends SingleSelectionPlatformController
             // mapDetails() drops absent keys, so the spread never overwrites
             // a picker value with null.
             $details = $this->service->fetchPlaceDetails($data['placeId']);
+            $merged = [...$selection, ...($details ?? [])];
 
-            return $this->connected($user, [...$selection, ...($details ?? [])]);
+            // Apify enrichment (menu / reservation / order / booking / socials)
+            // is too slow to block connect, so it runs in a background job while
+            // we return the instant Place Details card. apifyStatus = 'pending'
+            // drives the dashboard's poll; the job flips it to ok/unavailable.
+            // Gated on the token so a missing key is a clean no-op.
+            $enrich = (bool) config('services.apify.token');
+            if ($enrich) {
+                $merged['apifyStatus'] = 'pending';
+            }
+
+            $response = $this->connected($user, $merged);
+
+            if ($enrich) {
+                GoogleBusinessEnrichJob::dispatch((string) $user->id, $data['placeId']);
+            }
+
+            return $response;
         }
 
         $place = $this->service->resolve($data['url']);
