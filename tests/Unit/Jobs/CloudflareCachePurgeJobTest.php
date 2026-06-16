@@ -3,11 +3,18 @@
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
+
+// The job now resolves the active custom domain from the handle when a dispatcher
+// didn't pass one (so every purge busts the custom-domain edge cache too), so handle()
+// reads site.sites — set it up.
+beforeEach(fn () => setupSitesTable());
 
 it('has its own retry policy and queue (not the KV trait — see §28.7)', function () {
     $job = new CloudflareCachePurgeJob('h');
@@ -51,6 +58,40 @@ it('passes the custom domain through to the service and into uniqueId', function
 
     $purge = Mockery::mock(CloudflarePurgeService::class);
     $purge->shouldReceive('purgeHandle')->once()->with('jane', 'Tuesdae.co');
+    $job->handle($purge);
+});
+
+it('resolves the active custom domain from the handle when none is passed', function () {
+    // The handle-only dispatch path (IntegrationConnectionObserver et al.) must still
+    // bust the custom-domain cache — the job looks it up.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
+        'subdomain' => 'jane',
+        'custom_domain' => 'tuesdae.co',
+        'custom_domain_status' => 'active',
+    ]);
+
+    $job = new CloudflareCachePurgeJob('Jane');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->with('jane', 'tuesdae.co');
+    $job->handle($purge);
+});
+
+it('purges handle-only when the resolved custom domain is not active', function () {
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
+        'subdomain' => 'jane',
+        'custom_domain' => 'tuesdae.co',
+        'custom_domain_status' => 'pending',
+    ]);
+
+    $job = new CloudflareCachePurgeJob('Jane');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->with('jane', null);
     $job->handle($purge);
 });
 

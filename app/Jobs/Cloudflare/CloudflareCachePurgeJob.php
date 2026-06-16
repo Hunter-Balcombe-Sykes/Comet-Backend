@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Cloudflare;
 
+use App\Models\Core\Site\Site;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -66,7 +67,24 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $purge->purgeHandle($h, $this->customDomain);
+        // Resolve the active custom domain from the handle when a dispatcher didn't
+        // pass one, so EVERY purge — from any observer/job, present or future — busts
+        // the custom-domain edge cache too, not just the .partna.au URLs. (Fix
+        // 2026-06-16: Instagram/service/media changes dispatched handle-only, leaving
+        // custom domains like tuesdae.co stale until a manual dashboard "purge
+        // everything". SiteObserver already passed it; the others didn't.) Only an
+        // 'active' custom domain is actually served, so only that is purged.
+        $customDomain = $this->customDomain;
+        if ($customDomain === null) {
+            $site = Site::query()
+                ->where('subdomain', $h)
+                ->first(['custom_domain', 'custom_domain_status']);
+            if ($site && $site->custom_domain_status === 'active' && $site->custom_domain) {
+                $customDomain = (string) $site->custom_domain;
+            }
+        }
+
+        $purge->purgeHandle($h, $customDomain);
     }
 
     public function failed(Throwable $e): void
