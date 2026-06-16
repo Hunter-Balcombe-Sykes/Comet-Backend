@@ -49,17 +49,24 @@ function gbApifyItem(): array
     return [
         'title' => 'Fade Lab Barbers',
         'menu' => 'https://fadelab.example/menu',
-        'reserveTableUrl' => 'https://book.example/fadelab',
+        // Google's long reserve URL is the fallback; the DIRECT OpenTable link wins.
+        'reserveTableUrl' => 'https://www.google.com/maps/reserve/v/dine/c/abc',
         'tableReservationLinks' => [
-            ['name' => 'OpenTable', 'url' => 'https://opentable.example/fadelab'],
+            ['name' => 'opentable.com.au', 'url' => 'https://www.opentable.com.au/r/fadelab'],
         ],
         'restaurantData' => [
-            'tableReservationProvider' => ['name' => 'OpenTable', 'reserveTableUrl' => 'https://book.example/fadelab'],
+            'tableReservationProvider' => ['name' => 'OpenTable', 'reserveTableUrl' => 'https://www.google.com/maps/reserve/v/dine/c/abc'],
         ],
-        'googleFoodUrl' => 'https://food.google.example/fadelab',
-        'orderBy' => [
-            ['name' => 'DoorDash', 'url' => 'https://doordash.example/fadelab'],
-            ['name' => 'Sketchy', 'url' => 'javascript:alert(1)'],   // dropped by safeUrl
+        'googleFoodUrl' => null,
+        // Every platform, both pickup + delivery, link in orderUrl (url is null).
+        'orderOnline' => [
+            'pickUps' => [
+                ['name' => 'UberEats', 'url' => null, 'orderUrl' => 'https://ubereats.example/fadelab?mode=pickup', 'pickUpTime' => 'Ready in 10–25 min', 'pickUpFees' => 'No fee'],
+            ],
+            'deliveries' => [
+                ['name' => 'DoorDash', 'url' => null, 'orderUrl' => 'https://doordash.example/fadelab', 'deliveryTime' => '30–45 min', 'deliveryFees' => '$5.99'],
+                ['name' => 'Sketchy', 'orderUrl' => 'javascript:alert(1)'],   // dropped by safeUrl
+            ],
         ],
         'bookingLinks' => ['https://booking.example/fadelab', 'javascript:alert(2)'],
         'instagrams' => ['https://instagram.com/fadelab'],
@@ -140,12 +147,18 @@ it('merges apify action links + socials and drops unsafe urls', function () {
     $p = $conn->payload;
 
     expect($p['menu'])->toBe('https://fadelab.example/menu');
-    expect($p['reservation']['url'])->toBe('https://book.example/fadelab');
+    // Reservation prefers the DIRECT provider link, not the Google reserve URL.
+    expect($p['reservation']['url'])->toBe('https://www.opentable.com.au/r/fadelab');
     expect($p['reservation']['provider'])->toBe('OpenTable');
-    expect($p['reservation']['links'])->toBe(['https://opentable.example/fadelab']);
-    expect($p['order']['googleFood'])->toBe('https://food.google.example/fadelab');
-    expect($p['order']['providers'])->toHaveCount(1);              // javascript: provider dropped
-    expect($p['order']['providers'][0]['name'])->toBe('DoorDash');
+    expect($p['reservation']['googleUrl'])->toBe('https://www.google.com/maps/reserve/v/dine/c/abc');
+    expect($p['reservation']['links'][0]['url'])->toBe('https://www.opentable.com.au/r/fadelab');
+    expect($p['reservation']['links'][0]['name'])->toBe('opentable.com.au');
+    // Order: every platform, both pickup + delivery, with name/type/time/fees.
+    expect($p['order'])->not->toHaveKey('googleFood');            // null → dropped
+    expect($p['order']['providers'])->toHaveCount(2);             // UberEats pickup + DoorDash delivery; javascript: dropped
+    expect($p['order']['providers'][0])->toMatchArray(['name' => 'UberEats', 'type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee']);
+    expect($p['order']['providers'][0]['url'])->toBe('https://ubereats.example/fadelab?mode=pickup');
+    expect($p['order']['providers'][1])->toMatchArray(['name' => 'DoorDash', 'type' => 'delivery', 'fees' => '$5.99']);
     expect($p['booking'])->toBe(['https://booking.example/fadelab']); // javascript: link dropped
     expect($p['socials']['instagram'])->toBe('https://instagram.com/fadelab');
     expect($p['socials']['tiktok'])->toBe('https://tiktok.com/@fadelab');
