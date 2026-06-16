@@ -24,6 +24,10 @@ class GoogleBusinessConnectionResource extends ApiResource
         'rating', 'reviewCount', 'hours', 'currentHours', 'addressParts', 'links',
         'priceLevel', 'priceRange', 'editorialSummary', 'reviewSummary', 'reviews',
         'amenities', 'photos', 'streetView', 'detailsFetchedAt',
+        // Apify-sourced enrichment (menu / reservation / order / booking /
+        // socials) + its async status. Dashboard-only this phase — the PUBLIC
+        // allowlist still excludes them until a sitepage design pass renders them.
+        'menu', 'reservation', 'order', 'booking', 'socials', 'apifyStatus', 'apifyFetchedAt',
     ];
 
     /**
