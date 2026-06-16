@@ -78,6 +78,54 @@ it('reads the OpenTable selection back', function () {
         ->assertJsonPath('selection.embedUrl', fn ($url) => str_contains((string) $url, 'rid=266537'));
 });
 
+it('suggests the OpenTable link harvested from Google Business', function () {
+    $user = otUser('ot6');
+
+    // Google Business connected, with OpenTable as the reservation provider.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => [
+            'name' => "Ollie's Pizza Parlour",
+            'reservation' => [
+                'url' => 'https://www.opentable.com.au/restaurant/profile/266537?ref=11025',
+                'provider' => 'OpenTable',
+                'links' => [['name' => 'opentable.com.au', 'url' => 'https://www.opentable.com.au/restaurant/profile/266537?ref=11025']],
+            ],
+        ],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/opentable/suggestion')
+        ->assertOk()
+        ->assertJsonPath('suggestion.url', 'https://www.opentable.com.au/restaurant/profile/266537?ref=11025')
+        ->assertJsonPath('suggestion.name', "Ollie's Pizza Parlour");
+});
+
+it('returns no OpenTable suggestion without a Google Business reservation', function () {
+    $user = otUser('ot7');
+
+    // No Google Business at all.
+    actingAsUser($user)->getJson('/api/platforms/opentable/suggestion')
+        ->assertOk()
+        ->assertJsonPath('suggestion', null);
+
+    // Google Business connected but a non-OpenTable reservation provider.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => [
+            'name' => 'Some Cafe',
+            'reservation' => ['url' => 'https://resy.com/cities/syd/some-cafe', 'provider' => 'Resy'],
+        ],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/opentable/suggestion')
+        ->assertOk()
+        ->assertJsonPath('suggestion', null);
+});
+
 it('exposes only the allowlisted OpenTable fields publicly', function () {
     $user = otUser('ot5');
 
