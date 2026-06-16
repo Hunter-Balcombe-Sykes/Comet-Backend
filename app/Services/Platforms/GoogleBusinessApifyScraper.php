@@ -142,16 +142,23 @@ class GoogleBusinessApifyScraper extends PlatformScraper
     {
         $notNull = fn ($v) => $v !== null;
 
+        // Reservation: prefer the DIRECT provider link (OpenTable / Resy / …)
+        // over the long google.com/maps/reserve URL. Keep the Google one as
+        // googleUrl so a place with only that still books.
+        $resLinks = $this->namedLinks(data_get($place, 'tableReservationLinks'));
+        $googleReserve = $this->safeUrl(data_get($place, 'reserveTableUrl'))
+            ?? $this->safeUrl(data_get($place, 'restaurantData.tableReservationProvider.reserveTableUrl'));
         $reservation = array_filter([
-            'url' => $this->safeUrl(data_get($place, 'reserveTableUrl'))
-                ?? $this->safeUrl(data_get($place, 'restaurantData.tableReservationProvider.reserveTableUrl')),
-            'provider' => $this->cleanString(data_get($place, 'restaurantData.tableReservationProvider.name')),
-            'links' => $this->urlList(data_get($place, 'tableReservationLinks')),
+            'url' => ($resLinks[0]['url'] ?? null) ?? $googleReserve,
+            'provider' => $this->cleanString(data_get($place, 'restaurantData.tableReservationProvider.name'))
+                ?? ($resLinks[0]['name'] ?? null),
+            'googleUrl' => $googleReserve,
+            'links' => $resLinks !== [] ? $resLinks : null,
         ], $notNull);
 
         $order = array_filter([
             'googleFood' => $this->safeUrl(data_get($place, 'googleFoodUrl')),
-            'providers' => $this->providerList(data_get($place, 'orderBy')),
+            'providers' => $this->orderProviders(data_get($place, 'orderOnline')),
         ], $notNull);
 
         $socials = array_filter([
@@ -246,17 +253,17 @@ class GoogleBusinessApifyScraper extends PlatformScraper
     }
 
     /**
-     * Order-online providers → list of { name, url } with safe URLs only. Null
-     * when none survive.
+     * Named links (tableReservationLinks: [{ name, url }]) → list of { name,
+     * url } with safe URLs only. Empty list when none survive.
      *
-     * @return list<array{name?:string,url:string}>|null
+     * @return list<array{name?:string,url:string}>
      */
-    private function providerList(mixed $value): ?array
+    private function namedLinks(mixed $value): array
     {
         if (! is_array($value)) {
-            return null;
+            return [];
         }
-        $providers = [];
+        $out = [];
         foreach ($value as $item) {
             if (! is_array($item)) {
                 continue;
@@ -265,12 +272,48 @@ class GoogleBusinessApifyScraper extends PlatformScraper
             if ($url === null) {
                 continue;
             }
-            $providers[] = array_filter([
-                'name' => $this->cleanString(data_get($item, 'name')) ?? $this->cleanString(data_get($item, 'orderType')),
+            $out[] = array_filter([
+                'name' => $this->cleanString(data_get($item, 'name')),
                 'url' => $url,
             ], fn ($v) => $v !== null);
         }
 
-        return $providers !== [] ? $providers : null;
+        return $out;
+    }
+
+    /**
+     * Flatten orderOnline.{pickUps,deliveries} into one provider list — EVERY
+     * platform (UberEats, DoorDash, Menulog, …) for both pickup and delivery,
+     * each with name / url / type / time / fees. The link is in `orderUrl`
+     * (`url` is usually null). Null when none survive.
+     *
+     * @return list<array{name?:string,url:string,type:string,time?:string,fees?:string}>|null
+     */
+    private function orderProviders(mixed $orderOnline): ?array
+    {
+        if (! is_array($orderOnline)) {
+            return null;
+        }
+        $out = [];
+        foreach (['pickUps' => 'pickup', 'deliveries' => 'delivery'] as $key => $type) {
+            foreach ((array) data_get($orderOnline, $key, []) as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $url = $this->safeUrl(data_get($item, 'orderUrl')) ?? $this->safeUrl(data_get($item, 'url'));
+                if ($url === null) {
+                    continue;
+                }
+                $out[] = array_filter([
+                    'name' => $this->cleanString(data_get($item, 'name')),
+                    'url' => $url,
+                    'type' => $type,
+                    'time' => $this->cleanString(data_get($item, 'pickUpTime') ?? data_get($item, 'deliveryTime') ?? data_get($item, 'time')),
+                    'fees' => $this->cleanString(data_get($item, 'pickUpFees') ?? data_get($item, 'deliveryFees') ?? data_get($item, 'fees')),
+                ], fn ($v) => $v !== null);
+            }
+        }
+
+        return $out !== [] ? $out : null;
     }
 }
