@@ -50,11 +50,9 @@ class CustomLinksController extends ApiController
             return $this->error('Enter a valid link (https://...).', 422);
         }
 
-        // Fetch + parse outside the lock (slow external HTTP).
-        $meta = $this->scraper->snapshot($url);
-        if ($meta === null) {
-            return $this->error('Could not load that page. Check the link and try again.', 422);
-        }
+        // Fetch + parse outside the lock (slow external HTTP); falls back to a
+        // minimal card when the page can't be fetched, so any link can be added.
+        $meta = $this->scraper->snapshotOrMinimal($url);
 
         $payload = ['kind' => 'link', ...$meta];
         $rid = 'link-'.substr(sha1(strtolower($url)), 0, 16);
