@@ -158,6 +158,13 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
             '_folder' => $folder,
         ];
 
+        // Preserve a source tag set by an auto-sync placeholder (e.g. Google
+        // Business) so the connect modal's synced-step undo can still find this
+        // row once the scrape result overwrites the placeholder payload.
+        if (($source = data_get($connection->payload, 'source')) !== null) {
+            $selection['source'] = $source;
+        }
+
         $connection->update([
             'payload' => $selection,
             'is_active' => true,

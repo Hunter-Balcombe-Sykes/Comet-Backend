@@ -47,6 +47,9 @@ class OpenTableController extends SingleSelectionPlatformController
             'rid' => $rid,
             'name' => $this->service->nameFromUrl($url),
             'embedUrl' => $this->service->embedUrl($rid, $this->service->hostOf($url)),
+            // A manual (re)connect un-tags a Google-Business-seeded row so it drops
+            // out of the connect modal's "Automatically Synced" undo list.
+            'source' => 'manual',
         ]);
     }
 

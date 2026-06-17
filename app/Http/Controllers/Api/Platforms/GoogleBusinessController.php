@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -79,5 +81,68 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         }
 
         return $this->connected($user, $place);
+    }
+
+    // GET /api/platforms/google-business/synced
+    // The connections this user's Google Business connect auto-created
+    // (payload.source === 'google-business') — reservation, ordering links and
+    // social profiles — for the connect modal's "Automatically Synced
+    // Integrations" step, each with a remove target for one-click undo.
+    public function synced(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $rows = $user->integrationConnections()
+            ->whereIn('platform', ['opentable', 'reservations', 'online-ordering', 'instagram', 'facebook', 'tiktok', 'x', 'linkedin'])
+            ->orderBy('platform')
+            ->orderBy('created_at')
+            ->get();
+
+        $synced = $rows
+            ->filter(fn (IntegrationConnection $row) => data_get($row->payload, 'source') === 'google-business')
+            ->map(fn (IntegrationConnection $row) => $this->shapeSynced($row))
+            ->values()
+            ->all();
+
+        return $this->success(['synced' => $synced]);
+    }
+
+    /**
+     * One auto-synced connection in the modal's wire shape: which category it
+     * landed in, a label, and the DELETE path the undo button hits.
+     *
+     * @return array<string,mixed>
+     */
+    private function shapeSynced(IntegrationConnection $row): array
+    {
+        $payload = is_array($row->payload) ? $row->payload : [];
+        $platform = $row->platform;
+
+        [$category, $label] = match ($platform) {
+            'opentable' => ['reservations', $payload['name'] ?? 'OpenTable'],
+            'reservations' => ['reservations', $payload['name'] ?? 'Reservations'],
+            'online-ordering' => ['online-ordering', $payload['name'] ?? 'Order online'],
+            'instagram' => ['social', 'Instagram'],
+            'facebook' => ['social', 'Facebook'],
+            'tiktok' => ['social', 'TikTok'],
+            'x' => ['social', 'X'],
+            'linkedin' => ['social', 'LinkedIn'],
+            default => ['other', $platform],
+        };
+
+        // Ordering is multi-entry (delete the specific row); everything else is a
+        // single-slot platform whose forget() clears it.
+        $removePath = $platform === 'online-ordering'
+            ? '/platforms/online-ordering/entries/'.$row->resource_id
+            : '/platforms/'.$platform;
+
+        return [
+            'platform' => $platform,
+            'category' => $category,
+            'label' => $label,
+            'url' => $payload['url'] ?? null,
+            'removePath' => $removePath,
+            'pending' => $row->last_refresh_status === 'pending',
+        ];
     }
 }
