@@ -174,11 +174,17 @@ class GoogleBusinessAutoSync
     private function seedWorkplace(string $userId, array $gbPayload): void
     {
         try {
+            // Truncate to the workplace request's field caps (category 120,
+            // description 1000) so a long Google summary can't later 422 the
+            // user's own workplace save.
             $fields = array_filter([
                 'previous_website' => $this->safeUrl(data_get($gbPayload, 'website')),
-                'category' => $this->clean(data_get($gbPayload, 'category')),
-                'description' => $this->clean(data_get($gbPayload, 'editorialSummary'))
-                    ?? $this->clean(data_get($gbPayload, 'reviewSummary')),
+                'category' => $this->truncate($this->clean(data_get($gbPayload, 'category')), 120),
+                'description' => $this->truncate(
+                    $this->clean(data_get($gbPayload, 'editorialSummary'))
+                        ?? $this->clean(data_get($gbPayload, 'reviewSummary')),
+                    1000,
+                ),
             ], fn ($v) => $v !== null);
             if ($fields === []) {
                 return;
@@ -401,5 +407,10 @@ class GoogleBusinessAutoSync
     private function blank(mixed $value): bool
     {
         return ! is_string($value) || trim($value) === '';
+    }
+
+    private function truncate(?string $value, int $max): ?string
+    {
+        return $value !== null ? mb_substr($value, 0, $max) : null;
     }
 }

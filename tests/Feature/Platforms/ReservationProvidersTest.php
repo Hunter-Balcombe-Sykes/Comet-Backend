@@ -174,3 +174,14 @@ it('does not overwrite a workplace field the user already set', function () {
     expect($workplace['category'])->toBe('My own category');             // preserved
     expect($workplace['previous_website'])->toBe('https://ollies.example'); // filled (was empty)
 });
+
+it('truncates a long Google description to the workplace field cap', function () {
+    $user = resUser('rp8');
+    resSite($user);
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [], 'Ollies', [
+        'editorialSummary' => str_repeat('a', 1500),
+    ]);
+
+    expect(mb_strlen(resWorkplace($user)['description']))->toBe(1000);
+});
