@@ -59,6 +59,13 @@ class PublicIntegrationConnectionResource extends ApiResource
         // opentable: the reservation-widget embed is public by design (it's a
         // keyless booking widget). rid/url are public widget params, not secrets.
         'opentable' => ['url', 'rid', 'name', 'embedUrl'],
+        // Dashboard-only category platforms — booking/reservations hold a custom
+        // fallback entry; online-ordering holds the ordering links. None render on
+        // the public sitepage yet, so they expose NOTHING (empty list → {}). The
+        // public controller also excludes them from the query (belt-and-suspenders).
+        'booking' => [],
+        'reservations' => [],
+        'online-ordering' => [],
         // shop: payload is a brand-keyed MAP, filtered per brand object (below).
     ];
 

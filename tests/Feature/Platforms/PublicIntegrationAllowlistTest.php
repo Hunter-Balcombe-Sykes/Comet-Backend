@@ -139,3 +139,63 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     expect($platforms['vimeo'][0]['payload']['url'])->toBe('https://vimeo.com/mockuser');
     expect($platforms['vimeo'][0]['payload']['highlights'])->toHaveCount(1);   // curated picks are public
 });
+
+it('never exposes the dashboard-only category platforms on the public endpoint', function () {
+    $user = allowlistUser('allow10');
+
+    // online-ordering carries sensitive internal data (fees, source tags) and is
+    // dashboard-only — it must never reach the public, CDN-cached wire.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'online-ordering',
+        'resource_id' => 'online-ordering',
+        'payload' => [
+            'ubereats-abc' => [
+                'id' => 'ubereats-abc',
+                'provider' => 'custom',
+                'url' => 'https://www.ubereats.com/store/x',
+                'name' => 'Uber Eats',
+                'source' => 'google-business',
+                'data' => ['type' => 'delivery', 'fees' => '$4.99', 'time' => '30 min', 'sourcePlatform' => 'Uber Eats'],
+            ],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'reservations',
+        'resource_id' => 'reservations',
+        'payload' => ['provider' => 'custom', 'url' => 'https://example.com/book', 'name' => 'Book', 'source' => 'manual'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'booking',
+        'resource_id' => 'booking',
+        'payload' => ['provider' => 'custom', 'url' => 'https://example.com/appt', 'name' => 'Appointments', 'source' => 'manual'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    // A genuinely public platform alongside, to prove the rest still ships.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'facebook',
+        'resource_id' => 'facebook',
+        'payload' => ['username' => 'me', 'url' => 'https://facebook.com/me'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $platforms = $this->getJson('/api/public/profiles/allow10/integrations')
+        ->assertOk()
+        ->json('data.platforms');
+
+    // Dashboard-only categories must not appear at all (whereNotIn guard).
+    expect($platforms)->not->toHaveKey('online-ordering');
+    expect($platforms)->not->toHaveKey('reservations');
+    expect($platforms)->not->toHaveKey('booking');
+    // The public platform still ships untouched.
+    expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
+});

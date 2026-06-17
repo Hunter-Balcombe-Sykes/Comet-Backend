@@ -46,6 +46,10 @@ class PublicIntegrationController extends ApiController
         $platforms = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
+            // Dashboard-only categories never reach the public sitepage. The
+            // Resource also strips their payload to {} (empty allowlist), but
+            // excluding them here keeps the rows off the wire entirely.
+            ->whereNotIn('platform', ['booking', 'reservations', 'online-ordering'])
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')

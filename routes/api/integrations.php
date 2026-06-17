@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\BandcampController;
+use App\Http\Controllers\Api\Platforms\BookingController;
 use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
@@ -11,10 +12,12 @@ use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\LinkedinController;
+use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\RedditController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
+use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\SoundcloudController;
@@ -195,6 +198,40 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/links', [CustomLinksController::class, 'addLink']);
             Route::delete('/links/{id}', [CustomLinksController::class, 'removeLink'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [CustomLinksController::class, 'forget']);
+        });
+
+    // ── Integration CATEGORIES ───────────────────────────────────────────
+    // Smart URL-detect cards. /detect resolves the provider for a pasted link
+    // and tells the dashboard which existing flow to run (Fresha picker / Square
+    // / OpenTable embed); an unrecognised link is stored as a branded custom
+    // card. Known providers still store under their own platform keys (fresha /
+    // square / opentable); these category rows hold only the custom fallback
+    // (booking / reservations) or the ordering links (online-ordering).
+    // Dashboard-only — excluded from the public sitepage endpoint.
+    Route::prefix("{$base}/booking")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/detect', [BookingController::class, 'detect']);
+            Route::get('/status', [BookingController::class, 'status']);
+            Route::delete('/', [BookingController::class, 'forget']);
+        });
+
+    Route::prefix("{$base}/reservations")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/detect', [ReservationsController::class, 'detect']);
+            Route::get('/status', [ReservationsController::class, 'status']);
+            Route::get('/suggestion', [ReservationsController::class, 'suggestion']);
+            Route::delete('/', [ReservationsController::class, 'forget']);
+        });
+
+    Route::prefix("{$base}/online-ordering")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::get('/entries', [OnlineOrderingController::class, 'entries']);
+            Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
+            Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
+            Route::delete('/', [OnlineOrderingController::class, 'forget']);
         });
 
     // Everything else is the uniform connect / selection / forget shape —
