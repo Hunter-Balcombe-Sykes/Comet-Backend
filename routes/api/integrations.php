@@ -282,6 +282,12 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::get("{$base}/opentable/suggestion", [OpenTableController::class, 'suggestion'])
         ->middleware($middleware);
 
+    // Google Business "Automatically Synced Integrations": the reservation /
+    // ordering / social connections the last connect auto-created, for the
+    // connect modal's step 2. connect/selection/forget come from the loop above.
+    Route::get("{$base}/google-business/synced", [GoogleBusinessController::class, 'synced'])
+        ->middleware($middleware);
+
     // Manual per-platform refresh (dashboard refresh button) — re-pull the
     // auto-content platforms on demand. {platform} is validated against
     // PlatformRefresher::REFRESHABLE inside the controller; a per-user cooldown

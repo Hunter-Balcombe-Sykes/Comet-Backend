@@ -4,12 +4,14 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
+use App\Services\Platforms\GoogleBusinessAutoSync;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -55,7 +57,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         return $this->userId.':'.$this->placeId;
     }
 
-    public function handle(GoogleBusinessApifyScraper $scraper): void
+    public function handle(GoogleBusinessApifyScraper $scraper, GoogleBusinessAutoSync $autoSync): void
     {
         $connection = $this->connection();
         if (! $connection) {
@@ -73,14 +75,19 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Merge over the existing payload; the scraper already dropped absent
-        // Apify keys, so Place Details values are never clobbered. saveQuietly:
-        // nothing public changes this phase (the keys aren't in the public
-        // allowlist), so there's no sitepage cache to purge.
+        // The harvested links live on their OWN integrations now (Reservations /
+        // Online-ordering / Social), not on the Google Business payload. Seed them
+        // only into slots the user hasn't filled, tagged source:'google-business';
+        // booking is never auto-synced.
+        $autoSync->seed($this->userId, $enrichment, data_get($connection->payload, 'name'));
+
+        // Write back business-info only: strip the enrichment keys (stale ones from
+        // a pre-cleanup connect included) and flip the Apify status. The GB payload
+        // has no public change, so saveQuietly — the seeded rows above fired their
+        // own sitepage cache purges.
         $connection->forceFill([
             'payload' => [
-                ...$this->payloadOf($connection),
-                ...$enrichment,
+                ...Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
                 'apifyStatus' => 'ok',
                 'apifyFetchedAt' => now()->toIso8601String(),
             ],

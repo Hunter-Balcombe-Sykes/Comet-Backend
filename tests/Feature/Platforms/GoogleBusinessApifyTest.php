@@ -1,9 +1,11 @@
 <?php
 
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
+use App\Services\Platforms\GoogleBusinessAutoSync;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -52,7 +54,7 @@ function gbApifyItem(): array
         // Google's long reserve URL is the fallback; the DIRECT OpenTable link wins.
         'reserveTableUrl' => 'https://www.google.com/maps/reserve/v/dine/c/abc',
         'tableReservationLinks' => [
-            ['name' => 'opentable.com.au', 'url' => 'https://www.opentable.com.au/r/fadelab'],
+            ['name' => 'opentable.com.au', 'url' => 'https://www.opentable.com.au/restaurant/profile/266537'],
         ],
         'restaurantData' => [
             'tableReservationProvider' => ['name' => 'OpenTable', 'reserveTableUrl' => 'https://www.google.com/maps/reserve/v/dine/c/abc'],
@@ -125,16 +127,17 @@ it('does not dispatch the enrich job when no apify token is configured', functio
 
 // ── Background enrichment ────────────────────────────────────────────────────
 
-it('merges apify action links + socials and drops unsafe urls', function () {
+it('seeds reservation, ordering and social connections from the enrichment', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
     $user = gbApifyUser('gba3');
     $conn = gbApifyConnection($user);
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
 
-    // Lock the corrected actor input: socials come from the contacts add-on,
-    // never the object-shaped scrapeSocialMediaProfiles (a bool there 400s).
+    // The corrected actor input is still locked in.
     Http::assertSent(function ($request) {
         $body = $request->data();
 
@@ -143,47 +146,109 @@ it('merges apify action links + socials and drops unsafe urls', function () {
             && ! array_key_exists('scrapeSocialMediaProfiles', $body);
     });
 
+    // Google Business payload is business-info ONLY now — the harvested links moved out.
     $conn->refresh();
     $p = $conn->payload;
-
-    expect($p['menu'])->toBe('https://fadelab.example/menu');
-    // Reservation prefers the DIRECT provider link, not the Google reserve URL.
-    expect($p['reservation']['url'])->toBe('https://www.opentable.com.au/r/fadelab');
-    expect($p['reservation']['provider'])->toBe('OpenTable');
-    expect($p['reservation']['googleUrl'])->toBe('https://www.google.com/maps/reserve/v/dine/c/abc');
-    expect($p['reservation']['links'][0]['url'])->toBe('https://www.opentable.com.au/r/fadelab');
-    expect($p['reservation']['links'][0]['name'])->toBe('opentable.com.au');
-    // Order: every platform, both pickup + delivery, with name/type/time/fees.
-    expect($p['order'])->not->toHaveKey('googleFood');            // null → dropped
-    expect($p['order']['providers'])->toHaveCount(2);             // UberEats pickup + DoorDash delivery; javascript: dropped
-    expect($p['order']['providers'][0])->toMatchArray(['name' => 'UberEats', 'type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee']);
-    expect($p['order']['providers'][0]['url'])->toBe('https://ubereats.example/fadelab?mode=pickup');
-    expect($p['order']['providers'][1])->toMatchArray(['name' => 'DoorDash', 'type' => 'delivery', 'fees' => '$5.99']);
-    expect($p['booking'])->toBe(['https://booking.example/fadelab']); // javascript: link dropped
-    expect($p['socials']['instagram'])->toBe('https://instagram.com/fadelab');
-    expect($p['socials']['tiktok'])->toBe('https://tiktok.com/@fadelab');
-    expect($p['socials'])->not->toHaveKey('linkedin');             // empty array → dropped
     expect($p['apifyStatus'])->toBe('ok');
     expect($p)->toHaveKey('apifyFetchedAt');
-
-    // Place Details values survive the merge.
-    expect($p['rating'])->toBe(4.8);
+    expect($p['rating'])->toBe(4.8);              // Place Details survives
     expect($p['name'])->toBe('Fade Lab Barbers');
+    foreach (['menu', 'reservation', 'order', 'booking', 'socials'] as $moved) {
+        expect($p)->not->toHaveKey($moved);
+    }
+
+    // Reservation → an OpenTable connection with the live keyless widget.
+    $ot = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->firstOrFail()->payload;
+    expect($ot['rid'])->toBe('266537');
+    expect($ot['embedUrl'])->toContain('rid=266537');
+    expect($ot['source'])->toBe('google-business');
+
+    // Ordering → one online-ordering row per provider, carrying the metadata.
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    expect($orders)->toHaveCount(2);              // UberEats pickup + DoorDash delivery; javascript: dropped
+    $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
+    expect($uber['url'])->toBe('https://ubereats.example/fadelab?mode=pickup');
+    expect($uber['source'])->toBe('google-business');
+    expect($uber['data'])->toMatchArray(['type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee', 'sourcePlatform' => 'UberEats']);
+
+    // Link socials → facebook + tiktok rows (with the source tag).
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['url'])->toBe('https://facebook.com/fadelab');
+    expect($fb['username'])->toBe('fadelab');
+    expect($fb['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
+
+    // Instagram → a pending placeholder + the budgeted scrape job dispatched.
+    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
+    expect($ig->last_refresh_status)->toBe('pending');
+    expect($ig->payload['source'])->toBe('google-business');
+    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
+
+    // Booking is never auto-synced.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
 });
 
-it('exposes the apify enrichment on the dashboard selection endpoint', function () {
+it('keeps the Google Business selection business-info-only after enrichment', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
     $user = gbApifyUser('gba4');
     gbApifyConnection($user);
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
 
+    // The harvested links are gone from Google Business — just business-info + status.
     actingAsUser($user)->getJson('/api/platforms/google-business/selection')
         ->assertOk()
-        ->assertJsonPath('selection.menu', 'https://fadelab.example/menu')
-        ->assertJsonPath('selection.socials.instagram', 'https://instagram.com/fadelab')
-        ->assertJsonPath('selection.apifyStatus', 'ok');
+        ->assertJsonPath('selection.apifyStatus', 'ok')
+        ->assertJsonMissingPath('selection.menu')
+        ->assertJsonMissingPath('selection.socials');
+
+    // The reservation now lives on the Reservations integration instead.
+    actingAsUser($user)->getJson('/api/platforms/reservations/status')
+        ->assertOk()
+        ->assertJsonPath('connected', true)
+        ->assertJsonPath('provider', 'opentable');
+
+    // ...and the auto-synced rows surface on the synced endpoint for the modal.
+    $synced = actingAsUser($user)->getJson('/api/platforms/google-business/synced')
+        ->assertOk()->json('synced');
+    expect(collect($synced)->pluck('category'))->toContain('reservations', 'online-ordering', 'social');
+});
+
+it('only-if-empty: never overwrites a reservation or social the user already set', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gba8');
+    gbApifyConnection($user);
+
+    // Pre-existing manual reservation + facebook the user curated themselves.
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'opentable', 'resource_id' => 'opentable',
+        'payload' => ['url' => 'https://www.opentable.com.au/restaurant/profile/999', 'rid' => '999', 'name' => 'Mine', 'embedUrl' => 'x', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'facebook', 'resource_id' => 'facebook',
+        'payload' => ['username' => 'mine', 'url' => 'https://facebook.com/mine', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+
+    // Both kept their manual value + tag — the Google sync left them alone.
+    $ot = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->firstOrFail()->payload;
+    expect($ot['rid'])->toBe('999');
+    expect($ot['source'])->toBe('manual');
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['username'])->toBe('mine');
+    expect($fb['source'])->toBe('manual');
+
+    // The empty slots (ordering) still seed.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(2);
 });
 
 it('marks apify unavailable when the scrape returns nothing', function () {
@@ -192,7 +257,7 @@ it('marks apify unavailable when the scrape returns nothing', function () {
     $user = gbApifyUser('gba5');
     $conn = gbApifyConnection($user);
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
 
     $conn->refresh();
     expect($conn->payload['apifyStatus'])->toBe('unavailable');
@@ -206,7 +271,7 @@ it('skips enrichment when the stored place no longer matches (reconnect guard)',
     $user = gbApifyUser('gba6');
     $conn = gbApifyConnection($user, 'ChIJdifferent');   // row now points elsewhere
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
 
     $conn->refresh();
     expect($conn->payload)->not->toHaveKey('menu');
