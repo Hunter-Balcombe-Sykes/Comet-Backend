@@ -95,13 +95,16 @@ class LinkCardScraper
     private function minimal(string $url): array
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        $name = (string) preg_replace('~^www\.~', '', $host);
+        $domain = (string) preg_replace('~^www\.~', '', $host);
 
         return [
             'url' => $url,
-            'name' => $name !== '' ? $name : $url,
+            'name' => $domain !== '' ? $domain : $url,
             'description' => null,
-            'favicon' => $host !== '' ? 'https://'.$host.'/favicon.ico' : null,
+            // The page itself is often bot-blocked (Uber Eats / DoorDash), so we
+            // can't read its <link rel="icon">. Google's favicon service resolves
+            // a brand icon for any domain; a miss degrades to a glyph in the UI.
+            'favicon' => $domain !== '' ? 'https://www.google.com/s2/favicons?domain='.urlencode($domain).'&sz=64' : null,
             'logo' => null,
         ];
     }
