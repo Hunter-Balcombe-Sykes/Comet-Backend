@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Services\Cache\InstagramApifyBudget;
 use Throwable;
 
@@ -14,26 +15,33 @@ use Throwable;
 // Integrations" step can list them with an undo. Best-effort: every seed is
 // isolated in its own try/catch so one failure never blocks the rest.
 //
-// Known providers store under their own platform keys (opentable + the link
-// socials) so these seeds drive the same public rendering a manual connect
-// would; online-ordering rows are dashboard-only. Booking is deliberately NOT
-// auto-synced. Instagram goes through its normal budgeted scrape job.
+// Known providers store under their own platform keys (opentable / resdiary /
+// nowbookit + the link socials) so these seeds drive the same public rendering a
+// manual connect would; online-ordering rows are dashboard-only. Booking seeds a
+// custom card from Google's appointment-booking link (only-if-empty), and the
+// workplace card's category / description / old-website are filled from Place
+// Details. Instagram goes through its normal budgeted scrape job.
 class GoogleBusinessAutoSync
 {
     private const MAX_ORDERING = 10;
 
     public function __construct(
         private readonly OpenTableService $openTable,
+        private readonly ResDiaryService $resDiary,
+        private readonly NowBookitService $nowBookit,
         private readonly InstagramApifyBudget $instagramBudget,
     ) {}
 
     /**
      * @param  array<string,mixed>  $enrichment  the scraper map() output (menu / reservation / order / booking / socials)
+     * @param  array<string,mixed>|null  $gbPayload  the Google Business connection payload (Place Details: category / website / editorialSummary) for the workplace seed
      */
-    public function seed(string $userId, array $enrichment, ?string $businessName): void
+    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): void
     {
         $this->seedReservation($userId, $enrichment, $businessName);
         $this->seedOrdering($userId, $enrichment);
+        $this->seedBooking($userId, $enrichment, $businessName);
+        $this->seedWorkplace($userId, $gbPayload ?? []);
         $this->seedSocials($userId, $enrichment);
     }
 
@@ -47,25 +55,55 @@ class GoogleBusinessAutoSync
                 return;
             }
             // Only-if-empty across the whole reservations family.
-            if ($this->has($userId, 'opentable') || $this->has($userId, 'reservations')) {
+            if ($this->hasAnyReservation($userId)) {
                 return;
             }
 
-            // Prefer an OpenTable link with a rid → the live keyless widget.
-            $ot = $this->openTable->suggestionFromGoogleBusiness(['reservation' => $reservation, 'name' => $businessName]);
-            if ($ot !== null && ($rid = $this->openTable->parseRid($ot['url'])) !== null) {
-                $this->write($userId, 'opentable', 'opentable', [
-                    'url' => $ot['url'],
-                    'rid' => $rid,
-                    'name' => $ot['name'],
-                    'embedUrl' => $this->openTable->embedUrl($rid, $this->openTable->hostOf($ot['url'])),
-                    'source' => 'google-business',
-                ]);
+            // Candidate provider links: the primary url + every named link. One
+            // may be a keyless provider (OpenTable / ResDiary / NowBookit).
+            $candidates = array_values(array_filter([
+                data_get($reservation, 'url'),
+                ...array_map(fn ($l) => data_get($l, 'url'), (array) data_get($reservation, 'links', [])),
+            ], fn ($u) => is_string($u) && $u !== ''));
 
-                return;
+            foreach ($candidates as $url) {
+                if ($this->openTable->isOpenTableUrl($url) && ($rid = $this->openTable->parseRid($url)) !== null) {
+                    $this->write($userId, 'opentable', 'opentable', [
+                        'url' => $url,
+                        'rid' => $rid,
+                        'name' => $businessName,
+                        'embedUrl' => $this->openTable->embedUrl($rid, $this->openTable->hostOf($url)),
+                        'source' => 'google-business',
+                    ]);
+
+                    return;
+                }
+                if ($this->resDiary->isResDiaryUrl($url) && ($embed = $this->resDiary->embedUrl($url)) !== null) {
+                    $this->write($userId, 'resdiary', 'resdiary', [
+                        'url' => $url,
+                        'microsite' => $this->resDiary->parseMicrosite($url),
+                        'name' => $this->resDiary->nameFromUrl($url) ?? $businessName,
+                        'embedUrl' => $embed,
+                        'source' => 'google-business',
+                    ]);
+
+                    return;
+                }
+                if ($this->nowBookit->isNowBookitUrl($url) && ($ids = $this->nowBookit->parseIds($url)) !== null) {
+                    $this->write($userId, 'nowbookit', 'nowbookit', [
+                        'url' => $url,
+                        'accountId' => $ids['accountId'],
+                        'venueId' => $ids['venueId'],
+                        'name' => $this->nowBookit->nameFromUrl($url) ?? $businessName,
+                        'embedUrl' => $this->nowBookit->embedUrl($ids['accountId'], $ids['venueId']),
+                        'source' => 'google-business',
+                    ]);
+
+                    return;
+                }
             }
 
-            // Non-OpenTable (or rid-less) provider → a branded custom card.
+            // No keyless provider matched → a branded custom card.
             $url = $this->safeUrl(data_get($reservation, 'url'));
             if ($url === null) {
                 return;
@@ -78,6 +116,101 @@ class GoogleBusinessAutoSync
                 'logo' => null,
                 'source' => 'google-business',
             ]);
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function hasAnyReservation(string $userId): bool
+    {
+        foreach (['opentable', 'resdiary', 'nowbookit', 'reservations'] as $platform) {
+            if ($this->has($userId, $platform)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ── booking ──────────────────────────────────────────────────
+
+    // Auto-connect the appointment-booking link Google has on file (Square
+    // Appointments, a generic booking page, ...) as a branded custom booking
+    // card — only-if-empty across the whole booking family. Known providers
+    // (Fresha / Square) keep their own rich connect flow and are never
+    // force-seeded from a bare Google link.
+    private function seedBooking(string $userId, array $enrichment, ?string $businessName): void
+    {
+        try {
+            $links = data_get($enrichment, 'booking');
+            $url = is_array($links) ? $this->safeUrl($links[0] ?? null) : null;
+            if ($url === null) {
+                return;
+            }
+            if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
+                return;
+            }
+            $this->write($userId, 'booking', 'booking', [
+                'provider' => 'custom',
+                'url' => $url,
+                'name' => $businessName,
+                'favicon' => null,
+                'logo' => null,
+                'source' => 'google-business',
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
+    // ── workplace ─────────────────────────────────────────────────
+
+    // Fill the workplace card's previous-website / category / description from
+    // the Google Business Place Details — per field, only when the user hasn't
+    // set it. Never seeds the identity fields (name/address), so it can't
+    // auto-publish a workplace section the user didn't create.
+    //
+    // @param array<string,mixed> $gbPayload
+    private function seedWorkplace(string $userId, array $gbPayload): void
+    {
+        try {
+            // Truncate to the workplace request's field caps (category 120,
+            // description 1000) so a long Google summary can't later 422 the
+            // user's own workplace save.
+            $fields = array_filter([
+                'previous_website' => $this->safeUrl(data_get($gbPayload, 'website')),
+                'category' => $this->truncate($this->clean(data_get($gbPayload, 'category')), 120),
+                'description' => $this->truncate(
+                    $this->clean(data_get($gbPayload, 'editorialSummary'))
+                        ?? $this->clean(data_get($gbPayload, 'reviewSummary')),
+                    1000,
+                ),
+            ], fn ($v) => $v !== null);
+            if ($fields === []) {
+                return;
+            }
+
+            $site = Site::query()->where('user_id', $userId)->first();
+            if ($site === null) {
+                return;
+            }
+            $settings = is_array($site->settings) ? $site->settings : [];
+            $workplace = is_array($settings['workplace'] ?? null) ? $settings['workplace'] : [];
+
+            $changed = false;
+            foreach ($fields as $key => $value) {
+                if ($this->blank($workplace[$key] ?? null)) {
+                    $workplace[$key] = $value;
+                    $changed = true;
+                }
+            }
+            if (! $changed) {
+                return;
+            }
+
+            $settings['workplace'] = $workplace;
+            $site->settings = $settings;
+            $site->save();
         } catch (Throwable $e) {
             report($e);
         }
@@ -269,5 +402,15 @@ class GoogleBusinessAutoSync
         $s = trim($value);
 
         return $s !== '' ? $s : null;
+    }
+
+    private function blank(mixed $value): bool
+    {
+        return ! is_string($value) || trim($value) === '';
+    }
+
+    private function truncate(?string $value, int $max): ?string
+    {
+        return $value !== null ? mb_substr($value, 0, $max) : null;
     }
 }

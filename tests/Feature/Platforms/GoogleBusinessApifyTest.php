@@ -184,8 +184,11 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($ig->payload['source'])->toBe('google-business');
     Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
 
-    // Booking is never auto-synced.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+    // Booking → a custom card seeded from Google's appointment-booking link.
+    $booking = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail()->payload;
+    expect($booking['provider'])->toBe('custom');
+    expect($booking['url'])->toBe('https://booking.example/fadelab');
+    expect($booking['source'])->toBe('google-business');
 });
 
 it('keeps the Google Business selection business-info-only after enrichment', function () {

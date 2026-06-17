@@ -79,7 +79,12 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         // Online-ordering / Social), not on the Google Business payload. Seed them
         // only into slots the user hasn't filled, tagged source:'google-business';
         // booking is never auto-synced.
-        $autoSync->seed($this->userId, $enrichment, data_get($connection->payload, 'name'));
+        $autoSync->seed(
+            $this->userId,
+            $enrichment,
+            data_get($connection->payload, 'name'),
+            is_array($connection->payload) ? $connection->payload : [],
+        );
 
         // Write back business-info only: strip the enrichment keys (stale ones from
         // a pre-cleanup connect included) and flip the Apify status. The GB payload

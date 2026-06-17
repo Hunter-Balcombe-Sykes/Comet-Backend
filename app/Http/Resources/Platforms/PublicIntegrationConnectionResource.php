@@ -59,6 +59,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         // opentable: the reservation-widget embed is public by design (it's a
         // keyless booking widget). rid/url are public widget params, not secrets.
         'opentable' => ['url', 'rid', 'name', 'embedUrl'],
+        // resdiary / nowbookit: keyless reservation-widget embeds, public by
+        // design (same contract as opentable — widget params, not secrets).
+        'resdiary' => ['url', 'microsite', 'name', 'embedUrl'],
+        'nowbookit' => ['url', 'accountId', 'venueId', 'name', 'embedUrl'],
         // Dashboard-only category platforms — booking/reservations hold a custom
         // fallback entry; online-ordering holds the ordering links. None render on
         // the public sitepage yet, so they expose NOTHING (empty list → {}). The

@@ -58,6 +58,11 @@ class UserWorkplaceController extends ApiController
             'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
             'phone' => $this->trimOrNull($data['phone'] ?? null),
             'website' => $this->trimOrNull($data['website'] ?? null),
+            // Archive of the business's old website + Google-sourced category and
+            // editorial description (all also auto-filled from Google Business).
+            'previous_website' => $this->trimOrNull($data['previous_website'] ?? null),
+            'category' => $this->trimOrNull($data['category'] ?? null),
+            'description' => $this->trimOrNull($data['description'] ?? null),
         ];
 
         $settings = is_array($site->settings) ? $site->settings : [];
@@ -137,6 +142,9 @@ class UserWorkplaceController extends ApiController
             'longitude' => is_numeric($raw['longitude'] ?? null) ? (float) $raw['longitude'] : null,
             'phone' => $this->trimOrNull($raw['phone'] ?? null),
             'website' => $this->trimOrNull($raw['website'] ?? null),
+            'previous_website' => $this->trimOrNull($raw['previous_website'] ?? null),
+            'category' => $this->trimOrNull($raw['category'] ?? null),
+            'description' => $this->trimOrNull($raw['description'] ?? null),
         ];
     }
 }

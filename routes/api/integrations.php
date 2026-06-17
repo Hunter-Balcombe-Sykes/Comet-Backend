@@ -13,11 +13,13 @@ use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\LinkedinController;
 use App\Http\Controllers\Api\Platforms\MenuController;
+use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\RedditController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
+use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
@@ -263,6 +265,10 @@ $registerIntegrationRoutes = function (string $base): void {
         // OpenTable reservations — connect by restaurant link, render the
         // keyless reservation widget (rid read from the URL; no scraping).
         'opentable' => OpenTableController::class,
+        // ResDiary + NowBookit reservations — keyless booking widgets, same
+        // connect-by-link flow as OpenTable (the embed is built from the URL).
+        'resdiary' => ResDiaryController::class,
+        'nowbookit' => NowBookitController::class,
         // Link-only socials (Facebook-style: store a canonical profile URL).
         'x' => XController::class,
         'linkedin' => LinkedinController::class,

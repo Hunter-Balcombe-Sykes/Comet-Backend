@@ -16,6 +16,9 @@ class UpsertWorkplaceRequest extends BaseFormRequest
         $trimmed = [];
         foreach ([
             'name', 'address', 'phone', 'website',
+            // Previous/old website (archive) + business category + editorial
+            // description — also auto-filled from Google Business when empty.
+            'previous_website', 'category', 'description',
             // Structured address components — populated either by Google
             // Places (parseAddressParts in /api/google/places/search) or
             // by manual entry in the workplace editor.
@@ -48,6 +51,9 @@ class UpsertWorkplaceRequest extends BaseFormRequest
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'phone' => ['nullable', ...$this->phoneRule()],
             'website' => ['nullable', 'url', 'max:2048'],
+            'previous_website' => ['nullable', 'url', 'max:2048'],
+            'category' => ['nullable', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

@@ -12,12 +12,16 @@ class ProviderDetector
     // Providers each category can detect, in priority order.
     private const CATEGORY_PROVIDERS = [
         'booking' => ['fresha', 'square'],
-        'reservations' => ['opentable'],
+        'reservations' => ['opentable', 'resdiary', 'nowbookit'],
         // No ordering platforms integrated yet — every link is a custom card.
         'online-ordering' => [],
     ];
 
-    public function __construct(private readonly OpenTableService $openTable) {}
+    public function __construct(
+        private readonly OpenTableService $openTable,
+        private readonly ResDiaryService $resDiary,
+        private readonly NowBookitService $nowBookit,
+    ) {}
 
     /** The known provider for a URL within a category, or null (custom fallback). */
     public function detectFor(string $category, string $url): ?string
@@ -43,6 +47,8 @@ class ProviderDetector
             // Mirrors ConnectSquareRequest: book.squareup.com, squareup.com, *.square.site.
             'square' => (bool) preg_match('~(^|\.)(squareup\.com|square\.site)$~', $host),
             'opentable' => $this->openTable->isOpenTableUrl($url),
+            'resdiary' => $this->resDiary->isResDiaryUrl($url),
+            'nowbookit' => $this->nowBookit->isNowBookitUrl($url),
             default => false,
         };
     }
