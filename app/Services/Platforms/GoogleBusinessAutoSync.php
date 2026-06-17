@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\InstagramConnectJob;
+use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\InstagramApifyBudget;
 use Throwable;
@@ -120,6 +121,9 @@ class GoogleBusinessAutoSync
                     ], fn ($v) => $v !== null),
                 ]);
             }
+
+            // Ordering links changed → (re)derive the shared menu from them.
+            MenuFetchJob::dispatch($userId);
         } catch (Throwable $e) {
             report($e);
         }

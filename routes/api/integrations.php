@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\LinkedinController;
+use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
@@ -232,6 +233,17 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
             Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [OnlineOrderingController::class, 'forget']);
+        });
+
+    // Menu — read-only view of the fetched Uber Eats / DoorDash menu (the single
+    // site.menus row), auto-populated from the online-ordering links. No connect
+    // step; /refresh re-scrapes. Dashboard-only.
+    Route::prefix("{$base}/menu")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::get('/status', [MenuController::class, 'status']);
+            Route::get('/', [MenuController::class, 'show']);
+            Route::post('/refresh', [MenuController::class, 'refresh']);
         });
 
     // Everything else is the uniform connect / selection / forget shape —
