@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\ProviderDetector;
+use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -28,7 +29,7 @@ function fakeScraper(array $snapshot): void
 {
     test()->mock(LinkCardScraper::class, function ($m) use ($snapshot) {
         $m->shouldReceive('normalizeUrl')->andReturnUsing(fn ($u) => $snapshot['url'] ?? $u);
-        $m->shouldReceive('snapshot')->andReturn($snapshot);
+        $m->shouldReceive('snapshotOrMinimal')->andReturn($snapshot);
     });
 }
 
@@ -191,4 +192,27 @@ it('adds, lists and removes online-ordering entries', function () {
 
     actingAsUser($user)->deleteJson("/api/platforms/online-ordering/entries/{$id}")
         ->assertOk()->assertJsonCount(0, 'entries');
+});
+
+it('attaches any link even when the page cannot be fetched (graceful fallback)', function () {
+    // SafeUrlFetcher returns null for bot-blocked / unreachable pages (Uber Eats).
+    test()->mock(SafeUrlFetcher::class, fn ($m) => $m->shouldReceive('tryFetch')->andReturn(null));
+
+    $card = app(LinkCardScraper::class)->snapshotOrMinimal('https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
+
+    expect($card['url'])->toBe('https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
+    expect($card['name'])->toBe('ubereats.com');                              // host-derived name
+    expect($card['favicon'])->toBe('https://www.ubereats.com/favicon.ico');   // /favicon.ico guess
+});
+
+it('adds an unfetchable online-ordering link as a branded card (no 422)', function () {
+    test()->mock(SafeUrlFetcher::class, fn ($m) => $m->shouldReceive('tryFetch')->andReturn(null));
+    $user = catUser('cat9');
+
+    actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
+        'url' => 'https://www.ubereats.com/au/store/ollies-pizza-parlour/abc',
+    ])
+        ->assertOk()
+        ->assertJsonPath('entries.0.name', 'ubereats.com')
+        ->assertJsonPath('entries.0.url', 'https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
 });

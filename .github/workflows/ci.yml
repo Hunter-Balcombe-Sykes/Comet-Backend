@@ -104,6 +104,8 @@ jobs:
           #   - AnalyticsDedupGuard         — atomic SETNX fixed-window dedup utility
           #   - FeatureFlagService          — flag registry/per-pro invalidation (Cache::forget)
           #   - YoutubeThumbnailResolver    — thumbnail-tier memo with jittered TTL
+          #   - RefreshController           — Cache::add SETNX per-user refresh cooldown (key is user+platform scoped)
+          #   - DispatchEnquiryNotificationsJob — Cache::put notify-once idempotency guard (enquiry-id scoped)
           set +e
           BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
@@ -121,6 +123,8 @@ jobs:
             ':!app/Services/Analytics/AnalyticsCacheService.php' \
             ':!app/Services/Analytics/AnalyticsDedupGuard.php' \
             ':!app/Services/FeatureFlags/FeatureFlagService.php' \
+            ':!app/Http/Controllers/Api/Platforms/RefreshController.php' \
+            ':!app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php' \
             ':!app/Services/Platforms/YoutubeThumbnailResolver.php')
           set -e
           if [ -n "$BAD" ]; then

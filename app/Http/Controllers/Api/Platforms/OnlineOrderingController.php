@@ -53,11 +53,9 @@ class OnlineOrderingController extends ApiController
         if (! $url) {
             return $this->error('Enter a valid link (https://...).', 422);
         }
-        $meta = $this->scraper->snapshot($url);
-        if ($meta === null) {
-            return $this->error('Could not load that page. Check the link and try again.', 422);
-        }
-
+        // Never rejects on an unfetchable page (bot-blocked platforms like Uber
+        // Eats) — it falls back to a minimal card so any ordering link attaches.
+        $meta = $this->scraper->snapshotOrMinimal($url);
         $rid = $this->entryResourceId($meta['url']);
 
         return $this->withConnectionLock($user, function () use ($user, $meta, $rid) {

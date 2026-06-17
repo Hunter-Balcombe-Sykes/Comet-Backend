@@ -71,6 +71,41 @@ class LinkCardScraper
         ];
     }
 
+    /**
+     * snapshot() but NEVER null — when the page can't be fetched (bot-blocked
+     * platforms like Uber Eats / DoorDash, JS-only pages, timeouts), fall back to
+     * a minimal card derived from the URL itself, so ANY link can still be
+     * attached as a branded card. The server never re-fetches a stored link, so
+     * skipping the fetch here introduces no SSRF surface.
+     *
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     */
+    public function snapshotOrMinimal(string $url): array
+    {
+        return $this->snapshot($url) ?? $this->minimal($url);
+    }
+
+    /**
+     * A best-effort card from the URL alone — the host as the name and a
+     * conventional /favicon.ico guess (the dashboard shows a placeholder if it
+     * doesn't load).
+     *
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     */
+    private function minimal(string $url): array
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $name = (string) preg_replace('~^www\.~', '', $host);
+
+        return [
+            'url' => $url,
+            'name' => $name !== '' ? $name : $url,
+            'description' => null,
+            'favicon' => $host !== '' ? 'https://'.$host.'/favicon.ico' : null,
+            'logo' => null,
+        ];
+    }
+
     /** @param array<string,string> $meta */
     private function metaName(array $meta, string $key): ?string
     {

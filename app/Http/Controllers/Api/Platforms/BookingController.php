@@ -56,10 +56,7 @@ class BookingController extends ApiController
         if (! $url) {
             return $this->error('Enter a valid link (https://...).', 422);
         }
-        $meta = $this->scraper->snapshot($url);
-        if ($meta === null) {
-            return $this->error('Could not load that page. Check the link and try again.', 422);
-        }
+        $meta = $this->scraper->snapshotOrMinimal($url);   // never null — minimal card on fetch failure
 
         return $this->withConnectionLock($user, function () use ($user, $meta) {
             $this->clearBooking($user);   // single-slot
