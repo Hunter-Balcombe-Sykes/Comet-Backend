@@ -4,8 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Services\Cache\CacheKeyGenerator;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\InstagramApifyBudget;
 use Throwable;
 
 // Seeds Reservations / Online-ordering / Social connections from a Google
@@ -22,7 +21,10 @@ class GoogleBusinessAutoSync
 {
     private const MAX_ORDERING = 10;
 
-    public function __construct(private readonly OpenTableService $openTable) {}
+    public function __construct(
+        private readonly OpenTableService $openTable,
+        private readonly InstagramApifyBudget $instagramBudget,
+    ) {}
 
     /**
      * @param  array<string,mixed>  $enrichment  the scraper map() output (menu / reservation / order / booking / socials)
@@ -172,8 +174,8 @@ class GoogleBusinessAutoSync
             return;
         }
         // Apify token required + the SAME global daily budget the manual connect
-        // claims (shared cache key) — a Google connect can never blow the cap.
-        if (! config('services.apify.token') || ! $this->claimInstagramBudget()) {
+        // claims (shared cache service) — a Google connect can never blow the cap.
+        if (! config('services.apify.token') || ! $this->instagramBudget->tryClaim()) {
             return;
         }
 
@@ -192,21 +194,6 @@ class GoogleBusinessAutoSync
         );
 
         InstagramConnectJob::dispatch($userId, $username, $connection->id);
-    }
-
-    /** Claim one slot of the global daily Instagram Apify budget (shared key). */
-    private function claimInstagramBudget(): bool
-    {
-        $cap = (int) config('partna.limits.platforms.instagram.apify_daily_cap', 200);
-        $key = CacheKeyGenerator::instagramDailyLimit(now()->format('Y-m-d'));
-        Cache::add($key, 0, now()->addDay());
-        if (Cache::increment($key) > $cap) {
-            Cache::decrement($key);
-
-            return false;
-        }
-
-        return true;
     }
 
     // ── helpers ──────────────────────────────────────────────────
