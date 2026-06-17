@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
@@ -71,6 +72,9 @@ class OnlineOrderingController extends ApiController
                 ...$meta,
             ], $rid);
 
+            // Ordering links drive the shared menu — (re)derive it from them.
+            MenuFetchJob::dispatch((string) $user->id);
+
             return $this->success(['entries' => $this->entriesData($user)]);
         });
     }
@@ -83,6 +87,7 @@ class OnlineOrderingController extends ApiController
             return $this->error('Ordering link not found.', 404);
         }
         $this->forgetConnection($user, $id);
+        MenuFetchJob::dispatch((string) $user->id);
 
         return $this->success(['entries' => $this->entriesData($user)]);
     }
@@ -90,7 +95,9 @@ class OnlineOrderingController extends ApiController
     // DELETE /api/platforms/online-ordering — remove every entry.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $this->forgetAllConnections($user);
+        MenuFetchJob::dispatch((string) $user->id);
 
         return $this->success(['entries' => []]);
     }

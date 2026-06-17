@@ -459,6 +459,25 @@ function setupSitesTable(): void
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )');
+
+    // site.menus — fetched food-ordering menu (Uber Eats / DoorDash), one row
+    // per user. Single source of truth for menu content; read by the dashboard
+    // Menu section. Mirrors migration 20260617130000 (jsonb→TEXT, numeric→REAL).
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        source TEXT NULL,
+        store_url TEXT NULL,
+        rating REAL NULL,
+        review_count INTEGER NULL,
+        currency TEXT NULL,
+        categories TEXT NULL,
+        fetch_status TEXT NULL,
+        last_fetched_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        deleted_at TEXT NULL
+    )');
 }
 
 /**
