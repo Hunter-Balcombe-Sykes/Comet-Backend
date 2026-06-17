@@ -201,8 +201,8 @@ it('attaches any link even when the page cannot be fetched (graceful fallback)',
     $card = app(LinkCardScraper::class)->snapshotOrMinimal('https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
 
     expect($card['url'])->toBe('https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
-    expect($card['name'])->toBe('ubereats.com');                              // host-derived name
-    expect($card['favicon'])->toBe('https://www.ubereats.com/favicon.ico');   // /favicon.ico guess
+    expect($card['name'])->toBe('ubereats.com');                                                       // host-derived name
+    expect($card['favicon'])->toBe('https://www.google.com/s2/favicons?domain=ubereats.com&sz=64');    // resolved brand icon
 });
 
 it('adds an unfetchable online-ordering link as a branded card (no 422)', function () {
