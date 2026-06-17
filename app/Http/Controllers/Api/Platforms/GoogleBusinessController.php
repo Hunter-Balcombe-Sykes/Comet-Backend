@@ -93,7 +93,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         $user = $this->currentUser($request);
 
         $rows = $user->integrationConnections()
-            ->whereIn('platform', ['opentable', 'reservations', 'online-ordering', 'instagram', 'facebook', 'tiktok', 'x', 'linkedin'])
+            ->whereIn('platform', ['opentable', 'resdiary', 'nowbookit', 'reservations', 'booking', 'online-ordering', 'instagram', 'facebook', 'tiktok', 'x', 'linkedin'])
             ->orderBy('platform')
             ->orderBy('created_at')
             ->get();
@@ -120,7 +120,10 @@ class GoogleBusinessController extends SingleSelectionPlatformController
 
         [$category, $label] = match ($platform) {
             'opentable' => ['reservations', $payload['name'] ?? 'OpenTable'],
+            'resdiary' => ['reservations', $payload['name'] ?? 'ResDiary'],
+            'nowbookit' => ['reservations', $payload['name'] ?? 'NowBookit'],
             'reservations' => ['reservations', $payload['name'] ?? 'Reservations'],
+            'booking' => ['booking', $payload['name'] ?? 'Booking'],
             'online-ordering' => ['online-ordering', $payload['name'] ?? 'Order online'],
             'instagram' => ['social', 'Instagram'],
             'facebook' => ['social', 'Facebook'],

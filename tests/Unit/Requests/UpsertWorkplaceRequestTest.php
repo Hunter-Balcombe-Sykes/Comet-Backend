@@ -80,6 +80,26 @@ it('rejects an invalid website URL', function () {
     expect($errors)->toHaveKey('website');
 });
 
+it('accepts the previous_website, category and description fields', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Ollies',
+        'previous_website' => 'https://old.ollies.example',
+        'category' => 'Japanese restaurant',
+        'description' => 'From Ollies: the best ramen in town.',
+    ]);
+
+    expect($errors)->toBe([]);
+});
+
+it('rejects an invalid previous_website URL', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Ollies',
+        'previous_website' => 'not a url',
+    ]);
+
+    expect($errors)->toHaveKey('previous_website');
+});
+
 it('trims whitespace and treats blank strings as null', function () {
     $request = new UpsertWorkplaceRequest;
     $request->merge([

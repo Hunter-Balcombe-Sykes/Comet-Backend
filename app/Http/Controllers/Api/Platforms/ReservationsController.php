@@ -23,6 +23,10 @@ class ReservationsController extends ApiController
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
+    // Keyless reservation providers — each stores under its own platform key and
+    // renders an iframe widget. Reservations is single-slot across the whole family.
+    private const KEYLESS_PROVIDERS = ['opentable', 'resdiary', 'nowbookit'];
+
     public function __construct(
         private readonly ProviderDetector $detector,
         private readonly LinkCardScraper $scraper,
@@ -40,8 +44,9 @@ class ReservationsController extends ApiController
         $user = $this->currentUser($request);
         $validated = $request->validate(['url' => ['required', 'string', 'max:1000']]);
 
-        if ($this->detector->detectFor('reservations', $validated['url']) === 'opentable') {
-            return $this->success(['provider' => 'opentable', 'next' => 'opentable-connect', 'selection' => null]);
+        $provider = $this->detector->detectFor('reservations', $validated['url']);
+        if (in_array($provider, self::KEYLESS_PROVIDERS, true)) {
+            return $this->success(['provider' => $provider, 'next' => "{$provider}-connect", 'selection' => null]);
         }
 
         // Unknown → custom fallback.
@@ -100,15 +105,17 @@ class ReservationsController extends ApiController
      */
     private function statusFor(User $user): array
     {
-        $ot = $user->integrationConnections()->where('platform', 'opentable')->first();
-        if ($ot) {
-            return [
-                'connected' => true,
-                'provider' => 'opentable',
-                'name' => data_get($ot->payload, 'name'),
-                'url' => data_get($ot->payload, 'url'),
-                'embedUrl' => data_get($ot->payload, 'embedUrl'),
-            ];
+        foreach (self::KEYLESS_PROVIDERS as $provider) {
+            $row = $user->integrationConnections()->where('platform', $provider)->first();
+            if ($row) {
+                return [
+                    'connected' => true,
+                    'provider' => $provider,
+                    'name' => data_get($row->payload, 'name'),
+                    'url' => data_get($row->payload, 'url'),
+                    'embedUrl' => data_get($row->payload, 'embedUrl'),
+                ];
+            }
         }
 
         $custom = $this->readConnection($user);
@@ -128,8 +135,10 @@ class ReservationsController extends ApiController
     /** Remove every reservation-family connection (the single-slot guarantee). */
     private function clearReservations(User $user): void
     {
-        foreach ($user->integrationConnections()->where('platform', 'opentable')->get() as $row) {
-            $row->delete();   // soft-delete; observer purges the sitepage cache
+        foreach (self::KEYLESS_PROVIDERS as $provider) {
+            foreach ($user->integrationConnections()->where('platform', $provider)->get() as $row) {
+                $row->delete();   // soft-delete; observer purges the sitepage cache
+            }
         }
         $this->forgetConnection($user);   // the custom 'reservations' row, if any
     }
