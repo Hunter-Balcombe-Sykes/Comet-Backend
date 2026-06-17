@@ -106,9 +106,9 @@ class OpenTableService
         $params = http_build_query([
             'rid' => $rid,
             'domain' => $domain,
-            // tall = the portrait layout with the most room for time slots;
+            // wide = the responsive layout that fills the container width;
             // overlay keeps booking in-page instead of a new tab.
-            'type' => 'tall',
+            'type' => 'wide',
             'theme' => 'standard',
             'overlay' => 'true',
             'iframe' => 'true',
