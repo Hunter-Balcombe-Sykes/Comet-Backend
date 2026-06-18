@@ -27,6 +27,16 @@ class MenuApifyScraper
         'doordash' => 'alizarin_refrigerator-owner~doordash-scraper',
     ];
 
+    // These actors scrape WAF-protected pages and intermittently return an empty
+    // result even for a valid, open store (the scrape gets bot-blocked on a large
+    // fraction of runs) — so retry an empty / transient miss a few times before
+    // giving up. A hard 4xx (unknown store / unrented actor) is NOT retried.
+    private const MAX_ATTEMPTS = 4;
+
+    // Per-attempt HTTP timeout (seconds). MAX_ATTEMPTS × this stays under the
+    // MenuFetchJob timeout.
+    private const ATTEMPT_TIMEOUT = 60;
+
     /**
      * Scrape one store URL on the given platform and map it to our normalized
      * menu shape. Null on missing token / failure / empty result — the caller
@@ -42,9 +52,34 @@ class MenuApifyScraper
             return null;
         }
 
+        // Retry empty / transient misses (the actor is flaky and returns []
+        // on a large fraction of runs even for a valid store). Stop early on a
+        // mapped menu (success) or a non-retryable hard error (4xx).
+        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
+            $result = $this->attemptScrape($actor, $token, $storeUrl, $platform, $userId, $attempt);
+            if ($result['menu'] !== null) {
+                return $result['menu'];
+            }
+            if (! $result['retryable']) {
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * One scrape attempt. Returns the mapped menu on success, else null with a
+     * `retryable` flag — empty results / timeouts / 5xx are retryable; a 4xx
+     * (unknown store / unrented actor) is not.
+     *
+     * @return array{menu: array{rating:?float, reviewCount:?int, currency:?string, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null, retryable: bool}
+     */
+    private function attemptScrape(string $actor, string $token, string $storeUrl, string $platform, ?string $userId, int $attempt): array
+    {
         try {
             $response = Http::withToken($token)
-                ->timeout(170)
+                ->timeout(self::ATTEMPT_TIMEOUT)
                 ->post(
                     'https://api.apify.com/v2/acts/'.$actor.'/run-sync-get-dataset-items',
                     $this->input($storeUrl, $platform),
@@ -53,15 +88,15 @@ class MenuApifyScraper
             report($e);
             // info level: the Laravel Cloud log stream (cloud env:logs) only
             // surfaces info, so a failed scrape must log here to be diagnosable.
-            Log::info('menu.apify.threw', ['platform' => $platform, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::info('menu.apify.threw', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt, 'error' => $e->getMessage()]);
 
-            return null;
+            return ['menu' => null, 'retryable' => true];
         }
 
         // run-sync-get-dataset-items returns 201 on success — ->ok() only accepts 200.
         if (! $response->successful()) {
             // 5xx is genuine Apify infra worth alerting on; 4xx (unknown store /
-            // actor not rented / unsubscribed paid actor) is expected. Log the
+            // actor not rented / unsubscribed paid actor) is a hard error. Log the
             // status + body snippet at info so the exact Apify message shows in
             // cloud env:logs (which only surfaces info-level lines).
             if ($response->status() >= 500) {
@@ -70,39 +105,38 @@ class MenuApifyScraper
             Log::info('menu.apify.not_ok', [
                 'platform' => $platform,
                 'user_id' => $userId,
+                'attempt' => $attempt,
                 'status' => $response->status(),
                 'body' => mb_substr((string) $response->body(), 0, 600),
             ]);
 
-            return null;
+            return ['menu' => null, 'retryable' => $response->status() >= 500];
         }
 
         $items = $response->json();
         if (! is_array($items) || $items === []) {
-            Log::info('menu.apify.empty', [
-                'platform' => $platform,
-                'user_id' => $userId,
-                'type' => gettype($items),
-                'body' => mb_substr((string) $response->body(), 0, 600),
-            ]);
+            Log::info('menu.apify.empty', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt]);
 
-            return null;
+            return ['menu' => null, 'retryable' => true];
         }
 
         // First-run visibility: the first row's keys, so the mapping can be tuned
-        // against real data without dumping the whole (large) dataset. Drop to
-        // debug once the shapes are settled.
+        // against real data without dumping the whole (large) dataset.
         Log::info('menu.apify.keys', [
             'platform' => $platform,
             'user_id' => $userId,
+            'attempt' => $attempt,
             'rows' => count($items),
             'first_keys' => is_array($items[0] ?? null) ? array_keys($items[0]) : gettype($items[0] ?? null),
         ]);
 
         $menu = $platform === 'uber-eats' ? $this->mapUberEats($items) : $this->mapDoorDash($items);
 
-        // A menu with zero items is an empty/failed scrape, not a real menu.
-        return $menu['categories'] === [] ? null : $menu;
+        // Mapped to nothing (unexpected shape / all-empty rows) — treat as a
+        // retryable miss rather than a real menu.
+        return $menu['categories'] === []
+            ? ['menu' => null, 'retryable' => true]
+            : ['menu' => $menu, 'retryable' => false];
     }
 
     /**
