@@ -29,8 +29,9 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // The menu actors run a real store scrape; allow generous headroom.
-    public int $timeout = 190;
+    // The menu actors run a real store scrape, retried on empty; allow headroom
+    // for MAX_ATTEMPTS × ATTEMPT_TIMEOUT in MenuApifyScraper.
+    public int $timeout = 300;
 
     public int $tries = 2;
 
@@ -41,7 +42,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
 
     // One menu fetch per user at a time; the window exceeds $timeout so a
     // duplicate dispatch can't slip in and bill a second Apify run mid-flight.
-    public int $uniqueFor = 240;
+    public int $uniqueFor = 360;
 
     public function __construct(
         public readonly string $userId,
