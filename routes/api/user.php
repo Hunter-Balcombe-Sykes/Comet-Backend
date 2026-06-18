@@ -84,6 +84,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // View Site Details
         Route::get('/site', [UserSiteController::class, 'show']);
         Route::get('/site/workplace', [UserWorkplaceController::class, 'show']);
+        Route::get('/site/workplace/previous-website', [UserWorkplaceController::class, 'showPreviousWebsite']);
 
         // Update Site Details
         Route::patch('/site', [UserSiteController::class, 'update']);
@@ -91,6 +92,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->name('professional.site.reclaim-handle');
         Route::put('/site/workplace', [UserWorkplaceController::class, 'upsert']);
         Route::delete('/site/workplace', [UserWorkplaceController::class, 'destroy']);
+        Route::patch('/site/workplace/previous-website', [UserWorkplaceController::class, 'setPreviousWebsite']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);
 
         // Custom domains (Cloudflare for SaaS) — connect your own domain instead of

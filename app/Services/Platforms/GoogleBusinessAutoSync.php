@@ -29,6 +29,7 @@ class GoogleBusinessAutoSync
         private readonly OpenTableService $openTable,
         private readonly ResDiaryService $resDiary,
         private readonly NowBookitService $nowBookit,
+        private readonly ProviderDetector $detector,
         private readonly InstagramApifyBudget $instagramBudget,
     ) {}
 
@@ -134,11 +135,11 @@ class GoogleBusinessAutoSync
 
     // ── booking ──────────────────────────────────────────────────
 
-    // Auto-connect the appointment-booking link Google has on file (Square
-    // Appointments, a generic booking page, ...) as a branded custom booking
-    // card — only-if-empty across the whole booking family. Known providers
-    // (Fresha / Square) keep their own rich connect flow and are never
-    // force-seeded from a bare Google link.
+    // Auto-connect the booking link Google has on file (only-if-empty across the
+    // whole booking family). A Fresha link becomes a PENDING Fresha connection
+    // (url only, no team-member/services selection) so the dashboard shows a
+    // "Finish setup" prompt; a Square link is a complete "Book now" connection
+    // (no picker step); anything else is a branded custom booking card.
     private function seedBooking(string $userId, array $enrichment, ?string $businessName): void
     {
         try {
@@ -150,6 +151,31 @@ class GoogleBusinessAutoSync
             if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
                 return;
             }
+
+            $provider = $this->detector->detectFor('booking', $url);
+            if ($provider === 'fresha') {
+                // Pending: url only, selection null (payload stays non-null — prod
+                // constraint). The dashboard's "Finish setup" runs the normal
+                // /fresha/connect + /selection picker flow from this url.
+                $this->write($userId, 'fresha', 'fresha', [
+                    'url' => $url,
+                    'selection' => null,
+                    'source' => 'google-business',
+                ]);
+
+                return;
+            }
+            if ($provider === 'square') {
+                // Square is just a "Book now" link — complete, no picker step.
+                $this->write($userId, 'square', 'square', [
+                    'url' => $url,
+                    'source' => 'google-business',
+                ]);
+
+                return;
+            }
+
+            // Unknown provider → a branded custom booking card.
             $this->write($userId, 'booking', 'booking', [
                 'provider' => 'custom',
                 'url' => $url,

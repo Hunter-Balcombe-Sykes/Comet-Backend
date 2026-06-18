@@ -185,3 +185,58 @@ it('truncates a long Google description to the workplace field cap', function ()
 
     expect(mb_strlen(resWorkplace($user)['description']))->toBe(1000);
 });
+
+// ── Google booking auto-connect (Fresha pending / Square full / custom) ──
+
+it('auto-connects a pending Fresha from a google booking link', function () {
+    $user = resUser('gb1');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://www.fresha.com/a/ollies-salon']], 'Ollies');
+
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail();
+    expect($row->payload['url'])->toBe('https://www.fresha.com/a/ollies-salon');
+    expect($row->payload['selection'])->toBeNull();              // pending → "Finish setup"
+    expect($row->payload['source'])->toBe('google-business');
+});
+
+it('auto-connects Square fully (no picker) from a google booking link', function () {
+    $user = resUser('gb2');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://book.squareup.com/appointments/x']], 'Ollies');
+
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail();
+    expect($row->payload['url'])->toBe('https://book.squareup.com/appointments/x');
+    expect($row->payload['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+});
+
+it('seeds a custom booking card for an unknown google booking link', function () {
+    $user = resUser('gb3');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://calendly.com/ollies']], 'Ollies');
+
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail();
+    expect($row->payload['provider'])->toBe('custom');
+    expect($row->payload['url'])->toBe('https://calendly.com/ollies');
+});
+
+// ── Previous-website settings endpoint ──────────────────────────────────
+
+it('saves and reads the previous website via the focused settings endpoint', function () {
+    $user = resUser('gb4');
+    resSite($user);
+
+    actingAsUser($user)->patchJson('/api/site/workplace/previous-website', ['previous_website' => 'https://old.ollies.example'])
+        ->assertOk()->assertJsonPath('previousWebsite', 'https://old.ollies.example');
+
+    actingAsUser($user)->getJson('/api/site/workplace/previous-website')
+        ->assertOk()->assertJsonPath('previousWebsite', 'https://old.ollies.example');
+});
+
+it('rejects an invalid previous website url', function () {
+    $user = resUser('gb5');
+    resSite($user);
+
+    actingAsUser($user)->patchJson('/api/site/workplace/previous-website', ['previous_website' => 'not a url'])
+        ->assertStatus(422);
+});

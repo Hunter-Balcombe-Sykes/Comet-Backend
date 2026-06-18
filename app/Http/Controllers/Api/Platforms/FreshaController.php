@@ -174,10 +174,14 @@ class FreshaController extends ApiController
     // reads this; the dashboard reads it to restore its "saved" state on load).
     public function selection(Request $request): JsonResponse
     {
-        $selection = data_get($this->readConnection($this->currentUser($request)), 'selection');
+        $payload = $this->readConnection($this->currentUser($request));
+        $selection = data_get($payload, 'selection');
 
         return $this->success([
             'selection' => is_array($selection) ? (new FreshaSelectionResource($selection))->resolve() : null,
+            // Pending (Google-seeded) connections have a url but no selection — the
+            // dashboard uses it to show "Finish setup" and open the picker.
+            'url' => data_get($payload, 'url'),
         ]);
     }
 

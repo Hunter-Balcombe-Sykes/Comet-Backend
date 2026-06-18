@@ -339,13 +339,18 @@ it('fresha selection wraps the nested selection blob and strips unknown keys', f
 
     actingAsUser($user)->getJson('/api/platforms/fresha/selection')
         ->assertOk()
-        ->assertExactJson(['selection' => [
+        ->assertExactJson([
+            'selection' => [
+                'url' => 'https://www.fresha.com/a/acme',
+                'storeName' => 'Acme',
+                'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
+                'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+                'hiddenServiceIds' => [],
+            ],
+            // Also returns the stored url (for pending / Google-seeded connections
+            // that have a url but no selection yet → the dashboard's "Finish setup").
             'url' => 'https://www.fresha.com/a/acme',
-            'storeName' => 'Acme',
-            'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
-            'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
-            'hiddenServiceIds' => [],
-        ]]);
+        ]);
 });
 
 it('fresha service-visibility returns the wrapped selection shape', function () {
