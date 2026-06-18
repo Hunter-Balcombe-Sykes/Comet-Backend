@@ -51,7 +51,9 @@ class MenuApifyScraper
                 );
         } catch (Throwable $e) {
             report($e);
-            Log::warning('menu.apify.threw', ['platform' => $platform, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            // info level: the Laravel Cloud log stream (cloud env:logs) only
+            // surfaces info, so a failed scrape must log here to be diagnosable.
+            Log::info('menu.apify.threw', ['platform' => $platform, 'user_id' => $userId, 'error' => $e->getMessage()]);
 
             return null;
         }
@@ -59,18 +61,30 @@ class MenuApifyScraper
         // run-sync-get-dataset-items returns 201 on success — ->ok() only accepts 200.
         if (! $response->successful()) {
             // 5xx is genuine Apify infra worth alerting on; 4xx (unknown store /
-            // actor not rented) is expected and log-only.
+            // actor not rented / unsubscribed paid actor) is expected. Log the
+            // status + body snippet at info so the exact Apify message shows in
+            // cloud env:logs (which only surfaces info-level lines).
             if ($response->status() >= 500) {
                 report(new \RuntimeException('Apify menu scrape failed with status '.$response->status()));
             }
-            Log::warning('menu.apify.not_ok', ['platform' => $platform, 'user_id' => $userId, 'status' => $response->status()]);
+            Log::info('menu.apify.not_ok', [
+                'platform' => $platform,
+                'user_id' => $userId,
+                'status' => $response->status(),
+                'body' => mb_substr((string) $response->body(), 0, 600),
+            ]);
 
             return null;
         }
 
         $items = $response->json();
         if (! is_array($items) || $items === []) {
-            Log::warning('menu.apify.empty', ['platform' => $platform, 'user_id' => $userId, 'type' => gettype($items)]);
+            Log::info('menu.apify.empty', [
+                'platform' => $platform,
+                'user_id' => $userId,
+                'type' => gettype($items),
+                'body' => mb_substr((string) $response->body(), 0, 600),
+            ]);
 
             return null;
         }
