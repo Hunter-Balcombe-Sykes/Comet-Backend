@@ -106,6 +106,43 @@ class UserWorkplaceController extends ApiController
         return $this->success(['workplace' => null]);
     }
 
+    // GET /site/workplace/previous-website — the archived old website, read
+    // independently of the rest of the workplace so the Settings card works even
+    // before a workplace name is set.
+    public function showPreviousWebsite(Request $request): JsonResponse
+    {
+        $site = $this->currentSite($this->currentUser($request));
+        $settings = is_array($site->settings) ? $site->settings : [];
+
+        return $this->success([
+            'previousWebsite' => $this->trimOrNull(data_get($settings, self::SETTINGS_KEY.'.previous_website')),
+        ]);
+    }
+
+    // PATCH /site/workplace/previous-website — set just the archived old website,
+    // merging into settings.workplace without touching the other fields (no name
+    // requirement, unlike the full upsert).
+    public function setPreviousWebsite(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'previous_website' => ['nullable', 'url', 'max:2048'],
+        ]);
+
+        $professional = $this->currentUser($request);
+        $site = $this->currentSite($professional);
+
+        $settings = is_array($site->settings) ? $site->settings : [];
+        $workplace = is_array($settings[self::SETTINGS_KEY] ?? null) ? $settings[self::SETTINGS_KEY] : [];
+        $workplace['previous_website'] = $this->trimOrNull($validated['previous_website'] ?? null);
+        $settings[self::SETTINGS_KEY] = $workplace;
+        $site->settings = $settings;
+        $site->save();
+
+        return $this->success([
+            'previousWebsite' => $workplace['previous_website'],
+        ]);
+    }
+
     private function trimOrNull(mixed $value): ?string
     {
         if (! is_string($value)) {
