@@ -23,8 +23,8 @@ class MenuApifyScraper
 {
     // owner~name form for the Apify API path.
     private const ACTORS = [
-        'uber-eats' => 'datacach~ubereats-menu-scraper',
-        'doordash' => 'alizarin_refrigerator-owner~doordash-scraper',
+        'uber-eats' => 'natanielsantos~uber-eats-scraper',
+        'doordash' => 'crawlerbros~doordash-restaurant-scraper',
     ];
 
     // These actors scrape WAF-protected pages and intermittently return an empty
@@ -140,8 +140,9 @@ class MenuApifyScraper
     }
 
     /**
-     * Actor input. Uber Eats (datacach): store_urls[] + ISO country_code.
-     * DoorDash (alizarin): a single storeUrl with the menu scrape type.
+     * Actor input. Uber Eats (natanielsantos): restaurantUrls[] + scrapeMenu +
+     * organizeMenuBySections (nested sections → subsections → items output).
+     * DoorDash (crawlerbros): storeUrls[] (full menu sections + items).
      *
      * @return array<string,mixed>
      */
@@ -149,47 +150,95 @@ class MenuApifyScraper
     {
         return match ($platform) {
             'uber-eats' => [
-                'store_urls' => [$storeUrl],
-                'country_code' => 'au',
+                'restaurantUrls' => [$storeUrl],
+                'scrapeMenu' => true,
+                'organizeMenuBySections' => true,
             ],
             'doordash' => [
-                'storeUrl' => $storeUrl,
-                'scrapeType' => 'menu',
-                'includeMenu' => true,
+                'storeUrls' => [$storeUrl],
             ],
             default => [],
         };
     }
 
     /**
-     * Uber Eats (datacach) returns a FLAT list — one row per menu item — with
-     * section_name for grouping and menu_item_price in the smallest currency
-     * unit (cents). Group by section, preserving first-seen order. This actor
-     * exposes no store-level rating/review fields.
+     * Uber Eats (natanielsantos) returns one restaurant object per URL with
+     * sections → subsections → items, store-level rating / reviewCount /
+     * currencyCode, and item prices already in dollars. Each subsection becomes
+     * one of our categories.
      *
      * @param  list<mixed>  $items
      * @return array{rating:?float, reviewCount:?int, currency:?string, categories:list<array{name:string, items:list<array<string,mixed>>}>}
      */
     private function mapUberEats(array $items): array
     {
-        $categories = [];   // section_name => ['name' => …, 'items' => [...]]
-        foreach ($items as $row) {
-            if (! is_array($row)) {
+        $store = is_array($items[0] ?? null) ? $items[0] : [];
+
+        $categories = [];
+        foreach ((array) data_get($store, 'sections', []) as $section) {
+            foreach ((array) data_get($section, 'subsections', []) as $subsection) {
+                $name = $this->cleanString(data_get($subsection, 'title'))
+                    ?? $this->cleanString(data_get($section, 'title'))
+                    ?? 'Menu';
+                $catItems = [];
+                foreach ((array) data_get($subsection, 'items', []) as $item) {
+                    $itemName = $this->cleanString(data_get($item, 'title'));
+                    if ($itemName === null) {
+                        continue;
+                    }
+                    $price = data_get($item, 'price');
+                    $catItems[] = array_filter([
+                        'name' => $itemName,
+                        'description' => $this->cleanString(data_get($item, 'description')),
+                        'price' => is_numeric($price) ? round((float) $price, 2) : null,
+                        'image' => $this->safeUrl(data_get($item, 'imageUrl')),
+                    ], fn ($v) => $v !== null);
+                }
+                if ($catItems !== []) {
+                    $categories[] = ['name' => $name, 'items' => $catItems];
+                }
+            }
+        }
+
+        $rating = data_get($store, 'rating');
+        $reviews = data_get($store, 'reviewCount');
+
+        return [
+            'rating' => is_numeric($rating) ? round((float) $rating, 2) : null,
+            'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
+            'currency' => $this->cleanString(data_get($store, 'currencyCode')) ?? 'AUD',
+            'categories' => $categories,
+        ];
+    }
+
+    /**
+     * DoorDash (crawlerbros) returns a flat menuItems[] of { section, name,
+     * description, price ("$15.30") } plus menuSections (section-name strings).
+     * Group the items by their section. No store-level rating / item images.
+     *
+     * @param  list<mixed>  $items
+     * @return array{rating:?float, reviewCount:?int, currency:?string, categories:list<array{name:string, items:list<array<string,mixed>>}>}
+     */
+    private function mapDoorDash(array $items): array
+    {
+        $store = is_array($items[0] ?? null) ? $items[0] : [];
+
+        $categories = [];   // section => ['name' => …, 'items' => [...]]
+        foreach ((array) data_get($store, 'menuItems', []) as $item) {
+            if (! is_array($item)) {
                 continue;
             }
-            $name = $this->cleanString(data_get($row, 'menu_item_name'));
+            $name = $this->cleanString(data_get($item, 'name'));
             if ($name === null) {
                 continue;
             }
-            $section = $this->cleanString(data_get($row, 'section_name')) ?? 'Menu';
-            $cents = data_get($row, 'menu_item_price');
-
+            $section = $this->cleanString(data_get($item, 'section')) ?? 'Menu';
             $categories[$section] ??= ['name' => $section, 'items' => []];
             $categories[$section]['items'][] = array_filter([
                 'name' => $name,
-                'description' => $this->cleanString(data_get($row, 'menu_item_description')),
-                'price' => is_numeric($cents) ? round(((float) $cents) / 100, 2) : null,
-                'image' => $this->safeUrl(data_get($row, 'menu_item_image')),
+                'description' => $this->cleanString(data_get($item, 'description')),
+                'price' => $this->parsePrice(data_get($item, 'price')),
+                'image' => $this->safeUrl(data_get($item, 'imageUrl') ?? data_get($item, 'image')),
             ], fn ($v) => $v !== null);
         }
 
@@ -202,148 +251,8 @@ class MenuApifyScraper
     }
 
     /**
-     * DoorDash output shape isn't publicly documented, so map DEFENSIVELY:
-     * accept either a nested store object (menu → categories/sections → items)
-     * or a flat item list grouped by a category field. Tuned against the logged
-     * keys from the first real run.
-     *
-     * @param  list<mixed>  $items
-     * @return array{rating:?float, reviewCount:?int, currency:?string, categories:list<array{name:string, items:list<array<string,mixed>>}>}
-     */
-    private function mapDoorDash(array $items): array
-    {
-        $first = is_array($items[0] ?? null) ? $items[0] : [];
-
-        $groups = data_get($first, 'menu.categories')
-            ?? data_get($first, 'menuCategories')
-            ?? data_get($first, 'categories')
-            ?? data_get($first, 'menuSections')
-            ?? data_get($first, 'sections');
-
-        $categories = is_array($groups) && $groups !== []
-            ? $this->doorDashGroups($groups)
-            : $this->doorDashFlat($items);
-
-        $rating = data_get($first, 'rating') ?? data_get($first, 'ratingValue')
-            ?? data_get($first, 'averageRating') ?? data_get($first, 'storeRating');
-        $reviews = data_get($first, 'reviewCount') ?? data_get($first, 'numRatings')
-            ?? data_get($first, 'ratingCount') ?? data_get($first, 'numReviews');
-
-        return [
-            'rating' => is_numeric($rating) ? round((float) $rating, 2) : null,
-            'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
-            'currency' => 'AUD',
-            'categories' => $categories,
-        ];
-    }
-
-    /**
-     * Nested DoorDash menu groups → our category shape. Each group's items come
-     * from whichever of items / menuItems / products it carries.
-     *
-     * @param  list<mixed>  $groups
-     * @return list<array{name:string, items:list<array<string,mixed>>}>
-     */
-    private function doorDashGroups(array $groups): array
-    {
-        $out = [];
-        foreach ($groups as $group) {
-            if (! is_array($group)) {
-                continue;
-            }
-            $name = $this->cleanString(
-                data_get($group, 'name') ?? data_get($group, 'title') ?? data_get($group, 'categoryName')
-            ) ?? 'Menu';
-            $rawItems = data_get($group, 'items') ?? data_get($group, 'menuItems') ?? data_get($group, 'products');
-            $items = $this->doorDashItems(is_array($rawItems) ? $rawItems : []);
-            if ($items !== []) {
-                $out[] = ['name' => $name, 'items' => $items];
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * Flat DoorDash item list grouped by whichever category field each row
-     * carries (fallback when no nested group structure is present).
-     *
-     * @param  list<mixed>  $rows
-     * @return list<array{name:string, items:list<array<string,mixed>>}>
-     */
-    private function doorDashFlat(array $rows): array
-    {
-        $categories = [];
-        foreach ($rows as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $name = $this->itemName($row);
-            if ($name === null) {
-                continue;
-            }
-            $section = $this->cleanString(
-                data_get($row, 'category') ?? data_get($row, 'categoryName')
-                ?? data_get($row, 'section') ?? data_get($row, 'section_name')
-            ) ?? 'Menu';
-            $categories[$section] ??= ['name' => $section, 'items' => []];
-            $categories[$section]['items'][] = $this->doorDashItem($row, $name);
-        }
-
-        return array_values($categories);
-    }
-
-    /**
-     * @param  list<mixed>  $rawItems
-     * @return list<array<string,mixed>>
-     */
-    private function doorDashItems(array $rawItems): array
-    {
-        $out = [];
-        foreach ($rawItems as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $name = $this->itemName($row);
-            if ($name !== null) {
-                $out[] = $this->doorDashItem($row, $name);
-            }
-        }
-
-        return $out;
-    }
-
-    /** @param  array<string,mixed>  $row */
-    private function doorDashItem(array $row, string $name): array
-    {
-        return array_filter([
-            'name' => $name,
-            'description' => $this->cleanString(
-                data_get($row, 'description') ?? data_get($row, 'menu_item_description')
-            ),
-            'price' => $this->parsePrice(
-                data_get($row, 'price') ?? data_get($row, 'displayPrice')
-                ?? data_get($row, 'menu_item_price') ?? data_get($row, 'priceText')
-            ),
-            'image' => $this->safeUrl(
-                data_get($row, 'image') ?? data_get($row, 'imageUrl')
-                ?? data_get($row, 'menu_item_image') ?? data_get($row, 'photoUrl')
-            ),
-        ], fn ($v) => $v !== null);
-    }
-
-    /** @param  array<string,mixed>  $row */
-    private function itemName(array $row): ?string
-    {
-        return $this->cleanString(
-            data_get($row, 'name') ?? data_get($row, 'itemName')
-            ?? data_get($row, 'menu_item_name') ?? data_get($row, 'title')
-        );
-    }
-
-    /**
-     * Best-effort price → dollars float. Handles "$12.99" strings, 12.99 floats,
-     * and integer cents (1299 → 12.99 — both actors price in the smallest unit).
+     * Best-effort price → dollars float. DoorDash (crawlerbros) sends "$15.30"
+     * strings; also tolerates plain numeric values.
      */
     private function parsePrice(mixed $value): ?float
     {
