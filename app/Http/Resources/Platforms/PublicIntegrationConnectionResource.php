@@ -53,9 +53,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         'pinterest' => ['url', 'username', 'name', 'image', 'followers', 'latest', 'items'],
         'skool' => ['url', 'name', 'image', 'description'],
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
-        // google-business: placeId / phoneIntl / photos / priceLevel /
-        // priceRange / detailsFetchedAt stay private.
-        'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'rating', 'reviewCount', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'reviews', 'reviewSummary', 'editorialSummary', 'amenities'],
+        // google-business: placeId / phoneIntl / priceLevel / priceRange /
+        // detailsFetchedAt stay private. photos now public for home bg.
+        'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'rating', 'reviewCount', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'reviews', 'reviewSummary', 'editorialSummary', 'amenities', 'photos'],
         // opentable: the reservation-widget embed is public by design (it's a
         // keyless booking widget). rid/url are public widget params, not secrets.
         'opentable' => ['url', 'rid', 'name', 'embedUrl'],
