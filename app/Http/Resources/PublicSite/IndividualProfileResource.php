@@ -92,6 +92,7 @@ class IndividualProfileResource extends ApiResource
             'profile' => [
                 'handle' => $this->handle,
                 'displayName' => $this->display_name,
+                'accountType' => $this->account_type?->value,
                 'site_id' => $this->sections['site_id'] ?? null,
 
                 // Engine outputs (phase 8).
