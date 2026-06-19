@@ -5,6 +5,8 @@ use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
+use App\Models\Core\Site\MenuCategory;
+use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Models\Core\Waitlist\WaitlistSignup;
@@ -44,6 +46,12 @@ const POLICY_EXEMPT = [
 
     // Handle alias table — read/write access flows through the parent Professional's policy.
     UserHandleAlias::class,
+
+    // Menu child rows — never authorized directly. They are read only via the
+    // parent Menu (gated by SitePolicy + user-scoped in MenuController) and
+    // rebuilt wholesale by MenuFetchJob. No per-row API surface to gate.
+    MenuCategory::class,
+    MenuItem::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional
