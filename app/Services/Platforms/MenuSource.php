@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 // Resolves, from a user's online-ordering links, BOTH:
 //  (a) which platform's menu to scrape + the store URL (the content source), and
@@ -45,6 +46,39 @@ class MenuSource
         }
 
         return null;
+    }
+
+    /**
+     * The full scrape plan for a user's menu, or null when neither Uber Eats nor
+     * DoorDash is connected:
+     *   - contentSource    — platform whose structure is canonical (UE preferred)
+     *   - ueUrl / ddUrl    — normalized store URL per platform (null if absent)
+     *   - pickupPlatform   — platform (uber-eats/doordash) pricing pickup, taken
+     *                        from the newest pickup-typed ordering link that is one
+     *                        of those two (null when none is)
+     *   - deliveryPlatform — same, for delivery
+     *   - address          — the user's workplace address, for DoorDash's locale
+     *
+     * @return array{contentSource:string, ueUrl:?string, ddUrl:?string, pickupPlatform:?string, deliveryPlatform:?string, address:?string}|null
+     */
+    public function resolveAll(User|string $user): ?array
+    {
+        $entries = $this->entries($user);
+
+        $ue = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === 'uber-eats');
+        $dd = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === 'doordash');
+        if (! is_array($ue) && ! is_array($dd)) {
+            return null;
+        }
+
+        return [
+            'contentSource' => is_array($ue) ? 'uber-eats' : 'doordash',
+            'ueUrl' => is_array($ue) ? $this->normalize((string) $ue['url']) : null,
+            'ddUrl' => is_array($dd) ? $this->normalize((string) $dd['url']) : null,
+            'pickupPlatform' => $this->modePlatform($entries, 'pickup'),
+            'deliveryPlatform' => $this->modePlatform($entries, 'delivery'),
+            'address' => $this->address($user),
+        ];
     }
 
     /**
@@ -94,6 +128,42 @@ class MenuSource
             ->map(fn (IntegrationConnection $r) => is_array($r->payload) ? $r->payload : [])
             ->filter(fn (array $p) => is_string($p['url'] ?? null) && $p['url'] !== '')
             ->values();
+    }
+
+    /**
+     * Platform (uber-eats/doordash) of the newest ordering link carrying this
+     * mode type, or null when no such link resolves to a scraped platform.
+     */
+    private function modePlatform(Collection $entries, string $type): ?string
+    {
+        $match = $entries->first(fn (array $e) => data_get($e, 'data.type') === $type
+            && $this->platformOf($e['url'] ?? null) !== null);
+
+        return is_array($match) ? $this->platformOf($match['url']) : null;
+    }
+
+    /**
+     * The user's workplace address (DoorDash needs a consumer locale), falling
+     * back to city + state, then null (the scraper applies an AU default).
+     */
+    private function address(User|string $user): ?string
+    {
+        $userId = $user instanceof User ? $user->id : $user;
+        $settings = DB::connection('pgsql')->table('site.sites')->where('user_id', $userId)->value('settings');
+        $settings = is_string($settings) ? json_decode($settings, true) : $settings;
+        $workplace = data_get($settings, 'workplace');
+
+        $address = data_get($workplace, 'address');
+        if (is_string($address) && trim($address) !== '') {
+            return trim($address);
+        }
+
+        $parts = array_filter(
+            [data_get($workplace, 'city'), data_get($workplace, 'state')],
+            fn ($v) => is_string($v) && trim($v) !== '',
+        );
+
+        return $parts === [] ? null : implode(', ', $parts).', Australia';
     }
 
     private function platformOf(mixed $url): ?string

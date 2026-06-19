@@ -460,23 +460,65 @@ function setupSitesTable(): void
         deleted_at TEXT NULL
     )');
 
-    // site.menus — fetched food-ordering menu (Uber Eats / DoorDash), one row
-    // per user. Single source of truth for menu content; read by the dashboard
-    // Menu section. Mirrors migration 20260617130000 (jsonb→TEXT, numeric→REAL).
+    // site.menus + site.menu_categories + site.menu_items — the relational
+    // fetched menu (Uber Eats / DoorDash), one menu row per user. Mirrors
+    // migrations 20260617130000 + 20260619050000 (jsonb→TEXT, numeric→REAL).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
-        source TEXT NULL,
-        store_url TEXT NULL,
+        content_source TEXT NULL,
+        store_name TEXT NULL,
+        logo_url TEXT NULL,
         rating REAL NULL,
         review_count INTEGER NULL,
         currency TEXT NULL,
-        categories TEXT NULL,
+        pickup_platform TEXT NULL,
+        delivery_platform TEXT NULL,
+        uber_eats_store_url TEXT NULL,
+        uber_eats_synced_at TEXT NULL,
+        uber_eats_status TEXT NULL,
+        doordash_store_url TEXT NULL,
+        doordash_synced_at TEXT NULL,
+        doordash_status TEXT NULL,
         fetch_status TEXT NULL,
         last_fetched_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
+    )');
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_categories (
+        id TEXT PRIMARY KEY,
+        menu_id TEXT NULL,
+        name TEXT NULL,
+        position INTEGER NULL,
+        source_platform TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_items (
+        id TEXT PRIMARY KEY,
+        menu_id TEXT NULL,
+        category_id TEXT NULL,
+        position INTEGER NULL,
+        name TEXT NULL,
+        description TEXT NULL,
+        image_url TEXT NULL,
+        modifiers TEXT NULL,
+        is_sold_out INTEGER NULL,
+        rating REAL NULL,
+        rating_count INTEGER NULL,
+        badges TEXT NULL,
+        base_price REAL NULL,
+        pickup_price REAL NULL,
+        pickup_source TEXT NULL,
+        delivery_price REAL NULL,
+        delivery_source TEXT NULL,
+        ue_external_id TEXT NULL,
+        dd_external_id TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
     )');
 }
 
