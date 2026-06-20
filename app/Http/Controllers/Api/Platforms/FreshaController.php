@@ -11,6 +11,7 @@ use App\Http\Requests\Platforms\SaveFreshaSelectionRequest;
 use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -78,15 +79,39 @@ class FreshaController extends ApiController
         $validated = $request->validated();
 
         $url = $this->stripLocale($validated['url']);
-        // Preserve any existing selection (re-connecting the same store keeps the
-        // saved team member); the dashboard re-picks via saveSelection.
+        $menu = $this->fetchMenu($url);
+
+        // Business Partna accounts book storewide — no team-member picker. Finalise
+        // the selection here so connect() completes setup in one step; the dashboard
+        // sees mode='storewide' and skips the picker. Capability-gated so the
+        // account_type read stays inside AccountCapabilities.
+        if (AccountCapabilities::for($user)->can_book_storewide) {
+            $selection = [
+                'url' => $url,
+                'storeName' => $menu['storeName'],
+                'mode' => 'storewide',
+                'employee' => null,
+                'services' => $menu['services'],
+                'hiddenServiceIds' => [],
+            ];
+            $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
+
+            return $this->success([
+                'url' => $url,
+                'mode' => 'storewide',
+                'selection' => (new FreshaSelectionResource($selection))->resolve(),
+            ]);
+        }
+
+        // Individual: preserve any existing selection (re-connecting the same store
+        // keeps the saved team member); the dashboard re-picks via saveSelection.
         $existing = $this->readConnection($user);
         $this->writeConnection($user, [
             'url' => $url,
             'selection' => data_get($existing, 'selection'),
         ]);
 
-        return $this->success(['url' => $url, ...$this->fetchMenu($url)]);
+        return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
     }
 
     // GET /api/platforms/fresha/team — team + services for the saved URL.
@@ -143,6 +168,7 @@ class FreshaController extends ApiController
         $selection = [
             'url' => $url,
             'storeName' => $this->extractStoreName($location),
+            'mode' => 'employee',
             'employee' => $employee,
             'services' => $services,
             'hiddenServiceIds' => $hidden,

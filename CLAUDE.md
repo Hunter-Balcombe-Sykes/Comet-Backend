@@ -270,7 +270,7 @@ Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.
 
 Partna is an individual-user-only platform. The model is `App\Models\Core\User\User`
 (DB table `core.users`; FK columns on other tables use `user_id`).
-`account_type` is always `'individual'`; the `AccountType` enum has only an `Individual` case.
+`account_type` is one of `'partna'` (standard) or `'business'` ("Business Partna"), chosen at signup (migration `20260612120000`). The `AccountType` enum keeps a legacy `Individual` case for safe casting only — it is not user-selectable. The two types behave identically EXCEPT where a capability says otherwise; never branch on `account_type` directly outside `AccountCapabilities`.
 
 All `<handle>.partna.au` requests route through one Cloudflare Worker
 (`cloudflare-worker/` in this repo) that reads `SUBDOMAIN_KV` and uses
@@ -296,7 +296,7 @@ the edge cache. The cache-purge job invalidates by URL.
 
 ### Backend-specific rules
 
-- `User.account_type` is always `individual`. Do not write code that branches on other account types.
+- `User.account_type` is `'partna'` or `'business'`. Do NOT branch on it directly — read it ONLY inside `AccountCapabilities` to derive a capability, then gate on the capability (e.g. `can_book_storewide` drives Fresha storewide booking for Business accounts).
 - Notification jobs and API endpoints MUST check `AccountCapabilities::for($user)`
   before acting.
 - `SyncSubdomainToKvJob` is the ONLY writer to `SUBDOMAIN_KV`. All routing

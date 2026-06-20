@@ -33,7 +33,7 @@ class UpdateSiteRequest extends BaseFormRequest
 
         $settings = $this->input('settings');
         if (is_array($settings)) {
-            foreach (['hero_title', 'hero_subtitle', 'primary_button_text', 'bio_text'] as $field) {
+            foreach (['hero_title', 'hero_subtitle', 'primary_button_text', 'bio_text', 'business_description'] as $field) {
                 if (! array_key_exists($field, $settings) || ! is_string($settings[$field])) {
                     continue;
                 }
@@ -61,6 +61,10 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.primary_button_text' => ['sometimes', 'string', 'max:50'],
             'settings.primary_button_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             'settings.bio_text' => ['sometimes', 'nullable', 'string', 'max:500'],
+            // "From the business" description — user-authored, shown in the Google
+            // Business section of the dashboard. Prefilled from the scraped
+            // editorialSummary client-side; stored here so re-scrapes never clobber it.
+            'settings.business_description' => ['sometimes', 'nullable', 'string', 'max:750'],
             // settings.design.* is dead — reject any incoming key under it.
             'settings.design' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],

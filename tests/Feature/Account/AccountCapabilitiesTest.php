@@ -73,6 +73,20 @@ describe('AccountCapabilities — per-instance memoization', function () {
     });
 });
 
+describe('AccountCapabilities — storewide booking (Business Partna)', function () {
+    it('grants storewide booking to Business accounts', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('business'))->can_book_storewide)->toBeTrue();
+    });
+
+    it('withholds storewide booking from standard (partna) accounts', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_book_storewide)->toBeFalse();
+    });
+
+    it('withholds storewide booking from legacy individual rows', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('individual'))->can_book_storewide)->toBeFalse();
+    });
+});
+
 describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
         $pro = new User([

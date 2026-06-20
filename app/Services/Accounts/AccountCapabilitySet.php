@@ -8,7 +8,8 @@ namespace App\Services\Accounts;
  * Read-only. Construct once per Professional per request and pass it around — capability
  * checks are pure functions on this value object so a single instance can be reused freely.
  *
- * Standalone-pages model: all accounts are individual. Only `can_edit_design` is true.
+ * Most capabilities are constant today; `can_book_storewide` varies by `account_type`
+ * (Business Partna vs standard).
  * Capabilities for commerce/payout/brand features were removed in the 2026-05-22 strip
  * and will be re-added as named params here when reintegrated.
  */
@@ -37,5 +38,9 @@ final readonly class AccountCapabilitySet
         // NEW — moderation capabilities (Plan B, T&S foundation):
         public bool $can_be_reported,
         public bool $receive_moderation_notifications,
+        // Business Partna accounts book "storewide" on Fresha (no team-member
+        // picker); standard accounts pick a team member. Derived from account_type
+        // in AccountCapabilities so nothing else branches on the type directly.
+        public bool $can_book_storewide,
     ) {}
 }

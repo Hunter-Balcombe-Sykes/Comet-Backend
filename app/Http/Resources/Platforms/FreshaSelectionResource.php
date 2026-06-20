@@ -26,6 +26,8 @@ class FreshaSelectionResource extends ApiResource
         return [
             'url' => $this->resource['url'] ?? null,
             'storeName' => $this->resource['storeName'] ?? null,
+            // 'employee' | 'storewide' — storewide (Business accounts) has employee = null.
+            'mode' => $this->resource['mode'] ?? 'employee',
             'employee' => $this->resource['employee'] ?? null,
             'services' => $this->resource['services'] ?? [],
             'hiddenServiceIds' => $this->resource['hiddenServiceIds'] ?? [],
