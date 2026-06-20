@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
+use App\Http\Controllers\Api\PublicSite\PublicMenuController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
@@ -128,6 +129,11 @@ Route::get('/public/profiles/{handle}/integrations', [PublicIntegrationControlle
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 Route::get('/public/profiles/{handle}/platforms', [PublicIntegrationController::class, 'show'])
+    ->where('handle', '[A-Za-z0-9-]+')
+    ->middleware('throttle:public-profile');
+
+// Public menu — food menu (categories + items) for business profiles.
+Route::get('/public/profiles/{handle}/menu', [PublicMenuController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
