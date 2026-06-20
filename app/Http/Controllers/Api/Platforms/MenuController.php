@@ -27,7 +27,17 @@ class MenuController extends ApiController
     // GET /api/platforms/menu/status — drives the integrations index card.
     public function status(Request $request): JsonResponse
     {
-        $menu = Menu::query()->where('user_id', $this->currentUser($request)->id)->first();
+        $user = $this->currentUser($request);
+
+        // A menu only exists while a backing Uber Eats / DoorDash ordering link
+        // does. Guard against orphaned rows whose links were removed via a path
+        // that didn't clear the menu — otherwise a stale menu reads as connected
+        // even though refresh() can't re-scrape it (no source).
+        if ($this->source->resolveAll($user) === null) {
+            return $this->success(['connected' => false, 'itemCount' => 0, 'source' => null, 'fetchStatus' => null]);
+        }
+
+        $menu = Menu::query()->where('user_id', $user->id)->first();
         $itemCount = $menu ? MenuItem::query()->where('menu_id', $menu->id)->count() : 0;
 
         return $this->success([
@@ -42,7 +52,9 @@ class MenuController extends ApiController
     public function show(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $menu = $this->menuFor($user);
+        // No backing Uber Eats / DoorDash ordering link → no menu (don't serve an
+        // orphaned row whose links were removed without clearing the menu).
+        $menu = $this->source->resolveAll($user) === null ? null : $this->menuFor($user);
 
         return $this->success([
             'source' => $menu?->content_source,

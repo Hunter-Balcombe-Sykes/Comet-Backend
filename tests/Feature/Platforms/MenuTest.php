@@ -238,6 +238,7 @@ it('clears the menu when no ordering source remains', function () {
 
 it('reports menu status with item count and source', function () {
     $user = menuUser('m10');
+    ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
     seedMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Pizzas', 'items' => [['name' => 'A'], ['name' => 'B']]],
     ]);
@@ -248,6 +249,34 @@ it('reports menu status with item count and source', function () {
         ->assertJsonPath('itemCount', 2)
         ->assertJsonPath('source', 'uber-eats')
         ->assertJsonPath('fetchStatus', 'ok');
+});
+
+it('reports menu disconnected when the backing ordering link is gone (orphan guard)', function () {
+    $user = menuUser('m10b');
+    // A scraped menu row with NO online-ordering connection backing it — the
+    // orphan state. status() must report disconnected, not serve the stale menu
+    // (which refresh() can't re-scrape anyway, since resolveAll() is null).
+    seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Pizzas', 'items' => [['name' => 'A']]],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/menu/status')
+        ->assertOk()
+        ->assertJsonPath('connected', false)
+        ->assertJsonPath('itemCount', 0)
+        ->assertJsonPath('source', null);
+});
+
+it('does not serve an orphaned menu from the full menu endpoint', function () {
+    $user = menuUser('m10c');
+    seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Pizzas', 'items' => [['name' => 'A']]],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/menu')
+        ->assertOk()
+        ->assertJsonPath('source', null)
+        ->assertJsonPath('categories', []);
 });
 
 it('returns the full menu with per-mode prices and computed order links', function () {
