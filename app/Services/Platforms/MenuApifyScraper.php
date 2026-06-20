@@ -196,7 +196,7 @@ class MenuApifyScraper
                     ?? 'Menu';
                 $catItems = [];
                 foreach ((array) data_get($subsection, 'items', []) as $item) {
-                    $itemName = $this->cleanString(data_get($item, 'title'));
+                    $itemName = $this->titleCase($this->cleanString(data_get($item, 'title')));
                     if ($itemName === null) {
                         continue;
                     }
@@ -204,7 +204,7 @@ class MenuApifyScraper
                     $catItems[] = [
                         'externalId' => $this->cleanString(data_get($item, 'uuid')),
                         'name' => $itemName,
-                        'description' => $this->cleanString(data_get($item, 'description')),
+                        'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                         'price' => is_numeric($price) ? round((float) $price, 2) : null,
                         'image' => $this->safeUrl(data_get($item, 'imageUrl')),
                         'isSoldOut' => (bool) data_get($item, 'isSoldOut', false),
@@ -258,7 +258,7 @@ class MenuApifyScraper
                 ?? 'Menu';
             $catItems = [];
             foreach ((array) data_get($category, 'items', []) as $item) {
-                $itemName = $this->cleanString(data_get($item, 'name'));
+                $itemName = $this->titleCase($this->cleanString(data_get($item, 'name')));
                 if ($itemName === null) {
                     continue;
                 }
@@ -271,7 +271,7 @@ class MenuApifyScraper
                 $catItems[] = [
                     'externalId' => $this->cleanString((string) data_get($item, 'item_id')),
                     'name' => $itemName,
-                    'description' => $this->cleanString(data_get($item, 'description')),
+                    'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                     'price' => $price,
                     'image' => $this->safeUrl(data_get($item, 'image_url')),
                     'isSoldOut' => false,
@@ -322,7 +322,7 @@ class MenuApifyScraper
             }
             $options = [];
             foreach ((array) data_get($group, 'options', []) as $option) {
-                $optionName = $this->cleanString(data_get($option, 'title'));
+                $optionName = $this->titleCase($this->cleanString(data_get($option, 'title')));
                 if ($optionName === null) {
                     continue;
                 }
@@ -334,7 +334,7 @@ class MenuApifyScraper
             }
             if ($options !== []) {
                 $groups[] = array_filter([
-                    'name' => $this->cleanString(data_get($group, 'title')),
+                    'name' => $this->titleCase($this->cleanString(data_get($group, 'title'))),
                     'options' => $options,
                 ], fn ($v) => $v !== null && $v !== []);
             }
@@ -415,5 +415,31 @@ class MenuApifyScraper
         $s = trim($value);
 
         return $s !== '' ? $s : null;
+    }
+
+    /** Title Case — first letter of every word uppercase, rest lowercase. */
+    private function titleCase(?string $s): ?string
+    {
+        if ($s === null) {
+            return null;
+        }
+
+        return ucwords(strtolower($s));
+    }
+
+    /** Sentence case — first letter of each sentence uppercase, rest lowercase. */
+    private function sentenceCase(?string $s): ?string
+    {
+        if ($s === null) {
+            return null;
+        }
+
+        $lower = strtolower($s);
+
+        return preg_replace_callback(
+            '/(^|\.\s+|!\s+|\?\s+)([a-z])/u',
+            fn (array $m) => $m[1] . strtoupper($m[2]),
+            $lower,
+        ) ?? $lower;
     }
 }
