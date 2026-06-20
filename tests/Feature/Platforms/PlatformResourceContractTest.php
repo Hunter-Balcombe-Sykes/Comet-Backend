@@ -343,6 +343,7 @@ it('fresha selection wraps the nested selection blob and strips unknown keys', f
             'selection' => [
                 'url' => 'https://www.fresha.com/a/acme',
                 'storeName' => 'Acme',
+                'mode' => 'employee',
                 'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
                 'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
                 'hiddenServiceIds' => [],
@@ -351,6 +352,26 @@ it('fresha selection wraps the nested selection blob and strips unknown keys', f
             // that have a url but no selection yet → the dashboard's "Finish setup").
             'url' => 'https://www.fresha.com/a/acme',
         ]);
+});
+
+it('fresha selection exposes storewide mode with a null employee', function () {
+    $user = platformContractUser('fr3');
+    seedPlatformConnection($user, 'fresha', [
+        'url' => 'https://www.fresha.com/a/acme',
+        'selection' => [
+            'url' => 'https://www.fresha.com/a/acme',
+            'storeName' => 'Acme',
+            'mode' => 'storewide',
+            'employee' => null,
+            'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+            'hiddenServiceIds' => [],
+        ],
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.mode', 'storewide')
+        ->assertJsonPath('selection.employee', null);
 });
 
 it('fresha service-visibility returns the wrapped selection shape', function () {

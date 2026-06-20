@@ -6,7 +6,8 @@ use App\Models\Core\User\User;
 
 /**
  * Runtime capability registry — answers "can this Professional access feature X right now?"
- * Standalone user-only: all accounts are individual; capabilities are constant.
+ * Most capabilities are constant; `can_book_storewide` is derived from `account_type`
+ * (the single sanctioned place that reads the type — everything else gates on the capability).
  */
 final class AccountCapabilities
 {
@@ -46,6 +47,7 @@ final class AccountCapabilities
             can_submit_feedback: true,
             can_be_reported: $status === 'active',
             receive_moderation_notifications: in_array($status, ['active'], true),
+            can_book_storewide: $pro->isBusiness(),
         );
     }
 }
