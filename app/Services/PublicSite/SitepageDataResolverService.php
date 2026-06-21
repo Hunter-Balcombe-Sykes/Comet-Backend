@@ -235,14 +235,15 @@ class SitepageDataResolverService
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
      * (logo_full / logo_square) and the per-integration cover images
-     * (cover_shopify, cover_youtube, ...). Each maps to {url, url_hd} from the
-     * ready WebP variants; purposes with no uploaded/ready image are absent.
+     * (cover_shopify, cover_youtube, ...). Each maps to {url, url_hd, url_svg}
+     * from the ready WebP variants (url_svg only for vectorized logos); purposes
+     * with no uploaded/ready image are absent.
      *
      * Consumed by the public profile payload's siteImages map: partna-pages
      * reads the logos for the profile and the covers per integration. Rendering
      * is the theme's concern — this only makes the URLs available.
      *
-     * @return array<string, array{url: string, url_hd: string|null}>
+     * @return array<string, array{url: string, url_hd: string|null, url_svg: string|null}>
      */
     public function getDesignSingletons(?Site $site): array
     {
@@ -268,6 +269,7 @@ class SitepageDataResolverService
                 return [(string) $media->purpose => [
                     'url' => $url,
                     'url_hd' => $urls['maximized'] ?? null,
+                    'url_svg' => $media->svgVariantUrl(),
                 ]];
             })
             ->all();

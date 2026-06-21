@@ -5,11 +5,12 @@ namespace App\Http\Resources;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\Request;
 
-// API resource for design-pool singleton images (logos, cover images).
-// Output is byte-identical to UserDesignMediaController::payload().
+// API resource for design-pool singleton images (logos, cover images). Used by
+// UserDesignMediaController for both GET /design-media and the upload response.
 //
 // Fields: id (string), purpose, processing_state, processing (bool),
-// url (optimized variant URL or null), variants (map of all WebP variant keys).
+// url (optimized variant URL or null), svg_url (vectorized logo URL or null),
+// variants (map of all WebP variant keys).
 class DesignMediaResource extends ApiResource
 {
     /**
@@ -32,6 +33,7 @@ class DesignMediaResource extends ApiResource
                 SiteMedia::PROCESSING_STATE_PROCESSING,
             ], true),
             'url' => $variants['optimized'] ?? $variants['original'] ?? null,
+            'svg_url' => $isReady ? $media->svgVariantUrl() : null,
             'variants' => $variants,
         ];
     }

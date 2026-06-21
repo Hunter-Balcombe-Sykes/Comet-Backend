@@ -296,11 +296,12 @@ class IndividualProfilePayloadBuilder
      * Site image singletons — brand logos + per-integration cover images, keyed
      * by camelCase purpose (logoFull, logoSquare, coverFresha, coverYoutube,
      * coverAppleMusic, coverApplePodcast, coverEventbrite). Each value is
-     * {url, urlHd}; absent purposes have no uploaded/ready image. Empty object
-     * when nothing is set. partna-pages reads logos for the profile and covers
-     * per integration; the theme decides how (if at all) to render them.
+     * {url, urlHd, urlSvg} (urlSvg only for vectorized logos); absent purposes
+     * have no uploaded/ready image. Empty object when nothing is set. partna-pages
+     * reads logos for the profile and covers per integration; the theme decides
+     * how (if at all) to render them.
      *
-     * @return array<string, array{url: string, urlHd: string|null}>
+     * @return array<string, array{url: string, urlHd: string|null, urlSvg: string|null}>
      */
     private function buildSiteImages(?Site $site): array
     {
@@ -313,6 +314,7 @@ class IndividualProfilePayloadBuilder
             $out[$key] = [
                 'url' => (string) ($urls['url'] ?? ''),
                 'urlHd' => $urls['url_hd'] ?? null,
+                'urlSvg' => $urls['url_svg'] ?? null,
             ];
         }
 
