@@ -276,10 +276,12 @@ it('exposes enrichment on the public endpoint but strips internal keys', functio
             'reviewSummary' => 'People love the fades.',
             'editorialSummary' => 'A neighbourhood barber shop.',
             'amenities' => ['goodForChildren' => true],
+            // Photos are public too — the sitepage home background renders them
+            // (stored as resolved Google CDN URLs). Made public in b4d43135.
+            'photos' => [['url' => 'https://lh3.googleusercontent.com/p/example']],
             // internal-only:
             'placeId' => 'ChIJsecret',
             'phoneIntl' => '+61 3 9123 4567',
-            'photos' => [['ref' => 'places/x/photos/y']],
             'priceLevel' => 'PRICE_LEVEL_MODERATE',
             'priceRange' => ['startPrice' => ['units' => '20']],
             'detailsFetchedAt' => '2026-06-01T00:00:00+00:00',
@@ -298,7 +300,8 @@ it('exposes enrichment on the public endpoint but strips internal keys', functio
     expect($payload['links'])->toHaveKey('writeReview');
     expect($payload['hours']['weekdays'])->toHaveCount(1);
     expect($payload['amenities']['goodForChildren'])->toBeTrue();
-    foreach (['placeId', 'phoneIntl', 'photos', 'priceLevel', 'priceRange', 'detailsFetchedAt'] as $private) {
+    expect($payload['photos'])->toHaveCount(1);   // public: home-background source
+    foreach (['placeId', 'phoneIntl', 'priceLevel', 'priceRange', 'detailsFetchedAt'] as $private) {
         expect($payload)->not->toHaveKey($private);
     }
 });
