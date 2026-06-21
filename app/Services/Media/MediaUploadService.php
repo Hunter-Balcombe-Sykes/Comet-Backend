@@ -3,6 +3,7 @@
 namespace App\Services\Media;
 
 use App\Jobs\ProcessImageVariantsJob;
+use App\Jobs\ProcessLogoVariantsJob;
 use App\Jobs\ProcessVideoVariantsJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -187,7 +188,7 @@ class MediaUploadService
         }
 
         $media->update(['path' => $originalPath]);
-        $this->dispatchImageJob($media->id, $originalPath, $basePath);
+        $this->dispatchSingletonProcessing($media->id, $originalPath, $basePath, $site, $purpose);
 
         $media->refresh();
         $media->load('mediaVariants');
@@ -417,6 +418,84 @@ class MediaUploadService
                 report($syncError);
                 Log::error('Synchronous image variant processing also failed.', [
                     'image_id' => $imageId, 'error' => $syncError->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Route singleton processing: design-pool LOGOS (logo_full / logo_square) run
+     * through the background-removal + vectorization pipeline when it's enabled;
+     * everything else (integration covers) keeps the standard WebP path.
+     */
+    private function dispatchSingletonProcessing(
+        string $mediaId,
+        string $originalPath,
+        string $basePath,
+        Site $site,
+        string $purpose,
+    ): void {
+        $isLogo = in_array($purpose, [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE], true);
+
+        if ($isLogo && (bool) config('partna.logo_removal.enabled', false)) {
+            $this->dispatchLogoJob($mediaId, $originalPath, $basePath, (string) $site->id);
+
+            return;
+        }
+
+        $this->dispatchImageJob($mediaId, $originalPath, $basePath);
+    }
+
+    /**
+     * Logo dispatch — mirrors dispatchImageJob (best-effort, inline in local/testing,
+     * sync fallback on queue failure). Never throws: a dispatch failure leaves the
+     * row PENDING and surfaces via the processing_state poll.
+     */
+    private function dispatchLogoJob(string $mediaId, string $originalPath, string $basePath, string $siteId): void
+    {
+        $queueConnection = (string) config('queue.default', 'sync');
+        $processInline = in_array(app()->environment(), ['local', 'testing'], true)
+            || $queueConnection === 'sync';
+
+        if ($processInline) {
+            try {
+                ProcessLogoVariantsJob::dispatchSync(
+                    originalPath: $originalPath,
+                    imageId: $mediaId,
+                    basePath: $basePath,
+                    siteId: $siteId,
+                );
+            } catch (Throwable $e) {
+                Log::error('Inline logo processing failed.', [
+                    'image_id' => $mediaId, 'error' => $e->getMessage(),
+                ]);
+            }
+
+            return;
+        }
+
+        try {
+            ProcessLogoVariantsJob::dispatch(
+                originalPath: $originalPath,
+                imageId: $mediaId,
+                basePath: $basePath,
+                siteId: $siteId,
+            );
+        } catch (Throwable $e) {
+            Log::error('Queue dispatch failed for logo; trying synchronous fallback.', [
+                'image_id' => $mediaId, 'error' => $e->getMessage(),
+            ]);
+            try {
+                ProcessLogoVariantsJob::dispatchSync(
+                    originalPath: $originalPath,
+                    imageId: $mediaId,
+                    basePath: $basePath,
+                    siteId: $siteId,
+                );
+            } catch (Throwable $syncError) {
+                report($syncError);
+                Log::error('Synchronous logo processing also failed.', [
+                    'image_id' => $mediaId, 'error' => $syncError->getMessage(),
                 ]);
             }
         }

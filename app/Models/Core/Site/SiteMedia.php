@@ -226,4 +226,17 @@ class SiteMedia extends BaseModel
             ->mapWithKeys(fn (MediaVariant $v) => [$v->variant_key => $v->url])
             ->all();
     }
+
+    /**
+     * Public URL of the vectorized SVG artifact, or null when this media has none
+     * (most logos; all covers). Separate from variantUrls(), which is webp-only.
+     */
+    public function svgVariantUrl(): ?string
+    {
+        $this->loadMissing('mediaVariants');
+
+        return $this->mediaVariants
+            ->firstWhere('artifact_type', 'svg')
+            ?->url;
+    }
 }

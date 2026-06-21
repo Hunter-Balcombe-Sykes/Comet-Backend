@@ -931,6 +931,27 @@ return [
 
     /*
     |----------------------------------------------------------------------
+    | Logo background removal + SVG vectorization (self-hosted)
+    |----------------------------------------------------------------------
+    | When enabled, design-pool LOGO singletons (logo_full / logo_square) are
+    | routed through the self-hosted logo-processor (Cloudflare Worker +
+    | Container: rembg background removal + VTracer vectorization) instead of
+    | the standard GD-only WebP path. Integration covers + gallery/content are
+    | unaffected.
+    |
+    | Ships DISABLED. Turn on only once the container is deployed and the URL +
+    | token point at it. On any processor failure the job falls back to the
+    | standard WebP pipeline, so a logo never fails to appear.
+    */
+    'logo_removal' => [
+        'enabled' => (bool) env('PARTNA_LOGO_REMOVAL_ENABLED', false),
+        'url' => env('PARTNA_LOGO_PROCESSOR_URL', ''),
+        'token' => env('PARTNA_LOGO_PROCESSOR_TOKEN', ''),
+        'timeout' => (int) env('PARTNA_LOGO_PROCESSOR_TIMEOUT', 120),
+    ],
+
+    /*
+    |----------------------------------------------------------------------
     | Video uploads – feature flag + processing config
     |----------------------------------------------------------------------
     | Set PARTNA_VIDEO_UPLOADS_ENABLED=true only after dedicated video
