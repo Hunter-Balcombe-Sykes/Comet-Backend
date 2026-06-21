@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Platforms\BookingController;
 use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
+use App\Http\Controllers\Api\Platforms\EventsController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
@@ -235,6 +236,19 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
             Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [OnlineOrderingController::class, 'forget']);
+        });
+
+    // Tickets & Events — smart-detect facade over the Eventbrite + Humanitix
+    // platforms plus custom links. /add detects the platform and decides event vs
+    // organiser-account vs custom; /selection returns the unified accounts +
+    // events list (each row tagged with its per-platform removePath); custom
+    // (events-custom) cards are removed here, platform rows via their own routes.
+    Route::prefix("{$base}/events")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::post('/add', [EventsController::class, 'add']);
+            Route::get('/selection', [EventsController::class, 'selection']);
+            Route::delete('/custom/{id}', [EventsController::class, 'removeCustom'])->where('id', '[A-Za-z0-9._-]+');
         });
 
     // Menu — read-only view of the fetched Uber Eats / DoorDash menu (the single
