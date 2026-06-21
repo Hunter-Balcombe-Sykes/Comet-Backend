@@ -14,15 +14,18 @@ use Throwable;
 // Seeds Reservations / Online-ordering / Social connections from a Google
 // Business Apify enrichment — only into slots the user hasn't filled, each
 // tagged source:'google-business' so the connect modal's "Automatically Synced
-// Integrations" step can list them with an undo. Best-effort: every seed is
-// isolated in its own try/catch so one failure never blocks the rest.
+// Integrations" step can list them with an undo.
 //
-// Known providers store under their own platform keys (opentable / resdiary /
-// nowbookit + the link socials) so these seeds drive the same public rendering a
-// manual connect would; online-ordering rows are dashboard-only. Booking seeds a
-// custom card from Google's appointment-booking link (only-if-empty), and the
-// workplace card's category / description / old-website are filled from Place
-// Details. Instagram goes through its normal budgeted scrape job.
+// seed() RETURNS the per-connect findings (one per platform Google had a link
+// for) so the modal can show only what THIS scrape produced, with a live status:
+//   - outcome 'seeded'   → we wrote the row (the /synced endpoint re-derives
+//                          synced vs syncing from its last_refresh_status);
+//   - outcome 'conflict' → the slot was already filled by a different connection,
+//                          so we didn't touch it — the finding carries an `apply`
+//                          recipe so a "Change to" swap can remove the existing
+//                          and install Google's (applyFinding()).
+// Best-effort: every seed is isolated in its own try/catch so one failure never
+// blocks the rest.
 class GoogleBusinessAutoSync
 {
     private const MAX_ORDERING = 10;
@@ -38,13 +41,16 @@ class GoogleBusinessAutoSync
     /**
      * @param  array<string,mixed>  $enrichment  the scraper map() output (menu / reservation / order / booking / socials)
      * @param  array<string,mixed>|null  $gbPayload  the Google Business connection payload (Place Details: category / website / editorialSummary) for the workplace seed
+     * @return list<array<string,mixed>> the per-connect findings (see class doc)
      */
-    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): void
+    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): array
     {
+        $findings = [];
+
         // Booking is the one platform synced for EVERY account type (only-if-empty):
         // a professional with no booking link yet still gets the one Google has on
         // file, regardless of whether they're a Business Partna.
-        $this->seedBooking($userId, $enrichment, $businessName);
+        $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName)];
 
         // Reservations / online-ordering / workplace / socials are a Business-Partna
         // convenience. A standard (partna) account only gets the booking link above —
@@ -52,89 +58,136 @@ class GoogleBusinessAutoSync
         // on the capability so the account_type read stays inside AccountCapabilities.
         $user = User::find($userId);
         if ($user === null || ! AccountCapabilities::for($user)->google_business_full_sync) {
+            return $findings;
+        }
+
+        $findings = [...$findings, ...$this->seedReservation($userId, $enrichment, $businessName)];
+        $findings = [...$findings, ...$this->seedOrdering($userId, $enrichment)];
+        $this->seedWorkplace($userId, $gbPayload ?? []);
+        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment)];
+
+        return $findings;
+    }
+
+    /**
+     * "Change to" — install Google's found connection over the user's existing
+     * one. Removes whatever currently occupies the slot, then writes Google's
+     * (or re-dispatches the Instagram scrape). Idempotent + best-effort.
+     *
+     * @param  array<string,mixed>  $finding  a conflict finding (carries `apply`)
+     */
+    public function applyFinding(string $userId, array $finding): void
+    {
+        $apply = $finding['apply'] ?? null;
+        if (! is_array($apply)) {
             return;
         }
 
-        $this->seedReservation($userId, $enrichment, $businessName);
-        $this->seedOrdering($userId, $enrichment);
-        $this->seedWorkplace($userId, $gbPayload ?? []);
-        $this->seedSocials($userId, $enrichment);
+        foreach ((array) ($apply['remove'] ?? []) as $platform) {
+            if (! is_string($platform)) {
+                continue;
+            }
+            IntegrationConnection::query()
+                ->where('user_id', $userId)->where('platform', $platform)
+                ->get()->each->delete();
+        }
+
+        if (is_array($apply['instagram'] ?? null) && is_string($apply['instagram']['username'] ?? null)) {
+            $this->dispatchInstagram($userId, $apply['instagram']['username']);
+
+            return;
+        }
+
+        if (is_array($apply['write'] ?? null)) {
+            $w = $apply['write'];
+            $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
+        }
     }
 
     // ── reservation ──────────────────────────────────────────────
 
-    private function seedReservation(string $userId, array $enrichment, ?string $businessName): void
+    /** @return list<array<string,mixed>> */
+    private function seedReservation(string $userId, array $enrichment, ?string $businessName): array
     {
         try {
-            $reservation = data_get($enrichment, 'reservation');
-            if (! is_array($reservation)) {
-                return;
+            $write = $this->resolveReservationWrite($enrichment, $businessName);
+            if ($write === null) {
+                return [];
             }
-            // Only-if-empty across the whole reservations family.
+
+            $label = $write['payload']['name'] ?? 'Reservations';
             if ($this->hasAnyReservation($userId)) {
-                return;
+                return [$this->conflictFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write), [
+                    'remove' => ['opentable', 'resdiary', 'nowbookit', 'reservations'],
+                    'write' => $write,
+                ])];
             }
 
-            // Candidate provider links: the primary url + every named link. One
-            // may be a keyless provider (OpenTable / ResDiary / NowBookit).
-            $candidates = array_values(array_filter([
-                data_get($reservation, 'url'),
-                ...array_map(fn ($l) => data_get($l, 'url'), (array) data_get($reservation, 'links', [])),
-            ], fn ($u) => is_string($u) && $u !== ''));
+            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
 
-            foreach ($candidates as $url) {
-                if ($this->openTable->isOpenTableUrl($url) && ($rid = $this->openTable->parseRid($url)) !== null) {
-                    $this->write($userId, 'opentable', 'opentable', [
-                        'url' => $url,
-                        'rid' => $rid,
-                        'name' => $businessName,
-                        'embedUrl' => $this->openTable->embedUrl($rid, $this->openTable->hostOf($url)),
-                        'source' => 'google-business',
-                    ]);
-
-                    return;
-                }
-                if ($this->resDiary->isResDiaryUrl($url) && ($embed = $this->resDiary->embedUrl($url)) !== null) {
-                    $this->write($userId, 'resdiary', 'resdiary', [
-                        'url' => $url,
-                        'microsite' => $this->resDiary->parseMicrosite($url),
-                        'name' => $this->resDiary->nameFromUrl($url) ?? $businessName,
-                        'embedUrl' => $embed,
-                        'source' => 'google-business',
-                    ]);
-
-                    return;
-                }
-                if ($this->nowBookit->isNowBookitUrl($url) && ($ids = $this->nowBookit->parseIds($url)) !== null) {
-                    $this->write($userId, 'nowbookit', 'nowbookit', [
-                        'url' => $url,
-                        'accountId' => $ids['accountId'],
-                        'venueId' => $ids['venueId'],
-                        'name' => $this->nowBookit->nameFromUrl($url) ?? $businessName,
-                        'embedUrl' => $this->nowBookit->embedUrl($ids['accountId'], $ids['venueId']),
-                        'source' => 'google-business',
-                    ]);
-
-                    return;
-                }
-            }
-
-            // No keyless provider matched → a branded custom card.
-            $url = $this->safeUrl(data_get($reservation, 'url'));
-            if ($url === null) {
-                return;
-            }
-            $this->write($userId, 'reservations', 'reservations', [
-                'provider' => 'custom',
-                'url' => $url,
-                'name' => $this->clean(data_get($reservation, 'provider')) ?? $businessName,
-                'favicon' => null,
-                'logo' => null,
-                'source' => 'google-business',
-            ]);
+            return [$this->seededFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write))];
         } catch (Throwable $e) {
             report($e);
+
+            return [];
         }
+    }
+
+    /**
+     * Resolve the single reservation row Google's data would write — a keyless
+     * provider (OpenTable / ResDiary / NowBookit) or a branded custom card — or
+     * null when there's nothing usable. Pure: no DB writes, so it can be reused to
+     * build a conflict's "Change to" recipe.
+     *
+     * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
+     */
+    private function resolveReservationWrite(array $enrichment, ?string $businessName): ?array
+    {
+        $reservation = data_get($enrichment, 'reservation');
+        if (! is_array($reservation)) {
+            return null;
+        }
+
+        $candidates = array_values(array_filter([
+            data_get($reservation, 'url'),
+            ...array_map(fn ($l) => data_get($l, 'url'), (array) data_get($reservation, 'links', [])),
+        ], fn ($u) => is_string($u) && $u !== ''));
+
+        foreach ($candidates as $url) {
+            if ($this->openTable->isOpenTableUrl($url) && ($rid = $this->openTable->parseRid($url)) !== null) {
+                return ['platform' => 'opentable', 'resourceId' => 'opentable', 'payload' => [
+                    'url' => $url, 'rid' => $rid, 'name' => $businessName,
+                    'embedUrl' => $this->openTable->embedUrl($rid, $this->openTable->hostOf($url)),
+                    'source' => 'google-business',
+                ]];
+            }
+            if ($this->resDiary->isResDiaryUrl($url) && ($embed = $this->resDiary->embedUrl($url)) !== null) {
+                return ['platform' => 'resdiary', 'resourceId' => 'resdiary', 'payload' => [
+                    'url' => $url, 'microsite' => $this->resDiary->parseMicrosite($url),
+                    'name' => $this->resDiary->nameFromUrl($url) ?? $businessName,
+                    'embedUrl' => $embed, 'source' => 'google-business',
+                ]];
+            }
+            if ($this->nowBookit->isNowBookitUrl($url) && ($ids = $this->nowBookit->parseIds($url)) !== null) {
+                return ['platform' => 'nowbookit', 'resourceId' => 'nowbookit', 'payload' => [
+                    'url' => $url, 'accountId' => $ids['accountId'], 'venueId' => $ids['venueId'],
+                    'name' => $this->nowBookit->nameFromUrl($url) ?? $businessName,
+                    'embedUrl' => $this->nowBookit->embedUrl($ids['accountId'], $ids['venueId']),
+                    'source' => 'google-business',
+                ]];
+            }
+        }
+
+        $url = $this->safeUrl(data_get($reservation, 'url'));
+        if ($url === null) {
+            return null;
+        }
+
+        return ['platform' => 'reservations', 'resourceId' => 'reservations', 'payload' => [
+            'provider' => 'custom', 'url' => $url,
+            'name' => $this->clean(data_get($reservation, 'provider')) ?? $businessName,
+            'favicon' => null, 'logo' => null, 'source' => 'google-business',
+        ]];
     }
 
     private function hasAnyReservation(string $userId): bool
@@ -150,74 +203,79 @@ class GoogleBusinessAutoSync
 
     // ── booking ──────────────────────────────────────────────────
 
-    // Auto-connect the booking link Google has on file (only-if-empty across the
-    // whole booking family). A Fresha link becomes a PENDING Fresha connection
-    // (url only, no team-member/services selection) so the dashboard shows a
-    // "Finish setup" prompt; a Square link is a complete "Book now" connection
-    // (no picker step); anything else is a branded custom booking card.
-    private function seedBooking(string $userId, array $enrichment, ?string $businessName): void
+    /** @return list<array<string,mixed>> */
+    private function seedBooking(string $userId, array $enrichment, ?string $businessName): array
     {
         try {
-            $links = data_get($enrichment, 'booking');
-            $url = is_array($links) ? $this->safeUrl($links[0] ?? null) : null;
-            if ($url === null) {
-                return;
+            $write = $this->resolveBookingWrite($enrichment, $businessName);
+            if ($write === null) {
+                return [];
             }
+
+            $label = match ($write['platform']) {
+                'fresha' => 'Fresha', 'square' => 'Square', default => $write['payload']['name'] ?? 'Booking',
+            };
             if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
-                return;
+                return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
+                    'remove' => ['fresha', 'square', 'booking'],
+                    'write' => $write,
+                ])];
             }
 
-            $provider = $this->detector->detectFor('booking', $url);
-            if ($provider === 'fresha') {
-                // Pending: url only, selection null (payload stays non-null — prod
-                // constraint). The dashboard's "Finish setup" runs the normal
-                // /fresha/connect + /selection picker flow from this url.
-                $this->write($userId, 'fresha', 'fresha', [
-                    'url' => $url,
-                    'selection' => null,
-                    'source' => 'google-business',
-                ]);
+            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
 
-                return;
-            }
-            if ($provider === 'square') {
-                // Square is just a "Book now" link — complete, no picker step.
-                $this->write($userId, 'square', 'square', [
-                    'url' => $url,
-                    'source' => 'google-business',
-                ]);
-
-                return;
-            }
-
-            // Unknown provider → a branded custom booking card.
-            $this->write($userId, 'booking', 'booking', [
-                'provider' => 'custom',
-                'url' => $url,
-                'name' => $businessName,
-                'favicon' => null,
-                'logo' => null,
-                'source' => 'google-business',
-            ]);
+            return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
         } catch (Throwable $e) {
             report($e);
+
+            return [];
         }
+    }
+
+    /**
+     * The single booking row Google's data would write: a PENDING Fresha (url
+     * only, "Finish setup"), a complete Square "Book now", or a branded custom
+     * card. Null when Google has no booking link. Pure (no DB writes).
+     *
+     * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
+     */
+    private function resolveBookingWrite(array $enrichment, ?string $businessName): ?array
+    {
+        $links = data_get($enrichment, 'booking');
+        $url = is_array($links) ? $this->safeUrl($links[0] ?? null) : null;
+        if ($url === null) {
+            return null;
+        }
+
+        $provider = $this->detector->detectFor('booking', $url);
+        if ($provider === 'fresha') {
+            return ['platform' => 'fresha', 'resourceId' => 'fresha', 'payload' => [
+                'url' => $url, 'selection' => null, 'source' => 'google-business',
+            ]];
+        }
+        if ($provider === 'square') {
+            return ['platform' => 'square', 'resourceId' => 'square', 'payload' => [
+                'url' => $url, 'source' => 'google-business',
+            ]];
+        }
+
+        return ['platform' => 'booking', 'resourceId' => 'booking', 'payload' => [
+            'provider' => 'custom', 'url' => $url, 'name' => $businessName,
+            'favicon' => null, 'logo' => null, 'source' => 'google-business',
+        ]];
     }
 
     // ── workplace ─────────────────────────────────────────────────
 
     // Fill the workplace card's previous-website / category / description from
     // the Google Business Place Details — per field, only when the user hasn't
-    // set it. Never seeds the identity fields (name/address), so it can't
-    // auto-publish a workplace section the user didn't create.
+    // set it. Never seeds the identity fields (name/address). No card finding —
+    // it's a site-settings fill, not an entry in the synced list.
     //
     // @param array<string,mixed> $gbPayload
     private function seedWorkplace(string $userId, array $gbPayload): void
     {
         try {
-            // Truncate to the workplace request's field caps (category 120,
-            // description 1000) so a long Google summary can't later 422 the
-            // user's own workplace save.
             $fields = array_filter([
                 'previous_website' => $this->safeUrl(data_get($gbPayload, 'website')),
                 'category' => $this->truncate($this->clean(data_get($gbPayload, 'category')), 120),
@@ -259,12 +317,14 @@ class GoogleBusinessAutoSync
 
     // ── ordering ─────────────────────────────────────────────────
 
-    private function seedOrdering(string $userId, array $enrichment): void
+    /** @return list<array<string,mixed>> */
+    private function seedOrdering(string $userId, array $enrichment): array
     {
+        $findings = [];
         try {
             $providers = data_get($enrichment, 'order.providers');
             if (! is_array($providers)) {
-                return;
+                return [];
             }
             foreach ($providers as $p) {
                 if ($this->count($userId, 'online-ordering') >= self::MAX_ORDERING) {
@@ -294,6 +354,9 @@ class GoogleBusinessAutoSync
                         'sourcePlatform' => $name,
                     ], fn ($v) => $v !== null),
                 ]);
+                // Online-ordering is multi-entry — every new link is just added (no
+                // conflict concept), so each is a 'seeded' finding.
+                $findings[] = $this->seededFinding('online-ordering', $rid, 'online-ordering', $name ?? 'Order online', $url);
             }
 
             // Ordering links changed → (re)derive the shared menu from them.
@@ -301,60 +364,92 @@ class GoogleBusinessAutoSync
         } catch (Throwable $e) {
             report($e);
         }
+
+        return $findings;
     }
 
     // ── socials ──────────────────────────────────────────────────
 
-    private function seedSocials(string $userId, array $enrichment): void
+    /** @return list<array<string,mixed>> */
+    private function seedSocials(string $userId, array $enrichment): array
     {
         $socials = data_get($enrichment, 'socials');
         if (! is_array($socials)) {
-            return;
+            return [];
         }
 
-        // Link-only socials store {username, url} directly. youtube + pinterest are
-        // scrape platforms (richer payloads) — skipped here; the user connects those
-        // manually. instagram is handled separately (paid scrape, budgeted).
-        $linkOnly = ['facebook' => 'facebook', 'tiktok' => 'tiktok', 'twitter' => 'x', 'linkedin' => 'linkedin'];
-        foreach ($linkOnly as $socialKey => $platform) {
+        $findings = [];
+        $linkOnly = ['facebook' => 'Facebook', 'tiktok' => 'TikTok', 'twitter' => 'X', 'linkedin' => 'LinkedIn'];
+        $platformOf = ['facebook' => 'facebook', 'tiktok' => 'tiktok', 'twitter' => 'x', 'linkedin' => 'linkedin'];
+        foreach ($linkOnly as $socialKey => $label) {
             try {
                 $url = $this->safeUrl(data_get($socials, $socialKey));
-                if ($url === null || $this->has($userId, $platform)) {
+                if ($url === null) {
                     continue;
                 }
-                $this->write($userId, $platform, $platform, [
-                    'username' => $this->socialUsername($platform, $url),
-                    'url' => $url,
-                    'source' => 'google-business',
-                ]);
+                $platform = $platformOf[$socialKey];
+                $payload = ['username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'google-business'];
+                $write = ['platform' => $platform, 'resourceId' => $platform, 'payload' => $payload];
+
+                if ($this->has($userId, $platform)) {
+                    $findings[] = $this->conflictFinding($platform, $platform, 'social', $label, $url, [
+                        'remove' => [$platform], 'write' => $write,
+                    ]);
+
+                    continue;
+                }
+                $this->write($userId, $platform, $platform, $payload);
+                $findings[] = $this->seededFinding($platform, $platform, 'social', $label, $url);
             } catch (Throwable $e) {
                 report($e);
             }
         }
 
         try {
-            $this->seedInstagram($userId, $this->safeUrl(data_get($socials, 'instagram')));
+            $igUrl = $this->safeUrl(data_get($socials, 'instagram'));
+            $igFinding = $this->seedInstagram($userId, $igUrl);
+            if ($igFinding !== null) {
+                $findings[] = $igFinding;
+            }
         } catch (Throwable $e) {
             report($e);
         }
+
+        return $findings;
     }
 
-    private function seedInstagram(string $userId, ?string $url): void
+    /** @return array<string,mixed>|null */
+    private function seedInstagram(string $userId, ?string $url): ?array
     {
-        if ($url === null || $this->has($userId, 'instagram')) {
-            return;
-        }
-        if (! preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $url, $m)) {
-            return;
+        if ($url === null || ! preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $url, $m)) {
+            return null;
         }
         $username = $m[1];
         if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
-            return;
+            return null;
         }
-        // Apify token required + the SAME global daily budget the manual connect
-        // claims (shared cache service) — a Google connect can never blow the cap.
+
+        if ($this->has($userId, 'instagram')) {
+            return $this->conflictFinding('instagram', 'instagram', 'social', 'Instagram', $url, [
+                'remove' => ['instagram'], 'instagram' => ['username' => $username],
+            ]);
+        }
+
+        if (! $this->dispatchInstagram($userId, $username)) {
+            return null;   // no Apify token / budget exhausted — nothing seeded, no card
+        }
+
+        return $this->seededFinding('instagram', 'instagram', 'social', 'Instagram', $url);
+    }
+
+    /**
+     * Write the pending Instagram placeholder + dispatch the budgeted scrape.
+     * Returns false when there's no token or the daily budget is spent.
+     */
+    private function dispatchInstagram(string $userId, string $username): bool
+    {
         if (! config('services.apify.token') || ! $this->instagramBudget->tryClaim()) {
-            return;
+            return false;
         }
 
         // Pending placeholder tagged source so the synced step + undo can find it;
@@ -372,6 +467,49 @@ class GoogleBusinessAutoSync
         );
 
         InstagramConnectJob::dispatch($userId, $username, $connection->id);
+
+        return true;
+    }
+
+    // ── findings ──────────────────────────────────────────────────
+
+    /** @return array<string,mixed> */
+    private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl): array
+    {
+        return [
+            'platform' => $platform,
+            'resourceId' => $resourceId,
+            'category' => $category,
+            'label' => $label,
+            'foundUrl' => $foundUrl,
+            'outcome' => 'seeded',
+            'apply' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed>  $apply
+     * @return array<string,mixed>
+     */
+    private function conflictFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl, array $apply): array
+    {
+        return [
+            'platform' => $platform,
+            'resourceId' => $resourceId,
+            'category' => $category,
+            'label' => $label,
+            'foundUrl' => $foundUrl,
+            'outcome' => 'conflict',
+            'apply' => $apply,
+        ];
+    }
+
+    /** @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write */
+    private function urlOf(array $write): ?string
+    {
+        $url = $write['payload']['url'] ?? null;
+
+        return is_string($url) ? $url : null;
     }
 
     // ── helpers ──────────────────────────────────────────────────

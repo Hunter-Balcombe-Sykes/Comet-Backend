@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -111,68 +111,101 @@ class GoogleBusinessController extends SingleSelectionPlatformController
     }
 
     // GET /api/platforms/google-business/synced
-    // The connections this user's Google Business connect auto-created
-    // (payload.source === 'google-business') — reservation, ordering links and
-    // social profiles — for the connect modal's "Automatically Synced
-    // Integrations" step, each with a remove target for one-click undo.
+    // The platforms THIS Google Business connect found — read from the connection's
+    // recorded syncFindings (scoped to the latest scrape), each re-shaped with a
+    // live status (synced / syncing / conflict). Only this run's findings appear,
+    // never platforms a previous connect already synced.
     public function synced(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        $findings = is_array(data_get($gb?->payload, 'syncFindings')) ? $gb->payload['syncFindings'] : [];
 
-        $rows = $user->integrationConnections()
-            ->whereIn('platform', ['opentable', 'resdiary', 'nowbookit', 'reservations', 'booking', 'online-ordering', 'instagram', 'facebook', 'tiktok', 'x', 'linkedin'])
-            ->orderBy('platform')
-            ->orderBy('created_at')
-            ->get();
-
-        $synced = $rows
-            ->filter(fn (IntegrationConnection $row) => data_get($row->payload, 'source') === 'google-business')
-            ->map(fn (IntegrationConnection $row) => $this->shapeSynced($row))
+        $synced = collect($findings)
+            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f) : null)
+            ->filter()
             ->values()
             ->all();
 
         return $this->success(['synced' => $synced]);
     }
 
-    /**
-     * One auto-synced connection in the modal's wire shape: which category it
-     * landed in, a label, and the DELETE path the undo button hits.
-     *
-     * @return array<string,mixed>
-     */
-    private function shapeSynced(IntegrationConnection $row): array
+    // POST /api/platforms/google-business/synced/apply
+    // "Change to" — swap the user's existing connection for the one Google found
+    // (a conflict finding): remove the existing, install Google's (or re-run the
+    // Instagram scrape), and flip the finding to seeded so it shows as synced/syncing.
+    public function applySync(Request $request, GoogleBusinessAutoSync $autoSync): JsonResponse
     {
-        $payload = is_array($row->payload) ? $row->payload : [];
-        $platform = $row->platform;
+        $user = $this->currentUser($request);
+        $platform = $request->validate(['platform' => ['required', 'string', 'max:40']])['platform'];
 
-        [$category, $label] = match ($platform) {
-            'opentable' => ['reservations', $payload['name'] ?? 'OpenTable'],
-            'resdiary' => ['reservations', $payload['name'] ?? 'ResDiary'],
-            'nowbookit' => ['reservations', $payload['name'] ?? 'NowBookit'],
-            'reservations' => ['reservations', $payload['name'] ?? 'Reservations'],
-            'booking' => ['booking', $payload['name'] ?? 'Booking'],
-            'online-ordering' => ['online-ordering', $payload['name'] ?? 'Order online'],
-            'instagram' => ['social', 'Instagram'],
-            'facebook' => ['social', 'Facebook'],
-            'tiktok' => ['social', 'TikTok'],
-            'x' => ['social', 'X'],
-            'linkedin' => ['social', 'LinkedIn'],
-            default => ['other', $platform],
-        };
+        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        $payload = is_array($gb?->payload) ? $gb->payload : [];
+        $findings = is_array($payload['syncFindings'] ?? null) ? array_values($payload['syncFindings']) : [];
 
-        // Ordering is multi-entry (delete the specific row); everything else is a
-        // single-slot platform whose forget() clears it.
-        $removePath = $platform === 'online-ordering'
-            ? '/platforms/online-ordering/entries/'.$row->resource_id
-            : '/platforms/'.$platform;
+        $idx = null;
+        foreach ($findings as $i => $f) {
+            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
+                $idx = $i;
+                break;
+            }
+        }
+        if ($idx === null || $gb === null) {
+            return $this->error('Nothing to change for that platform.', 404);
+        }
+
+        $autoSync->applyFinding((string) $user->id, $findings[$idx]);
+
+        $findings[$idx]['outcome'] = 'seeded';
+        $findings[$idx]['apply'] = null;
+        $gb->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+
+        return $this->synced($request);
+    }
+
+    /**
+     * Shape one recorded finding for the modal, re-deriving live status. Returns
+     * null when a seeded row was since removed (so it drops off the list).
+     *
+     * @param  array<string,mixed>  $finding
+     * @return array<string,mixed>|null
+     */
+    private function shapeFinding(User $user, array $finding): ?array
+    {
+        $platform = (string) ($finding['platform'] ?? '');
+        $category = (string) ($finding['category'] ?? 'other');
+        $label = (string) ($finding['label'] ?? $platform);
+        $foundUrl = is_string($finding['foundUrl'] ?? null) ? $finding['foundUrl'] : null;
+
+        if (($finding['outcome'] ?? 'seeded') === 'conflict') {
+            return [
+                'platform' => $platform,
+                'category' => $category,
+                'label' => $label,
+                'status' => 'conflict',
+                'foundUrl' => $foundUrl,
+                'removePath' => null,
+            ];
+        }
+
+        // Seeded — drop if the user already removed it; else derive synced/syncing.
+        $row = $user->integrationConnections()
+            ->where('platform', $platform)
+            ->where('resource_id', (string) ($finding['resourceId'] ?? ''))
+            ->first();
+        if ($row === null) {
+            return null;
+        }
 
         return [
             'platform' => $platform,
             'category' => $category,
             'label' => $label,
-            'url' => $payload['url'] ?? null,
-            'removePath' => $removePath,
-            'pending' => $row->last_refresh_status === 'pending',
+            'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
+            'foundUrl' => $foundUrl,
+            'removePath' => $platform === 'online-ordering'
+                ? '/platforms/online-ordering/entries/'.$row->resource_id
+                : '/platforms/'.$platform,
         ];
     }
 }
