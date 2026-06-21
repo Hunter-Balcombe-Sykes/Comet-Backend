@@ -249,6 +249,50 @@ it('syncs ONLY the booking link for a standard (partna) account', function () {
     Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
+it('seeds no booking when the only booking link is the business website', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();
+    $item['website'] = 'http://www.brotherwolf.com.au/';
+    // The actor echoes the "Website" button into bookingLinks (the real bug seen
+    // on Brother Wolf) — it must NOT become a booking card.
+    $item['bookingLinks'] = [['name' => 'brotherwolf.com.au', 'url' => 'http://www.brotherwolf.com.au/']];
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gbweb1', 'business');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+
+    foreach (['booking', 'fresha', 'square'] as $p) {
+        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $p)->exists())
+            ->toBeFalse("the website must not seed a {$p} row");
+    }
+});
+
+it('drops the website from booking links but keeps a real provider link', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();
+    $item['website'] = 'http://www.brotherwolf.com.au/';
+    $item['bookingLinks'] = [
+        ['name' => 'brotherwolf.com.au', 'url' => 'https://www.brotherwolf.com.au/'],  // website echo → dropped
+        ['name' => 'Fresha', 'url' => 'https://www.fresha.com/a/brother-wolf'],          // real → kept
+    ];
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gbweb2', 'business');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+
+    // No custom 'booking' card from the website; the Fresha link connected (pending).
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
+    expect($fresha['url'])->toBe('https://www.fresha.com/a/brother-wolf');
+    expect($fresha['selection'])->toBeNull();
+});
+
 it('keeps the Google Business selection business-info-only after enrichment', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
