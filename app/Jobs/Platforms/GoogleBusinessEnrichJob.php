@@ -80,7 +80,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
-        $autoSync->seed(
+        $findings = $autoSync->seed(
             $this->userId,
             $enrichment,
             data_get($connection->payload, 'name'),
@@ -96,6 +96,9 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
                 ...Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
                 'apifyStatus' => 'ok',
                 'apifyFetchedAt' => now()->toIso8601String(),
+                // What THIS scrape produced — drives the connect modal's "found
+                // platforms" list (only this run's, with live status + Change-to).
+                'syncFindings' => $findings,
             ],
         ])->saveQuietly();
     }

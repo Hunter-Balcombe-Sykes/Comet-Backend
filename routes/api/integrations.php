@@ -319,6 +319,9 @@ $registerIntegrationRoutes = function (string $base): void {
     // connect modal's step 2. connect/selection/forget come from the loop above.
     Route::get("{$base}/google-business/synced", [GoogleBusinessController::class, 'synced'])
         ->middleware($middleware);
+    // "Change to" — swap an existing connection for the one Google found (a conflict).
+    Route::post("{$base}/google-business/synced/apply", [GoogleBusinessController::class, 'applySync'])
+        ->middleware($middleware);
 
     // Manual per-platform refresh (dashboard refresh button) — re-pull the
     // auto-content platforms on demand. {platform} is validated against
