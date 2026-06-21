@@ -6,6 +6,8 @@ use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -66,6 +68,9 @@ class GoogleBusinessController extends SingleSelectionPlatformController
                 $merged['apifyStatus'] = 'pending';
             }
 
+            // Business accounts adopt the Google Business name as their display name.
+            $this->maybeAdoptGoogleName($user, $data['name'] ?? null);
+
             $response = $this->connected($user, $merged);
 
             if ($enrich) {
@@ -80,7 +85,29 @@ class GoogleBusinessController extends SingleSelectionPlatformController
             return $this->error('Paste your Google Maps link — open your business on Google Maps, hit Share, and copy the link.', 422);
         }
 
+        $this->maybeAdoptGoogleName($user, $place['name'] ?? null);
+
         return $this->connected($user, $place);
+    }
+
+    // Business Partna accounts treat the Google Business name as their public
+    // display name: connecting (or reconnecting) overwrites display_name with it
+    // so the sitepage + dashboard read the official business name. Standard
+    // accounts keep whatever name they set. Gated on the capability so the
+    // account_type read stays inside AccountCapabilities; UserObserver fans the
+    // change out to the sitepage cache (display_name is a public-profile field).
+    private function maybeAdoptGoogleName(User $user, ?string $name): void
+    {
+        $name = is_string($name) ? trim($name) : '';
+        if ($name === '' || ! AccountCapabilities::for($user)->google_business_sets_display_name) {
+            return;
+        }
+        if ($user->display_name === $name) {
+            return;
+        }
+
+        $user->display_name = $name;
+        $user->save();
     }
 
     // GET /api/platforms/google-business/synced

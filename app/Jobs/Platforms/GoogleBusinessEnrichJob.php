@@ -77,8 +77,9 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
 
         // The harvested links live on their OWN integrations now (Reservations /
         // Online-ordering / Social), not on the Google Business payload. Seed them
-        // only into slots the user hasn't filled, tagged source:'google-business';
-        // booking is never auto-synced.
+        // only into slots the user hasn't filled, tagged source:'google-business'.
+        // Booking syncs for every account type; the reservation/ordering/workplace/
+        // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
         $autoSync->seed(
             $this->userId,
             $enrichment,

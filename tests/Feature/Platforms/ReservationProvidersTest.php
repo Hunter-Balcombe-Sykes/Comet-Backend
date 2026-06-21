@@ -22,13 +22,16 @@ beforeEach(function () {
     Queue::fake();
 });
 
-function resUser(string $h): User
+// Defaults to a Business Partna: the Google auto-sync assertions below exercise
+// the FULL sync (reservation + workplace seeds), which is Business-only. The
+// detection / connect / booking-seed tests are account-type-agnostic.
+function resUser(string $h, string $accountType = 'business'): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => $accountType,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);

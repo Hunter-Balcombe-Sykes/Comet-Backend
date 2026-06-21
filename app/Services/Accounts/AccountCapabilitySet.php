@@ -42,5 +42,15 @@ final readonly class AccountCapabilitySet
         // picker); standard accounts pick a team member. Derived from account_type
         // in AccountCapabilities so nothing else branches on the type directly.
         public bool $can_book_storewide,
+        // Business Partna accounts get the FULL Google Business auto-sync —
+        // reservations, online-ordering, workplace card + socials are all seeded
+        // from the connected Place. Standard accounts only get the booking link
+        // synced (so a solo professional isn't handed a restaurant's reservation /
+        // ordering cards they can't use). Derived from account_type here.
+        public bool $google_business_full_sync,
+        // Business Partna accounts treat the connected Google Business name as
+        // their public name — connecting (or reconnecting) overwrites display_name
+        // with it. Standard accounts keep their own display name untouched.
+        public bool $google_business_sets_display_name,
     ) {}
 }
