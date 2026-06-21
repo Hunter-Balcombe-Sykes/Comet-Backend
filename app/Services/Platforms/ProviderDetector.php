@@ -15,6 +15,8 @@ class ProviderDetector
         'reservations' => ['opentable', 'resdiary', 'nowbookit'],
         // No ordering platforms integrated yet — every link is a custom card.
         'online-ordering' => [],
+        // Ticketing platforms; anything else is a custom event card.
+        'events' => ['eventbrite', 'humanitix'],
     ];
 
     public function __construct(
@@ -49,6 +51,9 @@ class ProviderDetector
             'opentable' => $this->openTable->isOpenTableUrl($url),
             'resdiary' => $this->resDiary->isResDiaryUrl($url),
             'nowbookit' => $this->nowBookit->isNowBookitUrl($url),
+            // Eventbrite has regional TLDs (.com / .com.au / …); Humanitix is single-domain.
+            'eventbrite' => (bool) preg_match('~(^|\.)eventbrite\.[a-z.]+$~', $host),
+            'humanitix' => (bool) preg_match('~(^|\.)humanitix\.com$~', $host),
             default => false,
         };
     }
