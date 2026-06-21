@@ -175,7 +175,7 @@ class GoogleBusinessApifyScraper extends PlatformScraper
             'menu' => $this->safeUrl(data_get($place, 'menu')),
             'reservation' => $reservation !== [] ? $reservation : null,
             'order' => $order !== [] ? $order : null,
-            'booking' => $this->urlList(data_get($place, 'bookingLinks')),
+            'booking' => $this->bookingLinks(data_get($place, 'bookingLinks'), $this->safeUrl(data_get($place, 'website'))),
             'socials' => $socials !== [] ? $socials : null,
         ], $notNull);
     }
@@ -250,6 +250,43 @@ class GoogleBusinessApifyScraper extends PlatformScraper
         $urls = array_values(array_unique($urls));
 
         return $urls !== [] ? $urls : null;
+    }
+
+    /**
+     * Booking action links, EXCLUDING the business's own website. The actor's
+     * bookingLinks often echoes the "Website" button (same host as `website`)
+     * when Google exposes no real "Reserve with Google" provider link — seeding
+     * that as a booking card is wrong (it's the site, not a way to book). Keep
+     * only genuine third-party links (Fresha / Square / Booksy / …, another host).
+     *
+     * @return list<string>|null
+     */
+    private function bookingLinks(mixed $value, ?string $websiteUrl): ?array
+    {
+        $links = $this->urlList($value);
+        if ($links === null) {
+            return null;
+        }
+        $siteHost = $this->host($websiteUrl);
+        if ($siteHost !== null) {
+            $links = array_values(array_filter($links, fn ($u) => $this->host($u) !== $siteHost));
+        }
+
+        return $links !== [] ? $links : null;
+    }
+
+    /** Lower-cased host without a leading www., or null. */
+    private function host(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+        $host = parse_url($url, PHP_URL_HOST);
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        return strtolower(preg_replace('/^www\./i', '', $host));
     }
 
     /**
