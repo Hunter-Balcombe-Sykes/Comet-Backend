@@ -87,6 +87,26 @@ describe('AccountCapabilities — storewide booking (Business Partna)', function
     });
 });
 
+describe('AccountCapabilities — Google Business (Business Partna)', function () {
+    it('gives Business accounts the full Google Business auto-sync + name adoption', function () {
+        $caps = AccountCapabilities::for(makeProForCapabilities('business'));
+        expect($caps->google_business_full_sync)->toBeTrue();
+        expect($caps->google_business_sets_display_name)->toBeTrue();
+    });
+
+    it('limits standard (partna) accounts to booking-only sync and no name adoption', function () {
+        $caps = AccountCapabilities::for(makeProForCapabilities('partna'));
+        expect($caps->google_business_full_sync)->toBeFalse();
+        expect($caps->google_business_sets_display_name)->toBeFalse();
+    });
+
+    it('treats legacy individual rows like standard accounts', function () {
+        $caps = AccountCapabilities::for(makeProForCapabilities('individual'));
+        expect($caps->google_business_full_sync)->toBeFalse();
+        expect($caps->google_business_sets_display_name)->toBeFalse();
+    });
+});
+
 describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
         $pro = new User([

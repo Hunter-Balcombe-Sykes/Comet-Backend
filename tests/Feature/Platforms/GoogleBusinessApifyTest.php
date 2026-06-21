@@ -15,13 +15,16 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-function gbApifyUser(string $h): User
+// Defaults to a Business Partna because the GB auto-sync assertions below cover
+// the FULL sync (reservations / ordering / socials), which is Business-only. Pass
+// 'partna' to exercise the booking-only standard-account path.
+function gbApifyUser(string $h, string $accountType = 'business'): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => $accountType,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -125,6 +128,40 @@ it('does not dispatch the enrich job when no apify token is configured', functio
     Bus::assertNotDispatched(GoogleBusinessEnrichJob::class);
 });
 
+it('adopts the Google Business name as display_name for a Business account', function () {
+    config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => null]);
+    Http::fake([
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response([
+            'id' => 'ChIJtest', 'displayName' => ['text' => 'Fade Lab'], 'location' => ['latitude' => -37.8, 'longitude' => 144.96],
+        ]),
+    ]);
+    $user = gbApifyUser('gbbiz', 'business');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Fade Lab Barbers', 'lat' => -37.0, 'lng' => 144.0,
+    ])->assertOk();
+
+    expect($user->fresh()->display_name)->toBe('Fade Lab Barbers');
+});
+
+it('leaves display_name untouched for a standard (partna) account', function () {
+    config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => null]);
+    Http::fake([
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response([
+            'id' => 'ChIJtest', 'displayName' => ['text' => 'Fade Lab'], 'location' => ['latitude' => -37.8, 'longitude' => 144.96],
+        ]),
+    ]);
+    $user = gbApifyUser('gbstd', 'partna');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Fade Lab Barbers', 'lat' => -37.0, 'lng' => 144.0,
+    ])->assertOk();
+
+    expect($user->fresh()->display_name)->toBe('Gbstd');
+});
+
 // ── Background enrichment ────────────────────────────────────────────────────
 
 it('seeds reservation, ordering and social connections from the enrichment', function () {
@@ -189,6 +226,27 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($booking['provider'])->toBe('custom');
     expect($booking['url'])->toBe('https://booking.example/fadelab');
     expect($booking['source'])->toBe('google-business');
+});
+
+it('syncs ONLY the booking link for a standard (partna) account', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gbapartna', 'partna');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+
+    // Booking IS synced for every account type (Google's appointment link, only-if-empty).
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeTrue();
+
+    // The Business-only seeds are all skipped for a standard account.
+    foreach (['opentable', 'reservations', 'online-ordering', 'facebook', 'tiktok', 'instagram'] as $businessOnly) {
+        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $businessOnly)->exists())
+            ->toBeFalse("expected no {$businessOnly} row for a partna account");
+    }
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('keeps the Google Business selection business-info-only after enrichment', function () {

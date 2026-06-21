@@ -6,6 +6,8 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\InstagramApifyBudget;
 use Throwable;
 
@@ -39,9 +41,22 @@ class GoogleBusinessAutoSync
      */
     public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): void
     {
+        // Booking is the one platform synced for EVERY account type (only-if-empty):
+        // a professional with no booking link yet still gets the one Google has on
+        // file, regardless of whether they're a Business Partna.
+        $this->seedBooking($userId, $enrichment, $businessName);
+
+        // Reservations / online-ordering / workplace / socials are a Business-Partna
+        // convenience. A standard (partna) account only gets the booking link above —
+        // it's never handed reservation/ordering/menu cards it doesn't surface. Gate
+        // on the capability so the account_type read stays inside AccountCapabilities.
+        $user = User::find($userId);
+        if ($user === null || ! AccountCapabilities::for($user)->google_business_full_sync) {
+            return;
+        }
+
         $this->seedReservation($userId, $enrichment, $businessName);
         $this->seedOrdering($userId, $enrichment);
-        $this->seedBooking($userId, $enrichment, $businessName);
         $this->seedWorkplace($userId, $gbPayload ?? []);
         $this->seedSocials($userId, $enrichment);
     }
