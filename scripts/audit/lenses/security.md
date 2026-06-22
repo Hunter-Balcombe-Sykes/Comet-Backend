@@ -1,4 +1,4 @@
-# Security: auth boundaries, tenant isolation, inbound callbacks, secrets, injection, SSRF, PII exposure
+# Security: auth boundaries, tenant isolation, mass assignment, inbound callbacks, secrets, injection, SSRF, upload safety, PII exposure
 
 Hunt **tenant-boundary failures**, **secret leakage**, **unverified inbound-callback entry points**, **injection / SSRF**, and **PII exposure** across the API surface. This is the **highest-priority pre-pilot lens** — every finding is potentially user-visible and irreversible.
 
@@ -22,6 +22,8 @@ Number them `SEC-1`, `SEC-2`, … sequentially across the whole audit. **P0 is t
 ### (1) Authentication boundary correctness
 
 - `VerifySupabaseJwt` (`app/Http/Middleware/Auth/VerifySupabaseJwt.php`): JWKS key cache must be keyed by `kid` (not by URL alone); cached keys must be invalidated on key-set rotation; clock skew tolerance must be bounded; `aal` and `amr` claims extracted as request attributes for MFA gating downstream.
+- **JWT algorithm confusion.** The decode path must pin the signature algorithm to an asymmetric allowlist *before* key lookup — `in_array($alg, ['RS256', 'ES256'], true)`, rejecting `none` and (critically) `HS256`, which would let an attacker sign a token using the public verification key as the HMAC secret. Any change that widens this allowlist to include a symmetric algorithm, or removes the pre-lookup `alg` check, is a **P0**. The guard currently lives in `VerifySupabaseJwt::decodeJwt`; flag regressions against it.
+- **Token claim validation.** Confirm `iss` (issuer) and `aud` (audience) are validated against the expected Supabase project values, and that `exp`/`nbf` are enforced (the `JWT::decode` path with a bounded `JWT::$leeway` restored in `finally`, so the process-wide static doesn't leak across requests). A decode path that skips `iss`/`aud` accepts tokens minted by any Supabase project — a **P0**.
 - **No bypass-on-empty-secret** is the cardinal rule. Any middleware that reads a secret from config and falls through to `$next($request)` when the value is empty is a P0. Apply this rule to: `VerifyBotToken` (`app/Http/Middleware/VerifyBotToken.php`), `VerifySupabaseAuthHookSignature` (`app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php`), `VerifySupabaseEmailHookSignature` (`app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php`). Every one must use **`hash_equals` only** — never `===` / `==` — and must hard-fail (500 or 401) when the configured secret is absent.
 - `RequireAal2` (`app/Http/Middleware/Auth/RequireAal2.php`): confirm it reads the `aal` request attribute set by `VerifySupabaseJwt`, not a separate DB lookup or re-decode of the JWT.
 - `IdempotencyKey` middleware: confirm it scopes replay-detection by tenant (`user_id` + idempotency key), not key alone — a flat key namespace across tenants is an IDOR.
@@ -35,6 +37,7 @@ Number them `SEC-1`, `SEC-2`, … sequentially across the whole audit. **P0 is t
 - **Skeleton pattern missing on pre-create checks.** Before a resource row exists, build a skeleton instance (e.g., `new SiteMedia(['user_id' => $user->id, 'pool' => 'gallery'])`) and call `authorizeForUser($user, 'create', $skeleton)` rather than skipping authz entirely.
 - Bulk endpoints that accept an array of IDs from the request body without re-authorizing each ID against the resolved actor's tenant set — a single Policy gate on the collection is not sufficient.
 - Staff endpoints using `staff` / `staff.admin` middleware but missing an `authorizeForUser` call on individual resource operations (the middleware proves staff identity; a Policy proves they can act on this specific resource).
+- **Mass assignment of ownership / privilege fields.** Models must declare an explicit `$fillable` allowlist — never `$guarded = []`. Controllers and services must hydrate from `$request->validated()`, never `$request->all()` / `request()->all()` piped into `Model::create(...)`, `->update(...)`, or `->fill(...)`. An over-postable `user_id`, `account_type`, `supabase_uid`, staff/role flag, or any FK that establishes tenancy is a **P0 privilege-escalation / tenant-boundary failure** — a Form Request that validates the *presence* of expected fields does NOT prevent a client over-posting *extra* attributes. Canonical fix: `$fillable` allowlist + `$request->validated()`.
 
 ### (3) Tenant isolation / IDOR
 
@@ -54,6 +57,7 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 - `VerifyBotToken` on internal endpoints: confirm the token comparison is `hash_equals`; confirm the token is a sufficiently random value read from config (not a hard-coded string); confirm missing-config is a hard failure, not a pass-through.
 - Any webhook/hook controller that reads `$request->all()` or `$request->json()` before the signature middleware has run (middleware order matters — check `bootstrap/app.php` route middleware ordering).
 - Payload size caps: hook controllers accepting unbounded request bodies without a size limit are a DoS vector.
+- **Replay protection.** A valid signature proves authenticity, not freshness — a captured signed request can be replayed. Confirm the hook middleware validates the `webhook-timestamp` header against a bounded tolerance window (the Standard Webhooks / svix scheme already plumbed through `VerifySupabaseAuthHookSignature` / `VerifySupabaseEmailHookSignature`). A verifier that ignores the timestamp, or accepts unbounded skew, is replayable — re-check this whenever the signature path is touched.
 
 ### (5) Secrets handling & log hygiene
 
@@ -73,6 +77,8 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 - Form Request classes absent from endpoints that mutate state — validation bypass. Every `POST`/`PATCH`/`PUT` route must resolve a `FormRequest` class in `app/Http/Requests/`.
 - Validation rules that accept unbounded free-text for fields stored in JSONB (`site.sites.settings`, block content) without length or format constraints — DB bloat + injection staging.
 - JSONB path parameters passed through to raw queries (`->where(DB::raw("settings->>'$key'"), $value)` where `$key` is user-controlled) — SQL injection via JSONB path.
+- **Upload content validation must not trust the client `Content-Type`.** Every file-upload path must byte-sniff the real MIME via `finfo` / `getMimeType()` against a strict allowlist **before** writing or processing — the house pattern is `App\Http\Requests\Concerns\SniffsFileMimeType` plus the `ImageVariantService::ALLOWED_IMAGE_MIMES` finfo check. It must also enforce a `max:` file-size cap in the Form Request and guard decompression / pixel bombs by rejecting on header-derived pixel count *before* bitmap allocation (`partna.image_max_pixels` via a header-only `getimagesize`). A new upload route that relies only on Laravel's `image` / `mimes:` rule (which trusts the declared type/extension) without the byte-sniff, or that omits the size or pixel caps, is a finding.
+- **ReDoS in validation regexes.** `regex:` rules applied to user-supplied fields (e.g. the URL-shape patterns in `app/Http/Requests/Platforms/`) built with nested quantifiers or unbounded alternation can catastrophically backtrack. Prefer anchored, bounded patterns; flag any `regex:` rule with `(.*)+`, `(a+)+`, or similar amplification on an unbounded input.
 
 ### (7) SSRF / URL fetching
 
@@ -93,7 +99,7 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 - Routes that mutate state via `GET` — CSRF bypass.
 - Analytics ingest endpoints that accept cross-origin POST from any origin without validating the `Origin` or `Referer` maps to a known `*.partna.au` subdomain.
 
-### (9) Rate limiting & bot protection on public endpoints
+### (9) Rate limiting & bot protection (public *and* authenticated endpoints)
 
 - Public endpoints that accept untrusted input without `throttle` middleware or bot-protection (`BotProtectionCoverageTest` is the house sweep pattern):
   - `PublicEnquiryController` — enquiry spam / lead harvesting.
@@ -104,6 +110,8 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 - Any public endpoint that triggers an outbound email (enquiry confirmation, subscription confirmation) without rate limiting — email relay abuse.
 - `PerTargetReportThrottle` middleware (`app/Http/Middleware/Moderation/PerTargetReportThrottle.php`): confirm it is applied to the report submission route and scoped tightly enough (per-IP + per-target, not just per-target).
 - Internal bot-token-gated endpoints (`app/Http/Controllers/Api/Internal/`) are explicitly excluded from bot-protection requirements — they are protected by `VerifyBotToken`.
+- **Authenticated endpoints are in scope too — rate limiting is not only a public-endpoint concern.** Confirm the authenticated user surface carries a baseline limiter (the `throttle:authenticated` group in `routes/api/user.php`) plus tighter per-route caps on expensive or abuse-prone mutations (`throttle:session-writes`, `throttle:feedback-submit`, force-refresh caps). A new authenticated route on an expensive path (media processing, an outbound-fetch trigger, data export) with no `throttle` is a resource-exhaustion finding.
+- **Throttle fail-closed in production.** Confirm the production guard holds: `PARTNA_THROTTLE_ENABLED=false` in production must hard-throw at boot (`AppServiceProvider`), never silently strip every limiter. A named limiter that returns `Limit::none()` unconditionally (rather than only when the guarded flag is set in non-prod) is a finding.
 
 ### (10) PII exposure in responses & public-site payloads
 
@@ -125,7 +133,7 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 For every finding:
 - Cite the category number (1–11).
 - Default tier is **P0 for confirmed tenant-boundary failures** (categories 1–4), **P1 for confirmed secret leakage / injection / SSRF** (categories 5–7), **P2 for hygiene gaps and defense-in-depth**.
-- Name the canonical fix: `authorizeForUser + Policy`, `hash_equals`, `SafeUrlFetcher`, `no-bypass-on-empty-secret`, `throttle:X,Y middleware`, `BotProtection gate`, `signed URL`, `Form Request with explicit rules`, `Resource class audience split`, `404-not-403 on public endpoints`.
+- Name the canonical fix: `authorizeForUser + Policy`, `hash_equals`, `SafeUrlFetcher`, `no-bypass-on-empty-secret`, `throttle:X,Y middleware`, `BotProtection gate`, `signed URL`, `Form Request with explicit rules`, `Resource class audience split`, `404-not-403 on public endpoints`, `$fillable allowlist + validated()`, `alg allowlist (RS256/ES256)`, `iss/aud claim validation`, `finfo byte-sniff + size/pixel caps`, `webhook-timestamp replay window`.
 - Quote verbatim evidence.
 
 ## Out of scope — do NOT re-flag
