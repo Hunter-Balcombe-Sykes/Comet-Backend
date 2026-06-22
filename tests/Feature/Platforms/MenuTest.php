@@ -6,6 +6,7 @@ use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
+use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
@@ -57,6 +58,25 @@ function ordering(User $user, string $url, ?string $type, string $at): Integrati
     Carbon::setTestNow();
 
     return $row;
+}
+
+/**
+ * Mock LinkCardScraper to echo whatever URL it's handed (no live HTTP) — so a
+ * test can add several different ordering links and exercise the per-store
+ * merge-on-add. snapshotOrMinimal returns a minimal card carrying the input url.
+ */
+function fakeEchoOrderingScraper(): void
+{
+    test()->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->andReturnUsing(fn ($u) => $u);
+        $m->shouldReceive('snapshotOrMinimal')->andReturnUsing(fn ($u) => [
+            'url' => $u,
+            'name' => 'Uber Eats',
+            'description' => null,
+            'favicon' => null,
+            'logo' => null,
+        ]);
+    });
 }
 
 /** Seed a relational menu (one row + categories + items) for the read endpoints. */
@@ -285,10 +305,14 @@ it('returns the full menu with per-mode prices and computed order links', functi
     ordering($user, 'https://www.ubereats.com/store/d', 'delivery', '2026-06-17 10:00:00');
     seedMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
         ['name' => 'Pizzas', 'items' => [[
-            'name' => 'Margherita', 'base_price' => 12.5,
+            'name' => 'Margherita', 'base_price' => 11.0,
             'delivery_price' => 12.5, 'delivery_source' => 'uber-eats',
             'pickup_price' => 11.0, 'pickup_source' => 'doordash',
             'rating' => 95, 'badges' => [['text' => '#1 Most liked']],
+            'platforms' => [
+                ['platform' => 'uber-eats', 'price' => 12.5, 'modes' => ['delivery'], 'url' => 'https://www.ubereats.com/store/d'],
+                ['platform' => 'doordash', 'price' => 11.0, 'modes' => ['pickup'], 'url' => 'https://www.doordash.com/store/x'],
+            ],
         ]]],
     ]);
 
@@ -298,12 +322,19 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect((float) $res->json('rating'))->toBe(4.7);
     $item = $res->json('categories.0.items.0');
     expect($item['name'])->toBe('Margherita');
-    expect((float) $item['basePrice'])->toBe(12.5);
+    expect((float) $item['basePrice'])->toBe(11.0);
     expect((float) $item['pickupPrice'])->toBe(11.0);
     expect($item['pickupSource'])->toBe('doordash');
     expect((float) $item['deliveryPrice'])->toBe(12.5);
     expect((float) $item['rating'])->toBe(95.0);
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
+    // Per-platform availability surfaces with prices, modes, and order urls.
+    expect($item['platforms'])->toHaveCount(2);
+    expect($item['platforms'][0]['platform'])->toBe('uber-eats');
+    expect((float) $item['platforms'][0]['price'])->toBe(12.5);
+    expect($item['platforms'][0]['modes'])->toBe(['delivery']);
+    expect($item['platforms'][1]['platform'])->toBe('doordash');
+    expect($item['platforms'][1]['modes'])->toBe(['pickup']);
     expect($res->json('links.pickupUrl'))->toBe('https://www.ubereats.com/store/p');
     expect($res->json('links.deliveryUrl'))->toBe('https://www.ubereats.com/store/d');
 });
@@ -323,4 +354,90 @@ it('refresh dispatches a forced menu fetch job', function () {
 it('refresh 422s when there is no ordering source', function () {
     $user = menuUser('m13');
     actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertStatus(422);
+});
+
+// ── Union across both platforms (persisted platforms[]) ───────────────
+
+it('unions both platforms and persists a per-platform availability list', function () {
+    $user = menuUser('m14');
+    // Uber Eats store offers delivery, DoorDash store offers pickup (typed links).
+    ordering($user, 'https://www.ubereats.com/store/x?diningMode=DELIVERY', 'delivery', '2026-06-17 09:00:00');
+    ordering($user, 'https://www.doordash.com/store/x', 'pickup', '2026-06-17 10:00:00');
+
+    // Both platforms scraped: a shared dish (Burrito) + a DoorDash-only dish (Churros).
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetch')->with('https://www.ubereats.com/store/x', 'uber-eats', Mockery::any())->once()->andReturn([
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'price' => 17.0, 'image' => 'https://ue/b.jpg']]]],
+        ]);
+        $m->shouldReceive('fetch')->with('https://www.doordash.com/store/x', 'doordash', Mockery::any(), Mockery::any())->once()->andReturn([
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [
+                ['name' => 'Mains', 'items' => [['name' => 'Burrito', 'price' => 15.5, 'description' => 'Loaded burrito.']]],
+                ['name' => 'Sweets', 'items' => [['name' => 'Churros', 'price' => 8.0]]],
+            ],
+        ]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+
+    // The shared dish: one row, both platforms, gap-filled description from DD.
+    $burrito = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Burrito')->firstOrFail();
+    expect($burrito->base_price)->toBe(15.5);                 // min across platforms
+    expect($burrito->pickup_price)->toBe(15.5);              // DoorDash offers pickup
+    expect($burrito->pickup_source)->toBe('doordash');
+    expect($burrito->delivery_price)->toBe(17.0);            // Uber Eats offers delivery
+    expect($burrito->delivery_source)->toBe('uber-eats');
+    expect($burrito->description)->toBe('Loaded burrito.');  // gap-filled from DD
+    expect($burrito->image_url)->toBe('https://ue/b.jpg');   // UE image preferred
+    expect($burrito->platforms)->toHaveCount(2);
+    expect(collect($burrito->platforms)->pluck('platform')->all())->toBe(['uber-eats', 'doordash']);
+
+    // The DoorDash-only dish appears (not dropped) with a single-platform entry.
+    $churros = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Churros')->firstOrFail();
+    expect($churros->platforms)->toHaveCount(1);
+    expect($churros->platforms[0]['platform'])->toBe('doordash');
+    expect($churros->platforms[0]['modes'])->toBe(['pickup']);
+});
+
+// ── Online-ordering store consolidation (one store = one entry) ────────
+
+it('collapses a pickup and delivery link for one store into a single entry', function () {
+    $user = menuUser('m15');
+    // The Google-harvest scenario: same Uber Eats store, two typed rows (the
+    // diningMode query param differs, so they were two rows / a visible dupe).
+    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'pickup', '2026-06-17 09:00:00');
+    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY', 'delivery', '2026-06-17 10:00:00');
+
+    $res = actingAsUser($user)->getJson('/api/platforms/online-ordering/entries')->assertOk();
+
+    // ONE consolidated entry carrying both mode URLs.
+    expect($res->json('entries'))->toHaveCount(1);
+    $entry = $res->json('entries.0');
+    expect($entry['data']['pickupUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
+    expect($entry['data']['deliveryUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
+});
+
+it('merges a second mode link for the same store into the existing entry on add', function () {
+    Queue::fake();
+    $user = menuUser('m16');
+    fakeEchoOrderingScraper();
+
+    // First add — a pickup-typed Uber Eats link.
+    actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
+        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP',
+    ])->assertOk()->assertJsonCount(1, 'entries');
+
+    // Second add — the SAME store, delivery variant — folds into the same row.
+    $res = actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
+        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY',
+    ])->assertOk();
+
+    // Still ONE row in the DB (no duplicate) and one consolidated entry.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(1);
+    expect($res->json('entries'))->toHaveCount(1);
+    expect($res->json('entries.0.data.pickupUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
+    expect($res->json('entries.0.data.deliveryUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
 });

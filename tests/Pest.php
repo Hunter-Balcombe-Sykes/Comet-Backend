@@ -515,6 +515,7 @@ function setupSitesTable(): void
         pickup_source TEXT NULL,
         delivery_price REAL NULL,
         delivery_source TEXT NULL,
+        platforms TEXT NULL,
         ue_external_id TEXT NULL,
         dd_external_id TEXT NULL,
         created_at TEXT NULL,

@@ -102,8 +102,10 @@ class MenuController extends ApiController
 
     /**
      * Categories → items shaped for the dashboard grid. Each item carries its
-     * base price plus the per-mode prices (each tagged with its source platform),
-     * the DoorDash rating + badges, and Uber Eats modifiers for the expanded card.
+     * representative base price, the aggregate pickup/delivery prices (each
+     * tagged with the platform backing the min), the per-platform availability
+     * list (platform + price + supported modes + order url), the DoorDash rating
+     * + badges, and Uber Eats modifiers for the expanded card.
      *
      * @return list<array{name:string, items:list<array<string,mixed>>}>
      */
@@ -129,7 +131,31 @@ class MenuController extends ApiController
                 'pickupSource' => $item->pickup_source,
                 'deliveryPrice' => $item->delivery_price,
                 'deliverySource' => $item->delivery_source,
+                'platforms' => $this->platforms($item),
             ])->all(),
         ])->all();
+    }
+
+    /**
+     * The item's per-platform availability list — one entry per ordering platform
+     * the dish is on, each with its price, the pickup/delivery modes that
+     * platform's store link supports, and that platform's order url. Empty when a
+     * pre-union legacy row has nothing stored.
+     *
+     * @return list<array{platform:string, price:float|null, modes:list<string>, url:string|null}>
+     */
+    private function platforms(MenuItem $item): array
+    {
+        $platforms = is_array($item->platforms) ? $item->platforms : [];
+
+        return array_values(array_map(fn (array $p) => [
+            'platform' => $p['platform'] ?? null,
+            'price' => isset($p['price']) && is_numeric($p['price']) ? (float) $p['price'] : null,
+            'modes' => array_values(array_filter(
+                (array) ($p['modes'] ?? []),
+                fn ($m) => $m === 'pickup' || $m === 'delivery',
+            )),
+            'url' => isset($p['url']) && is_string($p['url']) ? $p['url'] : null,
+        ], array_filter($platforms, fn ($p) => is_array($p) && isset($p['platform']))));
     }
 }
