@@ -23,9 +23,11 @@ use Throwable;
 // Fetches (or refreshes) a user's menu into the relational site.menus +
 // menu_categories + menu_items tables from their connected online-ordering
 // platforms. Each connected platform (Uber Eats and/or DoorDash) is scraped
-// once; MenuMerger fuses them — Uber Eats structure is canonical, DoorDash fills
-// missing images and adds per-item ratings/badges, and each dish gets a pickup
-// and delivery price from the platform the user mapped to that mode.
+// once; MenuMerger UNIONs them — every dish from every platform appears. Uber
+// Eats structure is canonical and wins display-field ties (gap-filling from
+// DoorDash where UE lacks a value); DoorDash adds per-item ratings/badges. Each
+// dish records the platforms it's available on (price + supported modes + order
+// url per platform), and the aggregate pickup/delivery prices derive from those.
 //
 // Dispatched on every online-ordering change (add / remove / forget + the Google
 // Business ordering seed) and by the manual "Refresh menu" button. Cost control:
@@ -124,9 +126,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
         }
 
         // Canonical structure prefers Uber Eats, but falls back to whichever
-        // platform actually returned a menu.
+        // platform actually returned a menu. The union appends the other
+        // platform's items either way.
         $contentSource = $ueMenu !== null ? 'uber-eats' : 'doordash';
-        $merged = $merger->merge($ueMenu, $ddMenu, $contentSource, $plan['pickupPlatform'], $plan['deliveryPlatform']);
+
+        // Per-platform consolidated store links (pickup+delivery for one store
+        // already collapsed) drive each item's platforms[].modes / .url + the
+        // aggregate pickup/delivery prices.
+        $storeLinks = $source->storeLinks($this->userId);
+        $merged = $merger->merge($ueMenu, $ddMenu, $contentSource, $storeLinks);
 
         $this->persist($menu, $contentSource, $merged, $now);
     }
@@ -183,6 +191,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                         'pickup_source' => $item['pickupSource'] ?? null,
                         'delivery_price' => $item['deliveryPrice'] ?? null,
                         'delivery_source' => $item['deliverySource'] ?? null,
+                        'platforms' => isset($item['platforms']) ? json_encode($item['platforms']) : null,
                         'ue_external_id' => $item['ueExternalId'] ?? null,
                         'dd_external_id' => $item['ddExternalId'] ?? null,
                         'created_at' => $now,

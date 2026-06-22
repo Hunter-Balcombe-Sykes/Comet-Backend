@@ -109,6 +109,91 @@ class MenuSource
     }
 
     /**
+     * The consolidated ordering-store link set per scraped platform — the input
+     * the menu uses for each item's per-platform `modes` + `url`.
+     *
+     * Online-ordering rows for ONE store can split into two entries (a pickup-
+     * typed one and a delivery-typed one, e.g. from the Google Business harvest);
+     * here they collapse into a single logical store keyed by
+     * (platform, normalized store path) — normalize() strips the query string, so
+     * the mode-distinguishing params (Uber Eats ?diningMode / ?ps / ?mod) fall
+     * away and pickup + delivery for one store map to the same key. The newest
+     * store per platform wins (entries are newest-first).
+     *
+     * Per platform:
+     *   - pickupUrl   = a pickup-typed entry's url for that store (newest), else null
+     *   - deliveryUrl = a delivery-typed entry's url for that store (newest), else null
+     *   - storeUrl    = the store's representative url (newest entry's raw url)
+     *   - modes       = ['pickup'] / ['delivery'] / both — the modes the store's
+     *                   links carry; BOTH when the store has no type info at all
+     *                   (we can't tell, so offer both).
+     *
+     * @return array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>
+     */
+    public function storeLinks(User|string $user): array
+    {
+        $entries = $this->entries($user);
+
+        // First (newest) store seen per platform wins — mirrors content/link
+        // recency everywhere else. Key by platform → its consolidated store.
+        $byPlatform = [];
+        foreach ($entries as $entry) {
+            $platform = $this->platformOf($entry['url'] ?? null);
+            if ($platform === null) {
+                continue;
+            }
+            $storeKey = $platform.'|'.$this->normalize((string) $entry['url']);
+
+            // A newer store for this platform already claimed the slot — but only
+            // skip when it's a DIFFERENT store. Same-store entries (pickup +
+            // delivery rows) must keep merging their typed urls into one set.
+            $current = $byPlatform[$platform] ?? null;
+            if ($current !== null && $current['key'] !== $storeKey) {
+                continue;
+            }
+
+            $type = data_get($entry, 'data.type');
+            $url = $entry['url'] ?? null;
+            $byPlatform[$platform] ??= [
+                'key' => $storeKey,
+                'pickupUrl' => null,
+                'deliveryUrl' => null,
+                'storeUrl' => $url,
+            ];
+            // Newest typed url per mode wins (entries are newest-first → first set sticks).
+            if ($type === 'pickup') {
+                $byPlatform[$platform]['pickupUrl'] ??= $url;
+            } elseif ($type === 'delivery') {
+                $byPlatform[$platform]['deliveryUrl'] ??= $url;
+            }
+        }
+
+        $out = [];
+        foreach ($byPlatform as $platform => $store) {
+            $modes = [];
+            if ($store['pickupUrl'] !== null) {
+                $modes[] = 'pickup';
+            }
+            if ($store['deliveryUrl'] !== null) {
+                $modes[] = 'delivery';
+            }
+            // No type info on any of this store's links → can't tell, so offer both.
+            if ($modes === []) {
+                $modes = ['pickup', 'delivery'];
+            }
+
+            $out[$platform] = [
+                'pickupUrl' => $store['pickupUrl'],
+                'deliveryUrl' => $store['deliveryUrl'],
+                'storeUrl' => $store['storeUrl'],
+                'modes' => $modes,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * The user's online-ordering payloads, newest-first, each guaranteed a
      * non-empty string `url`. Soft-deleted rows are excluded by the model scope;
      * online-ordering rows share sort_order 0, so created_at is the recency key.
