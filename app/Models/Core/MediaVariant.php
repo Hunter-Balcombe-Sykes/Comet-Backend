@@ -111,6 +111,21 @@ class MediaVariant extends BaseModel
         $disk = (string) $this->disk;
         if ($disk !== '') {
             $baseUrl = config("filesystems.disks.{$disk}.url");
+
+            // Variant disks such as 'public_dev' are bucket-aliases of the
+            // canonical 'media' disk (same R2 bucket), but Laravel Cloud injects
+            // the public bucket URL onto the 'media' disk only. When the
+            // variant's own disk has no public URL configured, borrow the
+            // 'media' disk's URL so we emit the public CDN host rather than the
+            // S3 API endpoint — that endpoint requires SigV4 auth and 400s/403s
+            // for the anonymous <img> requests that serve every sitepage image.
+            if (! is_string($baseUrl) || $baseUrl === '') {
+                $mediaUrl = config('filesystems.disks.media.url');
+                if (is_string($mediaUrl) && $mediaUrl !== '') {
+                    $baseUrl = $mediaUrl;
+                }
+            }
+
             if (is_string($baseUrl) && $baseUrl !== '') {
                 return rtrim($baseUrl, '/').'/'.ltrim((string) $this->path, '/');
             }

@@ -22,6 +22,12 @@ beforeEach(function () {
 it('reports the exception when Storage::disk throws for an unknown disk', function () {
     Exceptions::fake();
 
+    // With no media-disk URL to borrow, an unknown variant disk must surface
+    // (report) the resolution failure rather than silently 500. (When a media
+    // URL IS configured — the production case — getUrlAttribute falls back to
+    // it instead; see the fast-path fallback test below.)
+    config(['filesystems.disks.media.url' => '']);
+
     // Create a variant row with a disk name that has no config entry
     $mediaId = (string) Str::uuid();
     $variantId = (string) Str::uuid();
@@ -42,4 +48,39 @@ it('reports the exception when Storage::disk throws for an unknown disk', functi
     expect($url)->toBe('');
 
     Exceptions::assertReported(InvalidArgumentException::class);
+});
+
+// Regression: variant disks like 'public_dev' are bucket-aliases of the canonical
+// 'media' disk (same R2 bucket), but Laravel Cloud injects the public bucket URL
+// onto 'media' only — leaving the alias disk's url null. getUrlAttribute must then
+// borrow the media disk URL so we emit the public CDN host, NOT the auth-only S3
+// API endpoint (which 400s/403s for anonymous <img> requests and broke every
+// hosted sitepage image until this fallback was added).
+it('falls back to the media disk url when the variant disk has no configured url', function () {
+    config(['filesystems.disks.media.url' => 'https://cdn.media.test']);
+    // An alias disk with NO 'url' configured (mirrors prod 'public_dev').
+    config(['filesystems.disks.aliasdisk' => ['driver' => 's3']]);
+
+    $variant = new MediaVariant([
+        'variant_key' => 'vector',
+        'artifact_type' => 'svg',
+        'disk' => 'aliasdisk',
+        'path' => 'images/site/media/vector_abc123.svg',
+    ]);
+
+    expect($variant->url)->toBe('https://cdn.media.test/images/site/media/vector_abc123.svg');
+});
+
+it('prefers the variant disk url over the media disk url when both are set', function () {
+    config(['filesystems.disks.media.url' => 'https://cdn.media.test']);
+    config(['filesystems.disks.ownurldisk.url' => 'https://own.cdn.test']);
+
+    $variant = new MediaVariant([
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'ownurldisk',
+        'path' => 'images/site/media/optimized_def456.webp',
+    ]);
+
+    expect($variant->url)->toBe('https://own.cdn.test/images/site/media/optimized_def456.webp');
 });
