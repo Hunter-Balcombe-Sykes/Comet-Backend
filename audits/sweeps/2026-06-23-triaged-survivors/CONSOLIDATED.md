@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 5 / 12 complete
+- Bundles: 6 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -86,12 +86,12 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: both are public-surface abuse vectors on the signup path; dedicated limiters.
 
 ### Bundle B6: Config hygiene (3 items) — Effort: S
-- [ ] **Bundle B6 complete**
+- [x] **Bundle B6 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#STRIP-4** · P2 — `'shop'`/`'booking'` still in `account_type_defaults.individual.allowed_sections` (test-only path) — `config/partna.php:786` → `audits/archive/loose-may-2026/audit-2026-05-22-dead-code-broken-references-and-consistency-gaps-a.md`
-    - [ ] **#FF-4** · P3 — `config('partna.features.'.$key)` dot-interpolation fragility — `app/Services/FeatureFlags/FeatureFlagService.php:61,245` → `audits/archive/loose-may-2026/audit-2026-05-18-security-auth-and-injection-risks-feature-flags.md`
-    - [ ] **#CFG-11** · P3 — `LiveStatusPoller::KICK_RATE_LIMITED_TTL` still a hardcoded const (other 5 TTLs moved to config) — `app/Services/Streaming/LiveStatusPoller.php:27,105` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-configuration-hygiene.md`
+    - [x] **#STRIP-4** · P2 — FIXED: removed dead `'shop'` from `allowed_sections` + `default_sections`; `'booking'` KEPT (premise partially wrong — booking is live via SectionVisibilityService/resolver/analytics) — `config/partna.php` → `audits/archive/loose-may-2026/audit-2026-05-22-dead-code-broken-references-and-consistency-gaps-a.md`
+    - [x] **#FF-4** · P3 — FIXED: `config('partna.features')[$key] ?? false` (array access) replaces dot-path interpolation so a dotted `$key` can't traverse — `app/Services/FeatureFlags/FeatureFlagService.php:61,245` → `audits/archive/loose-may-2026/audit-2026-05-18-security-auth-and-injection-risks-feature-flags.md`
+    - [x] **#CFG-11** · P3 — FIXED: `KICK_RATE_LIMITED_TTL` now reads `config('partna.streaming.kick_rate_limited_ttl', 300)` matching the other 5 streaming TTLs — `app/Services/Streaming/LiveStatusPoller.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-configuration-hygiene.md`
 - Rationale: config-as-source-of-truth cleanups; low risk.
 
 ### Bundle B7: Validation, hashing & logging hygiene (5 items) — Effort: S

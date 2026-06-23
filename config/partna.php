@@ -244,6 +244,9 @@ return [
         'cool_offline_ttl' => (int) env('PARTNA_STREAMING_COOL_OFFLINE_TTL', 600),
         'cold_offline_ttl' => (int) env('PARTNA_STREAMING_COLD_OFFLINE_TTL', 1800),
         'ttl_skip_threshold' => (int) env('PARTNA_STREAMING_TTL_SKIP_THRESHOLD', 60),
+        // How long (seconds) the Kick rate-limit circuit breaker stays set after a 429.
+        // Subsequent polling cycles skip Kick until this key expires.
+        'kick_rate_limited_ttl' => (int) env('PARTNA_STREAMING_KICK_RATE_LIMITED_TTL', 300),
     ],
 
     'limits' => [
@@ -783,8 +786,8 @@ return [
             // 'sections' rejects any re-packing that would momentarily shift
             // an existing row's sort_order onto another's. Placing new block
             // types at the tail keeps existing rows at their stored indices.
-            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
-            'default_sections' => ['shop', 'services', 'gallery'],
+            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+            'default_sections' => ['services', 'gallery'],
             'is_published' => true,
             'allowed_theme_count' => 3,
             'custom_links_allowed' => true,

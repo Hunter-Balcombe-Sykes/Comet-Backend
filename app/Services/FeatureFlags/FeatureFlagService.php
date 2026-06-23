@@ -58,7 +58,9 @@ class FeatureFlagService
 
             $result = $this->allForFromDb($pro);
 
-            return $result[$key] ?? (bool) config('partna.features.'.$key, false);
+            // Use array access on the features sub-array to prevent a dotted $key from
+            // traversing into nested config unexpectedly via dot-path interpolation.
+            return $result[$key] ?? (bool) (config('partna.features')[$key] ?? false);
         }
     }
 
@@ -242,7 +244,9 @@ class FeatureFlagService
         }
 
         // 5. Config fallback — used for flags that don't yet have a DB row.
-        return (bool) config('partna.features.'.$key, false);
+        // Use array access on the features sub-array to prevent a dotted $key from
+        // traversing into nested config unexpectedly via dot-path interpolation.
+        return (bool) (config('partna.features')[$key] ?? false);
     }
 
     /**
