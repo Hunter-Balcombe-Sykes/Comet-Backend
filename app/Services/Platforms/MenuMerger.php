@@ -14,8 +14,7 @@ namespace App\Services\Platforms;
 //   • collects BOTH platforms into `platforms[]` — one entry per platform, each
 //     carrying its pickupPrice + pickupUrl and deliveryPrice + deliveryUrl (a
 //     mode the store doesn't offer is null on both),
-//   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither), and
-//   • carries Uber Eats modifiers (DoorDash exposes none).
+//   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither).
 //
 // Aggregate prices are derived from `platforms[]`:
 //   basePrice     = cheapest price the dish can be had for, any mode/platform,
@@ -161,8 +160,6 @@ class MenuMerger
             'description' => ($this->str($ue['description'] ?? null)) ?? ($this->str($dd['description'] ?? null)),
             // Uber Eats image preferred; DoorDash fills the gap when UE has none.
             'imageUrl' => ($ue['image'] ?? null) ?? ($dd['image'] ?? null),
-            'modifiers' => $ue['modifiers'] ?? null,                 // Uber Eats only
-            'isSoldOut' => (bool) ($item['isSoldOut'] ?? false),
             'rating' => $dd['rating'] ?? null,                       // DoorDash only
             'ratingCount' => $dd['ratingCount'] ?? null,
             'badges' => $dd['badges'] ?? null,
@@ -172,7 +169,6 @@ class MenuMerger
             'deliveryPrice' => $aggregates['deliveryPrice'],
             'deliverySource' => $aggregates['deliverySource'],
             'platforms' => $platforms,
-            'ueExternalId' => $ue['externalId'] ?? null,
             'ddExternalId' => $dd['externalId'] ?? null,
         ];
     }

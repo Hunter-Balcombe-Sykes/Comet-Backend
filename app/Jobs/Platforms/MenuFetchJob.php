@@ -204,8 +204,6 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                         'name' => $item['name'],
                         'description' => $item['description'] ?? null,
                         'image_url' => $item['imageUrl'] ?? null,
-                        'modifiers' => isset($item['modifiers']) ? json_encode($item['modifiers']) : null,
-                        'is_sold_out' => (bool) ($item['isSoldOut'] ?? false),
                         'rating' => $item['rating'] ?? null,
                         'rating_count' => $item['ratingCount'] ?? null,
                         'badges' => isset($item['badges']) ? json_encode($item['badges']) : null,
@@ -215,14 +213,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                         'delivery_price' => $item['deliveryPrice'] ?? null,
                         'delivery_source' => $item['deliverySource'] ?? null,
                         'platforms' => isset($item['platforms']) ? json_encode($item['platforms']) : null,
-                        'ue_external_id' => $item['ueExternalId'] ?? null,
                         'dd_external_id' => $item['ddExternalId'] ?? null,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ];
                 }
                 if ($rows !== []) {
-                    // Bulk insert (bypasses casts — modifiers/badges already JSON).
+                    // Bulk insert (bypasses casts — badges/platforms already JSON).
                     MenuItem::query()->insert($rows);
                 }
             }

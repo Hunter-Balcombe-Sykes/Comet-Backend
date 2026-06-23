@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 // One dish under a site.menu_categories row. Content (name / description /
-// image / modifiers) is UNIONED across every connected ordering platform: a dish
+// image) is UNIONED across every connected ordering platform: a dish
 // on both Uber Eats and DoorDash becomes one row whose display fields gap-fill
 // across platforms (UE wins a field only where present). `platforms` records
 // every platform the dish is available on — each with its price, the modes
@@ -16,8 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // `pickup_price` / `delivery_price` are aggregates (min among pickup-capable /
 // delivery-capable platforms), each tagged with the platform backing the min
 // (`*_source`) for back-compat. `rating` (👍 percent) + `rating_count` +
-// `badges` are DoorDash-only — Uber Eats exposes none per item. `modifiers` are
-// Uber Eats option groups. Items are rebuilt wholesale on every scrape.
+// `badges` are DoorDash-only — Uber Eats exposes none per item. Items are
+// rebuilt wholesale on every scrape.
 class MenuItem extends BaseModel
 {
     use HasUuids;
@@ -35,8 +35,6 @@ class MenuItem extends BaseModel
         'name',
         'description',
         'image_url',
-        'modifiers',
-        'is_sold_out',
         'rating',
         'rating_count',
         'badges',
@@ -46,16 +44,13 @@ class MenuItem extends BaseModel
         'delivery_price',
         'delivery_source',
         'platforms',
-        'ue_external_id',
         'dd_external_id',
     ];
 
     protected $casts = [
         'position' => 'integer',
-        'modifiers' => 'array',
         'badges' => 'array',
         'platforms' => 'array',
-        'is_sold_out' => 'boolean',
         'rating' => 'float',
         'rating_count' => 'integer',
         'base_price' => 'float',
