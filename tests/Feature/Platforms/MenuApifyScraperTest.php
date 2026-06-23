@@ -13,54 +13,41 @@ use Illuminate\Support\Facades\Http;
 
 beforeEach(fn () => config(['services.apify.token' => 'apify-test-token']));
 
-it('maps a natanielsantos Uber Eats restaurant into the normalized shape', function () {
+it('maps a memo23 Uber Eats store into the normalized shape', function () {
     Http::fake(['api.apify.com/*' => Http::response([[
-        'name' => 'Guzman y Gomez',
-        'rating' => 4.6,
+        'title' => 'Guzman y Gomez',
+        'shopName' => 'guzman-y-gomez',
+        'ratingValue' => 4.6,
         'reviewCount' => 1200,
         'currencyCode' => 'AUD',
-        'logoUrl' => 'https://tb-static.uber.com/logo.png',
-        'sections' => [[
-            'title' => 'Main-Menu',
-            'subsections' => [[
-                'title' => 'Featured items',
-                'items' => [[
-                    'title' => 'Burritos',
-                    'description' => 'Rice, jack cheese, beans.',
-                    'price' => 17.8,
-                    'imageUrl' => 'https://tb-static.uber.com/x.jpeg',
-                    'isSoldOut' => false,
-                    'uuid' => 'i1',
-                    'optionsList' => [[
-                        'title' => 'Protein',
-                        'options' => [
-                            ['title' => 'Chicken', 'price' => 0],
-                            ['title' => 'Steak', 'price' => 1.3],
-                        ],
-                    ]],
-                ]],
-            ]],
-        ]],
+        'image' => 'https://tb-static.uber.com/logo.png',
+        'supportedDiningModes' => [['mode' => 'DELIVERY', 'isAvailable' => true], ['mode' => 'PICKUP', 'isAvailable' => true]],
+        // memo23 returns a flattened list; each item names its own section.
+        'menuItems' => [
+            ['name' => 'Burritos', 'description' => 'Rice, jack cheese, beans.', 'section' => 'Featured items', 'price' => 17.8, 'currency' => 'AUD', 'imageUrl' => 'https://tb-static.uber.com/x.jpeg'],
+            ['name' => 'Nachos', 'description' => 'Corn chips + cheese.', 'section' => 'Sides', 'price' => 9.0, 'currency' => 'AUD', 'imageUrl' => null],
+        ],
     ]], 201)]);
 
     $menu = app(MenuApifyScraper::class)->fetch('https://www.ubereats.com/au/store/x/abc', 'uber-eats', 'u1');
 
     expect($menu)->not->toBeNull();
-    expect($menu['store']['name'])->toBe('Guzman y Gomez');
-    expect($menu['store']['rating'])->toBe(4.6);
+    expect($menu['store']['name'])->toBe('Guzman y Gomez');               // from title
+    expect($menu['store']['rating'])->toBe(4.6);                          // ratingValue
     expect($menu['store']['reviewCount'])->toBe(1200);
     expect($menu['store']['currency'])->toBe('AUD');
-    expect($menu['store']['logo'])->toBe('https://tb-static.uber.com/logo.png');
-    expect($menu['categories'])->toHaveCount(1);
+    expect($menu['store']['logo'])->toBe('https://tb-static.uber.com/logo.png'); // image
+    // Items grouped by section into categories, first-seen order.
+    expect($menu['categories'])->toHaveCount(2);
     expect($menu['categories'][0]['name'])->toBe('Featured items');
+    expect($menu['categories'][1]['name'])->toBe('Sides');
     $item = $menu['categories'][0]['items'][0];
-    expect($item['externalId'])->toBe('i1');
+    expect($item['externalId'])->toBeNull();                              // flattened list has no id
     expect($item['name'])->toBe('Burritos');
     expect($item['price'])->toBe(17.8);                                   // already dollars
     expect($item['image'])->toBe('https://tb-static.uber.com/x.jpeg');
     expect($item['isSoldOut'])->toBeFalse();
-    expect($item['modifiers'][0]['name'])->toBe('Protein');
-    expect($item['modifiers'][0]['options'][1])->toMatchArray(['name' => 'Steak', 'price' => 1.3]);
+    expect($item['modifiers'])->toBeNull();
     expect($item['rating'])->toBeNull();                                  // UE has no per-item rating
 });
 
@@ -127,7 +114,7 @@ it('retries an empty Apify result, then succeeds', function () {
         ->push([], 201)
         ->push([[
             'currencyCode' => 'AUD',
-            'sections' => [['title' => 'S', 'subsections' => [['title' => 'Cat', 'items' => [['title' => 'Item', 'price' => 5.0, 'uuid' => 'u']]]]]],
+            'menuItems' => [['name' => 'Item', 'section' => 'Cat', 'price' => 5.0]],
         ]], 201),
     ]);
 
@@ -145,4 +132,64 @@ it('does not retry a 4xx hard error', function () {
 
     expect($menu)->toBeNull();
     Http::assertSentCount(1);
+});
+
+// ── fetchStore (per-mode price fusion) ────────────────────────────────
+
+it('fuses the pickup and delivery scrapes into per-mode prices keyed by external id', function () {
+    // Same store, same dish (uuid i1), different price per mode — delivery is
+    // marked up. fetchStore scrapes pickup then delivery and fuses by uuid.
+    Http::fake(['api.apify.com/*' => Http::sequence()
+        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => 15.0]]]], 201)
+        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => 17.0]]]], 201),
+    ]);
+
+    $link = [
+        'pickupUrl' => 'https://www.ubereats.com/au/store/x?diningMode=PICKUP',
+        'deliveryUrl' => 'https://www.ubereats.com/au/store/x?diningMode=DELIVERY',
+        'storeUrl' => 'https://www.ubereats.com/au/store/x',
+        'modes' => ['pickup', 'delivery'],
+    ];
+    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+
+    $item = $menu['categories'][0]['items'][0];
+    expect($item['name'])->toBe('Burrito');
+    expect($item['pickupPrice'])->toBe(15.0);
+    expect($item['deliveryPrice'])->toBe(17.0);
+    expect($item)->not->toHaveKey('price');   // raw single price dropped
+    Http::assertSentCount(2);
+});
+
+it('applies a single scraped price to both modes for an untyped store', function () {
+    Http::fake(['api.apify.com/*' => Http::response([['currencyCode' => 'AUD', 'menuItems' => [
+        ['name' => 'Combo', 'section' => 'Cat', 'price' => 12.0],
+    ]]], 201)]);
+
+    $link = ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://www.ubereats.com/au/store/x', 'modes' => ['pickup', 'delivery']];
+    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+
+    $item = $menu['categories'][0]['items'][0];
+    expect($item['pickupPrice'])->toBe(12.0);
+    expect($item['deliveryPrice'])->toBe(12.0);
+    Http::assertSentCount(1);   // one scrape, reused for both modes
+});
+
+it('returns only the scraped mode price when the other mode scrape is blocked', function () {
+    // pickup scrape keeps coming back empty (all 4 attempts), delivery succeeds.
+    Http::fake(['api.apify.com/*' => Http::sequence()
+        ->push([], 201)->push([], 201)->push([], 201)->push([], 201)   // pickup: 4 empty
+        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Combo', 'section' => 'Cat', 'price' => 20.0]]]], 201),
+    ]);
+
+    $link = [
+        'pickupUrl' => 'https://www.ubereats.com/au/store/x?diningMode=PICKUP',
+        'deliveryUrl' => 'https://www.ubereats.com/au/store/x?diningMode=DELIVERY',
+        'storeUrl' => 'https://www.ubereats.com/au/store/x',
+        'modes' => ['pickup', 'delivery'],
+    ];
+    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+
+    $item = $menu['categories'][0]['items'][0];
+    expect($item['pickupPrice'])->toBeNull();     // pickup scrape blocked
+    expect($item['deliveryPrice'])->toBe(20.0);
 });

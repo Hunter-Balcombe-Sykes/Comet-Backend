@@ -183,10 +183,11 @@ it('scrapes and stores the relational menu on source change', function () {
     $user = menuUser('m6');
     ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
 
+    // Untyped single store → fetchStore returns one menu, its price on both modes.
     $this->mock(MenuApifyScraper::class, function ($m) {
-        $m->shouldReceive('fetch')->once()->andReturn([
+        $m->shouldReceive('fetchStore')->once()->andReturn([
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
-            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'price' => 12.5]]]],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]);
     });
 
@@ -209,14 +210,39 @@ it('skips the paid scrape when the store url is unchanged', function () {
     $menu = Menu::create([
         'user_id' => $user->id, 'content_source' => 'uber-eats',
         'uber_eats_store_url' => 'https://www.ubereats.com/store/x',
+        'uber_eats_status' => 'ok', // settled → eligible to skip
         'fetch_status' => 'ok',
     ]);
     MenuCategory::create(['menu_id' => $menu->id, 'name' => 'A', 'position' => 0, 'source_platform' => 'uber-eats']);
 
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetch')->never());
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStore')->never());
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     expect(MenuCategory::query()->where('menu_id', $menu->id)->value('name'))->toBe('A');
+});
+
+it('re-scrapes when a connected platform last came back unavailable', function () {
+    $user = menuUser('m7b');
+    ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
+    // URL unchanged + fetch_status ok, but the UE scrape last failed — must NOT skip.
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats',
+        'uber_eats_store_url' => 'https://www.ubereats.com/store/x',
+        'uber_eats_status' => 'unavailable',
+        'fetch_status' => 'ok',
+    ]);
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStore')->once()->andReturn([
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
+        ]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    $menu->refresh();
+    expect($menu->uber_eats_status)->toBe('ok');
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->exists())->toBeTrue();
 });
 
 it('forces a re-scrape and replaces the menu even when the url is unchanged', function () {
@@ -229,9 +255,9 @@ it('forces a re-scrape and replaces the menu even when the url is unchanged', fu
     MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Old', 'position' => 0, 'source_platform' => 'uber-eats']);
 
     $this->mock(MenuApifyScraper::class, function ($m) {
-        $m->shouldReceive('fetch')->once()->andReturn([
+        $m->shouldReceive('fetchStore')->once()->andReturn([
             'store' => ['name' => 'Ollies', 'rating' => 4.5, 'reviewCount' => 100, 'currency' => 'AUD'],
-            'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New', 'price' => 9.0]]]],
+            'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
         ]);
     });
 
@@ -248,7 +274,7 @@ it('clears the menu when no ordering source remains', function () {
         'uber_eats_store_url' => 'https://www.ubereats.com/store/x', 'fetch_status' => 'ok',
     ]);
 
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetch')->never());
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStore')->never());
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     expect(Menu::query()->where('user_id', $user->id)->exists())->toBeFalse();
@@ -310,8 +336,8 @@ it('returns the full menu with per-mode prices and computed order links', functi
             'pickup_price' => 11.0, 'pickup_source' => 'doordash',
             'rating' => 95, 'badges' => [['text' => '#1 Most liked']],
             'platforms' => [
-                ['platform' => 'uber-eats', 'price' => 12.5, 'modes' => ['delivery'], 'url' => 'https://www.ubereats.com/store/d'],
-                ['platform' => 'doordash', 'price' => 11.0, 'modes' => ['pickup'], 'url' => 'https://www.doordash.com/store/x'],
+                ['platform' => 'uber-eats', 'pickupPrice' => null, 'pickupUrl' => null, 'deliveryPrice' => 12.5, 'deliveryUrl' => 'https://www.ubereats.com/store/d'],
+                ['platform' => 'doordash', 'pickupPrice' => 11.0, 'pickupUrl' => 'https://www.doordash.com/store/x', 'deliveryPrice' => null, 'deliveryUrl' => null],
             ],
         ]]],
     ]);
@@ -328,13 +354,15 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect((float) $item['deliveryPrice'])->toBe(12.5);
     expect((float) $item['rating'])->toBe(95.0);
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
-    // Per-platform availability surfaces with prices, modes, and order urls.
+    // Per-platform availability surfaces with per-mode prices + order urls.
     expect($item['platforms'])->toHaveCount(2);
     expect($item['platforms'][0]['platform'])->toBe('uber-eats');
-    expect((float) $item['platforms'][0]['price'])->toBe(12.5);
-    expect($item['platforms'][0]['modes'])->toBe(['delivery']);
+    expect((float) $item['platforms'][0]['deliveryPrice'])->toBe(12.5);
+    expect($item['platforms'][0]['deliveryUrl'])->toBe('https://www.ubereats.com/store/d');
+    expect($item['platforms'][0]['pickupPrice'])->toBeNull();
     expect($item['platforms'][1]['platform'])->toBe('doordash');
-    expect($item['platforms'][1]['modes'])->toBe(['pickup']);
+    expect((float) $item['platforms'][1]['pickupPrice'])->toBe(11.0);
+    expect($item['platforms'][1]['deliveryPrice'])->toBeNull();
     expect($res->json('links.pickupUrl'))->toBe('https://www.ubereats.com/store/p');
     expect($res->json('links.deliveryUrl'))->toBe('https://www.ubereats.com/store/d');
 });
@@ -356,6 +384,36 @@ it('refresh 422s when there is no ordering source', function () {
     actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertStatus(422);
 });
 
+it('menu:retry-unavailable re-dispatches forced fetches only for recently-unavailable menus', function () {
+    Queue::fake();
+
+    // In-window: a connected platform last came back unavailable, fetched just now.
+    $fresh = menuUser('m17');
+    Menu::create([
+        'user_id' => $fresh->id, 'content_source' => 'doordash',
+        'uber_eats_status' => 'unavailable', 'doordash_status' => 'ok',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    // Out-of-window: failed long ago — aged out, must NOT be retried forever.
+    $stale = menuUser('m18');
+    Menu::create([
+        'user_id' => $stale->id, 'content_source' => 'doordash',
+        'uber_eats_status' => 'unavailable', 'fetch_status' => 'ok',
+        'last_fetched_at' => now()->subHours(12),
+    ]);
+    // Healthy: both platforms ok — never selected.
+    $ok = menuUser('m19');
+    Menu::create([
+        'user_id' => $ok->id, 'content_source' => 'uber-eats',
+        'uber_eats_status' => 'ok', 'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+
+    $this->artisan('menu:retry-unavailable')->assertSuccessful();
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
+    Queue::assertPushed(MenuFetchJob::class, fn ($job) => $job->userId === (string) $fresh->id && $job->force === true);
+});
+
 // ── Union across both platforms (persisted platforms[]) ───────────────
 
 it('unions both platforms and persists a per-platform availability list', function () {
@@ -364,17 +422,19 @@ it('unions both platforms and persists a per-platform availability list', functi
     ordering($user, 'https://www.ubereats.com/store/x?diningMode=DELIVERY', 'delivery', '2026-06-17 09:00:00');
     ordering($user, 'https://www.doordash.com/store/x', 'pickup', '2026-06-17 10:00:00');
 
-    // Both platforms scraped: a shared dish (Burrito) + a DoorDash-only dish (Churros).
+    // Both platforms scraped (per-mode prices, the fetchStore shape): a shared dish
+    // (Burrito) + a DoorDash-only dish (Churros). UE store offers delivery only,
+    // DoorDash offers pickup only — so each item carries the one mode it priced.
     $this->mock(MenuApifyScraper::class, function ($m) {
-        $m->shouldReceive('fetch')->with('https://www.ubereats.com/store/x', 'uber-eats', Mockery::any())->once()->andReturn([
+        $m->shouldReceive('fetchStore')->with(Mockery::any(), 'uber-eats', Mockery::any())->once()->andReturn([
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
-            'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'price' => 17.0, 'image' => 'https://ue/b.jpg']]]],
+            'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'pickupPrice' => null, 'deliveryPrice' => 17.0, 'image' => 'https://ue/b.jpg']]]],
         ]);
-        $m->shouldReceive('fetch')->with('https://www.doordash.com/store/x', 'doordash', Mockery::any(), Mockery::any())->once()->andReturn([
+        $m->shouldReceive('fetchStore')->with(Mockery::any(), 'doordash', Mockery::any(), Mockery::any())->once()->andReturn([
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [
-                ['name' => 'Mains', 'items' => [['name' => 'Burrito', 'price' => 15.5, 'description' => 'Loaded burrito.']]],
-                ['name' => 'Sweets', 'items' => [['name' => 'Churros', 'price' => 8.0]]],
+                ['name' => 'Mains', 'items' => [['name' => 'Burrito', 'pickupPrice' => 15.5, 'deliveryPrice' => null, 'description' => 'Loaded burrito.']]],
+                ['name' => 'Sweets', 'items' => [['name' => 'Churros', 'pickupPrice' => 8.0, 'deliveryPrice' => null]]],
             ],
         ]);
     });
@@ -399,7 +459,8 @@ it('unions both platforms and persists a per-platform availability list', functi
     $churros = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Churros')->firstOrFail();
     expect($churros->platforms)->toHaveCount(1);
     expect($churros->platforms[0]['platform'])->toBe('doordash');
-    expect($churros->platforms[0]['modes'])->toBe(['pickup']);
+    expect((float) $churros->platforms[0]['pickupPrice'])->toBe(8.0);
+    expect($churros->platforms[0]['deliveryPrice'])->toBeNull();
 });
 
 // ── Online-ordering store consolidation (one store = one entry) ────────

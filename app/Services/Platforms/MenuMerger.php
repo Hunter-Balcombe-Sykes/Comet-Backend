@@ -11,23 +11,29 @@ namespace App\Services\Platforms;
 // one merged item that:
 //   • gap-fills display fields (name / description / image) — Uber Eats wins a
 //     field only where it HAS a value; otherwise the other platform fills it,
-//   • collects BOTH platforms into `platforms[]` (each with its price, the
-//     pickup/delivery modes that platform's store link supports, and that
-//     platform's order url),
+//   • collects BOTH platforms into `platforms[]` — one entry per platform, each
+//     carrying its pickupPrice + pickupUrl and deliveryPrice + deliveryUrl (a
+//     mode the store doesn't offer is null on both),
 //   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither), and
 //   • carries Uber Eats modifiers (DoorDash exposes none).
 //
 // Aggregate prices are derived from `platforms[]`:
-//   basePrice     = min price across the item's platforms (headline),
-//   pickupPrice   = min price among platforms whose store offers PICKUP,
-//   deliveryPrice = min price among platforms whose store offers DELIVERY,
-// each *Source tagged with the platform backing that min (back-compat). A mode
-// with no offering platform stays null.
+//   basePrice     = cheapest price the dish can be had for, any mode/platform,
+//   pickupPrice   = min pickupPrice across platforms,
+//   deliveryPrice = min deliveryPrice across platforms,
+// each *Source tagged with the platform backing that min. A mode no platform
+// prices stays null.
 //
-// Per-platform modes + urls come from $storeLinks (MenuSource::storeLinks) — the
-// consolidated ordering-link set per platform, where one store's pickup +
-// delivery rows have already collapsed into a single {pickupUrl, deliveryUrl,
-// storeUrl, modes} set.
+// Per-platform per-mode prices arrive on each item (pickupPrice/deliveryPrice,
+// from MenuApifyScraper::fetchStore scraping both mode pages). Per-platform urls
+// + offered modes come from $storeLinks (MenuSource::storeLinks) — the
+// consolidated ordering-link set per platform.
+//
+// LINK-DRIVEN AVAILABILITY: a platform the user has connected (a store link
+// exists) but whose scrape returned nothing this run is a "ghost" — it's still
+// attached to EVERY dish (linking to the store, prices null) so a flaky scrape
+// never hides a platform the user actually has. Real per-dish prices fill in on
+// the next successful scrape.
 class MenuMerger
 {
     // Mild-strict matching needs at least this many characters in the shorter
@@ -51,6 +57,17 @@ class MenuMerger
         $otherSource = $contentSource === 'uber-eats' ? 'doordash' : 'uber-eats';
         $other = $contentSource === 'uber-eats' ? $ddMenu : $ueMenu;
 
+        // Ghost platforms: connected (store link present) but this run's scrape
+        // returned nothing. They're attached to every dish so the platform never
+        // vanishes on a flaky scrape (see class doc, LINK-DRIVEN AVAILABILITY).
+        $menus = ['uber-eats' => $ueMenu, 'doordash' => $ddMenu];
+        $ghostPlatforms = [];
+        foreach (self::PLATFORMS as $platform) {
+            if ($menus[$platform] === null && isset($storeLinks[$platform])) {
+                $ghostPlatforms[$platform] = $storeLinks[$platform];
+            }
+        }
+
         $index = $this->index($other['categories'] ?? []);
 
         // Track which other-platform items got matched into a canonical dish, so
@@ -65,7 +82,7 @@ class MenuMerger
                 if ($matched !== null) {
                     $matchedOther[$matched['key']] = true;
                 }
-                $items[] = $this->fuse($item, $matched['item'] ?? null, $contentSource, $storeLinks);
+                $items[] = $this->fuse($item, $matched['item'] ?? null, $contentSource, $storeLinks, $ghostPlatforms);
             }
             if ($items !== []) {
                 $categories[] = [
@@ -82,7 +99,7 @@ class MenuMerger
         foreach ($this->leftovers($other['categories'] ?? [], $matchedOther) as $category) {
             $items = [];
             foreach ($category['items'] as $item) {
-                $items[] = $this->fuse($item, null, $otherSource, $storeLinks);
+                $items[] = $this->fuse($item, null, $otherSource, $storeLinks, $ghostPlatforms);
             }
             if ($items !== []) {
                 $categories[] = [
@@ -112,35 +129,25 @@ class MenuMerger
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $storeLinks
      * @return array<string,mixed>
      */
-    private function fuse(array $item, ?array $matched, string $primarySource, array $storeLinks): array
+    private function fuse(array $item, ?array $matched, string $primarySource, array $storeLinks, array $ghostPlatforms = []): array
     {
-        $otherSource = $primarySource === 'uber-eats' ? 'doordash' : 'uber-eats';
-
         // The Uber Eats-sourced + DoorDash-sourced versions of this dish — one is
         // the primary item, the other is the match (or null when unmatched).
         $ue = $primarySource === 'uber-eats' ? $item : $matched;
         $dd = $primarySource === 'doordash' ? $item : $matched;
 
-        // platforms[] — one entry per platform this dish is actually on, in
-        // content-priority order, each with its price + the modes/url of that
-        // platform's consolidated store link.
+        // platforms[] — one entry per platform this dish is on, in content-priority
+        // order (Uber Eats first). A platform appears when either its scrape
+        // carried this dish, OR it's a connected-but-unscraped ghost (attached to
+        // every dish with null prices so it never disappears on a flaky scrape).
         $platforms = [];
         foreach (self::PLATFORMS as $platform) {
             $source = $platform === 'uber-eats' ? $ue : $dd;
-            if (! is_array($source)) {
-                continue;
+            if (is_array($source)) {
+                $platforms[] = $this->platformEntry($platform, $source, $storeLinks[$platform] ?? null);
+            } elseif (isset($ghostPlatforms[$platform])) {
+                $platforms[] = $this->platformEntry($platform, null, $ghostPlatforms[$platform]);
             }
-            $link = $storeLinks[$platform] ?? null;
-            $platforms[] = [
-                'platform' => $platform,
-                'price' => $this->price($source['price'] ?? null),
-                // The modes this platform's store supports; both when no store
-                // link resolved (shouldn't happen — the dish came from a scrape
-                // of that store — but stay safe and offer both).
-                'modes' => $link['modes'] ?? ['pickup', 'delivery'],
-                // Prefer the pickup-typed link, else delivery, else the store url.
-                'url' => $link['pickupUrl'] ?? $link['deliveryUrl'] ?? $link['storeUrl'] ?? null,
-            ];
         }
 
         $aggregates = $this->aggregates($platforms);
@@ -171,21 +178,50 @@ class MenuMerger
     }
 
     /**
-     * Aggregate prices over an item's platforms[]:
-     *   basePrice     = min price across all platforms (headline),
-     *   pickupPrice   = min price among platforms whose modes include 'pickup',
-     *   deliveryPrice = min price among platforms whose modes include 'delivery',
-     * each *Source = the platform backing that min. Null when no platform offers
-     * a price (or that mode).
+     * One platforms[] entry — the dish's availability on a single platform:
+     * pickupPrice + pickupUrl, deliveryPrice + deliveryUrl. A mode the store
+     * doesn't offer (per the store link's modes) is null on both price and url;
+     * an offered mode always gets a url (the mode-typed link, else the bare store
+     * url) even when its price is unknown (ghost / blocked mode scrape), so the
+     * card still routes. $source is the scraped per-mode-priced item, or null for
+     * a ghost platform.
      *
-     * @param  list<array{platform:string, price:?float, modes:list<string>, url:?string}>  $platforms
+     * @param  array<string,mixed>|null  $source
+     * @param  array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}|null  $link
+     * @return array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}
+     */
+    private function platformEntry(string $platform, ?array $source, ?array $link): array
+    {
+        $modes = $link['modes'] ?? ['pickup', 'delivery'];
+        $offersPickup = in_array('pickup', $modes, true);
+        $offersDelivery = in_array('delivery', $modes, true);
+        $storeUrl = $link['storeUrl'] ?? null;
+
+        return [
+            'platform' => $platform,
+            'pickupPrice' => $offersPickup && $source !== null ? $this->price($source['pickupPrice'] ?? null) : null,
+            'pickupUrl' => $offersPickup ? ($link['pickupUrl'] ?? $storeUrl) : null,
+            'deliveryPrice' => $offersDelivery && $source !== null ? $this->price($source['deliveryPrice'] ?? null) : null,
+            'deliveryUrl' => $offersDelivery ? ($link['deliveryUrl'] ?? $storeUrl) : null,
+        ];
+    }
+
+    /**
+     * Aggregate prices over an item's platforms[]:
+     *   basePrice     = cheapest price the dish can be had for (any mode, any platform),
+     *   pickupPrice   = min pickupPrice across platforms,
+     *   deliveryPrice = min deliveryPrice across platforms,
+     * each *Source = the platform backing that min. Null when no platform prices
+     * that mode.
+     *
+     * @param  list<array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}>  $platforms
      * @return array{basePrice:?float, pickupPrice:?float, pickupSource:?string, deliveryPrice:?float, deliverySource:?string}
      */
     private function aggregates(array $platforms): array
     {
-        $base = $this->minPrice($platforms, null);
-        $pickup = $this->minPrice($platforms, 'pickup');
-        $delivery = $this->minPrice($platforms, 'delivery');
+        $base = $this->minMode($platforms, 'base');
+        $pickup = $this->minMode($platforms, 'pickup');
+        $delivery = $this->minMode($platforms, 'delivery');
 
         return [
             'basePrice' => $base['price'],
@@ -197,28 +233,33 @@ class MenuMerger
     }
 
     /**
-     * The lowest priced platform entry, optionally restricted to those offering a
-     * given mode. Returns the price + the platform backing it (first platform
-     * wins a tie, keeping content-priority order = Uber Eats over DoorDash).
+     * The lowest price (+ the platform backing it) for a mode across platforms.
+     * 'pickup'/'delivery' look at that mode's price; 'base' takes the cheaper of
+     * either mode per platform. First platform wins a tie (content priority =
+     * Uber Eats over DoorDash).
      *
-     * @param  list<array{platform:string, price:?float, modes:list<string>, url:?string}>  $platforms
+     * @param  list<array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}>  $platforms
      * @return array{price:?float, source:?string}
      */
-    private function minPrice(array $platforms, ?string $mode): array
+    private function minMode(array $platforms, string $mode): array
     {
         $bestPrice = null;
         $bestSource = null;
         foreach ($platforms as $p) {
-            if ($p['price'] === null) {
-                continue;
-            }
-            if ($mode !== null && ! in_array($mode, $p['modes'], true)) {
-                continue;
-            }
-            // Strictly-less keeps the FIRST platform on a tie (content priority).
-            if ($bestPrice === null || $p['price'] < $bestPrice) {
-                $bestPrice = $p['price'];
-                $bestSource = $p['platform'];
+            $prices = match ($mode) {
+                'pickup' => [$p['pickupPrice'] ?? null],
+                'delivery' => [$p['deliveryPrice'] ?? null],
+                default => [$p['pickupPrice'] ?? null, $p['deliveryPrice'] ?? null],
+            };
+            foreach ($prices as $price) {
+                if ($price === null) {
+                    continue;
+                }
+                // Strictly-less keeps the FIRST platform on a tie (content priority).
+                if ($bestPrice === null || $price < $bestPrice) {
+                    $bestPrice = $price;
+                    $bestSource = $p['platform'];
+                }
             }
         }
 

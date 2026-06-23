@@ -79,13 +79,18 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
         $existing = Menu::query()->where('user_id', $this->userId)->first();
 
         // Skip the scrape when both store URLs are unchanged, the last fetch
-        // succeeded, and this isn't a forced refresh — links recompute at read
-        // time, so there's nothing to do. A prior 'unavailable' re-scrapes.
+        // succeeded, EVERY connected platform last scraped 'ok', and this isn't a
+        // forced refresh — links recompute at read time, so there's nothing to do.
+        // A platform that's connected but last came back 'unavailable' (a flaky /
+        // bot-blocked scrape) is NOT settled, so we re-scrape to recover it rather
+        // than leaving the menu permanently single-platform.
         if (! $this->force
             && $existing
             && $existing->fetch_status === 'ok'
             && $existing->uber_eats_store_url === $plan['ueUrl']
-            && $existing->doordash_store_url === $plan['ddUrl']) {
+            && $existing->doordash_store_url === $plan['ddUrl']
+            && $this->platformSettled($existing, 'uber-eats', $plan['ueUrl'])
+            && $this->platformSettled($existing, 'doordash', $plan['ddUrl'])) {
             return;
         }
 
@@ -103,18 +108,25 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
             ],
         );
 
-        // Scrape each connected platform once.
-        $ueMenu = $plan['ueUrl'] ? $scraper->fetch($plan['ueUrl'], 'uber-eats', $this->userId) : null;
-        $ddMenu = $plan['ddUrl'] ? $scraper->fetch($plan['ddUrl'], 'doordash', $this->userId, $plan['address']) : null;
+        // Per-platform consolidated store links (one store's pickup + delivery rows
+        // already collapsed) — the scrape targets AND each item's modes/url source.
+        $storeLinks = $source->storeLinks($this->userId);
+        $ueLink = $storeLinks['uber-eats'] ?? null;
+        $ddLink = $storeLinks['doordash'] ?? null;
+
+        // Scrape each connected platform across BOTH modes (fetchStore hits the
+        // pickup + delivery pages and fuses per-mode prices per dish).
+        $ueMenu = $ueLink ? $scraper->fetchStore($ueLink, 'uber-eats', $this->userId) : null;
+        $ddMenu = $ddLink ? $scraper->fetchStore($ddLink, 'doordash', $this->userId, $plan['address']) : null;
 
         $now = now();
 
         // Per-platform sync status, independent of the merge outcome.
         $menu->forceFill(array_filter([
-            'uber_eats_synced_at' => $plan['ueUrl'] ? $now : null,
-            'uber_eats_status' => $plan['ueUrl'] ? ($ueMenu ? 'ok' : 'unavailable') : null,
-            'doordash_synced_at' => $plan['ddUrl'] ? $now : null,
-            'doordash_status' => $plan['ddUrl'] ? ($ddMenu ? 'ok' : 'unavailable') : null,
+            'uber_eats_synced_at' => $ueLink ? $now : null,
+            'uber_eats_status' => $ueLink ? ($ueMenu ? 'ok' : 'unavailable') : null,
+            'doordash_synced_at' => $ddLink ? $now : null,
+            'doordash_status' => $ddLink ? ($ddMenu ? 'ok' : 'unavailable') : null,
         ], fn ($v) => $v !== null))->save();
 
         // Nothing usable from EITHER platform — keep the last menu, mark
@@ -127,16 +139,27 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
 
         // Canonical structure prefers Uber Eats, but falls back to whichever
         // platform actually returned a menu. The union appends the other
-        // platform's items either way.
+        // platform's items either way; a connected platform that returned nothing
+        // is still attached to every dish as a ghost (see MenuMerger).
         $contentSource = $ueMenu !== null ? 'uber-eats' : 'doordash';
-
-        // Per-platform consolidated store links (pickup+delivery for one store
-        // already collapsed) drive each item's platforms[].modes / .url + the
-        // aggregate pickup/delivery prices.
-        $storeLinks = $source->storeLinks($this->userId);
         $merged = $merger->merge($ueMenu, $ddMenu, $contentSource, $storeLinks);
 
         $this->persist($menu, $contentSource, $merged, $now);
+    }
+
+    /**
+     * Whether a platform is "settled" for skip purposes: an unconnected platform
+     * (no store URL) always is; a connected one only when its last scrape was 'ok'.
+     * A connected-but-'unavailable' platform forces a re-scrape (recovery).
+     */
+    private function platformSettled(Menu $menu, string $platform, ?string $url): bool
+    {
+        if ($url === null) {
+            return true;
+        }
+        $status = $platform === 'uber-eats' ? $menu->uber_eats_status : $menu->doordash_status;
+
+        return $status === 'ok';
     }
 
     /**

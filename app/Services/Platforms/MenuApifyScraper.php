@@ -13,11 +13,14 @@ use Throwable;
 // GoogleBusinessApifyScraper uses (run-sync-get-dataset-items, 201 on success,
 // config('services.apify.token')).
 //
-// Actors (captured live 2026-06-19):
-//   Uber Eats → natanielsantos~uber-eats-scraper — one restaurant object with
-//       sections → subsections → items; item price already in dollars; per-item
-//       imageUrl, isSoldOut, uuid, and optionsList (modifier groups). Store-level
-//       rating / reviewCount / currencyCode / logoUrl.
+// Actors (captured live; UE re-captured 2026-06-23 on the memo23 switch):
+//   Uber Eats → memo23~uber-eats-scraper — one store object with a flattened
+//       `menuItems` list ({ name, description, section, price (dollars), imageUrl })
+//       grouped here by `section` into categories; store-level title / image /
+//       ratingValue / reviewCount / currencyCode / supportedDiningModes. Proxy-
+//       hardened (~97.7% success) — replaced natanielsantos, which bot-blocked a
+//       large fraction of stores. No per-item id or modifiers in the flattened
+//       list (cross-mode price fusion matches on name).
 //   DoorDash  → dz_omar~doordash-scraper — one store object with menu_categories[]
 //       → items[] of { item_id, name, description, price_cents, image_url,
 //       rating_pct, rating_count, badges[] }. Needs an `address` (locale) input;
@@ -27,12 +30,15 @@ use Throwable;
 //   [ 'store' => [ name, rating, reviewCount, currency, logo ],
 //     'categories' => [ [ 'name' => …, 'items' => [ [
 //        externalId, name, description, price, image, isSoldOut,
-//        modifiers (UE only), rating, ratingCount, badges (DD only) ] … ] ] ] ]
+//        modifiers, rating, ratingCount, badges (DD only) ] … ] ] ] ]
 class MenuApifyScraper
 {
     // owner~name form for the Apify API path.
     private const ACTORS = [
-        'uber-eats' => 'natanielsantos~uber-eats-scraper',
+        // memo23 — proxy-hardened (Crawlee + Firefox fingerprint + residential
+        // proxies), ~97.7% success. Replaced natanielsantos (bot-blocked on a
+        // large fraction of stores, e.g. DOC Pizza Carlton failed every run).
+        'uber-eats' => 'memo23~uber-eats-scraper',
         'doordash' => 'dz_omar~doordash-scraper',
     ];
 
@@ -81,6 +87,165 @@ class MenuApifyScraper
         }
 
         return null;
+    }
+
+    /**
+     * Scrape ONE store across both fulfilment modes and fuse into a single menu
+     * whose items each carry a `pickupPrice` AND a `deliveryPrice` (either null).
+     *
+     * Uber Eats / DoorDash price the same dish differently for pickup vs delivery
+     * (delivery menus are commonly marked up), and the price only exists on the
+     * mode-specific store page — so we scrape the pickup URL and the delivery URL
+     * separately and key the two price sets together by the item's stable external
+     * id (UE uuid / DD item_id survive the mode switch). When the store link is
+     * untyped (one bare store URL, no pickup/delivery variant) we scrape once and
+     * apply that single price to both modes the store offers.
+     *
+     * @param  array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}  $link  a MenuSource::storeLinks entry
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null null when nothing scraped (caller records 'unavailable')
+     */
+    public function fetchStore(array $link, string $platform, ?string $userId = null, ?string $address = null): ?array
+    {
+        $pickupUrl = $link['pickupUrl'] ?? null;
+        $deliveryUrl = $link['deliveryUrl'] ?? null;
+        $storeUrl = $link['storeUrl'] ?? null;
+
+        // Untyped store (no mode-specific URL): one scrape, price applies to both
+        // modes the store offers.
+        if ($pickupUrl === null && $deliveryUrl === null) {
+            if ($storeUrl === null) {
+                return null;
+            }
+            $menu = $this->fetch($storeUrl, $platform, $userId, $address);
+
+            return $menu === null ? null : $this->priced($menu, true, true);
+        }
+
+        $pickupMenu = $pickupUrl !== null ? $this->fetch($pickupUrl, $platform, $userId, $address) : null;
+        $deliveryMenu = $deliveryUrl !== null ? $this->fetch($deliveryUrl, $platform, $userId, $address) : null;
+
+        // Both modes scraped → fuse their prices per item. Only one came back (the
+        // other mode wasn't offered, or its scrape was blocked) → that mode's price
+        // only; the missing mode stays null but the order URL still routes (the
+        // merger fills the URL from the store link regardless of price).
+        if ($pickupMenu !== null && $deliveryMenu !== null) {
+            return $this->dual($pickupMenu, $deliveryMenu);
+        }
+        if ($pickupMenu !== null) {
+            return $this->priced($pickupMenu, true, false);
+        }
+        if ($deliveryMenu !== null) {
+            return $this->priced($deliveryMenu, false, true);
+        }
+
+        return null;
+    }
+
+    /**
+     * Re-key a single-mode menu's items onto the pickup/delivery price slots: the
+     * scraped `price` becomes pickupPrice and/or deliveryPrice per the flags, and
+     * the raw `price` is dropped. Used for single-mode and untyped stores.
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $menu
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
+     */
+    private function priced(array $menu, bool $fillPickup, bool $fillDelivery): array
+    {
+        $menu['categories'] = array_map(function (array $cat) use ($fillPickup, $fillDelivery) {
+            $cat['items'] = array_map(function (array $item) use ($fillPickup, $fillDelivery) {
+                $price = $item['price'] ?? null;
+                $item['pickupPrice'] = $fillPickup ? $price : null;
+                $item['deliveryPrice'] = $fillDelivery ? $price : null;
+                unset($item['price']);
+
+                return $item;
+            }, $cat['items']);
+
+            return $cat;
+        }, $menu['categories']);
+
+        return $menu;
+    }
+
+    /**
+     * Fuse the pickup + delivery scrapes of one store into a single menu. The
+     * structurally richer scrape (more items) is the spine; each item gets its
+     * pickupPrice from the pickup scrape and deliveryPrice from the delivery
+     * scrape, matched by external id (else normalized name).
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $pickupMenu
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $deliveryMenu
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
+     */
+    private function dual(array $pickupMenu, array $deliveryMenu): array
+    {
+        $pickupMap = $this->priceMap($pickupMenu);
+        $deliveryMap = $this->priceMap($deliveryMenu);
+
+        // Spine = the scrape with more items (delivery wins a tie — it's usually
+        // the fuller menu), so a dish missing from one mode still appears.
+        $base = $this->itemCount($deliveryMenu) >= $this->itemCount($pickupMenu) ? $deliveryMenu : $pickupMenu;
+
+        $base['categories'] = array_map(function (array $cat) use ($pickupMap, $deliveryMap) {
+            $cat['items'] = array_map(function (array $item) use ($pickupMap, $deliveryMap) {
+                $key = $this->itemKey($item);
+                $item['pickupPrice'] = $pickupMap[$key] ?? null;
+                $item['deliveryPrice'] = $deliveryMap[$key] ?? null;
+                unset($item['price']);
+
+                return $item;
+            }, $cat['items']);
+
+            return $cat;
+        }, $base['categories']);
+
+        return $base;
+    }
+
+    /**
+     * externalId-or-name → price for every priced item in a scraped menu (first
+     * occurrence wins).
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $menu
+     * @return array<string, float>
+     */
+    private function priceMap(array $menu): array
+    {
+        $map = [];
+        foreach ($menu['categories'] as $cat) {
+            foreach ($cat['items'] as $item) {
+                $price = $item['price'] ?? null;
+                if (! is_numeric($price)) {
+                    continue;
+                }
+                $key = $this->itemKey($item);
+                $map[$key] ??= (float) $price;
+            }
+        }
+
+        return $map;
+    }
+
+    /** A stable per-item key for cross-mode matching: the external id, else the normalized name. */
+    private function itemKey(array $item): string
+    {
+        $ext = $item['externalId'] ?? null;
+        if (is_string($ext) && $ext !== '') {
+            return 'id:'.$ext;
+        }
+
+        return 'name:'.mb_strtolower(trim((string) ($item['name'] ?? '')));
+    }
+
+    /** Total item count across a scraped menu's categories. */
+    private function itemCount(array $menu): int
+    {
+        $n = 0;
+        foreach ($menu['categories'] as $cat) {
+            $n += count($cat['items'] ?? []);
+        }
+
+        return $n;
     }
 
     /**
@@ -153,9 +318,9 @@ class MenuApifyScraper
     }
 
     /**
-     * Actor input. Uber Eats (natanielsantos): restaurantUrls[] + scrapeMenu +
-     * organizeMenuBySections. DoorDash (dz_omar): startUrls[{url}] + a consumer
-     * `address` (locale) — fetchReviews off (we don't surface reviews).
+     * Actor input. Uber Eats (memo23): startUrls[{url}]. DoorDash (dz_omar):
+     * startUrls[{url}] + a consumer `address` (locale) — fetchReviews off (we
+     * don't surface reviews).
      *
      * @return array<string,mixed>
      */
@@ -163,9 +328,7 @@ class MenuApifyScraper
     {
         return match ($platform) {
             'uber-eats' => [
-                'restaurantUrls' => [$storeUrl],
-                'scrapeMenu' => true,
-                'organizeMenuBySections' => true,
+                'startUrls' => [['url' => $storeUrl]],
             ],
             'doordash' => [
                 'startUrls' => [['url' => $storeUrl]],
@@ -177,9 +340,13 @@ class MenuApifyScraper
     }
 
     /**
-     * Uber Eats (natanielsantos): one restaurant object with sections →
-     * subsections → items. Each subsection becomes a category; item prices are
-     * already in dollars; optionsList becomes our modifier groups.
+     * Uber Eats (memo23): one store object with a flattened `menuItems` list,
+     * each item carrying its `section` (its category), name, description, dollar
+     * `price`, and `imageUrl`. We group the items by section into categories,
+     * preserving first-seen order. The flattened list has no per-item id or
+     * customisations, so externalId/modifiers are null (cross-mode price fusion
+     * falls back to name-matching). Store: title / image / ratingValue /
+     * reviewCount / currencyCode.
      *
      * @param  list<mixed>  $items
      * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
@@ -188,48 +355,51 @@ class MenuApifyScraper
     {
         $store = is_array($items[0] ?? null) ? $items[0] : [];
 
+        // Group the flattened items by section, preserving first-seen order.
+        $bySection = [];
+        $order = [];
+        foreach ((array) data_get($store, 'menuItems', []) as $item) {
+            $itemName = $this->titleCase($this->cleanString(data_get($item, 'name')));
+            if ($itemName === null) {
+                continue;
+            }
+            $section = $this->cleanString(data_get($item, 'section')) ?? 'Menu';
+            if (! isset($bySection[$section])) {
+                $bySection[$section] = [];
+                $order[] = $section;
+            }
+            $price = data_get($item, 'price');
+            $bySection[$section][] = [
+                'externalId' => null,
+                'name' => $itemName,
+                'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
+                'price' => is_numeric($price) ? round((float) $price, 2) : null,
+                'image' => $this->safeUrl(data_get($item, 'imageUrl')),
+                'isSoldOut' => false,
+                'modifiers' => null,
+                'rating' => null,
+                'ratingCount' => null,
+                'badges' => null,
+            ];
+        }
+
         $categories = [];
-        foreach ((array) data_get($store, 'sections', []) as $section) {
-            foreach ((array) data_get($section, 'subsections', []) as $subsection) {
-                $name = $this->cleanString(data_get($subsection, 'title'))
-                    ?? $this->cleanString(data_get($section, 'title'))
-                    ?? 'Menu';
-                $catItems = [];
-                foreach ((array) data_get($subsection, 'items', []) as $item) {
-                    $itemName = $this->titleCase($this->cleanString(data_get($item, 'title')));
-                    if ($itemName === null) {
-                        continue;
-                    }
-                    $price = data_get($item, 'price');
-                    $catItems[] = [
-                        'externalId' => $this->cleanString(data_get($item, 'uuid')),
-                        'name' => $itemName,
-                        'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
-                        'price' => is_numeric($price) ? round((float) $price, 2) : null,
-                        'image' => $this->safeUrl(data_get($item, 'imageUrl')),
-                        'isSoldOut' => (bool) data_get($item, 'isSoldOut', false),
-                        'modifiers' => $this->modifiers(data_get($item, 'optionsList')),
-                        'rating' => null,
-                        'ratingCount' => null,
-                        'badges' => null,
-                    ];
-                }
-                if ($catItems !== []) {
-                    $categories[] = ['name' => $name, 'items' => $catItems];
-                }
+        foreach ($order as $section) {
+            if ($bySection[$section] !== []) {
+                $categories[] = ['name' => $section, 'items' => $bySection[$section]];
             }
         }
 
-        $rating = data_get($store, 'rating');
+        $rating = data_get($store, 'ratingValue');
         $reviews = data_get($store, 'reviewCount');
 
         return [
             'store' => [
-                'name' => $this->cleanString(data_get($store, 'name')),
+                'name' => $this->cleanString(data_get($store, 'title')) ?? $this->cleanString(data_get($store, 'shopName')),
                 'rating' => is_numeric($rating) ? round((float) $rating, 2) : null,
                 'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
                 'currency' => $this->cleanString(data_get($store, 'currencyCode')) ?? 'AUD',
-                'logo' => $this->safeUrl(data_get($store, 'logoUrl')),
+                'logo' => $this->safeUrl(data_get($store, 'image')),
             ],
             'categories' => $categories,
         ];
@@ -301,46 +471,6 @@ class MenuApifyScraper
             ],
             'categories' => $categories,
         ];
-    }
-
-    /**
-     * Uber Eats optionsList → normalized modifier groups: [{ name, options:
-     * [{ name, price }] }]. Option `price` is the per-option surcharge in dollars
-     * (0 for no-charge choices). Null when the item has no modifiers.
-     *
-     * @return list<array{name?:string, options:list<array{name:string, price?:float}>}>|null
-     */
-    private function modifiers(mixed $optionsList): ?array
-    {
-        if (! is_array($optionsList) || $optionsList === []) {
-            return null;
-        }
-        $groups = [];
-        foreach ($optionsList as $group) {
-            if (! is_array($group)) {
-                continue;
-            }
-            $options = [];
-            foreach ((array) data_get($group, 'options', []) as $option) {
-                $optionName = $this->titleCase($this->cleanString(data_get($option, 'title')));
-                if ($optionName === null) {
-                    continue;
-                }
-                $price = data_get($option, 'price');
-                $options[] = array_filter([
-                    'name' => $optionName,
-                    'price' => is_numeric($price) ? round((float) $price, 2) : null,
-                ], fn ($v) => $v !== null);
-            }
-            if ($options !== []) {
-                $groups[] = array_filter([
-                    'name' => $this->titleCase($this->cleanString(data_get($group, 'title'))),
-                    'options' => $options,
-                ], fn ($v) => $v !== null && $v !== []);
-            }
-        }
-
-        return $groups === [] ? null : $groups;
     }
 
     /**
@@ -438,7 +568,7 @@ class MenuApifyScraper
 
         return preg_replace_callback(
             '/(^|\.\s+|!\s+|\?\s+)([a-z])/u',
-            fn (array $m) => $m[1] . strtoupper($m[2]),
+            fn (array $m) => $m[1].strtoupper($m[2]),
             $lower,
         ) ?? $lower;
     }
