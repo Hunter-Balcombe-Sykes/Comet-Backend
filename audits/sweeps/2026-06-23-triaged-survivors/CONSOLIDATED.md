@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 0 / 26 complete
+- Standalone: 1 / 26 complete (PRIV-4)
 - Out of scope (not counted as work): 10
 
 ---
@@ -157,7 +157,7 @@ Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth
 - [ ] **#SEC-1** · P1 — Analytics ingest IDOR: a `site_id`-only POST records fabricated events against any site (tenant isolation) — `app/Http/Controllers/Concerns/ResolvesSiteFromRequest.php:22-38`, `app/Http/Requests/Api/PublicSite/Analytics/PageviewRequest.php:22-23` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
 - [ ] **#PRIV-2** · P1 — 30-day GDPR export retention declared but no enforcer (no `gdpr:prune-completed-exports`) — `config/partna.php:1150` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#PRIV-3** · P1 — 7-year handle-audit retention declared but no `handles:prune-audit-logs` for `audit.handle_change_log` — `config/partna.php:38` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
-- [ ] **#PRIV-4** · P1 — Reported-user PII in `moderation.evidence.payload` never redacted on account deletion / resolved-case cleanup — `app/Services/.../AccountDeletionService.php:517-523` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
+- [x] **#PRIV-4** · P1 — FIXED: `AccountDeletionService::purgeReportedUserEvidencePii()` tombstones handle/display_name/bio/site_subdomain in `moderation.evidence.payload` on the purge path (keeps site_id + content_hash); DB-portable Eloquent, fault-tolerant — `app/Services/User/AccountDeletionService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#LIFE-1c** · P2 — Feedback non-atomic read-then-write duplicate guard; needs a UNIQUE constraint (migration) — `app/Services/Feedback/FeedbackService.php:34-48` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
 - [ ] **#WHK-3** · P2 — No forensic trail for failed auth-email deliveries (needs `core.supabase_email_events` table) — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php` → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`
 - [ ] **#WHK-4** · P3 — No `supabase:replay-emails` artisan command — **depends on #WHK-3** — → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`

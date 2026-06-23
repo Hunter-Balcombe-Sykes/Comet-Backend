@@ -10,6 +10,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Models\Moderation\Evidence;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
@@ -520,6 +521,7 @@ class AccountDeletionService
         $this->purgeWaitlistSignup($lookupEmail);        // #P2-09: waitlist signup row
         $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
         $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
+        $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
         $this->purgeGlobalEmailSubscriptions($lookupEmail); // #P2-12: global (user_id IS NULL) subscriptions
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
@@ -676,6 +678,59 @@ class AccountDeletionService
                 ]);
         } catch (\Throwable $e) {
             Log::error('Case signal PII erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * PRIV-4: Tombstone reported-user PII embedded in moderation.evidence payload.
+     *
+     * EvidenceSnapshotService::snapshotSite() writes the reported user's handle,
+     * display_name, bio, and site_subdomain into payload for evidence_type='content_snapshot'.
+     * moderation.evidence has no FK to the reported user, so forceDelete's cascade never
+     * reaches it — the PII would otherwise survive indefinitely (GDPR erasure gap).
+     *
+     * Tombstone strategy (overwrite with '[redacted]') rather than key-removal preserves
+     * the payload shape so staff UI / EvidenceResource doesn't break on missing keys.
+     * Non-PII fields (site_id, block_count, block_types, content_hash, captured_at) are
+     * retained for case integrity. content_hash is intentionally NOT recomputed — the
+     * original hash serves as tamper-evidence that redaction occurred post-snapshot.
+     *
+     * Day-one: only 'content_snapshot' (Site) evidence exists. Future snapshot types
+     * (SiteMedia/Block/User) that embed reported-user PII in payload must be added here.
+     */
+    private function purgeReportedUserEvidencePii(User $professional): void
+    {
+        try {
+            // Laravel's JSON where() emits json_extract() on SQLite and ->> on Postgres —
+            // works identically on both drivers without raw SQL.
+            $rows = Evidence::query()
+                ->where('evidence_type', 'content_snapshot')
+                ->where('payload->user_id', $professional->id)
+                ->get();
+
+            foreach ($rows as $evidence) {
+                $payload = $evidence->payload;
+
+                if (! is_array($payload)) {
+                    continue;
+                }
+
+                // Redact PII keys; leave case-integrity fields (site_id, block_count,
+                // block_types, content_hash, captured_at, user_id) intact.
+                foreach (['handle', 'display_name', 'bio', 'site_subdomain'] as $piiKey) {
+                    if (array_key_exists($piiKey, $payload)) {
+                        $payload[$piiKey] = '[redacted]';
+                    }
+                }
+
+                $evidence->payload = $payload;
+                $evidence->save();
+            }
+        } catch (\Throwable $e) {
+            Log::error('Evidence payload PII erasure failed during account purge', [
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);

@@ -297,6 +297,28 @@ class AccountDeletionTestCase
             created_at TEXT NULL
         )");
 
+        // moderation.cases — required FK target for moderation.evidence.
+        // SQLite doesn't enforce FKs, so a minimal schema is enough.
+        $conn->statement('CREATE TABLE IF NOT EXISTS moderation.cases (
+            id TEXT PRIMARY KEY,
+            reportable_type TEXT NOT NULL DEFAULT \'Site\',
+            reportable_id TEXT NOT NULL DEFAULT \'\',
+            status TEXT NOT NULL DEFAULT \'open\',
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )');
+
+        // moderation.evidence — PRIV-4: purge() tombstones reported-user PII in payload.
+        $conn->statement("CREATE TABLE IF NOT EXISTS moderation.evidence (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL,
+            signal_id TEXT NULL,
+            evidence_type TEXT NOT NULL DEFAULT 'content_snapshot',
+            payload TEXT NOT NULL DEFAULT '{}',
+            content_hash TEXT NULL,
+            captured_at TEXT NULL
+        )");
+
         // notifications.email_subscriptions — purge() deletes global (user_id IS NULL) rows by email_lc.
         $conn->statement("CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
             id TEXT PRIMARY KEY,
