@@ -110,9 +110,9 @@ Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'sub
     ->middleware(['throttle:public-subscribe', 'bot.token:subscribe']);
 
 Route::post('/public/signup/availability', [PublicSignupAvailabilityController::class, 'check'])
-    ->middleware(['throttle:public-site', 'bot.token:signup']);
+    ->middleware(['throttle:signup-availability', 'bot.token:signup']);
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
-    ->middleware(['throttle:public-site', 'bot.token:login-identifier']);
+    ->middleware(['throttle:login-identifier', 'bot.token:login-identifier']);
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
     ->middleware(['throttle:waitlist', 'bot.token:waitlist']);
 

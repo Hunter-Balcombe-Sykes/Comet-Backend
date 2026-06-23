@@ -51,7 +51,9 @@ class ContentReportService
             );
         }
 
-        $reporterIpHash = hash('sha256', $dto->reporterIp.'|'.config('app.key'));
+        // HMAC-SHA256 with app.key — matches HashesClientData and VerifyBotToken so
+        // IP hashes are correlatable across systems for abuse investigation (SEC-14).
+        $reporterIpHash = hash_hmac('sha256', $dto->reporterIp, config('app.key'));
         $dedupHash = $this->dedup->forReport(
             reportableType: $dto->targetType,
             reportableId: $site->id,

@@ -22,6 +22,19 @@ function seedProAndSite(): array
         'status' => 'active',
     ]);
 
+    // FFLAG-6 fix: insert a real site.sites row so $siteId is backed by a DB row.
+    // Visibility checks that gate on the site (e.g. checkWorkplaceRequirements)
+    // would otherwise find nothing and silently return false with no error.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $proId,
+        'subdomain' => 'test-pro',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
     return [$proId, $siteId];
 }
 

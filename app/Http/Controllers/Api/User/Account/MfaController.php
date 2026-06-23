@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\User\Account;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\ApiController;
 use App\Services\Auth\AuthFactorEventRepository;
 use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Auth\Access\Response as GateResponse;
@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
  * Supabase JS SDK) so we can enforce a *fresh* AAL2 gate — Supabase
  * only enforces session-level aal2, not "verify within last 60s".
  */
-class MfaController extends Controller
+class MfaController extends ApiController
 {
     public function __construct(
         private readonly SupabaseAdminService $admin,
@@ -37,10 +37,13 @@ class MfaController extends Controller
         $window = (int) config('partna.mfa.unenroll_fresh_window_seconds', 60);
         $gate = $this->requiresFreshAal2($request, $window);
         if (! $gate->allowed()) {
-            return response()->json([
-                'message' => $gate->message() ?: 'Recent MFA verification required',
-                'code' => 'mfa_fresh_required',
-            ], $gate->status() ?? 401);
+            // 'code' => 'mfa_fresh_required' is read by the frontend — preserve exactly.
+            return $this->error(
+                $gate->message() ?: 'Recent MFA verification required',
+                $gate->status() ?? 401,
+                [],
+                ['code' => 'mfa_fresh_required'],
+            );
         }
 
         $uid = (string) $request->attributes->get('supabase_uid');
@@ -56,7 +59,7 @@ class MfaController extends Controller
                 'reason' => $e->getMessage(),
             ]);
 
-            return response()->json(['message' => 'Could not remove factor'], 502);
+            return $this->error('Could not remove factor', 502);
         }
 
         $this->repo->record(
@@ -68,7 +71,7 @@ class MfaController extends Controller
             userAgent: (string) $request->userAgent(),
         );
 
-        return response()->json(['ok' => true]);
+        return $this->success(['ok' => true]);
     }
 
     /**

@@ -75,11 +75,6 @@ class UserCustomerController extends ApiController
         // P1-05: wrap items in the explicit CustomerResource allowlist instead
         // of shipping raw Eloquent rows (would auto-leak future / hidden columns).
         $payload['customers'] = CustomerResource::collection($paginator->items())->resolve();
-        // P1-06: dual-key `meta` + `pagination` for one release cycle. Staff
-        // mirror already uses `meta`; this brings professional in line while
-        // keeping current frontend reads working.
-        // TODO(B4): drop `pagination` key once frontend confirms it reads `meta`.
-        $payload['pagination'] = $payload['meta'];
 
         return $this->success($payload);
     }

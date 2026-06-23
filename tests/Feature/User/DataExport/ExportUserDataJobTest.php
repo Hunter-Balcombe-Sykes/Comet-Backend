@@ -149,3 +149,16 @@ it('does NOT attempt to delete R2 when the failure happens before the upload (e.
     $audit->refresh();
     expect($audit->status)->toBe(DataExportAudit::STATUS_FAILED);
 });
+
+// ─── JOB-3: null-audit path must throw, not silently succeed ─────────────────
+
+it('throws when the audit row is missing so the queue records a failed_jobs entry (JOB-3)', function () {
+    // JOB-3: a missing audit row is a real anomaly (deleted/rolled-back after afterCommit
+    // dispatch). Previously the job called report() then returned — the queue marked it
+    // SUCCEEDED with no failed_jobs entry, no retry, no Horizon alert, and a lost GDPR
+    // export. It must now throw so the failure is recorded and the job can be retried.
+    $missingId = (string) Str::uuid();
+
+    expect(fn () => (new ExportUserDataJob($missingId))->handle())
+        ->toThrow(\RuntimeException::class, "audit row not found for audit_id={$missingId}");
+});

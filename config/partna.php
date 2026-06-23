@@ -244,6 +244,9 @@ return [
         'cool_offline_ttl' => (int) env('PARTNA_STREAMING_COOL_OFFLINE_TTL', 600),
         'cold_offline_ttl' => (int) env('PARTNA_STREAMING_COLD_OFFLINE_TTL', 1800),
         'ttl_skip_threshold' => (int) env('PARTNA_STREAMING_TTL_SKIP_THRESHOLD', 60),
+        // How long (seconds) the Kick rate-limit circuit breaker stays set after a 429.
+        // Subsequent polling cycles skip Kick until this key expires.
+        'kick_rate_limited_ttl' => (int) env('PARTNA_STREAMING_KICK_RATE_LIMITED_TTL', 300),
     ],
 
     'limits' => [
@@ -783,8 +786,8 @@ return [
             // 'sections' rejects any re-packing that would momentarily shift
             // an existing row's sort_order onto another's. Placing new block
             // types at the tail keeps existing rows at their stored indices.
-            'allowed_sections' => ['shop', 'services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
-            'default_sections' => ['shop', 'services', 'gallery'],
+            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'credentials', 'experience', 'bio'],
+            'default_sections' => ['services', 'gallery'],
             'is_published' => true,
             'allowed_theme_count' => 3,
             'custom_links_allowed' => true,
@@ -812,6 +815,17 @@ return [
         // (shared across enquiry + subscription confirmations). Public forms send
         // to attacker-controllable addresses, so this caps email-bombing.
         'visitor_confirmation_per_hour' => (int) env('PARTNA_VISITOR_CONFIRMATION_PER_HOUR', 5),
+        // Dedicated per-minute limit for the signup/availability endpoint (P2-44).
+        // 6× tighter than the shared public-site bucket (60/min); generous for a
+        // real signup flow (email + phone + handle checks in sequence).
+        'signup_availability_per_minute' => (int) env('PARTNA_SIGNUP_AVAILABILITY_PER_MINUTE', 10),
+        // Secondary per-hour anti-enumeration gate for signup/availability (P3-10).
+        // Caps slow credential-stuffing loops at 60 attempts/hr/IP even when
+        // the per-minute window is never fully exhausted.
+        'signup_availability_per_hour' => (int) env('PARTNA_SIGNUP_AVAILABILITY_PER_HOUR', 60),
+        // Dedicated per-minute limit for the login resolve-identifier endpoint (P2-44).
+        // Mirrors typical mistyped-handle retry behaviour while bounding enumeration.
+        'login_identifier_per_minute' => (int) env('PARTNA_LOGIN_IDENTIFIER_PER_MINUTE', 20),
     ],
 
     // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no

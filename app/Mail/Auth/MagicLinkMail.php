@@ -10,7 +10,10 @@ class MagicLinkMail extends BaseTransactionalMail
         public readonly string $recipientEmail,
         public readonly ?string $displayName,
         public readonly string $verifyUrl,
-    ) {}
+        string $webhookId = '',
+    ) {
+        $this->webhookId = $webhookId;
+    }
 
     public function build(): self
     {

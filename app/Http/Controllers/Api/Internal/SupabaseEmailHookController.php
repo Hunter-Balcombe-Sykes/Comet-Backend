@@ -91,7 +91,7 @@ class SupabaseEmailHookController extends ApiController
         $displayName = $this->resolveDisplayName($user);
 
         try {
-            $mailable = $this->resolveMailable($actionType, $recipientEmail, $displayName, $verifyUrl, $token);
+            $mailable = $this->resolveMailable($actionType, $recipientEmail, $displayName, $verifyUrl, $token, $webhookId);
             if ($mailable === null) {
                 // Unsupported action type — return success so Supabase doesn't retry
                 // (it'll fall back to its built-in template). Log so we know to add support.
@@ -179,6 +179,7 @@ class SupabaseEmailHookController extends ApiController
         ?string $displayName,
         string $verifyUrl,
         ?string $code,
+        string $webhookId,
     ): ?BaseTransactionalMail {
         // Signup: 6-digit OTP flow — the verify-email screen prompts for the code.
         if ($actionType === 'signup') {
@@ -186,18 +187,18 @@ class SupabaseEmailHookController extends ApiController
                 return null;
             }
 
-            return new EmailConfirmMail($recipientEmail, $displayName, $code);
+            return new EmailConfirmMail($recipientEmail, $displayName, $code, $webhookId);
         }
 
         return match ($actionType) {
             // email_change_new: sent to the new address — link-click flow.
             // email_change: generic fallback Supabase may emit on some versions.
             // email_change_current: only fires when double_confirm_changes = true (disabled) — ignore.
-            'email_change_new', 'email_change' => new EmailChangeMail($recipientEmail, $displayName, $verifyUrl),
+            'email_change_new', 'email_change' => new EmailChangeMail($recipientEmail, $displayName, $verifyUrl, $webhookId),
             'email_change_current' => null,
-            'recovery' => new PasswordResetMail($recipientEmail, $displayName, $verifyUrl),
-            'magiclink' => new MagicLinkMail($recipientEmail, $displayName, $verifyUrl),
-            'invite' => new InviteMail($recipientEmail, $displayName, $verifyUrl),
+            'recovery' => new PasswordResetMail($recipientEmail, $displayName, $verifyUrl, $webhookId),
+            'magiclink' => new MagicLinkMail($recipientEmail, $displayName, $verifyUrl, $webhookId),
+            'invite' => new InviteMail($recipientEmail, $displayName, $verifyUrl, $webhookId),
             default => null,
         };
     }

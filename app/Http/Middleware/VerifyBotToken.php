@@ -163,14 +163,15 @@ final class VerifyBotToken
     }
 
     /**
-     * Keyed SHA-256 of the client IP for log correlation without storing raw PII.
-     * Mirrors the reporter_ip_hash scheme used elsewhere (sha256 of ip + app key).
+     * Keyed HMAC-SHA256 of the client IP for log correlation without storing raw PII.
+     * Uses hash_hmac with app.key — same scheme as HashesClientData and ContentReportService
+     * so cross-system IP hashes are correlatable (SEC-14).
      */
     private function hashedIp(Request $request): string
     {
         $ip = (string) $request->ip();
 
-        return substr(hash('sha256', $ip.'|'.config('app.key')), 0, 16);
+        return substr(hash_hmac('sha256', $ip, config('app.key')), 0, 16);
     }
 
     private function logFailOpenOnce(string $driver, string $action, Request $request, string $reason): void

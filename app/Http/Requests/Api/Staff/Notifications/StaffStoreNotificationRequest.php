@@ -16,7 +16,9 @@ class StaffStoreNotificationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['nullable', 'uuid'],
+            // Reject non-existent UUIDs as 422 rather than silently creating a dangling notification (P3-09).
+            // Connection prefix required: 'pgsql.core.users' so Laravel routes to the right DB connection.
+            'user_id' => ['nullable', 'uuid', Rule::exists('pgsql.core.users', 'id')],
             'type' => ['required', 'string', 'max:50'],
             'title' => ['required', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:5000'],

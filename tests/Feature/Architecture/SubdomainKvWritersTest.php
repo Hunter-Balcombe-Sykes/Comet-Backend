@@ -2,8 +2,8 @@
 
 // §51 architecture test — single-writer rule for the Cloudflare KV subdomain
 // routing table. ONLY SyncSubdomainToKvJob is allowed to call
-// CloudflareKvService::put() / ->delete(). It reconciles both upserts and
-// deletes (retirement on user delete) so there is exactly one KV writer.
+// CloudflareKvService::put() / ->bulkPut() / ->delete(). It reconciles both
+// upserts and deletes (retirement on user delete) so there is exactly one KV writer.
 //
 // Why this is load-bearing (§50 non-negotiable rule #5): the KV table is the
 // edge Worker's source of truth for subdomain routing. Any other writer
@@ -12,8 +12,8 @@
 // doesn't know how to interpret. Worse, parallel writers fight each other —
 // last-write-wins can land on stale state.
 //
-// This test parses source files looking for `->put(` or `->delete(` calls
-// against a variable typed `CloudflareKvService` (or imported as such). It is
+// This test parses source files looking for `->put(`, `->bulkPut(` or `->delete(`
+// calls against a variable typed `CloudflareKvService` (or imported as such). It is
 // intentionally strict — adding a new writer requires updating the allowlist
 // below with a written justification, forcing a deliberate decision rather
 // than a quiet bypass.
@@ -48,16 +48,16 @@ it('only SyncSubdomainToKvJob writes to Cloudflare KV', function () {
             continue;
         }
 
-        // Look for ->put( or ->delete( in source — the service surface that mutates KV.
-        // Match is intentionally string-cheap; CloudflareKvService is small enough that
-        // a false positive (a method named put on a different object) is highly unlikely
-        // in a file that ALSO imports CloudflareKvService.
-        if (preg_match('/->\s*(put|delete)\s*\(/', $source) === 1) {
+        // Look for ->put( / ->bulkPut( / ->delete( in source — the service surface that
+        // mutates KV. Match is intentionally string-cheap; CloudflareKvService is small
+        // enough that a false positive (a method named put on a different object) is highly
+        // unlikely in a file that ALSO imports CloudflareKvService.
+        if (preg_match('/->\s*(bulkPut|put|delete)\s*\(/', $source) === 1) {
             $violations[] = $relative;
         }
     }
 
     expect($violations)->toBeEmpty(
-        "Single-writer rule violation: only SyncSubdomainToKvJob may call ->put()/->delete() on CloudflareKvService. Offenders: \n - ".implode("\n - ", $violations)
+        "Single-writer rule violation: only SyncSubdomainToKvJob may call ->put()/->bulkPut()/->delete() on CloudflareKvService. Offenders: \n - ".implode("\n - ", $violations)
     );
 });

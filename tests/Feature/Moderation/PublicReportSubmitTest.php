@@ -47,3 +47,17 @@ it('returns 422 INVALID_TARGET when handle does not resolve', function () {
     $res->assertStatus(422);
     $res->assertJsonPath('error', 'INVALID_TARGET');
 });
+
+// API-8 contract guards — assert error responses route through the standard
+// ApiController envelope (error + message at the top level, correct status).
+
+it('API-8 contract: INVALID_TARGET error has standard envelope with error + message keys', function () {
+    $res = $this->postJson('/api/v1/public/report', validReportPayload('no-such-handle'));
+    $res->assertStatus(422);
+    // Both machine-readable `error` (read by frontend) and human `message` must be present.
+    $res->assertJsonStructure(['error', 'message']);
+    $res->assertJsonPath('error', 'INVALID_TARGET');
+    // Standard envelope must NOT include a `code` or `errors` key for this error.
+    $res->assertJsonMissingPath('code');
+    $res->assertJsonMissingPath('errors');
+});

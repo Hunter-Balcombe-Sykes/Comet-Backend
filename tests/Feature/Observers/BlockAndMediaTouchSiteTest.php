@@ -213,3 +213,71 @@ it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJ
         return $job->handle === 'touchtest';
     });
 });
+
+// CACHE-2: SiteMediaObserver dirty-flag guard — saved() should only trigger the
+// CF purge chain when a cache-affecting column actually changed. No-op saves
+// (alt_text, caption, processing_error edits) must NOT fire CloudflareCachePurgeJob.
+
+it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurgeJob', function () {
+    $fixture = seedTouchFixture();
+    $media = SiteMedia::create([
+        'site_id' => $fixture['site_id'],
+        'user_id' => $fixture['pro_id'],
+        'pool' => 'gallery',
+        'path' => 'images/test.webp',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => true,
+    ]);
+
+    // Fake AFTER create so we only count purges from the update.
+    Queue::fake();
+
+    $media->alt_text = 'Updated alt text';
+    $media->save();
+
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
+});
+
+it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', function () {
+    $fixture = seedTouchFixture();
+    $media = SiteMedia::create([
+        'site_id' => $fixture['site_id'],
+        'user_id' => $fixture['pro_id'],
+        'pool' => 'gallery',
+        'path' => 'images/test2.webp',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 1,
+        'is_active' => true,
+    ]);
+
+    Queue::fake();
+
+    $media->is_active = false;
+    $media->save();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+it('SiteMedia save changing processing_state to ready dispatches CloudflareCachePurgeJob', function () {
+    $fixture = seedTouchFixture();
+    $media = SiteMedia::create([
+        'site_id' => $fixture['site_id'],
+        'user_id' => $fixture['pro_id'],
+        'pool' => 'gallery',
+        'path' => 'images/pending.webp',
+        'media_type' => 'image',
+        'processing_state' => 'pending',
+        'sort_order' => 2,
+        'is_active' => true,
+    ]);
+
+    Queue::fake();
+
+    $media->processing_state = 'ready';
+    $media->save();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+});

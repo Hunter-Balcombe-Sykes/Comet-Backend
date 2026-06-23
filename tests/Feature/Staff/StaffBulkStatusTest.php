@@ -1,60 +1,72 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+/**
+ * Behavioral tests for StaffUserController::bulkUpdateStatus().
+ *
+ * These tests drive the real HTTP route so the StaffBulkUpdateStatusRequest
+ * FormRequest validates through the normal lifecycle (validateResolved()).
+ *
+ * Validation-only cases that are already fully covered by
+ * StaffBulkUpdateStatusValidationTest are not duplicated here; only unique
+ * cases and behavioral (DB-state / response-shape) assertions live below.
+ */
+
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
-    $conn = DB::connection('pgsql');
-    try {
-        $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (Throwable) {
-    }
+    setupUsersTable();
+    attachTestSchemas();
 
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
+    // RecordStaffAuditEntry middleware runs after the response and writes to
+    // audit.staff_audit_log — create the table so terminate() does not throw.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
         id TEXT PRIMARY KEY,
-        handle TEXT,
-        display_name TEXT,
-        professional_type TEXT,
-        account_type TEXT NULL,
-        status TEXT,
-        admin_notes TEXT,
-        about TEXT,
-        deleted_at TEXT,
-        created_at TEXT,
-        updated_at TEXT
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip TEXT,
+        user_agent TEXT,
+        created_at TEXT
     )');
 });
 
-/**
- * Build an unsaved admin PartnaStaff to satisfy the staffBulkManage policy gate.
- * These tests call the controller directly (no HTTP layer), so we inject the
- * staff model onto the request attributes just as the middleware would.
- */
-function adminStaffActor(): PartnaStaff
+function bulkStatus_makeAdminStaff(): PartnaStaff
 {
     $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
     $staff->role = PartnaStaff::ROLE_ADMIN;
+    $staff->primary_email = 'admin-bulk-beh@partna.au';
 
     return $staff;
 }
 
-function seedUsers(int $n, string $status = 'active'): array
+function bulkStatus_seedUsers(int $n, string $status = 'active'): array
 {
     $ids = [];
+    $now = now()->toDateTimeString();
+
     for ($i = 0; $i < $n; $i++) {
         $id = (string) Str::uuid();
-        DB::table('core.users')->insert([
+        DB::connection('pgsql')->table('core.users')->insert([
             'id' => $id,
-            'handle' => "bulk-{$i}",
+            'handle' => 'bulk-beh-'.$i.'-'.Str::random(4),
             'display_name' => "Bulk Pro {$i}",
+            'primary_email' => 'bulk-beh-'.$i.'@example.test',
+            'account_type' => 'individual',
             'status' => $status,
+            'created_at' => $now,
+            'updated_at' => $now,
         ]);
         $ids[] = $id;
     }
@@ -63,122 +75,62 @@ function seedUsers(int $n, string $status = 'active'): array
 }
 
 it('bulk-suspends a wave of professionals', function () {
-    $ids = seedUsers(5);
-
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => $ids,
-        'status' => 'suspended',
-    ]);
-    // Fresh TOTP amr entry — satisfies the requiresFreshAal2 gate added in B17.
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    // Admin staff actor — satisfies the staffBulkManage policy gate added in #P2-03.
-    $request->attributes->set('partna_staff', adminStaffActor());
+    $ids = bulkStatus_seedUsers(5);
 
     Log::spy();
-    $response = $controller->bulkUpdateStatus($request);
-    $data = json_decode($response->getContent(), true);
 
-    expect($response->status())->toBe(200)
-        ->and($data['updated_count'])->toBe(5)
-        ->and($data['status'])->toBe('suspended')
-        ->and($data['missing_ids'])->toBe([]);
+    actingAsStaff(bulkStatus_makeAdminStaff())
+        ->postJson('/api/staff/professionals/bulk-status', [
+            'ids' => $ids,
+            'status' => 'suspended',
+        ])
+        ->assertStatus(200)
+        ->assertJsonPath('updated_count', 5)
+        ->assertJsonPath('status', 'suspended')
+        ->assertJsonPath('missing_ids', []);
 
-    // Every row should now be suspended
+    // Every seeded row should now be suspended.
     expect(User::query()->whereIn('id', $ids)->where('status', 'suspended')->count())->toBe(5);
 
-    // One audit log per professional
+    // One audit log entry per professional.
     Log::shouldHaveReceived('info')->times(5);
 });
 
 it('accepts exactly 100 IDs', function () {
-    $ids = seedUsers(100);
+    $ids = bulkStatus_seedUsers(100);
 
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => $ids,
-        'status' => 'suspended',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
-
-    $response = $controller->bulkUpdateStatus($request);
-    $data = json_decode($response->getContent(), true);
-
-    expect($response->status())->toBe(200)
-        ->and($data['updated_count'])->toBe(100);
-});
-
-it('rejects 101 IDs with validation error', function () {
-    $ids = array_map(fn () => (string) Str::uuid(), range(1, 101));
-
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => $ids,
-        'status' => 'suspended',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
-
-    expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(ValidationException::class);
-});
-
-it('rejects unknown status values', function () {
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => [(string) Str::uuid()],
-        'status' => 'banned',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
-
-    expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(ValidationException::class);
-});
-
-it('rejects non-UUID IDs', function () {
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => ['not-a-uuid'],
-        'status' => 'suspended',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
-
-    expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(ValidationException::class);
+    actingAsStaff(bulkStatus_makeAdminStaff())
+        ->postJson('/api/staff/professionals/bulk-status', [
+            'ids' => $ids,
+            'status' => 'suspended',
+        ])
+        ->assertStatus(200)
+        ->assertJsonPath('updated_count', 100);
 });
 
 it('returns missing_ids for unknown UUIDs without rolling back valid ones', function () {
-    $valid = seedUsers(2);
+    $valid = bulkStatus_seedUsers(2);
     $missing = [(string) Str::uuid(), (string) Str::uuid()];
 
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => array_merge($valid, $missing),
-        'status' => 'suspended',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
+    actingAsStaff(bulkStatus_makeAdminStaff())
+        ->postJson('/api/staff/professionals/bulk-status', [
+            'ids' => array_merge($valid, $missing),
+            'status' => 'suspended',
+        ])
+        ->assertStatus(200)
+        ->assertJsonPath('updated_count', 2)
+        ->assertJsonCount(2, 'missing_ids');
 
-    $response = $controller->bulkUpdateStatus($request);
-    $data = json_decode($response->getContent(), true);
-
-    expect($response->status())->toBe(200)
-        ->and($data['updated_count'])->toBe(2)
-        ->and(count($data['missing_ids']))->toBe(2);
+    // The two valid professionals should still be updated.
+    expect(User::query()->whereIn('id', $valid)->where('status', 'suspended')->count())->toBe(2);
 });
 
-it('rejects empty ids array', function () {
-    $controller = new StaffUserController;
-    $request = Request::create('/', 'POST', [
-        'ids' => [],
-        'status' => 'suspended',
-    ]);
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-    $request->attributes->set('partna_staff', adminStaffActor());
-
-    expect(fn () => $controller->bulkUpdateStatus($request))
-        ->toThrow(ValidationException::class);
+it('rejects empty ids array with 422', function () {
+    actingAsStaff(bulkStatus_makeAdminStaff())
+        ->postJson('/api/staff/professionals/bulk-status', [
+            'ids' => [],
+            'status' => 'suspended',
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['ids']);
 });

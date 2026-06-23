@@ -333,7 +333,7 @@ class MediaUploadService
             $originalPath = $this->imageService->storeOriginal($file, $basePath);
         }
 
-        Log::info('Original stored successfully', ['media_id' => $mediaId, 'path' => $originalPath]);
+        Log::info('media.original_stored', ['media_id' => $mediaId, 'disk' => $mediaDisk, 'path' => $originalPath]);
 
         return $originalPath;
     }

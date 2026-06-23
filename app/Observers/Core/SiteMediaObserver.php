@@ -20,20 +20,49 @@ class SiteMediaObserver
         private readonly SectionVisibilityService $visibilityService,
     ) {}
 
-    public function saved(SiteMedia $media): void
+    /**
+     * Columns whose change has a visible impact on the public site. An update that
+     * touches ONLY other columns (alt_text, caption, processing_error, etc.) is a
+     * no-op for the public page and should not trigger a CF purge or site-cache sweep.
+     *
+     * `processing_state` is the critical one — it fires when an upload transitions
+     * from pending/processing → ready, making the asset publicly visible for the
+     * first time. `path` covers storage-path corrections after reprocessing.
+     */
+    private const CACHE_AFFECTING_COLUMNS = [
+        'is_active', 'processing_state', 'pool', 'media_type', 'path', 'sort_order',
+    ];
+
+    public function created(SiteMedia $media): void
     {
+        // New media always triggers section visibility reevaluation and cache bust.
         $this->reevaluateIfRelevant($media);
-        $this->touchParentSite($media, 'save');
+        $this->touchParentSite($media, 'create');
+    }
+
+    public function updated(SiteMedia $media): void
+    {
+        // Skip the cache sweep for updates that touch only metadata columns
+        // (alt_text, caption, processing_error, etc.) with no bearing on the
+        // rendered public page.
+        if (! $media->wasChanged(self::CACHE_AFFECTING_COLUMNS)) {
+            return;
+        }
+
+        $this->reevaluateIfRelevant($media);
+        $this->touchParentSite($media, 'update');
     }
 
     public function deleted(SiteMedia $media): void
     {
+        // Always bust on delete — presence/count always changes.
         $this->reevaluateIfRelevant($media);
         $this->touchParentSite($media, 'delete');
     }
 
     public function restored(SiteMedia $media): void
     {
+        // Always bust on restore — presence/count always changes.
         $this->reevaluateIfRelevant($media);
         $this->touchParentSite($media, 'restore');
     }

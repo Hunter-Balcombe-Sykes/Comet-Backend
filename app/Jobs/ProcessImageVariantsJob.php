@@ -146,10 +146,20 @@ class ProcessImageVariantsJob implements ShouldQueue
                 throw new \RuntimeException('Failed to create temporary file.');
             }
 
-            $content = $disk->get($this->originalPath);
-            if (! file_put_contents($localTmp, $content)) {
-                throw new \RuntimeException('Failed to write original to temp file.');
+            $stream = $disk->readStream($this->originalPath);
+            if (! $stream) {
+                throw new \RuntimeException('Failed to open read stream for original image.');
             }
+
+            $dest = fopen($localTmp, 'wb');
+            if (! $dest) {
+                fclose($stream);
+                throw new \RuntimeException('Failed to open local temp file for writing.');
+            }
+
+            stream_copy_to_stream($stream, $dest);
+            fclose($stream);
+            fclose($dest);
 
             $service->processVariants(
                 originalTmpPath: $localTmp,

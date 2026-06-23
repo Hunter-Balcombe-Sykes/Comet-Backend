@@ -16,8 +16,11 @@ namespace App\Services\Accounts;
 final readonly class AccountCapabilitySet
 {
     /**
-     * @param  string  $notification_categories  Comma-separated list of allowed categories.
-     *                                           'full' means every category in the registry.
+     * @param  string  $notification_categories  Comma-separated list of notification category tags
+     *                                           available to this account (e.g. 'profile,platform').
+     *                                           Stored for informational use — callers that filter by
+     *                                           category should check this value; no automatic enforcement
+     *                                           is applied by this class.
      * @param  string  $worker_kv_type  Routing tag written to SUBDOMAIN_KV by
      *                                  SyncSubdomainToKvJob. One of: brand|affiliate|individual.
      * @param  bool  $can_submit_feedback  Always true today. The gate exists so a future

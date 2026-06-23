@@ -179,13 +179,16 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
     // Canonical entry — no expiry (null TTL).
     $kv->shouldReceive('put')->once()->with('newh', ['type' => 'individual'], null);
 
-    // Alias entry — type=alias, redirect=canonical full URL, TTL close to 90d.
+    // Alias entries — written via a single bulkPut (SCALE-6). Each entry carries
+    // type=alias, redirect=canonical full URL, expiration_ttl close to 90d.
     // The Worker reads entry.redirect as a full URL; the older {target:<handle>}
     // shape caused a 522 self-loop (see SyncSubdomainToKvJob docblock).
-    $kv->shouldReceive('put')->once()->withArgs(function ($key, $value, $ttl) {
-        return $key === 'oldh'
-            && $value === ['type' => 'alias', 'redirect' => 'https://newh.partna.au']
-            && $ttl >= 7776000 - 10 && $ttl <= 7776000 + 10;
+    $kv->shouldReceive('bulkPut')->once()->withArgs(function ($entries) {
+        return count($entries) === 1
+            && $entries[0]['key'] === 'oldh'
+            && $entries[0]['value'] === ['type' => 'alias', 'redirect' => 'https://newh.partna.au']
+            && $entries[0]['expiration_ttl'] >= 7776000 - 10
+            && $entries[0]['expiration_ttl'] <= 7776000 + 10;
     });
 
     (new SyncSubdomainToKvJob($proId))

@@ -116,7 +116,8 @@ class UserSectionBlockController extends ApiController
         $data = $request->validated();
         $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
-            return $this->error('This section is not available for your account type.', 403);
+            // 422 not 403: unknown blockType is invalid input, not an authz failure.
+            return $this->error('This section type is not recognised.', 422);
         }
 
         $this->syncAllowedSections($pro->id, $site->id, $allowedSections);
@@ -303,7 +304,8 @@ class UserSectionBlockController extends ApiController
         $site = $this->currentSite($pro);
         $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
-            return $this->error('This section is not available for your account type.', 403);
+            // 422 not 403: unknown blockType is invalid input, not an authz failure.
+            return $this->error('This section type is not recognised.', 422);
         }
 
         $this->syncAllowedSections($pro->id, $site->id, $allowedSections);

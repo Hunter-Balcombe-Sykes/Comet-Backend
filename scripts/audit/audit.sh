@@ -31,6 +31,10 @@
 #                         the qualitative companion to `composer analyse`)
 #     pre-pilot        — core + data-integrity + job-queue-correctness + observability
 #                        + caching-coverage-gaps (12 lenses; full pre-pilot correctness sweep)
+#     security         — security + schema-rls + configuration-hygiene + edge-worker
+#                        + privacy-compliance (the pure security & tenant-isolation
+#                        sweep: auth, IDOR, injection, SSRF, RLS, secrets, PII).
+#                        Use with --codebase for a whole-backend security audit.
 #     launch-readiness — security + privacy-compliance + edge-worker + configuration-hygiene
 #                        + migration-safety + api-contract (the go-live gate)
 #     scale-health     — caching trio + database-and-queue-scaling + job-queue-correctness
@@ -338,6 +342,17 @@ if $FULL; then
             META_PREFIXES="security/policy (SEC-*), lifecycle correctness (LIFE-*), scaling antipatterns (CACHE-*), database/queue scaling (SCALE-*), schema/RLS (SCHEMA-*), caching gold-standard (CCH-*), inbound callbacks & idempotency (WHK-*), transaction boundaries (TXN-*), data integrity (DINT-*), job/queue correctness under failure (JOB-*), observability/silent failures (OBS-*), and caching coverage gaps (CCG-*) — the full pre-pilot correctness sweep"
             ADJ_BUDGET="8.00"
             ;;
+        security)
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/security.md"
+                "$SCRIPT_DIR/lenses/schema-rls.md"
+                "$SCRIPT_DIR/lenses/configuration-hygiene.md"
+                "$SCRIPT_DIR/lenses/edge-worker.md"
+                "$SCRIPT_DIR/lenses/privacy-compliance.md"
+            )
+            META_PREFIXES="security/auth/tenant-isolation/IDOR/injection/SSRF/PII/MFA (SEC-*), schema & RLS / search_path DB-layer tenant isolation (SCHEMA-*), configuration hygiene & secret leakage / CORS (CFG-*), edge worker origin-trust & KV poisoning (EDGE-*), and privacy & data-rights compliance / PII inventory (PRIV-*) — the full security & tenant-isolation sweep across the whole backend"
+            ADJ_BUDGET="5.00"
+            ;;
         launch-readiness)
             LENS_FILES=(
                 "$SCRIPT_DIR/lenses/security.md"
@@ -389,7 +404,7 @@ if $FULL; then
             ADJ_BUDGET="12.00"
             ;;
         *)
-            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, launch-readiness, scale-health, full-sweep)" >&2
+            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, security, launch-readiness, scale-health, full-sweep)" >&2
             exit 2
             ;;
     esac

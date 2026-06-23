@@ -308,6 +308,63 @@ it('returns 422 when the payload is missing required fields', function (): void 
     expect($response->status())->toBe(422);
 });
 
+// WHK-5 — deterministic Message-ID from webhook-id -----------------------------------------
+
+it('WHK-5: mailable headers() returns a Message-ID derived from the webhook-id', function (): void {
+    Config::set('mail.from.address', 'hello@partna.au');
+    $webhookId = 'msg_test_abc123';
+
+    $mail = new PasswordResetMail('user@example.com', null, 'https://example.com/confirm', $webhookId);
+
+    expect($mail->headers()->messageId)->toBe('msg_test_abc123@partna.au');
+});
+
+it('WHK-5: two builds with the same webhook-id produce identical Message-IDs (retry is idempotent)', function (): void {
+    Config::set('mail.from.address', 'hello@partna.au');
+    $webhookId = 'msg_stable_deadbeef';
+
+    $first  = new EmailConfirmMail('user@example.com', 'User', '123456', $webhookId);
+    $second = new EmailConfirmMail('user@example.com', 'User', '123456', $webhookId);
+
+    // Both builds — same as what a Horizon retry produces after deserialization —
+    // must emit the same Message-ID, not a randomly-generated one.
+    expect($first->headers()->messageId)->toBe($second->headers()->messageId)
+        ->and($first->headers()->messageId)->toBe('msg_stable_deadbeef@partna.au');
+});
+
+it('WHK-5: controller threads the webhook-id into the queued mailable', function (): void {
+    Config::set('mail.from.address', 'hello@partna.au');
+
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'whk5@partna.au', 'user_metadata' => ['full_name' => 'WHK Five']],
+        'email_data' => [
+            'token_hash' => 'tok_whk5',
+            'redirect_to' => 'https://app.partna.au/auth/callback',
+            'email_action_type' => 'recovery',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $webhookId = $req['headers']['webhook-id'];
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id'        => $webhookId,
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE'           => 'application/json',
+    ], $req['body']);
+
+    $response->assertOk();
+
+    // The queued mailable must carry the same webhook-id used to sign the request,
+    // so a Horizon retry serializes/deserializes the same id and produces the
+    // same Message-ID — no new random id is generated on retry.
+    Mail::assertQueued(PasswordResetMail::class, function (PasswordResetMail $m) use ($webhookId): bool {
+        return $m->webhookId === $webhookId
+            && $m->headers()->messageId === $webhookId.'@partna.au';
+    });
+});
+
 it('WHK-3: fails closed (400) when the webhook-id header is absent', function (): void {
     // Exercises the controller guard directly — the signature middleware would
     // normally 401 an empty webhook-id, so this proves the controller is

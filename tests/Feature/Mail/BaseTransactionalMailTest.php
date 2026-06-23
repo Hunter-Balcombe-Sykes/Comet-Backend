@@ -43,3 +43,18 @@ it('still returns the mailable for chaining', function () {
 
     expect($result)->toBe($mail);
 });
+
+// WHK-5 regression — non-auth mailables must never hit "must not be accessed
+// before initialization" on $webhookId, and must not produce a pinned Message-ID.
+it('WHK-5 regression: non-auth mailable headers() does not throw and returns no pinned Message-ID', function () {
+    // UserDataExportMail never sets $webhookId — this proves the empty-string
+    // default prevents the "uninitialized typed property" fatal, and that the
+    // guard returns an empty Headers() so Symfony auto-generates the Message-ID
+    // rather than emitting the invalid "@partna.au" local-part.
+    $mail = new UserDataExportMail('https://example.com/export.zip', 'jane', 'professional', []);
+
+    $headers = $mail->headers();
+
+    // No pinned id — Symfony will generate one at send time.
+    expect($headers->messageId)->toBeNull();
+});

@@ -23,7 +23,7 @@ it('invalidates customer count cache when a customer is created', function () {
     $customer = new Customer;
     $customer->user_id = $userId;
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     $observer->created($customer);
 
     expect(Cache::has($cacheKey))->toBeFalse();
@@ -38,7 +38,7 @@ it('invalidates customer count cache when a customer is updated', function () {
     $customer = new Customer;
     $customer->user_id = $userId;
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     $observer->updated($customer);
 
     expect(Cache::has($cacheKey))->toBeFalse();
@@ -53,7 +53,7 @@ it('invalidates customer count cache when a customer is deleted', function () {
     $customer = new Customer;
     $customer->user_id = $userId;
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     $observer->deleted($customer);
 
     expect(Cache::has($cacheKey))->toBeFalse();
@@ -68,7 +68,7 @@ it('invalidates customer count cache when a customer is restored', function () {
     $customer = new Customer;
     $customer->user_id = $userId;
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     $observer->restored($customer);
 
     expect(Cache::has($cacheKey))->toBeFalse();
@@ -78,7 +78,7 @@ it('does not throw when user_id is missing', function () {
     $customer = new Customer;
     // user_id intentionally not set
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     expect(fn () => $observer->created($customer))->not->toThrow(Throwable::class);
 });
 
@@ -95,9 +95,27 @@ it('only invalidates the correct professional count key', function () {
     $customer = new Customer;
     $customer->user_id = $professionalA;
 
-    $observer = new CustomerObserver;
+    $observer = app(CustomerObserver::class);
     $observer->deleted($customer);
 
     expect(Cache::has($keyA))->toBeFalse();
     expect(Cache::get($keyB))->toBe(8); // unaffected
+});
+
+it('also invalidates the stale SWR key alongside the primary count key', function () {
+    $userId = (string) Str::uuid();
+    $key = CacheKeyGenerator::customerCount($userId);
+    $staleKey = $key.':stale';
+
+    Cache::put($key, 4, now()->addMinutes(15));
+    Cache::put($staleKey, 4, now()->addMinutes(30));
+
+    $customer = new Customer;
+    $customer->user_id = $userId;
+
+    $observer = app(CustomerObserver::class);
+    $observer->updated($customer);
+
+    expect(Cache::has($key))->toBeFalse();
+    expect(Cache::has($staleKey))->toBeFalse();
 });

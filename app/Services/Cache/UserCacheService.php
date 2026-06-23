@@ -259,6 +259,18 @@ class UserCacheService
         );
     }
 
+    /**
+     * Bust the customer count keys for a given user. Uses deleteMultiple so both
+     * the primary key and the SWR `:stale` copy are cleared atomically, mirroring
+     * the pattern in invalidateUser(). Increment/decrement is intentionally avoided
+     * because the count is soft-delete-aware and would drift under concurrent deletes.
+     */
+    public function invalidateCustomerCount(string $userId): void
+    {
+        $key = CacheKeyGenerator::customerCount($userId);
+        Cache::deleteMultiple([$key, $key.':stale']);
+    }
+
     public function invalidateUser(User $professional, bool $bustSite = true): void
     {
         $handleLc = strtolower($professional->handle);

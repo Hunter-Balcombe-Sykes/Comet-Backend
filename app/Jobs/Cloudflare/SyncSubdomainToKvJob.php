@@ -174,6 +174,9 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
      * alias expires. Legacy NULL-expires_at aliases get no TTL (permanent
      * until the next prune sweep).
      *
+     * All active aliases are batched into a single bulkPut call (SCALE-6) to
+     * avoid N individual HTTP requests for users with many historical handles.
+     *
      * The Worker contract reads `entry.redirect` as a full URL — sending
      * `target: <handle>` (the older shape) silently falls through the
      * Worker's alias branch and routes to fetch(request), producing an
@@ -188,18 +191,37 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
             })
             ->get();
 
+        $entries = [];
+
         foreach ($aliases as $alias) {
             $handle = strtolower(trim($alias->handle));
             if ($handle === '' || $handle === $current) {
                 continue;
             }
 
-            // max(60, ...) so we never pass a sub-minimum TTL to CF KV.
+            // Compute the raw signed TTL (no max() clamp).
             $ttl = $alias->expires_at
-                ? max(60, (int) now()->diffInSeconds(Carbon::parse($alias->expires_at), false))
+                ? (int) now()->diffInSeconds(Carbon::parse($alias->expires_at), false)
                 : null;
 
-            $kv->put($handle, ['type' => 'alias', 'redirect' => $canonical], $ttl);
+            // P3-31: skip already-expired aliases — Cloudflare KV enforces a 60s
+            // minimum TTL, so passing a ≤0 TTL would resurrect an expired alias at
+            // the edge for up to 60s past its DB expiry. The DB query above already
+            // excludes expires_at < now(), but race conditions between query time and
+            // this point mean we must guard here too. Aligns with the resolver
+            // ->active() scope which also filters expires_at > now().
+            if ($ttl !== null && $ttl <= 0) {
+                continue;
+            }
+
+            $entries[] = [
+                'key' => $handle,
+                'value' => ['type' => 'alias', 'redirect' => $canonical],
+                'expiration_ttl' => $ttl,
+            ];
         }
+
+        // SCALE-6: one bulk PUT instead of N individual PUTs.
+        $kv->bulkPut($entries);
     }
 }

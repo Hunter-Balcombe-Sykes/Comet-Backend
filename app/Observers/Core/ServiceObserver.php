@@ -50,26 +50,46 @@ class ServiceObserver
         return $pro;
     }
 
-    public function saved(Service $service): void
+    /**
+     * Columns whose change can affect whether the booking/services section block
+     * is visible on the public page. Updates touching only unrelated columns
+     * (sort_order, description, duration_minutes, currency_code) skip the
+     * reevaluation to avoid unnecessary DB queries per save event.
+     */
+    private const VISIBILITY_AFFECTING_COLUMNS = ['is_active', 'price_cents', 'title', 'deleted_at'];
+
+    public function created(Service $service): void
     {
-        $this->runHooks($service);
+        // New service always triggers visibility reevaluation — the block may need to appear.
+        $this->runHooks($service, checkVisibility: true);
+    }
+
+    public function updated(Service $service): void
+    {
+        // Gate reevaluation on visibility-affecting column changes. Sort-order shuffles,
+        // description edits, etc. still cache-bust (via bust() + touchParentSite) but
+        // skip the extra DB queries for section visibility.
+        $checkVisibility = $service->wasChanged(self::VISIBILITY_AFFECTING_COLUMNS);
+        $this->runHooks($service, $checkVisibility);
     }
 
     public function deleted(Service $service): void
     {
-        $this->runHooks($service);
+        $this->runHooks($service, checkVisibility: true);
     }
 
     public function restored(Service $service): void
     {
-        $this->runHooks($service);
+        $this->runHooks($service, checkVisibility: true);
     }
 
-    private function runHooks(Service $service): void
+    private function runHooks(Service $service, bool $checkVisibility = true): void
     {
         try {
             $pro = $this->bust($service);
-            $this->reevaluateBooking($service, $pro);
+            if ($checkVisibility) {
+                $this->reevaluateBooking($service, $pro);
+            }
             $this->touchParentSite($service, $pro);
         } catch (\Throwable $e) {
             Log::error('ServiceObserver hook failed', [

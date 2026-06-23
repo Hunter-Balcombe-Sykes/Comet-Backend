@@ -102,7 +102,7 @@ class LiveStatusPoller
                 ]);
                 // Flip the circuit breaker and stop polling Kick for this cycle
                 // (and subsequent cycles until the flag expires).
-                Redis::set(self::KICK_RATE_LIMITED_KEY, '1', 'EX', self::KICK_RATE_LIMITED_TTL);
+                Redis::set(self::KICK_RATE_LIMITED_KEY, '1', 'EX', (int) config('partna.streaming.kick_rate_limited_ttl', self::KICK_RATE_LIMITED_TTL));
 
                 return;
             }
