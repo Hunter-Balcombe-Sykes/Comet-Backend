@@ -39,7 +39,10 @@ class SmartLinkObserver
         try {
             $pro = User::query()->with('site')->find($link->user_id);
             if ($pro) {
-                $this->userCache->invalidateUser($pro);
+                // bustSite: false — touch() always follows below, which fires
+                // SiteObserver → invalidateSite(). Passing true would double-bust
+                // ~29 Redis keys on every smart-link write (mirrors ServiceObserver::bust()).
+                $this->userCache->invalidateUser($pro, bustSite: false);
                 // Bump sites.updated_at → SiteObserver dispatches
                 // CloudflareCachePurgeJob and the public-profile Redis key
                 // (public.profile:{handle}:{updated_at_ts}) rolls forward.

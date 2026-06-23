@@ -77,3 +77,56 @@ it('fires invalidateSite exactly once on a service delete', function () {
 
     $spy->shouldHaveReceived('invalidateSite')->once();
 });
+
+// P3-27: reevaluateBooking() must be gated on visibility-affecting column changes.
+// sort_order-only saves should cache-bust (invalidateSite fires) but NOT trigger
+// SectionVisibilityService::reevaluateEnabled (extra DB queries).
+
+it('does NOT call reevaluateEnabled on a sort_order-only update', function () {
+    [, , $service] = seedServiceBustPro();
+
+    $visibilitySpy = Mockery::spy(SectionVisibilityService::class);
+    app()->instance(SectionVisibilityService::class, $visibilitySpy);
+
+    $service->update(['sort_order' => 5]);
+
+    $visibilitySpy->shouldNotHaveReceived('reevaluateEnabled');
+});
+
+it('DOES call reevaluateEnabled on an is_active change', function () {
+    [, , $service] = seedServiceBustPro();
+
+    $visibilitySpy = Mockery::spy(SectionVisibilityService::class);
+    app()->instance(SectionVisibilityService::class, $visibilitySpy);
+
+    $service->update(['is_active' => false]);
+
+    $visibilitySpy->shouldHaveReceived('reevaluateEnabled')->atLeast()->once();
+});
+
+it('DOES call reevaluateEnabled on service create', function () {
+    [$proId] = seedServiceBustPro();
+
+    $visibilitySpy = Mockery::spy(SectionVisibilityService::class);
+    app()->instance(SectionVisibilityService::class, $visibilitySpy);
+
+    Service::query()->create([
+        'user_id' => $proId,
+        'title' => 'Brand new service',
+        'is_active' => true,
+        'sort_order' => 10,
+    ]);
+
+    $visibilitySpy->shouldHaveReceived('reevaluateEnabled')->atLeast()->once();
+});
+
+it('DOES call reevaluateEnabled on service delete', function () {
+    [, , $service] = seedServiceBustPro();
+
+    $visibilitySpy = Mockery::spy(SectionVisibilityService::class);
+    app()->instance(SectionVisibilityService::class, $visibilitySpy);
+
+    $service->delete();
+
+    $visibilitySpy->shouldHaveReceived('reevaluateEnabled')->atLeast()->once();
+});
