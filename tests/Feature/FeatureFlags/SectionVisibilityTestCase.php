@@ -76,5 +76,20 @@ class SectionVisibilityTestCase
             updated_at TEXT,
             deleted_at TEXT
         )');
+
+        // FFLAG-6: site.sites is referenced by checkWorkplaceRequirements() and
+        // other visibility checks that gate on the site row. Required for
+        // seedProAndSite() to return a real (not floating) site id.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            subdomain TEXT NULL,
+            skeleton_id TEXT NULL,
+            is_published INTEGER NULL,
+            settings TEXT NULL,
+            deleted_at TEXT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )');
     }
 }

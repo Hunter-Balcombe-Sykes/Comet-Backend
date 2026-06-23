@@ -106,3 +106,22 @@ it('denies create when the skeleton user_id does not match the actor', function 
         Gate::forUser($actor)->allows('create', $skeleton)
     )->toBeFalse();
 });
+
+// TEST-9: pending-deletion-can-create invariant.
+// The policy explicitly skips denyIfPendingDeletion() so that users going
+// through the deletion flow can still leave feedback about it (FeedbackPolicy:31-33).
+// The route also carries withoutMiddleware([EnforcePendingDeletionReadOnly]).
+it('allows a pending-deletion user to create feedback (policy intentionally skips denyIfPendingDeletion)', function () {
+    $actor = feedbackPolicy_user('pending-1');
+    $actor->status = 'pending_deletion';
+    // Flush the WeakMap so the new status is picked up by AccountCapabilities.
+    AccountCapabilities::flushCache();
+
+    $skeleton = feedbackPolicy_feedback('pending-1'); // user_id matches actor
+
+    // can_submit_feedback is hardcoded true regardless of status, and the policy
+    // does NOT call denyIfPendingDeletion(), so create must be allowed.
+    expect(
+        Gate::forUser($actor)->allows('create', $skeleton)
+    )->toBeTrue();
+});

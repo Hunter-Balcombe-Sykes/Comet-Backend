@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 11 / 12 complete
+- Bundles: 12 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -137,14 +137,14 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: thread the webhook id into the mailable for idempotent delivery. review=opus — mail. (Forensic-trail `#WHK-3` + replay `#WHK-4` are Standalone — they need a new table.)
 
 ### Bundle B12: Test-coverage gaps (5 items) — Effort: M
-- [ ] **Bundle B12 complete**
+- [x] **Bundle B12 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#TEST-4** · P2 — No test asserts `IndividualProfileResource` excludes `placeholders`/`fallback_gallery`/`brand_logo`/`brand_slogan` — `tests/Feature/PublicSite/IndividualProfileControllerTest.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-test-coverage.md`
-    - [ ] **#TEST-9** · P2 — `FeedbackPolicy` pending-deletion-can-create invariant untested — `app/Policies/FeedbackPolicy.php:35` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-test-coverage.md`
-    - [ ] **#FFLAG-1** · P2 — `allFor()` → `allForFromDb()` degraded path (real DB flags + overrides) untested — `tests/Unit/FeatureFlags/RedisDownFallbackTest.php` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
-    - [ ] **#FFLAG-2** · P2 — `enabled()` degraded path with an actual `FeatureFlag` DB row untested — `tests/Unit/FeatureFlags/RedisDownFallbackTest.php` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
-    - [ ] **#FFLAG-6** · P3 — `seedProAndSite()` returns a floating `$siteId` (no `site.sites` row) — `tests/Feature/FeatureFlags/SectionVisibilityLinkOnlyTest.php:15` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
+    - [x] **#TEST-4** · P2 — OBSOLETE (already covered): `IndividualProfileControllerTest` asserts all 4 keys (placeholders/fallback_gallery/brand_logo/brand_slogan) absent from data + data.profile — `tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-test-coverage.md`
+    - [x] **#TEST-9** · P2 — FIXED: Gate-based test asserts a pending-deletion user CAN create feedback (policy skips denyIfPendingDeletion) — `tests/Feature/Security/PolicyEnforcement/FeedbackPolicyEnforcementTest.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-test-coverage.md`
+    - [x] **#FFLAG-1** · P2 — FIXED: Redis-down `allFor()`→`allForFromDb()` test (DB override wins over default-false; only the fallback path can yield the asserted result) — `tests/Unit/FeatureFlags/RedisDownFallbackTest.php` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
+    - [x] **#FFLAG-2** · P2 — FIXED: Redis-down `enabled()` returns DB FeatureFlag value not config (config=false, DB=true → asserts true) — `tests/Unit/FeatureFlags/RedisDownFallbackTest.php` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
+    - [x] **#FFLAG-6** · P3 — FIXED: `seedProAndSite()` now inserts a real `site.sites` row (table added to SectionVisibilityTestCase); 4 existing tests still pass — `tests/Feature/FeatureFlags/SectionVisibilityLinkOnlyTest.php` → `audits/archive/loose-may-2026/audit-2026-05-18-test-coverage-gaps-and-edge-case-test-quality-2.md`
 - Rationale: pure test additions; no production code change.
 
 ---
