@@ -341,6 +341,30 @@ it('drops the website from booking links but keeps a real provider link', functi
     expect($fresha['selection'])->toBeNull();
 });
 
+it('keeps a same-domain appointment link and auto-syncs it as the booking card', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();
+    $item['website'] = 'https://www.fadelab.com.au/';
+    // Google's "Book online" appointment link lives on the business's OWN domain.
+    // It must NOT be filtered as the website echo — it's a real way to book.
+    $item['bookingLinks'] = [
+        ['name' => 'fadelab.com.au', 'url' => 'http://fadelab.com.au'],                 // website echo (diff scheme/www) → dropped
+        ['name' => 'Book', 'url' => 'https://www.fadelab.com.au/book-appointment'],     // appointment → kept
+    ];
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gbweb3', 'business');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+
+    // The same-domain appointment link became the user's (custom) booking card.
+    $booking = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail()->payload;
+    expect($booking['url'])->toBe('https://www.fadelab.com.au/book-appointment');
+    expect($booking['source'])->toBe('google-business');
+});
+
 it('keeps the Google Business selection business-info-only after enrichment', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
