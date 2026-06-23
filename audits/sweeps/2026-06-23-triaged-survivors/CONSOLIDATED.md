@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 6 / 12 complete
+- Bundles: 7 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -95,14 +95,14 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: config-as-source-of-truth cleanups; low risk.
 
 ### Bundle B7: Validation, hashing & logging hygiene (5 items) — Effort: S
-- [ ] **Bundle B7 complete**
+- [x] **Bundle B7 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#SEC-12** · P3 — `StaffUserController::bulkUpdateStatus()` still inline `$request->validate()` — `app/Http/Controllers/Api/Staff/StaffUserController.php:144` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
-    - [ ] **#SEC-14** · P3 — `VerifyBotToken` + `ContentReportService` use concatenation SHA-256, not HMAC (blocks cross-system IP correlation) — `app/Http/Middleware/VerifyBotToken.php:173`, `app/Services/.../ContentReportService.php:54` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
-    - [ ] **#P3-09** · P3 — Staff notification `user_id` accepts non-existent UUIDs (no `Rule::exists`) — `app/Http/Requests/Api/Staff/Notifications/StaffStoreNotificationRequest.php:19` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#P3-05** · P3 — ffmpeg combined output (incl. `/tmp/...` paths) logged verbatim — `app/Services/Media/VideoVariantService.php:488` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#P3-01** · P3 — `notification_categories` docblock implies enforcement that doesn't exist — `app/Services/Accounts/AccountCapabilitySet.php:19` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#SEC-12** · P3 — FIXED: extracted inline validate() into `StaffBulkUpdateStatusRequest` FormRequest — `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
+    - [x] **#SEC-14** · P3 — FIXED: both sites now `hash_hmac('sha256', $ip, config('app.key'))` (shared key → cross-system correlation works); B10 feedback pepper left separate — `app/Http/Middleware/VerifyBotToken.php`, `app/Services/Moderation/ContentReportService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
+    - [x] **#P3-09** · P3 — FIXED: `Rule::exists('pgsql.core.users', 'id')` added to `user_id` (kept uuid+nullable) — `app/Http/Requests/Api/Staff/Notifications/StaffStoreNotificationRequest.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P3-05** · P3 — FIXED: `sanitizeOutput()` strips `/...` paths + tail-truncates ffmpeg output before logging (encodeMp4 + extractPoster) — `app/Services/Media/VideoVariantService.php` (follow-up noted: `probe()` line ~78 has same raw-output pattern, not cited) → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P3-01** · P3 — FIXED: docblock corrected to say `notification_categories` is informational, no enforcement — `app/Services/Accounts/AccountCapabilitySet.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
 - Rationale: small, independent hygiene fixes.
 
 ### Bundle B8: Code reuse — analytics queries (1 item) — Effort: S

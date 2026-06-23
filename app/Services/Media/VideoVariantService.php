@@ -467,7 +467,7 @@ class VideoVariantService
         $output_str = $this->runCommand($cmd, $exitCode, $timeout);
 
         if ($exitCode !== 0) {
-            throw new \RuntimeException("ffmpeg MP4 encoding failed (exit {$exitCode}): {$output_str}");
+            throw new \RuntimeException("ffmpeg MP4 encoding failed (exit {$exitCode}): ".$this->sanitizeOutput($output_str));
         }
     }
 
@@ -485,7 +485,7 @@ class VideoVariantService
 
             if ($exitCode2 !== 0 || ! file_exists($output)) {
                 Log::warning('VideoVariantService: could not extract poster frame; writing placeholder JPEG.', [
-                    'error' => $outputStr,
+                    'error' => $this->sanitizeOutput($outputStr),
                 ]);
 
                 if (! $this->writePlaceholderJpeg($output)) {
@@ -544,6 +544,26 @@ class VideoVariantService
         rename($path, $withExt);
 
         return $withExt;
+    }
+
+    /**
+     * Scrub ffmpeg/ffprobe output before logging or including in exception messages.
+     * Strips absolute filesystem paths (e.g. /tmp/..., /var/..., /home/...) that leak
+     * temp-file locations and internal server layout. Keeps the last 500 chars so the
+     * actual error reason (usually at the tail of ffmpeg stderr) is retained for debugging.
+     */
+    private function sanitizeOutput(string $output): string
+    {
+        // Remove absolute paths — captures /tmp/abc123.mp4, /var/folders/..., etc.
+        $scrubbed = preg_replace('#/\S+#', '<path>', $output) ?? $output;
+
+        // Bound length: the useful error is always near the end of ffmpeg's stderr.
+        $trimmed = trim($scrubbed);
+        if (mb_strlen($trimmed) > 500) {
+            $trimmed = '…'.mb_substr($trimmed, -500);
+        }
+
+        return $trimmed;
     }
 
     /**

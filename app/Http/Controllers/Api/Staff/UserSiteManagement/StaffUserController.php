@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
+use App\Http\Requests\Api\Staff\UserSite\StaffBulkUpdateStatusRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\Staff\StaffUserListResource;
@@ -128,7 +129,7 @@ class StaffUserController extends ApiController
      * Returns a per-row outcome map so partial misses (deleted accounts, unknown IDs)
      * surface to the caller without rolling back the whole batch.
      */
-    public function bulkUpdateStatus(Request $request): JsonResponse
+    public function bulkUpdateStatus(StaffBulkUpdateStatusRequest $request): JsonResponse
     {
         $gate = $this->requiresFreshAal2($request);
         if (! $gate->allowed()) {
@@ -142,14 +143,8 @@ class StaffUserController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffBulkManage', User::class);
 
-        $data = $request->validate([
-            'ids' => ['required', 'array', 'min:1', 'max:100'],
-            'ids.*' => ['required', 'uuid', 'distinct'],
-            'status' => ['required', 'string', 'in:active,suspended'],
-        ]);
-
-        $ids = array_values(array_unique($data['ids']));
-        $status = $data['status'];
+        $ids = array_values(array_unique($request->validated('ids')));
+        $status = $request->validated('status');
 
         $updated = [];
         $missing = [];
