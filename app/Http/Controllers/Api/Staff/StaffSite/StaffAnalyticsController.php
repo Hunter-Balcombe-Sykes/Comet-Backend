@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Core\User\User;
+use App\Services\Analytics\AnalyticsQueryService;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,10 @@ use Throwable;
 // V2: Staff-accessible analytics view for a professional's site (visits, clicks, device breakdown).
 class StaffAnalyticsController extends ApiController
 {
-    public function __construct(private readonly CacheLockService $cacheLock) {}
+    public function __construct(
+        private readonly CacheLockService $cacheLock,
+        private readonly AnalyticsQueryService $queries,
+    ) {}
 
     /**
      * GET /api/staff/professionals/{professional}/analytics?days=30
@@ -78,40 +82,14 @@ class StaffAnalyticsController extends ApiController
         ).":v{$version}";
 
         $data = $this->cacheLock->rememberLocked($cacheKey, 60, function () use ($professional, $from, $to, $site): array {
-            // Totals (visits)
-            $visitsAgg = DB::table('analytics.site_visits')
-                ->where('user_id', $professional->id)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->selectRaw('COUNT(*) as total_visits')
-                ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_visitors')
-                ->selectRaw('MAX(occurred_at) as last_visit_at')
-                ->first();
+            // Delegate aggregate reads to AnalyticsQueryService — same queries,
+            // no duplication. The service handles QueryException for click tables
+            // and returns safe defaults so visits still render if clicks are broken.
+            $visitsAgg = $this->queries->visitsAggregate($professional->id, $from, $to);
+            $clicksAgg = $this->queries->clicksAggregate($professional->id, $from, $to);
 
-            // Defaults ensure visit analytics still works if click analytics queries fail.
-            $clicksAgg = (object) [
-                'total_clicks' => 0,
-                'unique_clickers' => 0,
-                'last_click_at' => null,
-            ];
             $clicksByDay = collect();
             $topLinks = collect();
-
-            try {
-                $clicksAgg = DB::table('analytics.link_clicks')
-                    ->where('user_id', $professional->id)
-                    ->whereBetween('occurred_at', [$from, $to])
-                    ->selectRaw('COUNT(*) as total_clicks')
-                    ->selectRaw('COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
-                    ->selectRaw('MAX(occurred_at) as last_click_at')
-                    ->first();
-            } catch (Throwable $e) {
-                Log::warning('staff.analytics.click_query_failed', ['professional_id' => $professional->id, 'error' => $e->getMessage()]);
-                $clicksAgg = (object) [
-                    'total_clicks' => 0,
-                    'unique_clickers' => 0,
-                    'last_click_at' => null,
-                ];
-            }
 
             $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
             $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);

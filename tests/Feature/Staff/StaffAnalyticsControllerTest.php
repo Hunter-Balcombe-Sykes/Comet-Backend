@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
 use App\Models\Core\User\User;
+use App\Services\Analytics\AnalyticsQueryService;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -72,7 +73,7 @@ function mockAnalyticsDb(): void
 it('summary() returns correct shape and zero-data totals', function () {
     mockAnalyticsDb();
 
-    $controller = new StaffAnalyticsController(new CacheLockService);
+    $controller = new StaffAnalyticsController(new CacheLockService, new AnalyticsQueryService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
         $this->user
@@ -127,7 +128,7 @@ it('summary() returns 404 when professional has no site', function () {
     ]);
 
     $professional = User::find($userId);
-    $controller = new StaffAnalyticsController(new CacheLockService);
+    $controller = new StaffAnalyticsController(new CacheLockService, new AnalyticsQueryService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET'),
         $professional
@@ -138,7 +139,7 @@ it('summary() returns 404 when professional has no site', function () {
 });
 
 it('summary() returns 422 for an invalid date format', function () {
-    $controller = new StaffAnalyticsController(new CacheLockService);
+    $controller = new StaffAnalyticsController(new CacheLockService, new AnalyticsQueryService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['from' => 'not-a-date']),
         $this->user
@@ -148,7 +149,7 @@ it('summary() returns 422 for an invalid date format', function () {
 });
 
 it('summary() returns 422 when from is after to', function () {
-    $controller = new StaffAnalyticsController(new CacheLockService);
+    $controller = new StaffAnalyticsController(new CacheLockService, new AnalyticsQueryService);
     $response = $controller->summary(
         Request::create('/api/staff/professionals/{pro}/analytics', 'GET', [
             'from' => '2026-05-17',
@@ -158,4 +159,58 @@ it('summary() returns 422 when from is after to', function () {
     );
 
     expect($response->getStatusCode())->toBe(422);
+});
+
+// Refactor guard (P3-24): aggregate reads now go through AnalyticsQueryService.
+// Verifies the service is called with the TARGET professional's user_id (not the
+// staff actor's own id) and that totals/shape in the response are preserved.
+it('summary() routes visit and click aggregates through AnalyticsQueryService scoped to the target professional', function () {
+    $queries = $this->mock(AnalyticsQueryService::class, function (MockInterface $m) {
+        $visitsAgg = (object) ['total_visits' => 7, 'unique_visitors' => 5, 'last_visit_at' => null];
+        $clicksAgg = (object) ['total_clicks' => 2, 'unique_clickers' => 2, 'last_click_at' => null];
+
+        // Both aggregate methods must be called with the target professional's id.
+        $m->shouldReceive('visitsAggregate')
+            ->once()
+            ->withArgs(fn (string $uid) => $uid === $this->userId)
+            ->andReturn($visitsAgg);
+
+        $m->shouldReceive('clicksAggregate')
+            ->once()
+            ->withArgs(fn (string $uid) => $uid === $this->userId)
+            ->andReturn($clicksAgg);
+    });
+
+    // Remaining inline chart queries (visitsByDay, clicksByDay, topLinks) still hit DB.
+    $visitsByDayQuery = Mockery::mock();
+    $visitsByDayQuery->shouldReceive('where', 'whereBetween', 'selectRaw', 'groupByRaw', 'orderBy')->andReturnSelf();
+    $visitsByDayQuery->shouldReceive('get')->andReturn(collect([(object) ['day' => '2026-06-01', 'count' => 7]]));
+
+    $clicksQuery = Mockery::mock();
+    $clicksQuery->shouldReceive('where', 'whereBetween', 'selectRaw', 'groupByRaw', 'orderBy')->andReturnSelf();
+    $clicksQuery->shouldReceive('get')->andReturn(collect());
+
+    $topLinksQuery = Mockery::mock();
+    $topLinksQuery->shouldReceive('join', 'where', 'whereBetween', 'whereRaw', 'selectRaw', 'groupBy', 'orderByDesc', 'limit')->andReturnSelf();
+    $topLinksQuery->shouldReceive('get')->andReturn(collect());
+
+    DB::shouldReceive('table')->with('analytics.site_visits')->andReturn($visitsByDayQuery);
+    DB::shouldReceive('table')->with('analytics.link_clicks')->andReturn($clicksQuery);
+    DB::shouldReceive('table')->with('analytics.link_clicks as lc')->andReturn($topLinksQuery);
+
+    $response = app(StaffAnalyticsController::class)->summary(
+        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
+        $this->user
+    );
+
+    expect($response->getStatusCode())->toBe(200);
+    $data = json_decode($response->getContent(), true);
+
+    // Shape is preserved; service-supplied aggregates flow through unchanged.
+    expect($data)->toHaveKeys(['range', 'professional', 'site', 'totals', 'charts', 'top_links'])
+        ->and($data['totals']['visits'])->toBe(7)
+        ->and($data['totals']['unique_visitors'])->toBe(5)
+        ->and($data['totals']['clicks'])->toBe(2)
+        ->and($data['totals']['ctr_percent'])->toBe(round((2 / 7) * 100, 2))
+        ->and($data['professional']['id'])->toBe($this->userId);
 });

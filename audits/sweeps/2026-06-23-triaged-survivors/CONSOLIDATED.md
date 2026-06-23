@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 7 / 12 complete
+- Bundles: 8 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -106,10 +106,10 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: small, independent hygiene fixes.
 
 ### Bundle B8: Code reuse — analytics queries (1 item) — Effort: S
-- [ ] **Bundle B8 complete**
+- [x] **Bundle B8 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#P3-24** · P3 — `StaffAnalyticsController` duplicates `AnalyticsQueryService` query logic inline — `app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php:98-153` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P3-24** · P3 — FIXED: routed the 2 equivalent aggregates (visits/clicks) through `AnalyticsQueryService` (scoped to target user); 3 divergent blocks (by-day COUNT(*) vs COUNT(DISTINCT), legacy topLinks) correctly left inline — `app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
 - Rationale: route the inlined click-analytics blocks through the existing service.
 
 ### Bundle B9: KV / subdomain write efficiency (2 items) — Effort: S
