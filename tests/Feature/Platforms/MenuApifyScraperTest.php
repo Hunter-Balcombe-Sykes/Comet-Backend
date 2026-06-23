@@ -131,25 +131,26 @@ it('does not retry a 4xx hard error', function () {
     Http::assertSentCount(1);
 });
 
-// ── fetchStore (per-mode price fusion) ────────────────────────────────
+// ── fetchStores (concurrent per-mode + per-platform fusion) ────────────
 
-it('fuses the pickup and delivery scrapes into per-mode prices keyed by external id', function () {
-    // Same store, same dish (uuid i1), different price per mode — delivery is
-    // marked up. fetchStore scrapes pickup then delivery and fuses by uuid.
-    Http::fake(['api.apify.com/*' => Http::sequence()
-        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => 15.0]]]], 201)
-        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => 17.0]]]], 201),
-    ]);
+it('fuses the concurrent pickup and delivery scrapes into per-mode prices', function () {
+    // Same store, different price per mode (delivery marked up). The pool fires both
+    // mode URLs at once; the closure returns each mode's price by its diningMode.
+    Http::fake(function ($request) {
+        $url = (string) data_get($request->data(), 'startUrls.0.url', '');
+        $price = str_contains($url, 'PICKUP') ? 15.0 : 17.0;
 
-    $link = [
+        return Http::response([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => $price]]]], 201);
+    });
+
+    $links = ['uber-eats' => [
         'pickupUrl' => 'https://www.ubereats.com/au/store/x?diningMode=PICKUP',
         'deliveryUrl' => 'https://www.ubereats.com/au/store/x?diningMode=DELIVERY',
         'storeUrl' => 'https://www.ubereats.com/au/store/x',
         'modes' => ['pickup', 'delivery'],
-    ];
-    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+    ]];
+    $item = app(MenuApifyScraper::class)->fetchStores($links, 'u1')['uber-eats']['categories'][0]['items'][0];
 
-    $item = $menu['categories'][0]['items'][0];
     expect($item['name'])->toBe('Burrito');
     expect($item['pickupPrice'])->toBe(15.0);
     expect($item['deliveryPrice'])->toBe(17.0);
@@ -162,31 +163,55 @@ it('applies a single scraped price to both modes for an untyped store', function
         ['name' => 'Combo', 'section' => 'Cat', 'price' => 12.0],
     ]]], 201)]);
 
-    $link = ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://www.ubereats.com/au/store/x', 'modes' => ['pickup', 'delivery']];
-    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+    $links = ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://www.ubereats.com/au/store/x', 'modes' => ['pickup', 'delivery']]];
+    $item = app(MenuApifyScraper::class)->fetchStores($links, 'u1')['uber-eats']['categories'][0]['items'][0];
 
-    $item = $menu['categories'][0]['items'][0];
     expect($item['pickupPrice'])->toBe(12.0);
     expect($item['deliveryPrice'])->toBe(12.0);
     Http::assertSentCount(1);   // one scrape, reused for both modes
 });
 
-it('returns only the scraped mode price when the other mode scrape is blocked', function () {
-    // pickup scrape keeps coming back empty (all 4 attempts), delivery succeeds.
-    Http::fake(['api.apify.com/*' => Http::sequence()
-        ->push([], 201)->push([], 201)->push([], 201)->push([], 201)   // pickup: 4 empty
-        ->push([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Combo', 'section' => 'Cat', 'price' => 20.0]]]], 201),
-    ]);
+it('falls back to a sequential retry when the concurrent attempt for a mode is empty', function () {
+    // Pickup always empty (pool miss → sequential fallback also empty); delivery ok.
+    Http::fake(function ($request) {
+        $url = (string) data_get($request->data(), 'startUrls.0.url', '');
+        if (str_contains($url, 'PICKUP')) {
+            return Http::response([], 201);
+        }
 
-    $link = [
+        return Http::response([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Combo', 'section' => 'Cat', 'price' => 20.0]]]], 201);
+    });
+
+    $links = ['uber-eats' => [
         'pickupUrl' => 'https://www.ubereats.com/au/store/x?diningMode=PICKUP',
         'deliveryUrl' => 'https://www.ubereats.com/au/store/x?diningMode=DELIVERY',
         'storeUrl' => 'https://www.ubereats.com/au/store/x',
         'modes' => ['pickup', 'delivery'],
-    ];
-    $menu = app(MenuApifyScraper::class)->fetchStore($link, 'uber-eats', 'u1');
+    ]];
+    $item = app(MenuApifyScraper::class)->fetchStores($links, 'u1')['uber-eats']['categories'][0]['items'][0];
 
-    $item = $menu['categories'][0]['items'][0];
-    expect($item['pickupPrice'])->toBeNull();     // pickup scrape blocked
+    expect($item['pickupPrice'])->toBeNull();     // pickup never resolved
     expect($item['deliveryPrice'])->toBe(20.0);
+});
+
+it('scrapes both platforms concurrently and returns a fused menu per platform', function () {
+    // memo23 (UE) and dz_omar (DD) fire in the same pool; route by actor in the URL.
+    Http::fake(function ($request) {
+        $isUe = str_contains($request->url(), 'memo23');
+
+        return Http::response($isUe
+            ? [['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Mains', 'price' => 17.0]]]]
+            : [['name' => 'Ollies', 'currency' => 'AUD', 'menu_categories' => [['category_name' => 'Sweets', 'items' => [['item_id' => 'd1', 'name' => 'Churros', 'price_cents' => 800]]]]]],
+            201);
+    });
+
+    $links = [
+        'uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => 'https://ue/s?diningMode=DELIVERY', 'storeUrl' => 'https://ue/s', 'modes' => ['delivery']],
+        'doordash' => ['pickupUrl' => 'https://dd/s?pickup=true', 'deliveryUrl' => null, 'storeUrl' => 'https://dd/s', 'modes' => ['pickup']],
+    ];
+    $menus = app(MenuApifyScraper::class)->fetchStores($links, 'u1', 'Melbourne VIC');
+
+    expect($menus)->toHaveKeys(['uber-eats', 'doordash']);
+    expect($menus['uber-eats']['categories'][0]['items'][0]['deliveryPrice'])->toBe(17.0);
+    expect($menus['doordash']['categories'][0]['items'][0]['pickupPrice'])->toBe(8.0);   // price_cents / 100
 });

@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -90,55 +92,145 @@ class MenuApifyScraper
     }
 
     /**
-     * Scrape ONE store across both fulfilment modes and fuse into a single menu
-     * whose items each carry a `pickupPrice` AND a `deliveryPrice` (either null).
+     * Scrape EVERY connected platform's store across both fulfilment modes
+     * CONCURRENTLY, then fuse each platform's modes into one menu whose items carry
+     * a `pickupPrice` AND a `deliveryPrice`. Uber Eats / DoorDash price the same
+     * dish differently per mode (delivery is often marked up) and the price only
+     * exists on the mode-specific page — so every (platform, mode) URL is its own
+     * scrape, keyed back together per item by external id (UE uuid / DD item_id).
      *
-     * Uber Eats / DoorDash price the same dish differently for pickup vs delivery
-     * (delivery menus are commonly marked up), and the price only exists on the
-     * mode-specific store page — so we scrape the pickup URL and the delivery URL
-     * separately and key the two price sets together by the item's stable external
-     * id (UE uuid / DD item_id survive the mode switch). When the store link is
-     * untyped (one bare store URL, no pickup/delivery variant) we scrape once and
-     * apply that single price to both modes the store offers.
+     * One Http::pool round fires all targets at once, so wall time ≈ the slowest
+     * single scrape, not the sum (a 4-scrape UE+DD menu drops from ~4× to ~1×). A
+     * target that comes back empty/transient on the concurrent attempt falls back
+     * to the robust sequential fetch() (full retry loop + 4xx handling) for just
+     * that one — the reliable actors make this rare. An untyped store (one bare
+     * URL) scrapes once and applies that price to both modes it offers.
      *
-     * @param  array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}  $link  a MenuSource::storeLinks entry
-     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null null when nothing scraped (caller records 'unavailable')
+     * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $links  platform => MenuSource::storeLinks entry
+     * @return array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null> platform => fused menu (null when nothing scraped)
      */
-    public function fetchStore(array $link, string $platform, ?string $userId = null, ?string $address = null): ?array
+    public function fetchStores(array $links, ?string $userId = null, ?string $address = null): array
     {
-        $pickupUrl = $link['pickupUrl'] ?? null;
-        $deliveryUrl = $link['deliveryUrl'] ?? null;
-        $storeUrl = $link['storeUrl'] ?? null;
+        $token = config('services.apify.token');
+        if (! $token) {
+            return [];
+        }
 
-        // Untyped store (no mode-specific URL): one scrape, price applies to both
-        // modes the store offers.
-        if ($pickupUrl === null && $deliveryUrl === null) {
-            if ($storeUrl === null) {
-                return null;
+        // One scrape target per (platform, mode) URL — key "platform|mode".
+        $targets = [];
+        foreach ($links as $platform => $link) {
+            if (! isset(self::ACTORS[$platform])) {
+                continue;
             }
-            $menu = $this->fetch($storeUrl, $platform, $userId, $address);
+            $pickupUrl = $link['pickupUrl'] ?? null;
+            $deliveryUrl = $link['deliveryUrl'] ?? null;
+            $storeUrl = $link['storeUrl'] ?? null;
+            if ($pickupUrl === null && $deliveryUrl === null) {
+                if ($storeUrl !== null) {
+                    $targets[$platform.'|single'] = ['platform' => $platform, 'url' => $storeUrl];
+                }
 
-            return $menu === null ? null : $this->priced($menu, true, true);
+                continue;
+            }
+            if ($pickupUrl !== null) {
+                $targets[$platform.'|pickup'] = ['platform' => $platform, 'url' => $pickupUrl];
+            }
+            if ($deliveryUrl !== null) {
+                $targets[$platform.'|delivery'] = ['platform' => $platform, 'url' => $deliveryUrl];
+            }
+        }
+        if ($targets === []) {
+            return [];
         }
 
-        $pickupMenu = $pickupUrl !== null ? $this->fetch($pickupUrl, $platform, $userId, $address) : null;
-        $deliveryMenu = $deliveryUrl !== null ? $this->fetch($deliveryUrl, $platform, $userId, $address) : null;
+        // Fire every target concurrently (one attempt each).
+        $responses = Http::pool(fn (Pool $pool) => array_map(
+            fn (string $key) => $pool->as($key)
+                ->withToken($token)
+                ->timeout(self::ATTEMPT_TIMEOUT)
+                ->post($this->actorUrl($targets[$key]['platform']), $this->input($targets[$key]['url'], $targets[$key]['platform'], $address)),
+            array_keys($targets),
+        ));
 
-        // Both modes scraped → fuse their prices per item. Only one came back (the
-        // other mode wasn't offered, or its scrape was blocked) → that mode's price
-        // only; the missing mode stays null but the order URL still routes (the
-        // merger fills the URL from the store link regardless of price).
-        if ($pickupMenu !== null && $deliveryMenu !== null) {
-            return $this->dual($pickupMenu, $deliveryMenu);
-        }
-        if ($pickupMenu !== null) {
-            return $this->priced($pickupMenu, true, false);
-        }
-        if ($deliveryMenu !== null) {
-            return $this->priced($deliveryMenu, false, true);
+        // Map each response; a concurrent miss falls back to the sequential fetch()
+        // (its own retry loop) for that single target.
+        $menus = [];
+        foreach ($targets as $key => $target) {
+            $resp = $responses[$key] ?? null;
+            $mapped = $this->mapResponse($resp, $target['platform'], $userId);
+            if ($mapped === null && $this->responseRetryable($resp)) {
+                $mapped = $this->fetch($target['url'], $target['platform'], $userId, $address);
+            }
+            if ($mapped !== null) {
+                $menus[$key] = $mapped;
+            }
         }
 
-        return null;
+        // Fuse each platform's mode menus into the per-mode-priced shape.
+        $out = [];
+        foreach ($links as $platform => $link) {
+            if (! isset(self::ACTORS[$platform])) {
+                continue;
+            }
+            $single = $menus[$platform.'|single'] ?? null;
+            $pickup = $menus[$platform.'|pickup'] ?? null;
+            $delivery = $menus[$platform.'|delivery'] ?? null;
+
+            if ($single !== null) {
+                $out[$platform] = $this->priced($single, true, true);
+            } elseif ($pickup !== null && $delivery !== null) {
+                $out[$platform] = $this->dual($pickup, $delivery);
+            } elseif ($pickup !== null) {
+                $out[$platform] = $this->priced($pickup, true, false);
+            } elseif ($delivery !== null) {
+                $out[$platform] = $this->priced($delivery, false, true);
+            } else {
+                $out[$platform] = null;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Apify run-sync endpoint for a platform's actor. */
+    private function actorUrl(string $platform): string
+    {
+        return 'https://api.apify.com/v2/acts/'.self::ACTORS[$platform].'/run-sync-get-dataset-items';
+    }
+
+    /**
+     * Map a pooled response to a normalized single-mode menu (items carry `price`),
+     * or null when it isn't usable (non-Response / error / empty / unexpected shape).
+     *
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null
+     */
+    private function mapResponse(mixed $resp, string $platform, ?string $userId): ?array
+    {
+        if (! $resp instanceof Response || ! $resp->successful()) {
+            return null;
+        }
+        $items = $resp->json();
+        if (! is_array($items) || $items === []) {
+            Log::info('menu.apify.pool_empty', ['platform' => $platform, 'user_id' => $userId]);
+
+            return null;
+        }
+        $menu = $platform === 'uber-eats' ? $this->mapUberEats($items) : $this->mapDoorDash($items);
+
+        return $menu['categories'] === [] ? null : $menu;
+    }
+
+    /** Whether a missed pooled response is worth a sequential retry (empty / transient yes; hard 4xx no). */
+    private function responseRetryable(mixed $resp): bool
+    {
+        if (! $resp instanceof Response) {
+            return true;
+        }
+        if ($resp->successful()) {
+            return true;
+        }
+
+        return $resp->status() >= 500;
     }
 
     /**
