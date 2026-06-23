@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 8 / 12 complete
+- Bundles: 9 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -113,11 +113,11 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: route the inlined click-analytics blocks through the existing service.
 
 ### Bundle B9: KV / subdomain write efficiency (2 items) — Effort: S
-- [ ] **Bundle B9 complete**
+- [x] **Bundle B9 complete**
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **#SCALE-6** · P2 — `SyncSubdomainToKvJob::writeAliasEntries` one KV HTTP call per alias → write-rate exhaustion on backfill — `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:182-204` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **#P3-31** · P3 — Alias TTL floor grants ~60s extra KV lifetime to already-expired aliases (no skip-guard) — `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:199` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#SCALE-6** · P2 — FIXED: new `CloudflareKvService::bulkPut()` (CF bulk endpoint, chunked 10k) replaces N per-alias `put()` calls; single-writer invariant held (sweep regex extended to guard bulkPut) — `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php`, `app/Services/Cloudflare/CloudflareKvService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **#P3-31** · P3 — FIXED: removed `max(60,...)` floor; skip aliases with raw `$ttl <= 0` (already expired) so CF's 60s min can't resurrect them; aligns with resolver `->active()` — `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
 - Rationale: same file (the single KV writer). review=opus — KV single-writer contract.
 
 ### Bundle B10: Feedback service hardening (3 items) — Effort: S

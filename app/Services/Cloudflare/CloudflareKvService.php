@@ -58,6 +58,53 @@ class CloudflareKvService
     }
 
     /**
+     * Write multiple routing entries in a single Cloudflare KV bulk PUT request.
+     * Each entry's value is JSON-encoded as a string, matching the single put() idiom.
+     * Entries with expiration_ttl=null are written as permanent (no TTL field sent).
+     * Chunks at 10 000 entries per request (Cloudflare bulk API limit).
+     *
+     * @param  array<array{key:string,value:array<string,mixed>,expiration_ttl:int|null}>  $entries
+     */
+    public function bulkPut(array $entries): void
+    {
+        if (empty($entries)) {
+            return;
+        }
+
+        if (! $this->configured) {
+            $this->guardUnconfigured('bulkPut', ['count' => count($entries)]);
+
+            return;
+        }
+
+        $url = $this->bulkUrl();
+
+        foreach (array_chunk($entries, 10000) as $chunk) {
+            $payload = array_map(function (array $entry): array {
+                $item = [
+                    'key' => $entry['key'],
+                    // Cloudflare KV bulk API requires the value as a JSON string,
+                    // matching the single put() which uses json_encode + text/plain body.
+                    'value' => (string) json_encode($entry['value']),
+                    'base64' => false,
+                ];
+
+                // Only include expiration_ttl when set — omitting it means permanent,
+                // matching the single put()'s ?expiration_ttl query-param behaviour.
+                if ($entry['expiration_ttl'] !== null) {
+                    $item['expiration_ttl'] = $entry['expiration_ttl'];
+                }
+
+                return $item;
+            }, $chunk);
+
+            Http::withToken($this->apiToken)
+                ->put($url, $payload)
+                ->throw();
+        }
+    }
+
+    /**
      * Remove a subdomain handle from the routing table.
      */
     public function delete(string $key): void
@@ -76,6 +123,11 @@ class CloudflareKvService
     private function url(string $key): string
     {
         return "https://api.cloudflare.com/client/v4/accounts/{$this->accountId}/storage/kv/namespaces/{$this->namespaceId}/values/{$key}";
+    }
+
+    private function bulkUrl(): string
+    {
+        return "https://api.cloudflare.com/client/v4/accounts/{$this->accountId}/storage/kv/namespaces/{$this->namespaceId}/bulk";
     }
 
     /**
