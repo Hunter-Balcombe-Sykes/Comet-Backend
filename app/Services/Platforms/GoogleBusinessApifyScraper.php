@@ -253,11 +253,14 @@ class GoogleBusinessApifyScraper extends PlatformScraper
     }
 
     /**
-     * Booking action links, EXCLUDING the business's own website. The actor's
-     * bookingLinks often echoes the "Website" button (same host as `website`)
-     * when Google exposes no real "Reserve with Google" provider link — seeding
-     * that as a booking card is wrong (it's the site, not a way to book). Keep
-     * only genuine third-party links (Fresha / Square / Booksy / …, another host).
+     * Booking action links (Google's "Book online" / appointment action),
+     * EXCLUDING only the literal "Website" button echo. The actor echoes the
+     * "Website" button into bookingLinks when Google exposes no separate provider
+     * link — seeding the bare site as a booking card is wrong. We drop ONLY the
+     * exact website URL (scheme / www. / trailing-slash-insensitive), so a genuine
+     * appointment link hosted on the business's OWN domain (e.g. example.com/book,
+     * book.example.com) is KEPT and auto-syncs as the booking link. (This replaced
+     * a whole-host filter that wrongly discarded same-domain appointment links.)
      *
      * @return list<string>|null
      */
@@ -267,9 +270,9 @@ class GoogleBusinessApifyScraper extends PlatformScraper
         if ($links === null) {
             return null;
         }
-        $siteHost = $this->host($websiteUrl);
-        if ($siteHost !== null) {
-            $links = array_values(array_filter($links, fn ($u) => $this->host($u) !== $siteHost));
+        $site = $this->normalizeUrl($websiteUrl);
+        if ($site !== null) {
+            $links = array_values(array_filter($links, fn ($u) => $this->normalizeUrl($u) !== $site));
         }
 
         return $links !== [] ? $links : null;
@@ -287,6 +290,23 @@ class GoogleBusinessApifyScraper extends PlatformScraper
         }
 
         return strtolower(preg_replace('/^www\./i', '', $host));
+    }
+
+    /**
+     * host + path, lower-cased, www. + trailing slash stripped, scheme / query /
+     * fragment ignored — the comparison key for "is this link the business's own
+     * website button?". Root-path links collapse to just the host, so the bare
+     * website echo matches the site while a deeper appointment path does not.
+     */
+    private function normalizeUrl(?string $url): ?string
+    {
+        $host = $this->host($url);
+        if ($host === null) {
+            return null;
+        }
+        $path = rtrim((string) parse_url((string) $url, PHP_URL_PATH), '/');
+
+        return $host.$path;
     }
 
     /**
