@@ -54,7 +54,6 @@ class PublicMenuController extends ApiController
                     'price' => $item->base_price !== null
                         ? number_format((float) $item->base_price, 2)
                         : null,
-                    'isSoldOut' => (bool) $item->is_sold_out,
                     // DoorDash-sourced (null for Uber Eats): 👍 percent + count and
                     // the "#N Most liked" badges, rendered on the sitepage menu cards.
                     'rating' => $item->rating,

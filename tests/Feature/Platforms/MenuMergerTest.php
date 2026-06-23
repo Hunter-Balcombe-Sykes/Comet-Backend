@@ -19,8 +19,6 @@ function normItem(array $overrides): array
         'pickupPrice' => null,
         'deliveryPrice' => null,
         'image' => null,
-        'isSoldOut' => false,
-        'modifiers' => null,
         'rating' => null,
         'ratingCount' => null,
         'badges' => null,
@@ -60,7 +58,6 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
     // pickup only — the user's mixed scenario.
     $ue = platformMenu([normItem([
         'externalId' => 'u1', 'name' => 'Chicken Burrito', 'deliveryPrice' => 17.0, 'image' => 'https://ue/img.jpg',
-        'modifiers' => [['name' => 'Size', 'options' => [['name' => 'Large', 'price' => 2.0]]]],
     ])]);
     $dd = platformMenu([normItem([
         'externalId' => 'd1', 'name' => 'Chicken Burrito', 'pickupPrice' => 15.5, 'image' => 'https://dd/img.jpg',
@@ -78,8 +75,6 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
     expect($item['imageUrl'])->toBe('https://ue/img.jpg'); // UE image preferred
     expect($item['rating'])->toBe(95.0);                 // DoorDash-only
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
-    expect($item['modifiers'][0]['name'])->toBe('Size'); // Uber Eats-only
-    expect($item['ueExternalId'])->toBe('u1');
     expect($item['ddExternalId'])->toBe('d1');
 });
 

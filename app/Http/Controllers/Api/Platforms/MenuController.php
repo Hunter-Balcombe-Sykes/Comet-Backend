@@ -104,8 +104,8 @@ class MenuController extends ApiController
      * Categories → items shaped for the dashboard grid. Each item carries its
      * representative base price, the aggregate pickup/delivery prices (each
      * tagged with the platform backing the min), the per-platform availability
-     * list (platform + price + supported modes + order url), the DoorDash rating
-     * + badges, and Uber Eats modifiers for the expanded card.
+     * list (platform + price + supported modes + order url), and the DoorDash
+     * rating + badges.
      *
      * @return list<array{name:string, items:list<array<string,mixed>>}>
      */
@@ -121,8 +121,6 @@ class MenuController extends ApiController
                 'name' => $item->name,
                 'description' => $item->description,
                 'image' => $item->image_url,
-                'modifiers' => $item->modifiers,
-                'isSoldOut' => $item->is_sold_out,
                 'rating' => $item->rating,
                 'ratingCount' => $item->rating_count,
                 'badges' => $item->badges,

@@ -3,13 +3,13 @@
 use App\Services\Platforms\MenuApifyScraper;
 use Illuminate\Support\Facades\Http;
 
-// Fixtures mirror the REAL actor output captured live on 2026-06-19:
-//   Uber Eats → natanielsantos~uber-eats-scraper (sections→subsections→items,
-//               per-item uuid / imageUrl / isSoldOut / optionsList).
+// Fixtures mirror the REAL actor output:
+//   Uber Eats → memo23~uber-eats-scraper (flattened menuItems with name /
+//               description / section / price / imageUrl).
 //   DoorDash  → dz_omar~doordash-scraper (menu_categories[]→items[] with
 //               item_id / price_cents / image_url / rating_pct / badges).
-// fetch() now returns the normalized { store, categories:[{ name, items }] }
-// shape that MenuMerger consumes.
+// fetch() returns the normalized { store, categories:[{ name, items }] } shape
+// that MenuMerger consumes.
 
 beforeEach(fn () => config(['services.apify.token' => 'apify-test-token']));
 
@@ -46,8 +46,6 @@ it('maps a memo23 Uber Eats store into the normalized shape', function () {
     expect($item['name'])->toBe('Burritos');
     expect($item['price'])->toBe(17.8);                                   // already dollars
     expect($item['image'])->toBe('https://tb-static.uber.com/x.jpeg');
-    expect($item['isSoldOut'])->toBeFalse();
-    expect($item['modifiers'])->toBeNull();
     expect($item['rating'])->toBeNull();                                  // UE has no per-item rating
 });
 
@@ -93,7 +91,6 @@ it('maps a dz_omar DoorDash store into the normalized shape', function () {
     expect($item['rating'])->toBe(95.0);
     expect($item['ratingCount'])->toBe(213);
     expect($item['badges'][0])->toMatchArray(['text' => '#1 Most liked', 'type' => 'popular']);
-    expect($item['modifiers'])->toBeNull();                              // DD basic scrape has none
 });
 
 it('sends DoorDash the startUrls + address input shape', function () {
