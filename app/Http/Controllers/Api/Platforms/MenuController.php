@@ -138,24 +138,57 @@ class MenuController extends ApiController
 
     /**
      * The item's per-platform availability list — one entry per ordering platform
-     * the dish is on, each with its price, the pickup/delivery modes that
-     * platform's store link supports, and that platform's order url. Empty when a
-     * pre-union legacy row has nothing stored.
+     * the dish is on, each with its pickup price + url and delivery price + url (a
+     * mode the store doesn't offer is null on both). Empty when a pre-union legacy
+     * row has nothing stored.
      *
-     * @return list<array{platform:string, price:float|null, modes:list<string>, url:string|null}>
+     * Tolerates rows persisted before the per-mode split (shape {price, modes[],
+     * url}) by mapping that single price/url onto whichever modes the row listed,
+     * so the modal renders correctly until the next scrape rewrites the row.
+     *
+     * @return list<array{platform:string, pickupPrice:float|null, pickupUrl:string|null, deliveryPrice:float|null, deliveryUrl:string|null}>
      */
     private function platforms(MenuItem $item): array
     {
         $platforms = is_array($item->platforms) ? $item->platforms : [];
 
-        return array_values(array_map(fn (array $p) => [
-            'platform' => $p['platform'] ?? null,
-            'price' => isset($p['price']) && is_numeric($p['price']) ? (float) $p['price'] : null,
-            'modes' => array_values(array_filter(
-                (array) ($p['modes'] ?? []),
-                fn ($m) => $m === 'pickup' || $m === 'delivery',
-            )),
-            'url' => isset($p['url']) && is_string($p['url']) ? $p['url'] : null,
-        ], array_filter($platforms, fn ($p) => is_array($p) && isset($p['platform']))));
+        return array_values(array_map(function (array $p) {
+            // Current shape: explicit per-mode price + url.
+            if (array_key_exists('pickupUrl', $p) || array_key_exists('deliveryUrl', $p)
+                || array_key_exists('pickupPrice', $p) || array_key_exists('deliveryPrice', $p)) {
+                return [
+                    'platform' => $p['platform'] ?? null,
+                    'pickupPrice' => $this->numberOrNull($p['pickupPrice'] ?? null),
+                    'pickupUrl' => $this->textOrNull($p['pickupUrl'] ?? null),
+                    'deliveryPrice' => $this->numberOrNull($p['deliveryPrice'] ?? null),
+                    'deliveryUrl' => $this->textOrNull($p['deliveryUrl'] ?? null),
+                ];
+            }
+
+            // Legacy shape: single {price, modes[], url} → fan out to the listed modes.
+            $modes = (array) ($p['modes'] ?? []);
+            $price = $this->numberOrNull($p['price'] ?? null);
+            $url = $this->textOrNull($p['url'] ?? null);
+            $offersPickup = in_array('pickup', $modes, true);
+            $offersDelivery = in_array('delivery', $modes, true);
+
+            return [
+                'platform' => $p['platform'] ?? null,
+                'pickupPrice' => $offersPickup ? $price : null,
+                'pickupUrl' => $offersPickup ? $url : null,
+                'deliveryPrice' => $offersDelivery ? $price : null,
+                'deliveryUrl' => $offersDelivery ? $url : null,
+            ];
+        }, array_filter($platforms, fn ($p) => is_array($p) && isset($p['platform']))));
+    }
+
+    private function numberOrNull(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    private function textOrNull(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 }
