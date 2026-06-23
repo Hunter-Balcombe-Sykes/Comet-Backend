@@ -1,12 +1,17 @@
 <?php
 
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    Cache::flush();
 
     config([
         'supabase.url' => 'https://test.supabase.co',
@@ -122,4 +127,72 @@ it('skips the Supabase check when the email is already taken in Laravel', functi
 
     // Supabase must not be contacted — the Laravel hit is authoritative.
     Http::assertNothingSent();
+});
+
+// --- Rate limiter tests (P2-44 + P3-10) ---
+//
+// Re-register the limiter with hard-coded tight limits so these tests are
+// not affected by PARTNA_THROTTLE_ENABLED=false in the test env. This mirrors
+// the pattern used in ApiExceptionHandlingTest and PublicReportAntiAbuseTest.
+
+it('429s on the 11th request within a minute (per-minute gate, P2-44)', function () {
+    Http::fake([
+        'https://test.supabase.co/auth/v1/admin/users*' => Http::response(['users' => []], 200),
+    ]);
+
+    // Re-register with a 10/min limit, always-on (ignores PARTNA_THROTTLE_ENABLED).
+    RateLimiter::for('signup-availability', function (Request $request) {
+        $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+        return [
+            Limit::perMinute(10)->by($key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            Limit::perHour(60)->by($key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+        ];
+    });
+
+    for ($i = 0; $i < 10; $i++) {
+        $this->postJson('/api/public/signup/availability', ['email' => "u{$i}@example.com"])
+            ->assertStatus(200);
+    }
+
+    $this->postJson('/api/public/signup/availability', ['email' => 'overflow@example.com'])
+        ->assertStatus(429)
+        ->assertJson(['message' => 'Too many requests. Please try again later.']);
+});
+
+it('429s on the 61st request within an hour (per-hour gate, P3-10)', function () {
+    Http::fake([
+        'https://test.supabase.co/auth/v1/admin/users*' => Http::response(['users' => []], 200),
+    ]);
+
+    // Re-register with a high per-minute limit so the hour gate fires first.
+    RateLimiter::for('signup-availability', function (Request $request) {
+        $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+        return [
+            Limit::perMinute(200)->by($key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            Limit::perHour(60)->by($key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+        ];
+    });
+
+    for ($i = 0; $i < 60; $i++) {
+        $this->postJson('/api/public/signup/availability', ['email' => "h{$i}@example.com"])
+            ->assertStatus(200);
+    }
+
+    $this->postJson('/api/public/signup/availability', ['email' => 'hour-overflow@example.com'])
+        ->assertStatus(429);
+});
+
+it('uses the dedicated signup-availability throttle (not public-site)', function () {
+    $route = app('router')->getRoutes()->match(
+        Request::create('/api/public/signup/availability', 'POST')
+    );
+
+    expect($route->gatherMiddleware())->toContain('throttle:signup-availability');
+    expect($route->gatherMiddleware())->not->toContain('throttle:public-site');
 });

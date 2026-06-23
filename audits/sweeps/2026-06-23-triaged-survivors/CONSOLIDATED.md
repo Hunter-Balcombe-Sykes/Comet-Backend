@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 4 / 12 complete
+- Bundles: 5 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -78,11 +78,11 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: API-contract correctness; keep the FE-critical `code` value when normalising MfaController.
 
 ### Bundle B5: Public-endpoint rate limiting & enumeration (2 items) — Effort: M
-- [ ] **Bundle B5 complete**
+- [x] **Bundle B5 complete**
 - Models: plan=sonnet · impl=sonnet · review=opus
 - Findings:
-    - [ ] **#P2-44** · P2 — Signup-availability + login-identifier endpoints share `throttle:public-site` → noisy-neighbour starvation — `routes/api.php:113,115` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#P3-10** · P3 — Signup orphan-check is a second email-enumeration channel; no per-IP secondary gate — `app/Http/Controllers/Api/PublicSite/PublicSignupAvailabilityController.php:51` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P2-44** · P2 — FIXED: dedicated `throttle:signup-availability` (10/min) + `throttle:login-identifier` (20/min) limiters (was shared `public-site` 60/min); independent buckets — `routes/api.php`, `app/Providers/AppServiceProvider.php`, `config/partna.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P3-10** · P3 — FIXED: `signup-availability` is an ANDed `[perMinute(10), perHour(60)]` per-IP (CF-Connecting-IP) gate — the per-hour cap is the secondary anti-enumeration gate — `app/Providers/AppServiceProvider.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
 - Rationale: both are public-surface abuse vectors on the signup path; dedicated limiters.
 
 ### Bundle B6: Config hygiene (3 items) — Effort: S

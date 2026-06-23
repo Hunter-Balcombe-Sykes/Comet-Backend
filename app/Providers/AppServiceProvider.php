@@ -324,6 +324,47 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        // Signup availability endpoint (P2-44 + P3-10). Dedicated bucket — tighter than the
+        // shared public-site limiter (60/min) so heavy signup-form scanning can't starve other
+        // public routes. Returns an array (ANDed) so BOTH limits must pass before the request
+        // proceeds. CF-Connecting-IP preferred over $request->ip() so the real client IP is
+        // keyed behind Cloudflare, not the edge node's IP.
+        RateLimiter::for('signup-availability', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+            return [
+                // Per-minute bucket — dedicated (not shared with other public routes).
+                Limit::perMinute(config('partna.throttle.signup_availability_per_minute', 10))
+                    ->by($key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+
+                // Per-hour secondary gate (P3-10) — caps slow enumeration that stays
+                // under the per-minute window over a sustained period.
+                Limit::perHour(config('partna.throttle.signup_availability_per_hour', 60))
+                    ->by($key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
+        // Login resolve-identifier endpoint (P2-44). Dedicated bucket — tighter than
+        // public-site (60/min), mirrors expected mistyped-handle retries (20/min).
+        // Uses CF-Connecting-IP for the same reason as signup-availability.
+        RateLimiter::for('login-identifier', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+            return Limit::perMinute(config('partna.throttle.login_identifier_per_minute', 20))
+                ->by($key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
+        });
+
         // Analytics endpoints (pageviews, clicks)
         RateLimiter::for('analytics', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {

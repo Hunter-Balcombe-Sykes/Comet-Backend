@@ -812,6 +812,17 @@ return [
         // (shared across enquiry + subscription confirmations). Public forms send
         // to attacker-controllable addresses, so this caps email-bombing.
         'visitor_confirmation_per_hour' => (int) env('PARTNA_VISITOR_CONFIRMATION_PER_HOUR', 5),
+        // Dedicated per-minute limit for the signup/availability endpoint (P2-44).
+        // 6× tighter than the shared public-site bucket (60/min); generous for a
+        // real signup flow (email + phone + handle checks in sequence).
+        'signup_availability_per_minute' => (int) env('PARTNA_SIGNUP_AVAILABILITY_PER_MINUTE', 10),
+        // Secondary per-hour anti-enumeration gate for signup/availability (P3-10).
+        // Caps slow credential-stuffing loops at 60 attempts/hr/IP even when
+        // the per-minute window is never fully exhausted.
+        'signup_availability_per_hour' => (int) env('PARTNA_SIGNUP_AVAILABILITY_PER_HOUR', 60),
+        // Dedicated per-minute limit for the login resolve-identifier endpoint (P2-44).
+        // Mirrors typical mistyped-handle retry behaviour while bounding enumeration.
+        'login_identifier_per_minute' => (int) env('PARTNA_LOGIN_IDENTIFIER_PER_MINUTE', 20),
     ],
 
     // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
