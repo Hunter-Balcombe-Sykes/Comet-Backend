@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 10 / 12 complete
+- Bundles: 11 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -130,10 +130,10 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: feedback-pipeline hardening (the DB-race sibling `#LIFE-1c` is Standalone — needs a UNIQUE constraint). IDs suffixed `c` = the May "core" audit, to disambiguate from sweep `SEC-1`/`LIFE-x`.
 
 ### Bundle B11: Supabase email-hook delivery id (1 item) — Effort: S
-- [ ] **Bundle B11 complete**
-- Models: plan=— · impl=sonnet · review=opus
+- [x] **Bundle B11 complete**
+- Models: plan=— · impl=sonnet · review=opus (failed first round — base-class regression caught + fixed)
 - Findings:
-    - [ ] **#WHK-5** · P2 — `Mail::queue()` carries no event-id → a Horizon retry can re-send auth emails (no `Message-ID` from webhook id) — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php:107` → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`
+    - [x] **#WHK-5** · P2 — FIXED: webhook-id threaded into the 5 auth mailables as a deterministic `Message-ID` (`webhookId@domain`) via `BaseTransactionalMail::headers()`; empty-id guard preserves Symfony default for the 14 non-auth mailables — `app/Mail/BaseTransactionalMail.php`, `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php` → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`
 - Rationale: thread the webhook id into the mailable for idempotent delivery. review=opus — mail. (Forensic-trail `#WHK-3` + replay `#WHK-4` are Standalone — they need a new table.)
 
 ### Bundle B12: Test-coverage gaps (5 items) — Effort: M

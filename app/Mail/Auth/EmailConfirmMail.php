@@ -17,7 +17,10 @@ class EmailConfirmMail extends BaseTransactionalMail
         public readonly string $recipientEmail,
         public readonly ?string $displayName,
         public readonly string $code,
-    ) {}
+        string $webhookId = '',
+    ) {
+        $this->webhookId = $webhookId;
+    }
 
     public function build(): self
     {
