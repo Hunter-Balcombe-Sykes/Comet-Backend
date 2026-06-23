@@ -216,3 +216,14 @@ Schedule::command('moderation:sla-scan')
     ->onOneServer()
     ->withoutOverlapping(30) // 30min lock — 2x the 15min cadence to prevent same-tick races.
     ->onFailure($reportScheduledFailure('moderation:sla-scan'));
+
+// Self-heal transient menu scrapes: re-dispatch a forced MenuFetchJob for menus
+// whose Uber Eats / DoorDash scrape came back 'unavailable' (flaky bot-block),
+// bounded to a recent window so a dead store isn't retried forever. Every 15 min
+// gives a transient block several chances to clear within the window.
+Schedule::command('menu:retry-unavailable')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — 2x the 15min cadence to prevent same-tick races.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('menu:retry-unavailable'));

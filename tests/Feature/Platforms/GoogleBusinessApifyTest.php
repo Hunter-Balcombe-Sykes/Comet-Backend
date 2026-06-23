@@ -228,6 +228,54 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($booking['source'])->toBe('google-business');
 });
 
+it('consolidates same-store pickup and delivery ordering providers into one row', function () {
+    Bus::fake();
+    $user = gbApifyUser('gbaorder');
+
+    // Google lists each provider×mode separately. Two of these are the SAME Uber
+    // Eats store (the diningMode query differs); they must collapse into one row
+    // carrying both URLs. DoorDash is a distinct store → its own row.
+    $enrichment = ['order' => ['providers' => [
+        ['name' => 'UberEats', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'type' => 'pickup', 'time' => 'Ready in 10 min', 'fees' => 'No fee'],
+        ['name' => 'UberEats', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY', 'type' => 'delivery', 'time' => '20–30 min', 'fees' => '$2'],
+        ['name' => 'DoorDash', 'url' => 'https://www.doordash.com/store/ollies-1/', 'type' => 'delivery', 'time' => '25 min', 'fees' => '$3'],
+    ]]];
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, $enrichment, 'Ollies');
+
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    expect($orders)->toHaveCount(2);  // UE (pickup+delivery collapsed) + DoorDash
+
+    $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
+    expect($uber['data']['pickupUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
+    expect($uber['data']['deliveryUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
+    // The representative row prefers the delivery-typed provider.
+    expect($uber['url'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
+});
+
+it('does not re-seed an ordering store the user already has (only-if-empty per store)', function () {
+    Bus::fake();
+    $user = gbApifyUser('gbaorder2');
+
+    // The user already has the Uber Eats store (added manually, pickup variant).
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'online-ordering', 'resource_id' => 'order-existing',
+        'payload' => ['id' => 'order-existing', 'provider' => 'custom', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'name' => 'Mine', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $enrichment = ['order' => ['providers' => [
+        ['name' => 'UberEats', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY', 'type' => 'delivery'],
+    ]]];
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, $enrichment, 'Ollies');
+
+    // Same store → not re-seeded; the user's manual row is the only one.
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    expect($orders)->toHaveCount(1);
+    expect($orders->first()->payload['name'])->toBe('Mine');
+});
+
 it('syncs ONLY the booking link for a standard (partna) account', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);

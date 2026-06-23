@@ -317,7 +317,18 @@ class GoogleBusinessAutoSync
 
     // ── ordering ─────────────────────────────────────────────────
 
-    /** @return list<array<string,mixed>> */
+    /**
+     * Seed ordering links from the Google order panel, ONE consolidated row per
+     * store. Google lists each provider×mode as a separate action (Uber Eats
+     * pickup, Uber Eats delivery, DoorDash pickup, …); we group those by store
+     * (host + path, query stripped) and write a single row carrying both the
+     * pickup and delivery URLs under `data`, mirroring OnlineOrderingController's
+     * merge-on-add — so the same store never appears twice. Only-if-empty PER
+     * STORE: a store the user already has (manual add or a prior harvest) is left
+     * untouched.
+     *
+     * @return list<array<string,mixed>>
+     */
     private function seedOrdering(string $userId, array $enrichment): array
     {
         $findings = [];
@@ -326,37 +337,61 @@ class GoogleBusinessAutoSync
             if (! is_array($providers)) {
                 return [];
             }
+
+            // Group providers by store, in first-seen order.
+            $stores = [];
             foreach ($providers as $p) {
-                if ($this->count($userId, 'online-ordering') >= self::MAX_ORDERING) {
-                    break;
-                }
                 $url = $this->safeUrl(data_get($p, 'url'));
                 if ($url === null) {
                     continue;
                 }
-                $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
-                if ($this->has($userId, 'online-ordering', $rid)) {
-                    continue;   // only-if-empty per URL — never clobber a manual add
+                $key = $this->storeKey($url) ?? $url;
+                $stores[$key] ??= [];
+                $stores[$key][] = $p;
+            }
+
+            foreach ($stores as $storeKey => $group) {
+                if ($this->count($userId, 'online-ordering') >= self::MAX_ORDERING) {
+                    break;
                 }
-                $name = $this->clean(data_get($p, 'name'));
+                if ($this->hasStoreKey($userId, $storeKey)) {
+                    continue;   // only-if-empty per store — never clobber an existing one
+                }
+
+                // Representative row identity: prefer a delivery-typed provider
+                // (the common ordering intent), else the first in the group.
+                $primary = $this->preferredProvider($group);
+                $repUrl = $this->safeUrl(data_get($primary, 'url'));
+                if ($repUrl === null) {
+                    continue;
+                }
+                $name = $this->clean(data_get($primary, 'name'));
+                $rid = 'order-'.substr(sha1(strtolower($repUrl)), 0, 16);
+
+                // Gather the pickup + delivery URLs across the store's providers.
+                $pickupUrl = $this->modeUrl($group, 'pickup');
+                $deliveryUrl = $this->modeUrl($group, 'delivery');
+
                 $this->write($userId, 'online-ordering', $rid, [
                     'id' => $rid,
                     'provider' => 'custom',
-                    'url' => $url,
+                    'url' => $repUrl,
                     'name' => $name ?? 'Order online',
                     'favicon' => null,
                     'logo' => null,
                     'source' => 'google-business',
                     'data' => array_filter([
-                        'type' => $this->clean(data_get($p, 'type')),
-                        'fees' => $this->clean(data_get($p, 'fees')),
-                        'time' => $this->clean(data_get($p, 'time')),
+                        'type' => $this->clean(data_get($primary, 'type')),
+                        'fees' => $this->clean(data_get($primary, 'fees')),
+                        'time' => $this->clean(data_get($primary, 'time')),
                         'sourcePlatform' => $name,
+                        'pickupUrl' => $pickupUrl,
+                        'deliveryUrl' => $deliveryUrl,
                     ], fn ($v) => $v !== null),
                 ]);
-                // Online-ordering is multi-entry — every new link is just added (no
+                // Online-ordering is multi-entry — every new store is just added (no
                 // conflict concept), so each is a 'seeded' finding.
-                $findings[] = $this->seededFinding('online-ordering', $rid, 'online-ordering', $name ?? 'Order online', $url);
+                $findings[] = $this->seededFinding('online-ordering', $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
             }
 
             // Ordering links changed → (re)derive the shared menu from them.
@@ -366,6 +401,71 @@ class GoogleBusinessAutoSync
         }
 
         return $findings;
+    }
+
+    /**
+     * The provider that should own a store's consolidated row — the first
+     * delivery-typed one, else the first provider.
+     *
+     * @param  list<array<string,mixed>>  $group
+     * @return array<string,mixed>
+     */
+    private function preferredProvider(array $group): array
+    {
+        foreach ($group as $p) {
+            if ($this->clean(data_get($p, 'type')) === 'delivery') {
+                return $p;
+            }
+        }
+
+        return $group[0];
+    }
+
+    /**
+     * The first URL in a store's providers carrying the given mode (pickup /
+     * delivery), or null.
+     *
+     * @param  list<array<string,mixed>>  $group
+     */
+    private function modeUrl(array $group, string $mode): ?string
+    {
+        foreach ($group as $p) {
+            if ($this->clean(data_get($p, 'type')) === $mode) {
+                return $this->safeUrl(data_get($p, 'url'));
+            }
+        }
+
+        return null;
+    }
+
+    /** Whether the user already has any ordering row for this store key. */
+    private function hasStoreKey(string $userId, string $storeKey): bool
+    {
+        return IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', 'online-ordering')
+            ->get()
+            ->contains(fn (IntegrationConnection $row) => $this->storeKey(data_get($row->payload, 'url')) === $storeKey);
+    }
+
+    /**
+     * A store grouping key — "<host>|<path>", query + fragment + trailing slash
+     * stripped (so Uber Eats ?diningMode / DoorDash ?pickup variants of one store
+     * collapse). Null for a non-URL input. Mirrors OnlineOrderingController.
+     */
+    private function storeKey(mixed $url): ?string
+    {
+        if (! is_string($url) || trim($url) === '') {
+            return null;
+        }
+        $parts = parse_url(trim($url));
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return null;
+        }
+        $host = strtolower($parts['host']);
+        $path = rtrim($parts['path'] ?? '', '/');
+
+        return $host.'|'.$path;
     }
 
     // ── socials ──────────────────────────────────────────────────

@@ -84,6 +84,165 @@ class MenuApifyScraper
     }
 
     /**
+     * Scrape ONE store across both fulfilment modes and fuse into a single menu
+     * whose items each carry a `pickupPrice` AND a `deliveryPrice` (either null).
+     *
+     * Uber Eats / DoorDash price the same dish differently for pickup vs delivery
+     * (delivery menus are commonly marked up), and the price only exists on the
+     * mode-specific store page — so we scrape the pickup URL and the delivery URL
+     * separately and key the two price sets together by the item's stable external
+     * id (UE uuid / DD item_id survive the mode switch). When the store link is
+     * untyped (one bare store URL, no pickup/delivery variant) we scrape once and
+     * apply that single price to both modes the store offers.
+     *
+     * @param  array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}  $link  a MenuSource::storeLinks entry
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null null when nothing scraped (caller records 'unavailable')
+     */
+    public function fetchStore(array $link, string $platform, ?string $userId = null, ?string $address = null): ?array
+    {
+        $pickupUrl = $link['pickupUrl'] ?? null;
+        $deliveryUrl = $link['deliveryUrl'] ?? null;
+        $storeUrl = $link['storeUrl'] ?? null;
+
+        // Untyped store (no mode-specific URL): one scrape, price applies to both
+        // modes the store offers.
+        if ($pickupUrl === null && $deliveryUrl === null) {
+            if ($storeUrl === null) {
+                return null;
+            }
+            $menu = $this->fetch($storeUrl, $platform, $userId, $address);
+
+            return $menu === null ? null : $this->priced($menu, true, true);
+        }
+
+        $pickupMenu = $pickupUrl !== null ? $this->fetch($pickupUrl, $platform, $userId, $address) : null;
+        $deliveryMenu = $deliveryUrl !== null ? $this->fetch($deliveryUrl, $platform, $userId, $address) : null;
+
+        // Both modes scraped → fuse their prices per item. Only one came back (the
+        // other mode wasn't offered, or its scrape was blocked) → that mode's price
+        // only; the missing mode stays null but the order URL still routes (the
+        // merger fills the URL from the store link regardless of price).
+        if ($pickupMenu !== null && $deliveryMenu !== null) {
+            return $this->dual($pickupMenu, $deliveryMenu);
+        }
+        if ($pickupMenu !== null) {
+            return $this->priced($pickupMenu, true, false);
+        }
+        if ($deliveryMenu !== null) {
+            return $this->priced($deliveryMenu, false, true);
+        }
+
+        return null;
+    }
+
+    /**
+     * Re-key a single-mode menu's items onto the pickup/delivery price slots: the
+     * scraped `price` becomes pickupPrice and/or deliveryPrice per the flags, and
+     * the raw `price` is dropped. Used for single-mode and untyped stores.
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $menu
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
+     */
+    private function priced(array $menu, bool $fillPickup, bool $fillDelivery): array
+    {
+        $menu['categories'] = array_map(function (array $cat) use ($fillPickup, $fillDelivery) {
+            $cat['items'] = array_map(function (array $item) use ($fillPickup, $fillDelivery) {
+                $price = $item['price'] ?? null;
+                $item['pickupPrice'] = $fillPickup ? $price : null;
+                $item['deliveryPrice'] = $fillDelivery ? $price : null;
+                unset($item['price']);
+
+                return $item;
+            }, $cat['items']);
+
+            return $cat;
+        }, $menu['categories']);
+
+        return $menu;
+    }
+
+    /**
+     * Fuse the pickup + delivery scrapes of one store into a single menu. The
+     * structurally richer scrape (more items) is the spine; each item gets its
+     * pickupPrice from the pickup scrape and deliveryPrice from the delivery
+     * scrape, matched by external id (else normalized name).
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $pickupMenu
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $deliveryMenu
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
+     */
+    private function dual(array $pickupMenu, array $deliveryMenu): array
+    {
+        $pickupMap = $this->priceMap($pickupMenu);
+        $deliveryMap = $this->priceMap($deliveryMenu);
+
+        // Spine = the scrape with more items (delivery wins a tie — it's usually
+        // the fuller menu), so a dish missing from one mode still appears.
+        $base = $this->itemCount($deliveryMenu) >= $this->itemCount($pickupMenu) ? $deliveryMenu : $pickupMenu;
+
+        $base['categories'] = array_map(function (array $cat) use ($pickupMap, $deliveryMap) {
+            $cat['items'] = array_map(function (array $item) use ($pickupMap, $deliveryMap) {
+                $key = $this->itemKey($item);
+                $item['pickupPrice'] = $pickupMap[$key] ?? null;
+                $item['deliveryPrice'] = $deliveryMap[$key] ?? null;
+                unset($item['price']);
+
+                return $item;
+            }, $cat['items']);
+
+            return $cat;
+        }, $base['categories']);
+
+        return $base;
+    }
+
+    /**
+     * externalId-or-name → price for every priced item in a scraped menu (first
+     * occurrence wins).
+     *
+     * @param  array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}  $menu
+     * @return array<string, float>
+     */
+    private function priceMap(array $menu): array
+    {
+        $map = [];
+        foreach ($menu['categories'] as $cat) {
+            foreach ($cat['items'] as $item) {
+                $price = $item['price'] ?? null;
+                if (! is_numeric($price)) {
+                    continue;
+                }
+                $key = $this->itemKey($item);
+                $map[$key] ??= (float) $price;
+            }
+        }
+
+        return $map;
+    }
+
+    /** A stable per-item key for cross-mode matching: the external id, else the normalized name. */
+    private function itemKey(array $item): string
+    {
+        $ext = $item['externalId'] ?? null;
+        if (is_string($ext) && $ext !== '') {
+            return 'id:'.$ext;
+        }
+
+        return 'name:'.mb_strtolower(trim((string) ($item['name'] ?? '')));
+    }
+
+    /** Total item count across a scraped menu's categories. */
+    private function itemCount(array $menu): int
+    {
+        $n = 0;
+        foreach ($menu['categories'] as $cat) {
+            $n += count($cat['items'] ?? []);
+        }
+
+        return $n;
+    }
+
+    /**
      * One scrape attempt. Returns the mapped menu on success, else null with a
      * `retryable` flag — empty results / timeouts / 5xx are retryable; a 4xx
      * (unknown store / unrented actor) is not.
@@ -438,7 +597,7 @@ class MenuApifyScraper
 
         return preg_replace_callback(
             '/(^|\.\s+|!\s+|\?\s+)([a-z])/u',
-            fn (array $m) => $m[1] . strtoupper($m[2]),
+            fn (array $m) => $m[1].strtoupper($m[2]),
             $lower,
         ) ?? $lower;
     }
