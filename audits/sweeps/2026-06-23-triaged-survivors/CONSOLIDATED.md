@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 3 / 12 complete
+- Bundles: 4 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -69,12 +69,12 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: full-blob/full-listing loads + unbounded reads; cap and stream.
 
 ### Bundle B4: HTTP status & response-shape correctness (3 items) — Effort: S
-- [ ] **Bundle B4 complete**
-- Models: plan=— · impl=sonnet · review=sonnet
+- [x] **Bundle B4 complete**
+- Models: plan=— · impl=sonnet · review=opus (auth-adjacent MfaController + API contracts)
 - Findings:
-    - [ ] **#P3-21** · P3 — Invalid `blockType` returns 403 instead of 422 — `app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php:119,306` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#P3-29** · P3 — Customer-list response ships a redundant `pagination` key (migration shim) — `app/Http/Controllers/Api/User/Customers/UserCustomerController.php:82` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#API-8** · P3 — `PublicReportController` + `MfaController` return non-standard error shapes (don't extend `ApiController`); MfaController's `code: mfa_fresh_required` is FE-critical — `app/Http/Controllers/Api/PublicSite/PublicReportController.php:30-37`, `app/Http/Controllers/Api/User/Account/MfaController.php:40-43` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-api-contract.md`
+    - [x] **#P3-21** · P3 — FIXED: invalid `blockType` now 422 (was 403); ownership-missing still 404 — `app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#P3-29** · P3 — FIXED: dropped duplicate `pagination` shim (Josh confirmed FE reads `meta`); `docs/api.md` updated to `meta` shape — `app/Http/Controllers/Api/User/Customers/UserCustomerController.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#API-8** · P3 — FIXED: `ApiController::error()` gained `array $extra` (clobber-guarded); MfaController emits `code: mfa_fresh_required`@401 and PublicReportController emits `error: INVALID_TARGET`@422 / `DUPLICATE_REPORT`@409 — both routed through ApiController, contracts byte-preserved — `app/Http/Controllers/Api/PublicSite/PublicReportController.php`, `app/Http/Controllers/Api/User/Account/MfaController.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-api-contract.md`
 - Rationale: API-contract correctness; keep the FE-critical `code` value when normalising MfaController.
 
 ### Bundle B5: Public-endpoint rate limiting & enumeration (2 items) — Effort: M

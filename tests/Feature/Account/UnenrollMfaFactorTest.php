@@ -68,3 +68,28 @@ it('surfaces Supabase Admin API failure as 502', function () {
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
         ->assertStatus(502);
 });
+
+// API-8 contract guards — these assert the exact FE-visible shape is preserved
+// after routing through ApiController helpers.
+
+it('API-8 contract: fresh-AAL2 rejection returns 401 with code=mfa_fresh_required (aal1 session)', function () {
+    $pro = createAffiliateTenant('mfa-aal1-contract');
+
+    $response = actingAsUser($pro) // aal1 — no amr totp entry
+        ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
+        ->assertStatus(401);
+
+    // FE reads `code` to distinguish MFA-gate errors from generic 401s.
+    $response->assertJsonPath('code', 'mfa_fresh_required');
+    $response->assertJsonStructure(['message', 'code']);
+});
+
+it('API-8 contract: stale-AAL2 rejection returns 401 with code=mfa_fresh_required', function () {
+    $pro = createAffiliateTenant('mfa-stale-contract');
+
+    $response = actingAsUser($pro, aal2ClaimsWithFreshTotp(90)) // 90s old, outside 60s window
+        ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
+        ->assertStatus(401);
+
+    $response->assertJsonPath('code', 'mfa_fresh_required');
+});

@@ -428,8 +428,8 @@ Common status codes
 - 422 Unprocessable Entity: validation errors or business rule (gallery limit)
 - 429 Too Many Requests: rate limited Example error responses Validation failure (422): { "message": "Validation failed", "errors": { "handle": ["The handle field is required."] } } Unauthorized (401): { "message": "Missing Bearer token" } Forbidden (403): { "message": "Professional profile missing for this user. Complete bootstrap first." } Not found (404): { "message": "Site not found." } Pagination
 - Some list endpoints return { dataKey: [...], meta: {...} }.
-- Professional customers list returns { customers: [...], pagination: {...} }.
-- Staff list endpoints typically return { customers: [...], meta: {...} }.
+- Both professional and staff list endpoints return { customers: [...], meta: {...} }.
+- The `meta` key contains: current_page, per_page, total, last_page, next_page_url, prev_page_url.
 - Query params: page, per_page (limits are enforced server-side).
 
 ### Rate limits (per IP)
