@@ -52,12 +52,13 @@ class SendFeedbackEmailJob implements ShouldQueue
 
         $feedback = Feedback::query()->with('user:id,primary_email')->find($this->feedbackId);
         if ($feedback === null) {
-            report(new \RuntimeException('SendFeedbackEmailJob: feedback row not found: '.$this->feedbackId));
+            // A missing row is anomalous — the job is dispatched immediately after
+            // the feedback row is persisted. Throw so the queue records a failed_jobs
+            // entry; a silent return would mark this dropped notification as "succeeded".
             Log::warning('SendFeedbackEmailJob: feedback row not found', [
                 'feedback_id' => $this->feedbackId,
             ]);
-
-            return;
+            throw new \RuntimeException('SendFeedbackEmailJob: feedback row not found: '.$this->feedbackId);
         }
 
         // User model exposes the auth-email as `primary_email`; there is no

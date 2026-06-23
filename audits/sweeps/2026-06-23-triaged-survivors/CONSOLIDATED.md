@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 1 / 12 complete
+- Bundles: 2 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -51,11 +51,11 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: one family — per-row full invalidation instead of a dirty-flag/conditional guard. A shared "only bust on relevant change" pattern fixes them coherently.
 
 ### Bundle B2: Job failure semantics (2 items) — Effort: S
-- [ ] **Bundle B2 complete**
-- Models: plan=— · impl=sonnet · review=sonnet
+- [x] **Bundle B2 complete**
+- Models: plan=— · impl=sonnet · review=opus (GDPR-PII override)
 - Findings:
-    - [ ] **#JOB-3** · P2 — `ExportUserDataJob` null-audit path `report()`s but `return`s succeeded — no `failed_jobs` entry for a lost GDPR request — `app/Jobs/Gdpr/ExportUserDataJob.php:52-58` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-job-queue-correctness.md`
-    - [ ] **#JOB-10** · P2 — `SendFeedbackEmailJob` null-feedback path — same `return`-succeeded pattern — `app/Jobs/Notifications/SendFeedbackEmailJob.php:54-61` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-job-queue-correctness.md`
+    - [x] **#JOB-3** · P2 — FIXED: `ExportUserDataJob` null-audit path now `throw`s (queue idiom) instead of report()+return; lost GDPR export lands in `failed_jobs` + retries — `app/Jobs/Gdpr/ExportUserDataJob.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-job-queue-correctness.md`
+    - [x] **#JOB-10** · P2 — FIXED: `SendFeedbackEmailJob` null-feedback path now `throw`s (empty-recipients fire-and-forget path kept as no-op) — `app/Jobs/Notifications/SendFeedbackEmailJob.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-job-queue-correctness.md`
 - Rationale: both `report()` but `return` instead of `$this->fail()`, so Horizon shows green. Same one-line swap.
 
 ### Bundle B3: Media & scaling memory footprint (4 items) — Effort: M
