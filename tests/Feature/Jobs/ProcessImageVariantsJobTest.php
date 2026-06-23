@@ -161,6 +161,42 @@ it('records the guard error message in processing_error so the frontend can surf
     expect($error)->toContain('24000000');
 });
 
+it('streams the original to a temp file (readStream) rather than loading it all into memory (get)', function () {
+    // SCALE-5: the job must not call $disk->get() — that buffers the entire file
+    // in PHP memory. It should instead open a read stream and pipe it to a local tmp.
+    $imageId = seedJobTestMediaRow();
+    $originalPath = "images/test/{$imageId}/original.jpg";
+    Storage::disk('local')->put($originalPath, 'image-bytes');
+
+    // Spy on the Storage facade so we can assert get() is never called on this disk.
+    $diskSpy = Mockery::spy(\Illuminate\Filesystem\FilesystemAdapter::class);
+
+    // The spy must delegate real readStream behaviour so the job can actually pipe.
+    $realDisk = Storage::disk('local');
+    $diskSpy->shouldReceive('readStream')
+        ->once()
+        ->with($originalPath)
+        ->andReturnUsing(fn ($p) => $realDisk->readStream($p));
+
+    $diskSpy->shouldReceive('exists')
+        ->with($originalPath)
+        ->andReturn(true);
+
+    // Intercept Storage::disk('local') to return the spy.
+    Storage::shouldReceive('disk')->with('local')->andReturn($diskSpy);
+
+    $service = Mockery::mock(ImageVariantService::class);
+    $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
+    $service->shouldReceive('processVariants')->once()->andReturn([]);
+
+    $job = new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}");
+    $job->handle($service);
+
+    // If get() were called it would appear in the spy's call list; asserting
+    // readStream was called once is the positive confirmation of streaming.
+    $diskSpy->shouldNotHaveReceived('get');
+});
+
 it('returns early without processing when the Redis processing lock is already held by another worker', function () {
     // TEST-4: GuardsMediaProcessing::acquireProcessingLock calls
     //   Redis::set($key, '1', 'EX', $timeout + 60, 'NX')

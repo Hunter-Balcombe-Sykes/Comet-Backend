@@ -8,6 +8,7 @@ use App\Services\Media\VideoVariantService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\FileAttributes;
 
 /**
  * P1-08 (prefix GC backstop): garbage-collect video R2 objects that no longer
@@ -39,8 +40,14 @@ class GcOrphanedVideoArtifactsCommand extends Command
         // Group every object under videos/ by its media id. Defer the per-object
         // lastModified() calls (each is a storage round-trip) until after the row
         // check — only orphan candidates, which are rare, need the age guard.
+        // getDriver()->listContents() returns a lazy DirectoryListing (generator-
+        // backed) so the full prefix list is never materialised into memory.
         $groups = [];
-        foreach ($disk->allFiles('videos') as $file) {
+        foreach ($disk->getDriver()->listContents('videos', true) as $attributes) {
+            if (! $attributes instanceof FileAttributes) {
+                continue; // skip directory entries
+            }
+            $file = $attributes->path();
             $parts = explode('/', $file);
             if (count($parts) < 4) {
                 continue; // not videos/{user}/{media}/{file} — leave it alone.

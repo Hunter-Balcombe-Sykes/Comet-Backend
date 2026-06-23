@@ -34,9 +34,11 @@ class StaffServiceManagementController extends ApiController
             $servicesQ->withTrashed();
         }
 
+        // mirrors user-facing cap (UserServiceController::index limit(500))
         $services = $servicesQ
             ->orderBy('sort_order')
             ->orderBy('created_at')
+            ->limit(500)
             ->get();
 
         if (! $grouped) {
@@ -59,7 +61,8 @@ class StaffServiceManagementController extends ApiController
             $catsQ->withTrashed();
         }
 
-        $categories = $catsQ->orderBy('sort_order')->orderBy('created_at')->get();
+        // mirrors user-facing cap (UserServiceCategoryController::index limit(200))
+        $categories = $catsQ->orderBy('sort_order')->orderBy('created_at')->limit(200)->get();
 
         $servicesByCategory = $services->groupBy(fn (Service $s) => $s->category_id ?? '__uncategorised__');
 

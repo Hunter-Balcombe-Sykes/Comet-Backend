@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 2 / 12 complete
+- Bundles: 3 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -59,13 +59,13 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: both `report()` but `return` instead of `$this->fail()`, so Horizon shows green. Same one-line swap.
 
 ### Bundle B3: Media & scaling memory footprint (4 items) — Effort: M
-- [ ] **Bundle B3 complete**
+- [x] **Bundle B3 complete**
 - Models: plan=sonnet · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#SCALE-3** · P2 — `GcOrphanedVideoArtifactsCommand` `allFiles('videos')` loads the full R2 listing → OOM — `app/Console/Commands/GcOrphanedVideoArtifactsCommand.php:43` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **#SCALE-5** · P2 — `ProcessImageVariantsJob` `$disk->get()` loads the full image into a string (video job uses `readStream`) — `app/Jobs/ProcessImageVariantsJob.php:149` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
-    - [ ] **#P3-28** · P3 — No breadcrumb log between R2 `storeOriginal` and the DB path write → orphaned R2 object on crash — `app/Services/Media/MediaUploadService.php:110-121` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-    - [ ] **#P3-32** · P3 — Staff grouped service list is a bare `->get()` with no row cap — `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php:40` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
+    - [x] **#SCALE-3** · P2 — FIXED: lazy `getDriver()->listContents('videos', true)` + FileAttributes skip (was `allFiles()` materialising whole listing); same path strings, orphan/delete logic unchanged — `app/Console/Commands/GcOrphanedVideoArtifactsCommand.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **#SCALE-5** · P2 — FIXED: `readStream`+`stream_copy_to_stream` to temp file (was `$disk->get()` full-string copy), mirrors video job; GD reads same path — `app/Jobs/ProcessImageVariantsJob.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-database-and-queue-scaling.md`
+    - [x] **#P3-28** · P3 — FIXED: structured `media.original_stored` breadcrumb (media_id+disk+path) before DB write so orphan R2 objects are traceable — `app/Services/Media/MediaUploadService.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md` (follow-up noted: `uploadSingleton()` path)
+    - [x] **#P3-32** · P3 — FIXED: `limit(500)` services / `limit(200)` categories on staff grouped index, mirroring user-facing caps — `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md` (follow-up noted: sibling StaffServiceCategoryManagementController)
 - Rationale: full-blob/full-listing loads + unbounded reads; cap and stream.
 
 ### Bundle B4: HTTP status & response-shape correctness (3 items) — Effort: S
