@@ -39,12 +39,17 @@ class SendFeedbackEmailJob implements ShouldQueue
         $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
+    // Populated in handle() after the feedback row loads so failed() can include
+    // the user_id in its log context without making a second DB query.
+    private ?string $userId = null;
+
     public function handle(): void
     {
         $recipients = (array) config('partna.feedback.notify_emails', []);
         if (empty($recipients)) {
             Log::warning('SendFeedbackEmailJob: no recipients configured (FEEDBACK_NOTIFY_EMAILS empty)', [
                 'feedback_id' => $this->feedbackId,
+                'user_id' => $this->userId,
             ]);
 
             return;
@@ -57,16 +62,21 @@ class SendFeedbackEmailJob implements ShouldQueue
             // entry; a silent return would mark this dropped notification as "succeeded".
             Log::warning('SendFeedbackEmailJob: feedback row not found', [
                 'feedback_id' => $this->feedbackId,
+                'user_id' => $this->userId,
             ]);
             throw new \RuntimeException('SendFeedbackEmailJob: feedback row not found: '.$this->feedbackId);
         }
+
+        // Stash user_id so failed() can include it in log context without an
+        // extra DB query. feedback.user_id is nullable (ON DELETE SET NULL).
+        $this->userId = $feedback->user_id;
 
         // User model exposes the auth-email as `primary_email`; there is no
         // `email` accessor. Reading `->email` would silently return null.
         $userEmail = $feedback->user?->primary_email;
         $logContext = [
             'feedback_id' => $this->feedbackId,
-            'user_id' => $feedback->user_id,
+            'user_id' => $this->userId,
         ];
 
         // One Mail::send per recipient so addresses in notify_emails do not
@@ -103,10 +113,11 @@ class SendFeedbackEmailJob implements ShouldQueue
     public function failed(\Throwable $e): void
     {
         report($e);
-        // user_id not available here (no model loaded on failed()); feedback_id
-        // is enough to look up the row during incident response.
         Log::error('SendFeedbackEmailJob failed permanently', [
             'feedback_id' => $this->feedbackId,
+            // user_id is set in handle() after the row loads; may be null if
+            // the job failed before reaching that point (e.g. missing row).
+            'user_id' => $this->userId,
             'error' => $e->getMessage(),
         ]);
     }

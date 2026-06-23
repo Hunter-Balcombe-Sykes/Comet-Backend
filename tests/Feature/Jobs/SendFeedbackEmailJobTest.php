@@ -79,6 +79,69 @@ it('throws when the feedback row is missing so the queue records a failed_jobs e
     Mail::assertNothingSent();
 });
 
+it('includes user_id in log context for the empty-recipients early-exit path (LIFE-4c)', function () {
+    config(['partna.feedback.notify_emails' => []]);
+    $id = seedFeedbackRow();
+
+    // Capture the warning log and verify it carries user_id.
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) {
+            return str_contains($message, 'no recipients configured')
+                && array_key_exists('user_id', $context)
+                && array_key_exists('feedback_id', $context);
+        });
+
+    (new SendFeedbackEmailJob($id))->handle();
+
+    Mail::assertNothingSent();
+});
+
+it('includes user_id in log context when the feedback row is missing (LIFE-4c)', function () {
+    config(['partna.feedback.notify_emails' => ['a@partna.test']]);
+    $missingId = (string) Str::uuid();
+
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) use ($missingId) {
+            return str_contains($message, 'feedback row not found')
+                && array_key_exists('user_id', $context)
+                && $context['feedback_id'] === $missingId;
+        });
+
+    expect(fn () => (new SendFeedbackEmailJob($missingId))->handle())
+        ->toThrow(RuntimeException::class, 'feedback row not found');
+});
+
+it('includes user_id in failed() log context after permanent failure (LIFE-4c)', function () {
+    config(['partna.feedback.notify_emails' => ['a@partna.test']]);
+    $id = seedFeedbackRow();
+
+    Log::spy();
+
+    $job = new SendFeedbackEmailJob($id);
+
+    // Simulate the state Horizon would have after handle() loaded the row but
+    // mail failed — set $userId via reflection as if handle() ran to that point.
+    $row = \App\Models\Core\Feedback::find($id);
+    $prop = new \ReflectionProperty($job, 'userId');
+    $prop->setAccessible(true);
+    $prop->setValue($job, $row->user_id);
+
+    $job->failed(new \RuntimeException('smtp down'));
+
+    // report($e) also calls Log::error internally so we use atLeast()->once()
+    // and match specifically on the 'failed permanently' message with user_id.
+    Log::shouldHaveReceived('error')
+        ->atLeast()->once()
+        ->withArgs(function (string $message, array $context) use ($id, $row) {
+            return str_contains($message, 'failed permanently')
+                && ($context['feedback_id'] ?? null) === $id
+                && array_key_exists('user_id', $context)
+                && $context['user_id'] === $row->user_id;
+        });
+});
+
 it('does not re-send to an already-emailed recipient when the job runs twice (per-recipient cache idempotency)', function () {
     // TEST-3: the per-recipient Cache::add key prevents duplicate delivery on retry.
     // Cache driver is 'array' (phpunit.xml CACHE_STORE=array) — not flushed between

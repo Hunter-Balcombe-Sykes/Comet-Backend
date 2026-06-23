@@ -195,6 +195,13 @@ class AppServiceProvider extends ServiceProvider
             throw new \RuntimeException('APP_DEBUG must be false in production.');
         }
 
+        // FEEDBACK_IP_HASH_PEPPER must be set in production. An empty pepper
+        // means all ip_hash values are stored NULL — abuse correlation becomes
+        // impossible and nobody notices until an incident requires it.
+        if (app()->isProduction() && empty(config('partna.feedback.ip_hash_pepper'))) {
+            throw new \RuntimeException('FEEDBACK_IP_HASH_PEPPER must be configured in production (ip_hash disabled without it).');
+        }
+
         // Auth::user() is always null in this app (Supabase JWT), so a user-based
         // Horizon gate is not possible. Default behavior: dashboard is open in
         // non-production environments and sealed in production. Production access

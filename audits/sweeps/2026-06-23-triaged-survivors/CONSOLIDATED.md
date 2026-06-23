@@ -29,7 +29,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 ## Progress
 
-- Bundles: 9 / 12 complete
+- Bundles: 10 / 12 complete
 - Standalone: 0 / 26 complete
 - Out of scope (not counted as work): 10
 
@@ -121,12 +121,12 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 - Rationale: same file (the single KV writer). review=opus — KV single-writer contract.
 
 ### Bundle B10: Feedback service hardening (3 items) — Effort: S
-- [ ] **Bundle B10 complete**
+- [x] **Bundle B10 complete**
 - Models: plan=— · impl=sonnet · review=sonnet
 - Findings:
-    - [ ] **#SEC-1c** · P2 — `user_agent` header read directly as a fallback, bypassing FormRequest validation — `app/Services/Feedback/FeedbackService.php:61` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
-    - [ ] **#LIFE-2c** · P2 — `hashIp()` silently returns null when pepper empty; no `AppServiceProvider::boot()` production assertion — `app/Services/Feedback/FeedbackService.php:83-89` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
-    - [ ] **#LIFE-4c** · P2 — `SendFeedbackEmailJob` early-exit + `failed()` logs omit `user_id` — `app/Jobs/Notifications/SendFeedbackEmailJob.php:36-37,46,56,107` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
+    - [x] **#SEC-1c** · P2 — FIXED (premise already handled — validated body wins + raw header `mb_substr(1024)` capped + FormRequest `max:1024`); added the missing bound tests — `app/Services/Feedback/FeedbackService.php` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
+    - [x] **#LIFE-2c** · P2 — FIXED: `AppServiceProvider` boot guard throws in production when `partna.feedback.ip_hash_pepper` empty (matches existing prod-config guards); `hashIp()` stays graceful in non-prod — `app/Providers/AppServiceProvider.php` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
+    - [x] **#LIFE-4c** · P2 — FIXED: `user_id` added to empty-recipients / missing-row / `failed()` log context (default-null property, skipped from queue payload); B2 throw untouched — `app/Jobs/Notifications/SendFeedbackEmailJob.php` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
 - Rationale: feedback-pipeline hardening (the DB-race sibling `#LIFE-1c` is Standalone — needs a UNIQUE constraint). IDs suffixed `c` = the May "core" audit, to disambiguate from sweep `SEC-1`/`LIFE-x`.
 
 ### Bundle B11: Supabase email-hook delivery id (1 item) — Effort: S

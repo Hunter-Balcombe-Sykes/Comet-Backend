@@ -206,3 +206,34 @@ it('falls back user_agent to the request header when not in the body', function 
     $row = Feedback::query()->where('user_id', $pro->id)->first();
     expect($row->user_agent)->toBe('TestAgent/9.9');
 });
+
+it('rejects an oversized user_agent in the body with 422 (SEC-1c FormRequest guard)', function () {
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'kind' => 'idea',
+        'message' => 'ua too long',
+        'user_agent' => str_repeat('A', 1025),
+    ]);
+
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors(['user_agent']);
+});
+
+it('caps a raw-header user_agent to 1024 chars when not supplied in the body (SEC-1c fallback cap)', function () {
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    // 2000-char UA supplied via header (not body) — service must truncate to 1024.
+    $longUa = str_repeat('X', 2000);
+
+    actingAsUser($pro)
+        ->withHeaders(['User-Agent' => $longUa])
+        ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ua cap test'])
+        ->assertStatus(201);
+
+    $row = Feedback::query()->where('user_id', $pro->id)->first();
+    // Header fallback is capped to 1024 in FeedbackService — raw 2000-char
+    // value must never reach the row.
+    expect(mb_strlen((string) $row->user_agent))->toBeLessThanOrEqual(1024);
+});
