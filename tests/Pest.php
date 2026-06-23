@@ -505,8 +505,6 @@ function setupSitesTable(): void
         name TEXT NULL,
         description TEXT NULL,
         image_url TEXT NULL,
-        modifiers TEXT NULL,
-        is_sold_out INTEGER NULL,
         rating REAL NULL,
         rating_count INTEGER NULL,
         badges TEXT NULL,
@@ -516,7 +514,6 @@ function setupSitesTable(): void
         delivery_price REAL NULL,
         delivery_source TEXT NULL,
         platforms TEXT NULL,
-        ue_external_id TEXT NULL,
         dd_external_id TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL

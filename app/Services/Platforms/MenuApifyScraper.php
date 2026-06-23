@@ -29,8 +29,8 @@ use Throwable;
 // Normalized output:
 //   [ 'store' => [ name, rating, reviewCount, currency, logo ],
 //     'categories' => [ [ 'name' => …, 'items' => [ [
-//        externalId, name, description, price, image, isSoldOut,
-//        modifiers, rating, ratingCount, badges (DD only) ] … ] ] ] ]
+//        externalId, name, description, price, image,
+//        rating, ratingCount, badges (DD only) ] … ] ] ] ]
 class MenuApifyScraper
 {
     // owner~name form for the Apify API path.
@@ -343,10 +343,9 @@ class MenuApifyScraper
      * Uber Eats (memo23): one store object with a flattened `menuItems` list,
      * each item carrying its `section` (its category), name, description, dollar
      * `price`, and `imageUrl`. We group the items by section into categories,
-     * preserving first-seen order. The flattened list has no per-item id or
-     * customisations, so externalId/modifiers are null (cross-mode price fusion
-     * falls back to name-matching). Store: title / image / ratingValue /
-     * reviewCount / currencyCode.
+     * preserving first-seen order. The flattened list has no per-item id, so
+     * externalId is null (cross-mode price fusion falls back to name-matching).
+     * Store: title / image / ratingValue / reviewCount / currencyCode.
      *
      * @param  list<mixed>  $items
      * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
@@ -375,8 +374,6 @@ class MenuApifyScraper
                 'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                 'price' => is_numeric($price) ? round((float) $price, 2) : null,
                 'image' => $this->safeUrl(data_get($item, 'imageUrl')),
-                'isSoldOut' => false,
-                'modifiers' => null,
                 'rating' => null,
                 'ratingCount' => null,
                 'badges' => null,
@@ -444,8 +441,6 @@ class MenuApifyScraper
                     'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                     'price' => $price,
                     'image' => $this->safeUrl(data_get($item, 'image_url')),
-                    'isSoldOut' => false,
-                    'modifiers' => null,
                     'rating' => is_numeric($ratingPct) ? round((float) $ratingPct, 2) : null,
                     'ratingCount' => is_numeric($ratingCount) ? (int) $ratingCount : null,
                     'badges' => $this->badges(data_get($item, 'badges')),
