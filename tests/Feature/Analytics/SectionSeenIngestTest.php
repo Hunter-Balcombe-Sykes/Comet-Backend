@@ -18,12 +18,13 @@ beforeEach(function () {
 it('records a section-seen event for a published site', function () {
     $tenant = createBrandTenant('section-seen-happy');
 
-    $response = $this->postJson('/api/public/analytics/section-seen', [
-        'site_id' => $tenant->site->id,
-        'section_key' => 'products',
-        'session_id' => (string) Str::uuid(),
-        'visitor_id' => (string) Str::uuid(),
-    ]);
+    $response = $this->withHeader('Origin', 'https://section-seen-happy.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/section-seen', [
+            'site_id' => $tenant->site->id,
+            'section_key' => 'products',
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(1);
@@ -37,6 +38,7 @@ it('records a section-seen event for a published site', function () {
 it('deduplicates a repeat view of the same section by the same session within 5 minutes', function () {
     $tenant = createBrandTenant('section-seen-dedup');
     $sessionId = (string) Str::uuid();
+    $origin = 'https://section-seen-dedup.'.config('partna.public_domain');
 
     $payload = [
         'site_id' => $tenant->site->id,
@@ -44,8 +46,8 @@ it('deduplicates a repeat view of the same section by the same session within 5 
         'session_id' => $sessionId,
     ];
 
-    $this->postJson('/api/public/analytics/section-seen', $payload)->assertStatus(201);
-    $this->postJson('/api/public/analytics/section-seen', $payload)->assertStatus(201);
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/section-seen', $payload)->assertStatus(201);
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/section-seen', $payload)->assertStatus(201);
 
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(1);
 });
@@ -64,11 +66,12 @@ it('allows a second view after the 5-minute dedup window expires', function () {
         'created_at' => now()->subMinutes(6)->toDateTimeString(),
     ]);
 
-    $response = $this->postJson('/api/public/analytics/section-seen', [
-        'site_id' => $tenant->site->id,
-        'section_key' => 'products',
-        'session_id' => $sessionId,
-    ]);
+    $response = $this->withHeader('Origin', 'https://section-seen-window.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/section-seen', [
+            'site_id' => $tenant->site->id,
+            'section_key' => 'products',
+            'session_id' => $sessionId,
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(2);
@@ -77,14 +80,15 @@ it('allows a second view after the 5-minute dedup window expires', function () {
 it('records different sections under the same session independently', function () {
     $tenant = createBrandTenant('section-seen-multi-section');
     $sessionId = (string) Str::uuid();
+    $origin = 'https://section-seen-multi-section.'.config('partna.public_domain');
 
-    $this->postJson('/api/public/analytics/section-seen', [
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/section-seen', [
         'site_id' => $tenant->site->id,
         'section_key' => 'hero',
         'session_id' => $sessionId,
     ])->assertStatus(201);
 
-    $this->postJson('/api/public/analytics/section-seen', [
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/section-seen', [
         'site_id' => $tenant->site->id,
         'section_key' => 'products',
         'session_id' => $sessionId,
@@ -99,11 +103,12 @@ it('returns 404 when site is unpublished (does not leak existence)', function ()
         ->where('id', $tenant->site->id)
         ->update(['is_published' => 0]);
 
-    $response = $this->postJson('/api/public/analytics/section-seen', [
-        'site_id' => $tenant->site->id,
-        'section_key' => 'products',
-        'session_id' => (string) Str::uuid(),
-    ]);
+    $response = $this->withHeader('Origin', 'https://section-seen-unpublished.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/section-seen', [
+            'site_id' => $tenant->site->id,
+            'section_key' => 'products',
+            'session_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(404);
 });
@@ -116,12 +121,13 @@ it('drops an optional block_id that belongs to another site (cross-site IDOR def
     $otherTenant = createBrandTenant('section-seen-other-tenant');
     $foreignBlock = createLinkBlockFor($otherTenant);
 
-    $response = $this->postJson('/api/public/analytics/section-seen', [
-        'site_id' => $tenant->site->id,
-        'section_key' => 'products',
-        'block_id' => $foreignBlock->id,
-        'session_id' => (string) Str::uuid(),
-    ]);
+    $response = $this->withHeader('Origin', 'https://section-seen-block-valid.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/section-seen', [
+            'site_id' => $tenant->site->id,
+            'section_key' => 'products',
+            'block_id' => $foreignBlock->id,
+            'session_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(0);
@@ -130,12 +136,14 @@ it('drops an optional block_id that belongs to another site (cross-site IDOR def
 it('silently ignores bot user-agents (200 not 201)', function () {
     $tenant = createBrandTenant('section-seen-bot');
 
-    $response = $this->withHeader('User-Agent', 'Googlebot/2.1 (+http://www.google.com/bot.html)')
-        ->postJson('/api/public/analytics/section-seen', [
-            'site_id' => $tenant->site->id,
-            'section_key' => 'products',
-            'session_id' => (string) Str::uuid(),
-        ]);
+    $response = $this->withHeaders([
+        'User-Agent' => 'Googlebot/2.1 (+http://www.google.com/bot.html)',
+        'Origin' => 'https://section-seen-bot.'.config('partna.public_domain'),
+    ])->postJson('/api/public/analytics/section-seen', [
+        'site_id' => $tenant->site->id,
+        'section_key' => 'products',
+        'session_id' => (string) Str::uuid(),
+    ]);
 
     $response->assertStatus(200);
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(0);

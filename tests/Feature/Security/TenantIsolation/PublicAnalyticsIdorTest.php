@@ -1,23 +1,31 @@
 <?php
 
+use App\Services\Analytics\Contracts\AnalyticsIngestor;
+use App\Services\Analytics\Ingestors\SyncIngestor;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
-
-    // PageviewRequest uses Rule::exists('pgsql.site.sites', 'id') which resolves to
-    // the real site.sites table via the pgsql connection. No shadow table needed.
-
-    // analytics.site_visits — needed so the pageview controller can save the record.
     setupSiteVisitsTable();
+    setupLinkClicksTable();
+
+    // Use the sync ingestor so we can assert DB rows (or absence of them) inline.
+    // PageviewRequest uses Rule::exists('pgsql.site.sites', 'id') via the real pgsql connection.
+    app()->bind(AnalyticsIngestor::class, SyncIngestor::class);
 });
 
-// The /public/analytics/pageviews route in api.php is a header-based fallback for
-// path-based frontends that can't use subdomain DNS. PageviewRequest::prepareForValidation()
-// falls back to X-Site-Subdomain when no route('subdomain') is available, merging it
-// into $data['subdomain']. The IDOR bug: the old resolveSiteFromData() ignores
-// $data['subdomain'] entirely when site_id is present, letting an attacker record
-// events under a victim's site_id.
+// ─────────────────────────────────────────────────────────────────────────────
+// SEC-1 — analytics ingest IDOR / tenant isolation
+//
+// The vulnerability: resolveSiteFromData() only cross-checks site_id ↔ subdomain
+// when subdomain is present. A site_id-only POST returns ANY published site,
+// so an attacker who knows a victim's UUID (exposed in public page payloads) can
+// inject fabricated events. Fix: bind each ingest request to the site's canonical
+// Origin header. Browsers cannot forge Origin from JS.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Pre-existing IDOR tests (subdomain cross-check path) ─────────────────────
 
 it('refuses to record a pageview when body site_id does not match the X-Site-Subdomain header', function () {
     $victim = createBrandTenant('victim');
@@ -34,6 +42,7 @@ it('refuses to record a pageview when body site_id does not match the X-Site-Sub
         ]);
 
     expect($response->status())->toBe(422);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
 });
 
 it('records a pageview when site_id matches the X-Site-Subdomain header', function () {
@@ -50,4 +59,106 @@ it('records a pageview when site_id matches the X-Site-Subdomain header', functi
     // 404/500 acceptable if the aggregate job or cache service hits missing
     // infrastructure in the SQLite test environment.
     expect($response->status())->toBeIn([201, 404, 500]);
+});
+
+// ── Origin-binding tests (SEC-1 fix) ─────────────────────────────────────────
+
+// (a) site_id-only POST with an attacker Origin (wrong site) → 404, no event written.
+it('rejects a pageview when site_id-only POST carries an Origin from a different site', function () {
+    $victim = createBrandTenant('idor-victim-a');
+    $attacker = createBrandTenant('idor-attacker-a');
+    $attackerOrigin = 'https://idor-attacker-a.'.config('partna.public_domain');
+
+    $response = $this->withHeader('Origin', $attackerOrigin)
+        ->postJson('/api/public/analytics/pageviews', [
+            'site_id' => $victim->site->id,
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
+
+    // 404 — non-leaky rejection. No existence signal.
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
+});
+
+// (b) site_id-only POST with the CORRECT Origin (victim's own page) → success.
+it('accepts a pageview when site_id-only POST carries the correct Origin', function () {
+    $tenant = createBrandTenant('idor-legit-b');
+    $correctOrigin = 'https://idor-legit-b.'.config('partna.public_domain');
+
+    $response = $this->withHeader('Origin', $correctOrigin)
+        ->postJson('/api/public/analytics/pageviews', [
+            'site_id' => $tenant->site->id,
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
+
+    $response->assertStatus(201);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->first()->site_id)->toBe($tenant->site->id);
+});
+
+// (c) site_id of site A + Origin of site B → rejected, no event.
+it('rejects a click when site_id belongs to site A but Origin is site B', function () {
+    $siteA = createBrandTenant('idor-site-a-c');
+    $siteB = createBrandTenant('idor-site-b-c');
+    $siteBOrigin = 'https://idor-site-b-c.'.config('partna.public_domain');
+
+    $response = $this->withHeader('Origin', $siteBOrigin)
+        ->postJson('/api/public/analytics/clicks', [
+            'site_id' => $siteA->site->id,
+            'url' => 'https://example.com/link',
+            'visitor_id' => (string) Str::uuid(),
+        ]);
+
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(0);
+});
+
+// (d) Legitimate subdomain-path request with matching Origin → success.
+it('accepts a pageview when subdomain is provided and Origin matches', function () {
+    $tenant = createBrandTenant('idor-sub-d');
+    $matchingOrigin = 'https://idor-sub-d.'.config('partna.public_domain');
+
+    $response = $this->withHeader('Origin', $matchingOrigin)
+        ->postJson('/api/public/analytics/pageviews', [
+            'subdomain' => 'idor-sub-d',
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
+
+    $response->assertStatus(201);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
+});
+
+// (e) No-Origin + no-Referer + both site_id and subdomain present and matching → allowed.
+it('allows a pageview with no Origin when both site_id and subdomain are present and match', function () {
+    $tenant = createBrandTenant('idor-both-e');
+
+    // No Origin or Referer — server-side / synthetic caller. Both identifiers present.
+    $response = $this->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $tenant->site->id,
+        'subdomain' => 'idor-both-e',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+    ]);
+
+    $response->assertStatus(201);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
+});
+
+// (f) No-Origin + no-Referer + site_id only → rejected (the core IDOR attack vector).
+it('rejects a pageview with no Origin when only site_id is provided (IDOR attack path)', function () {
+    $victim = createBrandTenant('idor-victim-f');
+
+    // Attacker knows the victim's UUID (it's in every public page payload) but has
+    // no browser page to generate a real Origin. Must be rejected.
+    $response = $this->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $victim->site->id,
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+    ]);
+
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
 });

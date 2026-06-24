@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 1 / 26 complete (PRIV-4)
+- Standalone: 2 / 26 complete (PRIV-4, SEC-1)
 - Out of scope (not counted as work): 10
 
 ---
@@ -154,7 +154,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth / DB-migration / GDPR-PII / mail / re-verify) → produce the plan, present it, wait for Josh's sign-off before implementing.
 
 - [ ] **#CCH-2** · P1 — ⚠️ **RE-VERIFY FIRST.** `NotificationPublisher` does call `self::forget()` (`:356`); open question is whether publish also busts `NotificationListingService::bustIndexCache()` (`:181`). Confirm it's a real gap before any change — `app/Services/Notifications/NotificationPublisher.php` → `audits/archive/loose-may-2026/caching-fix-plan-2026-05-21.md`
-- [ ] **#SEC-1** · P1 — Analytics ingest IDOR: a `site_id`-only POST records fabricated events against any site (tenant isolation) — `app/Http/Controllers/Concerns/ResolvesSiteFromRequest.php:22-38`, `app/Http/Requests/Api/PublicSite/Analytics/PageviewRequest.php:22-23` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
+- [x] **#SEC-1** · P1 — FIXED: analytics ingest now binds each event to the request `Origin`/`Referer` host matching the resolved site's canonical domain ({subdomain}.{public_domain} + active custom_domain); no-Origin allowed only when site_id+subdomain cross-check passes; non-leaky 404. Closes site_id-only cross-tenant injection — `app/Http/Controllers/Api/PublicSite/AnalyticsController.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
 - [ ] **#PRIV-2** · P1 — 30-day GDPR export retention declared but no enforcer (no `gdpr:prune-completed-exports`) — `config/partna.php:1150` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#PRIV-3** · P1 — 7-year handle-audit retention declared but no `handles:prune-audit-logs` for `audit.handle_change_log` — `config/partna.php:38` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [x] **#PRIV-4** · P1 — FIXED: `AccountDeletionService::purgeReportedUserEvidencePii()` tombstones handle/display_name/bio/site_subdomain in `moderation.evidence.payload` on the purge path (keeps site_id + content_hash); DB-portable Eloquent, fault-tolerant — `app/Services/User/AccountDeletionService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`

@@ -46,11 +46,15 @@ it('does not register a subdomain-scoped pageview or click route', function (): 
 it('resolves the site from the payload subdomain on POST /api/public/analytics/pageviews', function (): void {
     $tenant = createBrandTenant('hydrogen-affiliate');
 
-    $response = $this->postJson('/api/public/analytics/pageviews', [
-        'subdomain' => 'hydrogen-affiliate',
-        'session_id' => (string) Str::uuid(),
-        'visitor_id' => (string) Str::uuid(),
-    ]);
+    // Hydrogen proxy sends the subdomain in the body and must include an Origin header
+    // matching the mini-site page it's serving (browser origin check). Server-side callers
+    // with no Origin must provide both site_id + subdomain (the approved fallback).
+    $response = $this->withHeader('Origin', 'https://hydrogen-affiliate.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/pageviews', [
+            'subdomain' => 'hydrogen-affiliate',
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
@@ -62,6 +66,7 @@ it('resolves the site from the payload subdomain on POST /api/public/analytics/c
 
     $response = $this->withHeaders([
         'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        'Origin' => 'https://hydrogen-affiliate-2.'.config('partna.public_domain'),
     ])->postJson('/api/public/analytics/clicks', [
         'subdomain' => 'hydrogen-affiliate-2',
         'block_id' => $block->id,

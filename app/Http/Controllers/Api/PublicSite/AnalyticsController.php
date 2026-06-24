@@ -45,6 +45,10 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
         // NOTE: pageview intentionally has NO bot filter and NO dedup (preserved). A bot
         // UA still records a pageview today; changing that is a separate metrics decision.
         $event = $this->buildEvent(
@@ -68,6 +72,10 @@ class AnalyticsController extends ApiController
         $site = $this->resolvePublishedSite($data, $error);
         if (! $site) {
             return $error;
+        }
+
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
         }
 
         if ($this->isBotUserAgent($request->userAgent())) {
@@ -117,6 +125,10 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
         if ($this->isBotUserAgent($request->userAgent())) {
             return $this->success(['message' => 'Section view recorded'], 200);
         }
@@ -163,6 +175,10 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
         if ($this->isBotUserAgent($request->userAgent())) {
             return $this->success(['message' => 'ok'], 200);
         }
@@ -207,6 +223,88 @@ class AnalyticsController extends ApiController
         $error = null;
 
         return $site;
+    }
+
+    /**
+     * Bind the ingest event to the site's canonical origin(s).
+     *
+     * Browsers cannot forge the Origin header from JS, so this closes the dominant
+     * cross-tenant injection vector: an attacker who knows a victim's site_id UUID
+     * (exposed in public page payloads) cannot POST fabricated events because their
+     * page will carry the WRONG origin.
+     *
+     * Allowed-host set for a resolved $site:
+     *   1. {site->subdomain}.{partna.public_domain}  — always present
+     *   2. site->custom_domain                        — included only when status = 'active'
+     *
+     * Origin-header precedence:
+     *   Origin header → Referer header host → absent
+     *
+     * When Origin AND Referer are both absent: allowed only if the request supplied
+     * BOTH site_id AND subdomain and they passed the cross-check (i.e. subdomain is
+     * already in $data, meaning resolveSiteFromData() validated the pair). This covers
+     * server-side / synthetic callers that never emit an Origin while still closing the
+     * site_id-only hole.
+     *
+     * @param  array<string, mixed>  $data  validated request data (post-prepareForValidation)
+     */
+    private function originAllowed(Request $request, Site $site, array $data): bool
+    {
+        // Build the allowed-host set for this site.
+        $publicDomain = config('partna.public_domain');
+        $allowed = [strtolower($site->subdomain.'.'.$publicDomain)];
+
+        // Include the active custom domain if the site has one verified.
+        if (
+            ! empty($site->custom_domain) &&
+            $site->custom_domain_status === 'active'
+        ) {
+            $allowed[] = strtolower($site->custom_domain);
+        }
+
+        // Extract the request's origin host from Origin header, then Referer.
+        $originHost = $this->parseOriginHost($request);
+
+        if ($originHost === null) {
+            // No origin signal — allow only when both site_id and subdomain were
+            // provided and survived the resolver cross-check (the resolver already
+            // confirmed they match, so subdomain will be in $data here).
+            return ! empty($data['site_id']) && ! empty($data['subdomain']);
+        }
+
+        return in_array($originHost, $allowed, true);
+    }
+
+    /**
+     * Extract a lowercase host from the Origin header, falling back to Referer.
+     * Returns null when neither header is present or parseable.
+     */
+    private function parseOriginHost(Request $request): ?string
+    {
+        // Origin is the primary signal — browsers always send it for cross-origin POSTs.
+        $origin = $request->headers->get('Origin');
+        if ($origin !== null && $origin !== '') {
+            // Origin may be 'null' (sandboxed iframes) — treat as absent.
+            if ($origin === 'null') {
+                $origin = null;
+            } else {
+                $host = parse_url($origin, PHP_URL_HOST);
+                if (is_string($host) && $host !== '') {
+                    return strtolower($host);
+                }
+            }
+        }
+
+        // Fall back to Referer host (less reliable but acceptable as a secondary signal).
+        $referer = $request->headers->get('Referer');
+        if ($referer !== null && $referer !== '') {
+            $host = parse_url($referer, PHP_URL_HOST);
+            if (is_string($host) && $host !== '') {
+                return strtolower($host);
+            }
+        }
+
+        return null;
     }
 
     // Front-loads every request-derived field into the DTO (occurred_at, geo, device,

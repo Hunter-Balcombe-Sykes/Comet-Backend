@@ -37,6 +37,7 @@ it('records a click on a bio section block', function (): void {
 
     $response = $this->withHeaders([
         'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        'Origin' => 'https://expanded-bio.'.config('partna.public_domain'),
     ])->postJson('/api/public/analytics/clicks', [
         'subdomain' => 'expanded-bio',
         'block_id' => $block->id,
@@ -58,6 +59,7 @@ it('records a click on a documents section block', function (): void {
 
     $response = $this->withHeaders([
         'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        'Origin' => 'https://expanded-documents.'.config('partna.public_domain'),
     ])->postJson('/api/public/analytics/clicks', [
         'subdomain' => 'expanded-documents',
         'block_id' => $block->id,
@@ -81,11 +83,12 @@ it('accepts a click on a non-allowlisted section type (201) but writes no row â€
         'url' => null,
     ]);
 
-    $response = $this->postJson('/api/public/analytics/clicks', [
-        'subdomain' => 'expanded-rejected',
-        'block_id' => $block->id,
-        'visitor_id' => (string) Str::uuid(),
-    ]);
+    $response = $this->withHeader('Origin', 'https://expanded-rejected.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/clicks', [
+            'subdomain' => 'expanded-rejected',
+            'block_id' => $block->id,
+            'visitor_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(0);

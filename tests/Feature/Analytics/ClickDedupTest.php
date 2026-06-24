@@ -15,6 +15,7 @@ it('deduplicates rapid double-clicks from the same visitor on the same block', f
     $tenant = createBrandTenant('dedup-visitor');
     $block = createLinkBlockFor($tenant);
     $visitorId = (string) Str::uuid();
+    $origin = 'https://dedup-visitor.'.config('partna.public_domain');
 
     $payload = [
         'site_id' => $tenant->site->id,
@@ -22,8 +23,8 @@ it('deduplicates rapid double-clicks from the same visitor on the same block', f
         'visitor_id' => $visitorId,
     ];
 
-    $first = $this->postJson('/api/public/analytics/clicks', $payload);
-    $second = $this->postJson('/api/public/analytics/clicks', $payload);
+    $first = $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', $payload);
+    $second = $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', $payload);
 
     $first->assertStatus(201);
     $second->assertStatus(201);
@@ -35,6 +36,7 @@ it('deduplicates rapid double-clicks identified only by session_id', function ()
     $tenant = createBrandTenant('dedup-session');
     $block = createLinkBlockFor($tenant);
     $sessionId = (string) Str::uuid();
+    $origin = 'https://dedup-session.'.config('partna.public_domain');
 
     $payload = [
         'site_id' => $tenant->site->id,
@@ -42,8 +44,8 @@ it('deduplicates rapid double-clicks identified only by session_id', function ()
         'session_id' => $sessionId,
     ];
 
-    $this->postJson('/api/public/analytics/clicks', $payload)->assertStatus(201);
-    $this->postJson('/api/public/analytics/clicks', $payload)->assertStatus(201);
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', $payload)->assertStatus(201);
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', $payload)->assertStatus(201);
 
     expect(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(1);
 });
@@ -64,11 +66,12 @@ it('allows a second click after the 3-second dedup window has expired', function
         'created_at' => now()->subSeconds(4)->toDateTimeString(),
     ]);
 
-    $response = $this->postJson('/api/public/analytics/clicks', [
-        'site_id' => $tenant->site->id,
-        'block_id' => $block->id,
-        'visitor_id' => $visitorId,
-    ]);
+    $response = $this->withHeader('Origin', 'https://dedup-window.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/clicks', [
+            'site_id' => $tenant->site->id,
+            'block_id' => $block->id,
+            'visitor_id' => $visitorId,
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(2);
@@ -77,14 +80,15 @@ it('allows a second click after the 3-second dedup window has expired', function
 it('records clicks from different visitors on the same block independently', function () {
     $tenant = createBrandTenant('dedup-multi-visitor');
     $block = createLinkBlockFor($tenant);
+    $origin = 'https://dedup-multi-visitor.'.config('partna.public_domain');
 
-    $this->postJson('/api/public/analytics/clicks', [
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', [
         'site_id' => $tenant->site->id,
         'block_id' => $block->id,
         'visitor_id' => (string) Str::uuid(),
     ])->assertStatus(201);
 
-    $this->postJson('/api/public/analytics/clicks', [
+    $this->withHeader('Origin', $origin)->postJson('/api/public/analytics/clicks', [
         'site_id' => $tenant->site->id,
         'block_id' => $block->id,
         'visitor_id' => (string) Str::uuid(),
