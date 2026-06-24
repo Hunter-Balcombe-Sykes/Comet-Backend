@@ -1779,6 +1779,59 @@ function setupSiteMediaTable(): void
 }
 
 /**
+ * audit.data_export_audit — export lifecycle + artifact tracking.
+ * Mirrors DataExportAudit::$fillable + the cast columns needed by the prune command.
+ * All columns nullable; no CHECK constraints (SQLite can't enforce them).
+ */
+function setupDataExportAuditTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.data_export_audit (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        professional_handle_snapshot TEXT NULL,
+        professional_email_snapshot TEXT NULL,
+        triggered_by TEXT NULL,
+        triggered_by_staff_id TEXT NULL,
+        recipient_email TEXT NULL,
+        send_to TEXT NULL,
+        status TEXT NOT NULL DEFAULT \'queued\',
+        file_path TEXT NULL,
+        file_size_bytes INTEGER NULL,
+        file_sha256 TEXT NULL,
+        record_counts TEXT NULL,
+        error_message TEXT NULL,
+        email_sent_at TEXT NULL,
+        email_delivery_status TEXT NULL,
+        created_at TEXT NULL,
+        completed_at TEXT NULL
+    )');
+}
+
+/**
+ * Insert a DataExportAudit row and return the Eloquent model.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function createDataExportAudit(array $overrides = []): \App\Models\Core\Gdpr\DataExportAudit
+{
+    setupDataExportAuditTable();
+
+    $id = (string) \Illuminate\Support\Str::uuid();
+    $now = now()->toDateTimeString();
+
+    $row = array_merge([
+        'id'         => $id,
+        'status'     => \App\Models\Core\Gdpr\DataExportAudit::STATUS_COMPLETED,
+        'created_at' => $now,
+    ], $overrides);
+
+    DB::connection('pgsql')->table('audit.data_export_audit')->insert($row);
+
+    return \App\Models\Core\Gdpr\DataExportAudit::query()->findOrFail($id);
+}
+
+/**
  * site.design_kits — per-site design token table (1:1 with site.sites).
  * All token columns are NULLABLE TEXT so tests can insert partial rows and
  * the resolver falls back to defaults for unset columns. Mirrors the

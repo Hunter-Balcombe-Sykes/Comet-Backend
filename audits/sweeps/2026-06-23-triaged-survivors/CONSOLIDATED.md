@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 2 / 26 complete (PRIV-4, SEC-1)
+- Standalone: 3 / 26 complete (PRIV-4, SEC-1, PRIV-2) · 2 deferred (CCH-2, PRIV-3)
 - Out of scope (not counted as work): 10
 
 ---
@@ -153,10 +153,10 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 
 Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth / DB-migration / GDPR-PII / mail / re-verify) → produce the plan, present it, wait for Josh's sign-off before implementing.
 
-- [ ] **#CCH-2** · P1 — ⚠️ **RE-VERIFY FIRST.** `NotificationPublisher` does call `self::forget()` (`:356`); open question is whether publish also busts `NotificationListingService::bustIndexCache()` (`:181`). Confirm it's a real gap before any change — `app/Services/Notifications/NotificationPublisher.php` → `audits/archive/loose-may-2026/caching-fix-plan-2026-05-21.md`
+- [ ] **#CCH-2** · P1 — ⏸ **DEFERRED (Josh, 2026-06-24).** RE-VERIFIED: real but self-heals — publish doesn't bust `NotificationListingService` listing index, but the index TTL is only 15s (config `notifications.listing_cache_ttl_seconds`), so staleness clears within one poll cycle. WONTFIX-by-design; the 15s TTL is the intended freshness contract — `app/Services/Notifications/NotificationPublisher.php` → `audits/archive/loose-may-2026/caching-fix-plan-2026-05-21.md`
 - [x] **#SEC-1** · P1 — FIXED: analytics ingest now binds each event to the request `Origin`/`Referer` host matching the resolved site's canonical domain ({subdomain}.{public_domain} + active custom_domain); no-Origin allowed only when site_id+subdomain cross-check passes; non-leaky 404. Closes site_id-only cross-tenant injection — `app/Http/Controllers/Api/PublicSite/AnalyticsController.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-security.md`
-- [ ] **#PRIV-2** · P1 — 30-day GDPR export retention declared but no enforcer (no `gdpr:prune-completed-exports`) — `config/partna.php:1150` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
-- [ ] **#PRIV-3** · P1 — 7-year handle-audit retention declared but no `handles:prune-audit-logs` for `audit.handle_change_log` — `config/partna.php:38` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
+- [x] **#PRIV-2** · P1 — FIXED: new `gdpr:prune-completed-exports` command (keep-row: deletes R2 file + nulls file columns, daily 03:50) + migration re-granting UPDATE on `audit.data_export_audit` (also fixes the latent markCompleted/markFailed permission bug). ⚠️ migration needs `supabase db push` to dev — `app/Console/Commands/PruneCompletedExportsCommand.php`, `supabase/migrations/20260624000000_grant_update_data_export_audit.sql` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
+- [ ] **#PRIV-3** · P1 — ⏸ **DEFERRED (Josh, 2026-06-24).** App-side enforcer INFEASIBLE: `audit.handle_change_log` is append-only (BEFORE UPDATE/DELETE trigger + revoked grants), so a prune needs DB-side pg_cron + SECURITY DEFINER + an append-only-trigger carve-out (high-stakes on a compliance ledger). With a 7yr window + 2026 baseline, nothing is deletable until ~2033 → document the gap, revisit closer to first eligible deletion — `config/partna.php:38` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [x] **#PRIV-4** · P1 — FIXED: `AccountDeletionService::purgeReportedUserEvidencePii()` tombstones handle/display_name/bio/site_subdomain in `moderation.evidence.payload` on the purge path (keeps site_id + content_hash); DB-portable Eloquent, fault-tolerant — `app/Services/User/AccountDeletionService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#LIFE-1c** · P2 — Feedback non-atomic read-then-write duplicate guard; needs a UNIQUE constraint (migration) — `app/Services/Feedback/FeedbackService.php:34-48` → `audits/archive/loose-may-2026/audit-2026-05-25-core.md`
 - [ ] **#WHK-3** · P2 — No forensic trail for failed auth-email deliveries (needs `core.supabase_email_events` table) — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php` → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`

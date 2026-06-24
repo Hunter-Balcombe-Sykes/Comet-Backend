@@ -196,6 +196,19 @@ Schedule::command('gdpr:sweep-purged-video-artifacts')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('gdpr:sweep-purged-video-artifacts'));
 
+// PRIV-2: enforce the 30-day GDPR export file retention window. Deletes R2 ZIP
+// artifacts and nulls the file columns on audit.data_export_audit rows whose
+// created_at exceeds the retention window. The audit row itself is KEPT —
+// GDPR requires the record that an export happened. Runs after the other
+// gdpr:* sweeps (03:35 stale, 03:45 video) so they all finish before the
+// log rotation window closes.
+Schedule::command('gdpr:prune-completed-exports')
+    ->dailyAt('03:50')
+    ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — export table is tiny; completes in seconds.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('gdpr:prune-completed-exports'));
+
 // P1-08 (prefix GC backstop): weekly garbage collection of video R2 objects with
 // no backing site_media row, from ANY cause (failed upload, crashed transcode,
 // pre-ledger orphans). Heavier — a full videos/ prefix LIST — so it runs weekly,
