@@ -114,10 +114,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
         $ueLink = $storeLinks['uber-eats'] ?? null;
         $ddLink = $storeLinks['doordash'] ?? null;
 
-        // Scrape each connected platform across BOTH modes (fetchStore hits the
-        // pickup + delivery pages and fuses per-mode prices per dish).
-        $ueMenu = $ueLink ? $scraper->fetchStore($ueLink, 'uber-eats', $this->userId) : null;
-        $ddMenu = $ddLink ? $scraper->fetchStore($ddLink, 'doordash', $this->userId, $plan['address']) : null;
+        // Scrape every connected platform across BOTH modes CONCURRENTLY (one
+        // Http::pool round inside fetchStores) and fuse per-mode prices per dish.
+        $links = array_filter(['uber-eats' => $ueLink, 'doordash' => $ddLink]);
+        $menus = $scraper->fetchStores($links, $this->userId, $plan['address']);
+        $ueMenu = $menus['uber-eats'] ?? null;
+        $ddMenu = $menus['doordash'] ?? null;
 
         $now = now();
 
