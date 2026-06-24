@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 3 / 26 complete (PRIV-4, SEC-1, PRIV-2) · 2 deferred (CCH-2, PRIV-3)
+- Standalone: 11 / 26 complete (PRIV-4, SEC-1, PRIV-2 + schema batch DINT-2,3,7,8,10,11 SCHEMA-2,7) · 2 deferred (CCH-2, PRIV-3) · schema migrations pending `supabase db push`
 - Out of scope (not counted as work): 10
 
 ---
@@ -164,19 +164,19 @@ Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth
 - [ ] **#PRIV-7** · P2 — Cross-tenant email subscriptions never purged on account deletion; unsubscribed rows never time-pruned — `app/Services/.../AccountDeletionService.php:699-703` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#PRIV-8** · P2 — Waitlist PII retained indefinitely (no retention config/command/schedule) — `config/partna.php:755` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [ ] **#DINT-1** · P2 — `notifications.email_subscriptions` PII never nulled post-unsubscribe — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-2** · P2 — `broadcast_email_receipts.subscription_id` has no FK → orphan receipts (migration) — `supabase/migrations/20260526000000_baseline_standalone_user.sql:1120` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-3** · P2 — `audit.auth_factor_events.user_id` NOT NULL with no FK → silent orphans (migration) — `supabase/migrations/20260527010000_reorganize_schemas.sql:43` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#SCHEMA-2** · P2 — `site.site_subdomain_aliases.id` has no `DEFAULT gen_random_uuid()` (migration) — `supabase/migrations/20260526000000_baseline_standalone_user.sql:865` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-schema-rls.md`
+- [x] **#DINT-2** · P2 — FIXED (mig 20260624010000): FK subscription_id → notifications.email_subscriptions(id) ON DELETE CASCADE — `supabase/migrations/20260526000000_baseline_standalone_user.sql:1120` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#DINT-3** · P2 — FIXED (mig 20260624010000): drop NOT NULL + FK user_id → core.users(id) ON DELETE SET NULL (matches sibling audit tables) — `supabase/migrations/20260527010000_reorganize_schemas.sql:43` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#SCHEMA-2** · P2 — FIXED (mig 20260624010000): `ALTER COLUMN id SET DEFAULT gen_random_uuid()` — `supabase/migrations/20260526000000_baseline_standalone_user.sql:865` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-schema-rls.md`
 - [ ] **#MIG-2** · P2 — Unbatched inline `UPDATE site.sites` in 3 migrations, no `SET LOCAL statement_timeout` (none applied to prod) — `supabase/migrations/20260527070000_skeleton_system_cleanup.sql:62` (+2) → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-migration-safety.md`
 - [ ] **#MIG-5** · P2 — `DROP INDEX` without `CONCURRENTLY` (brief ACCESS EXCLUSIVE on `site_media`) — `supabase/migrations/20260527000000_fix_sort_order_unique_constraints.sql:11-12` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-migration-safety.md`
 - [ ] **#EDGE-10** · P2 — Staging Worker `wrangler.toml` has placeholder KV namespace IDs (`REPLACE_WITH_...`) — needs the real staging KV IDs from Josh — `cloudflare-worker/wrangler.toml:50-53` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-edge-worker.md`
 - [ ] **#P3-11** · P3 — Auth fallback returns 401 for network/upstream outages (should be 503) — `app/Http/Middleware/Auth/VerifySupabaseJwt.php:~224` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
 - [ ] **#DINT-6** · P3 — `moderation.case_signals.reporter_email` no timed retention for non-account reporters — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-7** · P3 — `analytics.section_views.block_id` FK column has no index (migration) — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-8** · P3 — `core.feature_flag_overrides.created_by` FK column has no index (migration) — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-10** · P3 — `site.platform_connections` missing a BEFORE UPDATE `updated_at` trigger (migration) — `supabase/migrations/20260609000000_harden_platform_connections.sql` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#DINT-11** · P3 — `site_media_pool_check` still lists dead `'brand_gallery'` (migration) — `supabase/migrations/20260526000000_baseline_standalone_user.sql:810` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
-- [ ] **#SCHEMA-7** · P3 — `core.prevent_staff_escalation` + `core.enforce_site_gallery_max6` use `SET search_path TO 'pg_catalog'` not `= ''` (migration) — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-schema-rls.md`
+- [x] **#DINT-7** · P3 — FIXED (mig 20260624010100): partial CONCURRENTLY index on `analytics.section_views(block_id)` — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#DINT-8** · P3 — FIXED (mig 20260624010200): partial CONCURRENTLY index on `core.feature_flag_overrides(created_by)` — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#DINT-10** · P3 — FIXED (mig 20260624010000): BEFORE UPDATE trigger reusing `public.set_updated_at()` — `supabase/migrations/20260609000000_harden_platform_connections.sql` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#DINT-11** · P3 — FIXED (mig 20260624010000): drop+re-add `site_media_pool_check` without `brand_gallery` (0 rows used it) — `supabase/migrations/20260526000000_baseline_standalone_user.sql:810` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#SCHEMA-7** · P3 — FIXED (mig 20260624010000): `ALTER FUNCTION ... SET search_path = ''` on both security functions (bodies fully qualified, untouched) — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-schema-rls.md`
 - [ ] **#MIG-6** · P3 — No `SET LOCAL lock_timeout/statement_timeout` guards on hot-table migrations (`20260612120000`, `20260612140000`, + MIG-2 files) — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-migration-safety.md`
 - [ ] **#GS-8** · P3 — Cloudflare Cache Rules on `/api/public/*` not added (headers correct; CF won't cache JSON without an explicit rule) — `app/Http/Middleware/AddPublicCacheHeaders.php` (infra config, not code) → `audits/archive/loose-may-2026/audit-2026-05-07-caching-foundation.md`
 
