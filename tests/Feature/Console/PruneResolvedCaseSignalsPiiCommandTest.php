@@ -28,7 +28,7 @@ beforeEach(function () {
 /**
  * Insert a moderation case and return its id.
  */
-function seedModerationCase(string $status, ?string $resolvedAt = null): string
+function seedResolvedSignalCase(string $status, ?string $resolvedAt = null): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('moderation.cases')->insert([
@@ -87,7 +87,7 @@ function fetchSignal(string $id): ?object
 
 it('nulls reporter PII on a signal whose resolved parent case is outside the retention window', function () {
     // Case resolved 100 days ago — beyond the 90-day window.
-    $caseId = seedModerationCase('resolved', now()->subDays(100)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('resolved', now()->subDays(100)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii')->assertExitCode(0);
@@ -109,7 +109,7 @@ it('nulls reporter PII on a signal whose resolved parent case is outside the ret
 
 it('also prunes signals on auto_actioned cases outside the retention window', function () {
     // auto_actioned is the second "closed" status value per the cases_status_check constraint.
-    $caseId = seedModerationCase('auto_actioned', now()->subDays(120)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('auto_actioned', now()->subDays(120)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii')->assertExitCode(0);
@@ -122,7 +122,7 @@ it('also prunes signals on auto_actioned cases outside the retention window', fu
 
 it('leaves signals on an open (unresolved) case untouched', function () {
     // status = 'open' — not in the resolved set; resolved_at is NULL.
-    $caseId = seedModerationCase('open', null);
+    $caseId = seedResolvedSignalCase('open', null);
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii')->assertExitCode(0);
@@ -134,7 +134,7 @@ it('leaves signals on an open (unresolved) case untouched', function () {
 
 it('leaves signals on a recently-resolved case within the retention window untouched', function () {
     // Case resolved only 10 days ago — inside the 90-day window.
-    $caseId = seedModerationCase('resolved', now()->subDays(10)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('resolved', now()->subDays(10)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii')->assertExitCode(0);
@@ -145,7 +145,7 @@ it('leaves signals on a recently-resolved case within the retention window untou
 });
 
 it('dry-run reports eligible signals but mutates nothing', function () {
-    $caseId = seedModerationCase('resolved', now()->subDays(100)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('resolved', now()->subDays(100)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii', ['--dry-run' => true])
@@ -160,7 +160,7 @@ it('dry-run reports eligible signals but mutates nothing', function () {
 
 it('respects --days override to shorten the window', function () {
     // Resolved 20 days ago — safe under the 90-day default, but inside --days=10.
-    $caseId = seedModerationCase('resolved', now()->subDays(20)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('resolved', now()->subDays(20)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     $this->artisan('moderation:prune-resolved-signal-pii', ['--days' => 10])->assertExitCode(0);
@@ -170,7 +170,7 @@ it('respects --days override to shorten the window', function () {
 });
 
 it('is idempotent — re-running after PII is already nulled leaves no side effects', function () {
-    $caseId = seedModerationCase('resolved', now()->subDays(100)->toDateTimeString());
+    $caseId = seedResolvedSignalCase('resolved', now()->subDays(100)->toDateTimeString());
     $signalId = seedCaseSignal($caseId);
 
     // First run — erases PII.

@@ -27,7 +27,7 @@ beforeEach(function () {
  * Insert a subscription row and return its id. Mirrors the prod NOT NULL columns
  * (email, email_lc, unsubscribe_token) so the seed reflects real data shape.
  */
-function seedSubscription(array $attrs): string
+function seedPruneSubscriptionRow(array $attrs): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert(array_merge([
@@ -56,7 +56,7 @@ function subscriptionExists(string $id): bool
 }
 
 it('hard-deletes an unsubscribed row past the retention window', function () {
-    $id = seedSubscription([
+    $id = seedPruneSubscriptionRow([
         'status' => 'unsubscribed',
         'unsubscribed_at' => now()->subDays(400)->toDateTimeString(),
         'email' => 'old@example.com',
@@ -70,7 +70,7 @@ it('hard-deletes an unsubscribed row past the retention window', function () {
 });
 
 it('does not touch a subscribed row even if it is old', function () {
-    $id = seedSubscription([
+    $id = seedPruneSubscriptionRow([
         'status' => 'subscribed',
         'unsubscribed_at' => null,
         'email' => 'active@example.com',
@@ -83,7 +83,7 @@ it('does not touch a subscribed row even if it is old', function () {
 });
 
 it('does not touch a recently-unsubscribed row within the retention window', function () {
-    $id = seedSubscription([
+    $id = seedPruneSubscriptionRow([
         'status' => 'unsubscribed',
         'unsubscribed_at' => now()->subDays(30)->toDateTimeString(), // well within the 365-day window
         'email' => 'recent@example.com',
@@ -96,7 +96,7 @@ it('does not touch a recently-unsubscribed row within the retention window', fun
 });
 
 it('dry-run deletes nothing', function () {
-    $id = seedSubscription([
+    $id = seedPruneSubscriptionRow([
         'status' => 'unsubscribed',
         'unsubscribed_at' => now()->subDays(400)->toDateTimeString(),
         'email' => 'dry@example.com',
