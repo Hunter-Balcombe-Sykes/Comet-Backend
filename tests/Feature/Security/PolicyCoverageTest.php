@@ -5,6 +5,7 @@ use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
+use App\Models\Core\Notifications\SupabaseEmailEvent;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\UserHandleAlias;
@@ -66,6 +67,13 @@ const POLICY_EXEMPT = [
     ActionLogEntry::class,  // append-only audit log; no per-row gate needed
     AuditEvent::class,      // append-only audit log; no per-row gate needed
     CaseSignal::class,      // write-only ingest; read access via parent case
+
+    // WHK-3: internal forensic trail for auth-email webhook outcomes. No user-facing
+    // API endpoint; no tenant ownership (keyed on webhook_id, not user_id). Staff read
+    // access is enforced by DB-level RLS (FORCE ROW LEVEL SECURITY + staff-only SELECT
+    // policy in the migration). A Laravel policy would be meaningless — there is no
+    // controller action to gate and the Gate has no authenticated actor for this table.
+    SupabaseEmailEvent::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {

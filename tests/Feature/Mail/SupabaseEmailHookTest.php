@@ -5,14 +5,18 @@ use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use App\Models\Core\Notifications\SupabaseEmailEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 beforeEach(function (): void {
     Mail::fake();
     Config::set('app.frontend_url', 'https://app.partna.au');
+    // WHK-3: ensure the forensic trail table exists in SQLite for trail tests.
+    setupSupabaseEmailEventsTable();
 });
 
 /**
@@ -370,6 +374,7 @@ it('WHK-3: fails closed (400) when the webhook-id header is absent', function ()
     // normally 401 an empty webhook-id, so this proves the controller is
     // independently hardened and never queues an email without an idempotency key.
     $controller = app(SupabaseEmailHookController::class);
+    $eventService = app(\App\Services\Notifications\SupabaseEmailEventService::class);
     $request = Request::create(
         '/api/internal/email-hooks/supabase',
         'POST',
@@ -381,8 +386,204 @@ it('WHK-3: fails closed (400) when the webhook-id header is absent', function ()
         ]),
     );
 
-    $response = $controller($request);
+    $response = $controller($request, $eventService);
 
     expect($response->getStatusCode())->toBe(400);
     Mail::assertNothingQueued();
+});
+
+// WHK-3 — Forensic trail assertions ----------------------------------------------------------
+
+it('WHK-3: writes a queued trail row on a successful handled webhook', function (): void {
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'trail@partna.au', 'user_metadata' => ['name' => 'Trail']],
+        'email_data' => [
+            'token_hash' => 'tok_trail_queued',
+            'token' => '111222',
+            'email_action_type' => 'signup',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    $response->assertOk();
+
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+    expect($row->status)->toBe('queued');
+    expect($row->action_type)->toBe('signup');
+    expect($row->queued_at)->not->toBeNull();
+    expect($row->failed_at)->toBeNull();
+    expect($row->error)->toBeNull();
+});
+
+it('WHK-3: writes a failed trail row when Mail::queue throws', function (): void {
+    Mail::shouldReceive('queue')->once()->andThrow(new RuntimeException('smtp unavailable'));
+
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'fail-trail@partna.au'],
+        'email_data' => [
+            'token_hash' => 'tok_trail_fail',
+            'email_action_type' => 'recovery',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    expect($response->status())->toBe(500);
+
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+    expect($row->status)->toBe('failed');
+    expect($row->failed_at)->not->toBeNull();
+    expect($row->error)->toBe('smtp unavailable');
+});
+
+it('WHK-3: writes an unhandled trail row for an unsupported action type', function (): void {
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'unhandled@partna.au'],
+        'email_data' => [
+            'token_hash' => 'tok_unhandled',
+            'email_action_type' => 'reauthentication',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    $response->assertOk();
+    expect($response->json('handled'))->toBeFalse();
+
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+    expect($row->status)->toBe('unhandled');
+    expect($row->queued_at)->toBeNull();
+    expect($row->failed_at)->toBeNull();
+});
+
+it('WHK-3: recipient_email_hash is a SHA256 HMAC hash, not the plaintext email', function (): void {
+    $email = 'hashcheck@partna.au';
+
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => $email],
+        'email_data' => [
+            'token_hash' => 'tok_hashcheck',
+            'token' => '999888',
+            'email_action_type' => 'signup',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+
+    // Must be a 64-char hex string (SHA256 output), not the plaintext email.
+    expect($row->recipient_email_hash)->not->toBe($email);
+    expect(strlen($row->recipient_email_hash))->toBe(64);
+    expect(ctype_xdigit($row->recipient_email_hash))->toBeTrue();
+
+    // The hash must be reproducible — same email + same key → same hash.
+    $expectedHash = hash_hmac('sha256', strtolower($email), config('app.key'));
+    expect($row->recipient_email_hash)->toBe($expectedHash);
+});
+
+it('WHK-3: stored raw_payload contains no token and no plaintext email', function (): void {
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'piicheck@partna.au', 'user_metadata' => ['name' => 'PII Check']],
+        'email_data' => [
+            'token_hash'        => 'very-secret-token-hash',
+            'token'             => '654321',
+            'email_action_type' => 'signup',
+            'site_url'          => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ], $req['body']);
+
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+
+    // raw_payload is cast to array by the model; convert to JSON for string search.
+    $storedJson = json_encode($row->raw_payload);
+
+    // No plaintext email.
+    expect($storedJson)->not->toContain('piicheck@partna.au');
+    // No token value.
+    expect($storedJson)->not->toContain('654321');
+    // No token_hash value.
+    expect($storedJson)->not->toContain('very-secret-token-hash');
+    // No token/token_hash/email keys.
+    expect($storedJson)->not->toContain('"token"');
+    expect($storedJson)->not->toContain('"token_hash"');
+    expect($storedJson)->not->toContain('"email"');
+});
+
+it('WHK-3: duplicate webhook_id (retry) updates the existing row without error', function (): void {
+    $req = makeSupabaseHookRequest([
+        'user' => ['email' => 'retry-trail@partna.au', 'user_metadata' => ['name' => 'Retry Trail']],
+        'email_data' => [
+            'token_hash' => 'tok_retry_trail',
+            'token' => '777666',
+            'email_action_type' => 'signup',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+        ],
+    ]);
+
+    $headers = [
+        'HTTP_webhook-id' => $req['headers']['webhook-id'],
+        'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
+        'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
+        'CONTENT_TYPE' => 'application/json',
+    ];
+
+    // First call — succeeds, row written.
+    $first = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], $headers, $req['body']);
+    $first->assertOk();
+
+    // Verify the row exists after the first call.
+    $row = SupabaseEmailEvent::where('webhook_id', $req['headers']['webhook-id'])->first();
+    expect($row)->not->toBeNull();
+    expect($row->status)->toBe('queued');
+
+    // Second call — Redis dedup returns duplicate=true, but trail upsert must not
+    // throw a unique-key violation.
+    $second = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], $headers, $req['body']);
+    $second->assertOk();
+    expect($second->json('duplicate'))->toBeTrue();
+
+    // Only one row in the table.
+    $count = DB::connection('pgsql')
+        ->table('core.supabase_email_events')
+        ->where('webhook_id', $req['headers']['webhook-id'])
+        ->count();
+    expect($count)->toBe(1);
 });

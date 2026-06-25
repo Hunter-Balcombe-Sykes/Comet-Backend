@@ -1855,3 +1855,27 @@ function setupDesignKitsTable(): void
         updated_at TEXT NULL
     )');
 }
+
+/**
+ * WHK-3: core.supabase_email_events — forensic trail for auth-email webhook outcomes.
+ * All columns nullable (SQLite permissiveness); raw_payload stored as TEXT.
+ * Mirrors columns from migration 20260625000000.
+ */
+function setupSupabaseEmailEventsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.supabase_email_events (
+        id TEXT PRIMARY KEY,
+        webhook_id TEXT NOT NULL UNIQUE,
+        request_id TEXT NULL,
+        action_type TEXT NOT NULL,
+        recipient_email_hash TEXT NULL,
+        raw_payload TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'queued',
+        error TEXT NULL,
+        queued_at TEXT NULL,
+        failed_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )");
+}

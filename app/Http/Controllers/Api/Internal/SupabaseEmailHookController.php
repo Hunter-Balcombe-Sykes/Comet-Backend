@@ -9,6 +9,7 @@ use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
 use App\Mail\BaseTransactionalMail;
+use App\Services\Notifications\SupabaseEmailEventService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -33,7 +34,7 @@ use Illuminate\Support\Facades\Mail;
  */
 class SupabaseEmailHookController extends ApiController
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, SupabaseEmailEventService $eventService): JsonResponse
     {
         $payload = $request->json()->all();
 
@@ -101,10 +102,16 @@ class SupabaseEmailHookController extends ApiController
                     'request_id' => $requestId,
                 ]);
 
+                // WHK-3: record unhandled outcome in the forensic trail.
+                $eventService->recordUnhandled($payload, $webhookId, $actionType, $recipientEmail, $requestId);
+
                 return response()->json(['ok' => true, 'handled' => false]);
             }
 
             Mail::queue($mailable);
+
+            // WHK-3: record successful queue in the forensic trail.
+            $eventService->recordQueued($payload, $webhookId, $actionType, $recipientEmail, $requestId);
 
             return response()->json(['ok' => true, 'handled' => true]);
         } catch (\Throwable $e) {
@@ -113,6 +120,10 @@ class SupabaseEmailHookController extends ApiController
             // a duplicate, returns 200 OK, and Supabase permanently drops the
             // email even though it was never actually queued.
             Cache::forget($dedupKey);
+
+            // WHK-3: record failure in the forensic trail BEFORE returning 500
+            // so the row exists even if the response itself errors.
+            $eventService->recordFailed($payload, $webhookId, $actionType, $recipientEmail, $e, $requestId);
 
             Log::error('supabase.email_hook.send_failed', [
                 'action' => $actionType,
