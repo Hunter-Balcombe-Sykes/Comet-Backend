@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 13 / 26 complete (PRIV-4, SEC-1, PRIV-2, DINT-1, PRIV-7 + schema batch DINT-2,3,7,8,10,11 SCHEMA-2,7) · 2 deferred (CCH-2, PRIV-3) · schema migrations pending `supabase db push`
+- Standalone: 14 / 26 complete (PRIV-4, SEC-1, PRIV-2, DINT-1, PRIV-7, PRIV-8 + schema batch DINT-2,3,7,8,10,11 SCHEMA-2,7) · 2 deferred (CCH-2, PRIV-3) · schema migrations pending `supabase db push`
 - Out of scope (not counted as work): 10
 
 ---
@@ -162,7 +162,7 @@ Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth
 - [ ] **#WHK-3** · P2 — No forensic trail for failed auth-email deliveries (needs `core.supabase_email_events` table) — `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php` → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`
 - [ ] **#WHK-4** · P3 — No `supabase:replay-emails` artisan command — **depends on #WHK-3** — → `audits/archive/loose-may-2026/audit-2026-05-25-email-change-flow.md`
 - [x] **#PRIV-7** · P2 — FIXED: (Gap 1) new `AccountDeletionService::purgeCrossTenantSubscriptions()` hard-deletes other-user-owned email_subscriptions matching the deleting user's resolved `email_lc` (mirrors `DataExportPayloadBuilder::streamEmailSubscriptions()` branch 3; DINT-2 CASCADE cleans child receipts; own rows already cascade via professional_fk); (Gap 2) unsubscribed time-pruning covered by the DINT-1 command — `app/Services/User/AccountDeletionService.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
-- [ ] **#PRIV-8** · P2 — Waitlist PII retained indefinitely (no retention config/command/schedule) — `config/partna.php:755` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
+- [x] **#PRIV-8** · P2 — FIXED: new `waitlist:prune-old-signups` command hard-deletes `core.waitlist_signups` rows past `partna.waitlist.retention_days` (730d, weekly Sun 04:30); covers non-converting applicants (the converted-account path stays in `AccountDeletionService::purgeWaitlistSignup`) — `app/Console/Commands/PruneWaitlistSignupsCommand.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-privacy-compliance.md`
 - [x] **#DINT-1** · P2 — FIXED: new `notifications:prune-unsubscribed-subscriptions` command hard-deletes unsubscribed rows past `notifications.unsubscribed_retention_days` (365d, weekly Sun 04:10). NULL-skeleton rejected — `email` & `email_lc` are NOT NULL and `email_lc` is itself PII, so hard-delete (matching `purgeGlobalEmailSubscriptions`); DINT-2 CASCADE cleans child receipts — `app/Console/Commands/PruneUnsubscribedSubscriptionsCommand.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
 - [x] **#DINT-2** · P2 — FIXED (mig 20260624010000): FK subscription_id → notifications.email_subscriptions(id) ON DELETE CASCADE — `supabase/migrations/20260526000000_baseline_standalone_user.sql:1120` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
 - [x] **#DINT-3** · P2 — FIXED (mig 20260624010000): drop NOT NULL + FK user_id → core.users(id) ON DELETE SET NULL (matches sibling audit tables) — `supabase/migrations/20260527010000_reorganize_schemas.sql:43` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`

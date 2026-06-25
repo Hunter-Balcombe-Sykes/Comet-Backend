@@ -757,6 +757,8 @@ return [
 
     'waitlist' => [
         'enabled' => (bool) env('PARTNA_WAITLIST_ENABLED', env('SIDEST_WAITLIST_ENABLED', false)),
+        // PRIV-8: hard-delete non-converting applicant rows older than this window.
+        'retention_days' => (int) env('PARTNA_WAITLIST_RETENTION_DAYS', 730),
         'types' => [
             'influencer' => 'Influencer',
             'professional' => 'Professional',

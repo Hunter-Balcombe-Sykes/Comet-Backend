@@ -196,6 +196,16 @@ Schedule::command('gdpr:sweep-purged-video-artifacts')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('gdpr:sweep-purged-video-artifacts'));
 
+// PRIV-8: weekly hard-delete of waitlist_signups rows from non-converting applicants older
+// than the retention window (default 730d). Staggered Sunday 04:30 UTC — last of the weekly
+// Sunday sweeps, after the 04:10 unsubscribed-subscriptions prune and the 04:20 video GC.
+Schedule::command('waitlist:prune-old-signups')
+    ->weeklyOn(0, '04:30')
+    ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — single bulk delete; completes in seconds.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('waitlist:prune-old-signups'));
+
 // DINT-1 / PRIV-7 Gap 2: weekly hard-delete of unsubscribed email_subscriptions older than
 // the retention window (default 365d). The whole row is deleted — email and email_lc are both
 // PII and NOT NULL, so there is no skeleton worth keeping; child broadcast_email_receipts
