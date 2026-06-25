@@ -9,6 +9,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Feedback\Exceptions\DuplicateFeedbackException;
 use App\Services\Feedback\Exceptions\FeedbackNotAllowedException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -31,42 +32,56 @@ class FeedbackService
 
         $message = $data['message'];
 
-        // Best-effort duplicate suppression for double-tap / stuck-client floods.
-        // NOT atomic — two genuinely simultaneous requests can both pass this
-        // check and both insert. The named throttle (`feedback-submit`) is the
-        // real abuse backstop; this saves one extra row in the common case.
-        $duplicate = Feedback::query()
-            ->where('user_id', $actor->id)
-            ->where('message', $message)
-            ->where('created_at', '>=', now()->subSeconds(
-                (int) config('partna.feedback.duplicate_window_seconds', 60)
-            ))
-            ->exists();
+        // Transaction-scoped advisory lock keyed per-actor closes the TOCTOU gap
+        // between the duplicate window check and the insert. Two simultaneous
+        // requests from the same user will queue at the lock — only the first
+        // proceeds, and the second sees the row the first just inserted.
+        //
+        // Key is per-user ("feedback:{user_id}") so the lock does not globally
+        // serialise all feedback submissions — only concurrent submits from the
+        // same actor contend. Chosen over a UNIQUE index because the dedup is a
+        // rolling window (not a permanent uniqueness constraint), and a static
+        // index on (user_id, message) would permanently block a user from ever
+        // re-reporting the same thing.
+        //
+        // pg_advisory_xact_lock is transaction-scoped: it auto-releases at
+        // COMMIT or ROLLBACK — no manual unlock needed.
+        $feedback = DB::transaction(function () use ($actor, $data, $message, $request) {
+            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["feedback:{$actor->id}"]);
 
-        if ($duplicate) {
-            throw new DuplicateFeedbackException;
-        }
+            $duplicate = Feedback::query()
+                ->where('user_id', $actor->id)
+                ->where('message', $message)
+                ->where('created_at', '>=', now()->subSeconds(
+                    (int) config('partna.feedback.duplicate_window_seconds', 60)
+                ))
+                ->exists();
 
-        $feedback = Feedback::create([
-            'user_id' => $actor->id,
-            'reply_email' => $data['reply_email'] ?? null,
-            'kind' => $data['kind'],
-            'severity' => $data['severity'] ?? null,
-            'message' => $message,
-            'page_url' => $data['page_url'] ?? null,
-            // user_agent: validated input wins, then header. Capped to 1024
-            // chars to match the FormRequest rule even when sourced from the
-            // header — header content is otherwise unvalidated, so the cap is
-            // the only thing standing between a 64KB malicious UA and the row.
-            'user_agent' => $data['user_agent'] ?? mb_substr((string) $request->userAgent(), 0, 1024) ?: null,
-            'viewport' => $data['viewport'] ?? null,
-            'app_version' => $data['app_version'] ?? null,
-            // request_id: frontend-supplied only. VerifySupabaseJwt logs the
-            // request_id but does not expose it as a request attribute.
-            'request_id' => $data['request_id'] ?? null,
-            'source' => 'dashboard',
-            'ip_hash' => $this->hashIp($request->ip()),
-        ]);
+            if ($duplicate) {
+                throw new DuplicateFeedbackException;
+            }
+
+            return Feedback::create([
+                'user_id' => $actor->id,
+                'reply_email' => $data['reply_email'] ?? null,
+                'kind' => $data['kind'],
+                'severity' => $data['severity'] ?? null,
+                'message' => $message,
+                'page_url' => $data['page_url'] ?? null,
+                // user_agent: validated input wins, then header. Capped to 1024
+                // chars to match the FormRequest rule even when sourced from the
+                // header — header content is otherwise unvalidated, so the cap is
+                // the only thing standing between a 64KB malicious UA and the row.
+                'user_agent' => $data['user_agent'] ?? mb_substr((string) $request->userAgent(), 0, 1024) ?: null,
+                'viewport' => $data['viewport'] ?? null,
+                'app_version' => $data['app_version'] ?? null,
+                // request_id: frontend-supplied only. VerifySupabaseJwt logs the
+                // request_id but does not expose it as a request attribute.
+                'request_id' => $data['request_id'] ?? null,
+                'source' => 'dashboard',
+                'ip_hash' => $this->hashIp($request->ip()),
+            ]);
+        });
 
         // afterCommit so a queue / mail misconfig cannot roll back the insert.
         SendFeedbackEmailJob::dispatch((string) $feedback->id)->afterCommit();

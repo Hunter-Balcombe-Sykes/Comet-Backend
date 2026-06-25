@@ -19,6 +19,10 @@ beforeEach(function () {
 
     setupUsersTable();
     setupFeedbackTable();
+    // Register SQLite shims for pg_advisory_xact_lock + hashtext so the
+    // advisory-lock call inside FeedbackService::submit() runs as a no-op
+    // under the in-memory SQLite test driver.
+    shimPgAdvisoryLockForSqlite();
 });
 
 function seedFeedbackPro(): User
@@ -236,4 +240,46 @@ it('caps a raw-header user_agent to 1024 chars when not supplied in the body (SE
     // Header fallback is capped to 1024 in FeedbackService — raw 2000-char
     // value must never reach the row.
     expect(mb_strlen((string) $row->user_agent))->toBeLessThanOrEqual(1024);
+});
+
+it('advisory lock makes duplicate window check atomic: two sequential submits of the same message produce exactly one row', function () {
+    // This test pins the atomicity contract introduced to close LIFE-1c (TOCTOU).
+    // In production the pg_advisory_xact_lock serialises concurrent requests so
+    // only one INSERT wins. Under SQLite the lock is a registered no-op (via
+    // shimPgAdvisoryLockForSqlite in beforeEach), so sequential calls exercise
+    // the same code path without needing real concurrency.
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    $payload = ['kind' => 'bug', 'severity' => 'low', 'message' => 'advisory lock dedup test'];
+
+    // First submit — should succeed.
+    actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(201);
+
+    // Second submit with same message inside the window — duplicate guard fires.
+    actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(429);
+
+    // Exactly one row must exist despite both attempts.
+    expect(Feedback::query()->where('user_id', $pro->id)->count())->toBe(1);
+});
+
+it('advisory lock SQL is issued during a successful submit', function () {
+    // Assert the advisory lock statement actually fires on the real code path.
+    // DB::listen captures every query; we verify the lock call appears in the log.
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    $lockCalled = false;
+    DB::listen(function ($query) use (&$lockCalled) {
+        if (str_contains($query->sql, 'pg_advisory_xact_lock')) {
+            $lockCalled = true;
+        }
+    });
+
+    actingAsUser($pro)->postJson('/api/me/feedback', [
+        'kind' => 'idea',
+        'message' => 'lock instrumentation test',
+    ])->assertStatus(201);
+
+    expect($lockCalled)->toBeTrue();
 });
