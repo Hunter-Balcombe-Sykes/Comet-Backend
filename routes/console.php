@@ -196,6 +196,19 @@ Schedule::command('gdpr:sweep-purged-video-artifacts')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('gdpr:sweep-purged-video-artifacts'));
 
+// DINT-1 / PRIV-7 Gap 2: weekly hard-delete of unsubscribed email_subscriptions older than
+// the retention window (default 365d). The whole row is deleted — email and email_lc are both
+// PII and NOT NULL, so there is no skeleton worth keeping; child broadcast_email_receipts
+// cascade via the DINT-2 FK. Cadence: Sunday 04:10 UTC (off-peak for AU/NZ, after the daily
+// gdpr:* sweeps). withoutOverlapping(60) — a single bulk delete finishes in seconds; the 60min
+// ceiling is headroom for future growth.
+Schedule::command('notifications:prune-unsubscribed-subscriptions')
+    ->weeklyOn(0, '04:10')
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('notifications:prune-unsubscribed-subscriptions'));
+
 // PRIV-2: enforce the 30-day GDPR export file retention window. Deletes R2 ZIP
 // artifacts and nulls the file columns on audit.data_export_audit rows whose
 // created_at exceeds the retention window. The audit row itself is KEPT —

@@ -1076,6 +1076,13 @@ return [
     'notifications' => [
         'email_enabled' => (bool) env('PARTNA_NOTIFICATIONS_EMAIL_ENABLED', env('NOTIFICATIONS_EMAIL_ENABLED', false)),
 
+        // DINT-1 / PRIV-7 Gap 2: how long to retain an unsubscribed email_subscriptions row
+        // before HARD-DELETING it. email and email_lc are both NOT NULL and email_lc is itself
+        // PII, so there is no PII-free skeleton to keep — the whole row goes once consent has
+        // been withdrawn for this window. Child broadcast_email_receipts cascade via the DINT-2
+        // FK; a later re-subscribe is a fresh double-opt-in, not a reactivation of this row.
+        'unsubscribed_retention_days' => (int) env('PARTNA_UNSUBSCRIBED_RETENTION_DAYS', 365),
+
         // Max jobs per Bus::batch() sub-chunk for fan-out paths. Bounds the
         // size of a single Redis pipeline write so a large affiliate / staff
         // broadcast list can't spike Redis memory. Shared between

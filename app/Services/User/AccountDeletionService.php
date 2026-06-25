@@ -522,7 +522,8 @@ class AccountDeletionService
         $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
         $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
-        $this->purgeGlobalEmailSubscriptions($lookupEmail); // #P2-12: global (user_id IS NULL) subscriptions
+        $this->purgeGlobalEmailSubscriptions($lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
+        $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
         // 3 previously-RESTRICT FKs now SET NULL). forceDelete triggers model events.
@@ -758,6 +759,44 @@ class AccountDeletionService
                 ->delete();
         } catch (\Throwable $e) {
             Log::error('Global email subscription erasure failed during account purge', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * PRIV-7 Gap 1: Delete email_subscriptions rows that belong to OTHER users
+     * but share the deleting user's email address.
+     *
+     * These cross-tenant rows arise when a professional creates a customer's
+     * marketing subscription (user_id = other-pro) using an email that happens to
+     * match the deleting user. DataExportPayloadBuilder::streamEmailSubscriptions()
+     * surfaces them in GDPR exports keyed on email_lc, so erasure must reach them too.
+     *
+     * The $lookupEmail MUST be the pre-pseudonymisation email resolved by
+     * resolveDeletedAccountEmail() — by the time purge() runs, primary_email
+     * is already "deleted+{id}@partna.au" and would match nothing.
+     *
+     * Note: broadcast_email_receipts child rows are NOT deleted here — the
+     * DINT-2 FK (ON DELETE CASCADE, migration 20260624010000) cascades them
+     * automatically when the parent subscription row is deleted.
+     */
+    private function purgeCrossTenantSubscriptions(User $professional, ?string $lookupEmail): void
+    {
+        if ($lookupEmail === null || trim($lookupEmail) === '') {
+            return;
+        }
+
+        try {
+            DB::connection('pgsql')
+                ->table('notifications.email_subscriptions')
+                ->whereNotNull('user_id')
+                ->where('user_id', '!=', $professional->id)
+                ->where('email_lc', mb_strtolower(trim($lookupEmail)))
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Cross-tenant email subscription erasure failed during account purge', [
+                'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
         }

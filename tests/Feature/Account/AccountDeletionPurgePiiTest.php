@@ -202,6 +202,75 @@ it('deletes global email subscriptions matched by email_lc (P2-12)', function ()
     expect($row)->toBeNull();
 });
 
+// PRIV-7 Gap 1: cross-tenant subscription erasure (subscriptions owned by OTHER users
+// whose email matches the deleting user — surfaced by DataExportPayloadBuilder::streamEmailSubscriptions).
+
+it('deletes cross-tenant email_subscriptions that match the deleting user email_lc', function () {
+    $originalEmail = 'priv7@example.com';
+    $emailLc = 'priv7@example.com';
+    $user = seedPurgePiiUser($originalEmail);
+
+    $otherUserId = (string) Str::uuid();
+    $crossTenantSubId = (string) Str::uuid();
+
+    // A subscription owned by a DIFFERENT user but bearing the deleting user's email.
+    // This arises when another professional imported the deleting user as a customer contact.
+    DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
+        'id' => $crossTenantSubId,
+        'user_id' => $otherUserId,
+        'list_key' => 'marketing',
+        'email' => $originalEmail,
+        'email_lc' => $emailLc,
+        'status' => 'subscribed',
+        'unsubscribe_token' => Str::random(48),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
+    ]);
+
+    $professional = User::find($user['id']);
+    $result = app(AccountDeletionService::class)->purge($professional);
+
+    expect($result)->toBeTrue();
+
+    // Cross-tenant row must be fully deleted.
+    $row = DB::connection('pgsql')->table('notifications.email_subscriptions')
+        ->where('id', $crossTenantSubId)->first();
+
+    expect($row)->toBeNull();
+});
+
+it('does not delete cross-tenant subscriptions with a different email_lc', function () {
+    $originalEmail = 'priv7b@example.com';
+    $user = seedPurgePiiUser($originalEmail);
+
+    $otherUserId = (string) Str::uuid();
+    $otherSubId = (string) Str::uuid();
+
+    // A subscription owned by another user but with a completely different email —
+    // must survive (not the deleting user's data).
+    DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
+        'id' => $otherSubId,
+        'user_id' => $otherUserId,
+        'list_key' => 'marketing',
+        'email' => 'unrelated@example.com',
+        'email_lc' => 'unrelated@example.com',
+        'status' => 'subscribed',
+        'unsubscribe_token' => Str::random(48),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
+    ]);
+
+    $professional = User::find($user['id']);
+    app(AccountDeletionService::class)->purge($professional);
+
+    // Guard row with a different email must survive intact.
+    $row = DB::connection('pgsql')->table('notifications.email_subscriptions')
+        ->where('id', $otherSubId)->first();
+
+    expect($row)->not->toBeNull();
+    expect($row->email_lc)->toBe('unrelated@example.com');
+});
+
 it('clears all five PII surfaces in a single purge run', function () {
     $originalEmail = 'p2all@example.com';
     $emailLc = 'p2all@example.com';
