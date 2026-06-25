@@ -30,7 +30,7 @@ Read by `scripts/audit/fix-flow.md`. Per unit: **plan → implement → independ
 ## Progress
 
 - Bundles: 12 / 12 complete
-- Standalone: 14 / 26 complete (PRIV-4, SEC-1, PRIV-2, DINT-1, PRIV-7, PRIV-8 + schema batch DINT-2,3,7,8,10,11 SCHEMA-2,7) · 2 deferred (CCH-2, PRIV-3) · schema migrations pending `supabase db push`
+- Standalone: 15 / 26 complete (PRIV-4, SEC-1, PRIV-2, DINT-1, PRIV-7, PRIV-8, DINT-6 + schema batch DINT-2,3,7,8,10,11 SCHEMA-2,7) · 2 deferred (CCH-2, PRIV-3) · schema migrations pending `supabase db push`
 - Out of scope (not counted as work): 10
 
 ---
@@ -171,7 +171,7 @@ Run individually, P0→P3 order. **Every item here hits the blocker gate** (auth
 - [ ] **#MIG-5** · P2 — `DROP INDEX` without `CONCURRENTLY` (brief ACCESS EXCLUSIVE on `site_media`) — `supabase/migrations/20260527000000_fix_sort_order_unique_constraints.sql:11-12` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-migration-safety.md`
 - [ ] **#EDGE-10** · P2 — Staging Worker `wrangler.toml` has placeholder KV namespace IDs (`REPLACE_WITH_...`) — needs the real staging KV IDs from Josh — `cloudflare-worker/wrangler.toml:50-53` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-edge-worker.md`
 - [ ] **#P3-11** · P3 — Auth fallback returns 401 for network/upstream outages (should be 503) — `app/Http/Middleware/Auth/VerifySupabaseJwt.php:~224` → `audits/archive/foundation-audit-v3/audit-2026-05-31-CONSOLIDATED.md`
-- [ ] **#DINT-6** · P3 — `moderation.case_signals.reporter_email` no timed retention for non-account reporters — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
+- [x] **#DINT-6** · P3 — FIXED: new `moderation:prune-resolved-signal-pii` command NULLs `reporter_email`/`reason_details` + resets `signal_data` on case_signals whose parent case is `resolved`/`auto_actioned` past `partna.moderation.signal_pii_retention_days` (90d, weekly Sun 04:40); keeps ip_hash/reason_code/dedup_hash for T&S; mirrors `purgeCaseSignalPii`'s column set, covers anonymous (non-account) reporters — `app/Console/Commands/PruneResolvedCaseSignalsPiiCommand.php` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
 - [x] **#DINT-7** · P3 — FIXED (mig 20260624010100): partial CONCURRENTLY index on `analytics.section_views(block_id)` — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
 - [x] **#DINT-8** · P3 — FIXED (mig 20260624010200): partial CONCURRENTLY index on `core.feature_flag_overrides(created_by)` — → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`
 - [x] **#DINT-10** · P3 — FIXED (mig 20260624010000): BEFORE UPDATE trigger reusing `public.set_updated_at()` — `supabase/migrations/20260609000000_harden_platform_connections.sql` → `audits/archive/codebase-full-sweep-2026-06-13/audit-2026-06-13-data-integrity.md`

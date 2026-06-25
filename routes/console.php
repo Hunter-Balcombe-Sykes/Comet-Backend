@@ -243,6 +243,18 @@ Schedule::command('media:gc-orphaned-video-artifacts')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('media:gc-orphaned-video-artifacts'));
 
+// DINT-6: weekly erasure of non-account reporter PII (reporter_email, reason_details,
+// signal_data) on case_signals whose parent case resolved more than 90 days ago.
+// Account-reporter PII is handled at deletion time by AccountDeletionService::purgeCaseSignalPii().
+// Sunday 04:40 UTC — after the other Sunday weekly sweeps (04:00 KV, 04:10 subs, 04:20 video GC, 04:30 waitlist).
+// withoutOverlapping(60) — single bulk update on a small T&S table; completes in seconds.
+Schedule::command('moderation:prune-resolved-signal-pii')
+    ->weeklyOn(0, '04:40')
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('moderation:prune-resolved-signal-pii'));
+
 // Scan open/triaged/under_review moderation cases and log warnings for any approaching
 // their SLA deadline. Threshold defaults to 120 min; configurable via
 // partna.moderation.sla.breach_warning_min. withoutOverlapping(30) gives a 2x ceiling

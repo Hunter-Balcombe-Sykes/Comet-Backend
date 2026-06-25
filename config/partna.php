@@ -1324,6 +1324,10 @@ return [
 
     'moderation' => [
         'enabled' => (bool) env('PARTNA_MODERATION_ENABLED', true),
+        // DINT-6 / PRIV: retention window (days) for non-account reporter PII on
+        // case_signals whose parent case has been resolved. Pruned weekly by
+        // moderation:prune-resolved-signal-pii.
+        'signal_pii_retention_days' => (int) env('PARTNA_MODERATION_SIGNAL_PII_RETENTION_DAYS', 90),
         // Emergency kill-switch for automated enforcement (e.g. the CSAM
         // auto-action pipeline). When false, CSAM matches still preserve
         // evidence + file the NCMEC CyberTip, but the automated suspend/
