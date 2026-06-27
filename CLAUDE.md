@@ -203,36 +203,70 @@ When in doubt, ask: "if I deleted this comment, would a new dev have to read 3 o
 
 ## Audits
 
-### Generating new audits — use the pipeline, not a manual session
+There are exactly **two** audit flows and **two** triggers. Never invent a third, never skip the steps.
 
-When asked to audit code (any phrasing: "let's audit X", "audit these controllers", "audit this", "review for issues", "find bugs in X"), use the dual-worker pipeline at `scripts/audit/audit.sh`:
+### Trigger 1 — "audit X" → GENERATE (run the pipeline, never hand-write findings)
+
+Any phrasing that asks to audit / review / find bugs / check for problems ("audit this", "audit these
+controllers", "review X for issues", "find bugs in X") → run the pipeline at `scripts/audit/audit.sh`.
+Do NOT read the files and draft findings yourself; the pipeline (DeepSeek scan → `claude -p` Sonnet
+adjudication) is cheaper and produces consistent format.
 
 ```bash
-scripts/audit/audit.sh \
-  --lens "<5-15 word audit theme>" \
-  --scope <path> \
-  [--scope <path>...]
+# targeted — pass --category + --name so the folder is tidy:
+scripts/audit/audit.sh --category security --name frontpage \
+  --lens "<5-15 word theme>" --scope <path> [--scope <path>...]
+
+# bundle / whole-repo sweep:
+scripts/audit/audit.sh --bundle <name> --scope <path>
+scripts/audit/audit.sh --codebase --bundle full-sweep
 ```
 
-This runs DeepSeek V4 Pro for the first-pass scan, then `claude -p --model sonnet` for adjudication, and emits `audit-YYYY-MM-DD-<lens-slug>.md` in the canonical format. Validated 2026-05-04: ~$0.06–0.25 per audit, ~5–7 minutes wall time, ship-quality output.
+**Lens / scope:** when Josh doesn't name a lens, auto-pick the best-fit lens(es) and STATE the choice
+before firing — don't ask "what lens?". Bundles: `core` (=`--full`, 8 lenses), `concurrency`,
+`pre-merge`, `code-quality`, `pre-pilot` (12), `security` (5), `launch-readiness` (6), `scale-health`
+(6), `full-sweep` (all 20). Multi-lens scope → use a bundle, not repeated `--lens`.
 
-**Stage-level audits** use named bundles (`--bundle <name> --scope <path>`): `core` (8 correctness lenses, = `--full`), `concurrency`, `pre-merge`, `code-quality`, `pre-pilot` (12-lens correctness sweep), `launch-readiness` (security + privacy + edge-worker + config + migrations + API contract), `scale-health` (caching/queue/observability graded against a 10k-user target), `full-sweep` (all 20 lenses). For a **whole-repo audit**, use codebase mode — `scripts/audit/audit.sh --codebase --bundle pre-pilot` — which scans every lens in the bundle against its own built-in scope map (chunked for scan recall) and emits one adjudicated audit file per lens into `audits/codebase-<bundle>-<date>/`. DeepSeek scans run parallel (`--scan-jobs`, default 4); adjudications are sequential by design — never run two `audit.sh` invocations at once. **To run a stage audit unattended**, paste `scripts/audit/PROMPT-stage-audit-launch.md` into a fresh session (runbook: `PROMPT-stage-audit-runner.md`). Architecture ground truth for all scans lives in `scripts/audit/system-prompt.md` + `adjudicate-prompt.md` — update those two first whenever the architecture shifts, then grep `scripts/audit/lenses/` for the changed term.
+**Output is ALWAYS one folder per run, ALWAYS containing `CONSOLIDATED.md`:**
+- targeted → `audits/<category>/<date>-<name>/CONSOLIDATED.md`
+- bundle / codebase → `audits/sweeps/<date>-<name>/CONSOLIDATED.md`
 
-- DeepSeek key lives in `scripts/audit/.env` (gitignored). Override by exporting `DEEPSEEK_API_KEY`.
-- Claude uses the local `claude` CLI's existing OAuth login. No `ANTHROPIC_API_KEY` required.
+`CONSOLIDATED.md` always opens with a deterministic header (auto-built by the script, can't drift):
+**Scope** (lens + paths) · **Findings at a glance** (P0–P3 counts) · **Execution policy** (which model
+plans/implements/reviews). Every finding carries both a **Plain English** summary (2–4 sentences a
+learner can follow) and a **Technical** explanation, plus `## Suggested Bundled Sessions` and
+`## Standalone — do NOT bundle` sections. After it runs, report tier counts + the folder path; don't
+paste the file back.
 
-**Don't manually generate audit findings in a session unless explicitly told to.** The pipeline is faster, cheaper, and produces consistent format for downstream tooling. Use the standalone scripts (`audit-scan.sh`, `audit-adjudicate.sh`) when you want to inspect drafts before adjudicating, or re-adjudicate without re-scanning.
+- DeepSeek scans parallelize (`--scan-jobs`, default 4); adjudications are sequential by design — **never
+  run two `audit.sh` at once.** DeepSeek key in `scripts/audit/.env`; Claude uses the local `claude` OAuth.
+- Architecture ground truth lives in `scripts/audit/system-prompt.md` + `adjudicate-prompt.md` — update
+  those two first on any architectural shift, then grep `scripts/audit/lenses/` for the changed term.
 
-### Audit format (canonical)
+### Trigger 2 — "execute audit <file>" → FIX (plan → implement → independent review)
 
-The structure is load-bearing: the audit orchestrator (`audit` CLI) parses these files to feed unattended fix sessions. The canonical reference is **`pilot-stage-1.md`** — no separate conventions doc exists. Required structure per finding:
+When Josh says **`execute audit <CONSOLIDATED.md>`** (or "work the audit <file>"), follow
+`scripts/audit/fix-flow.md` EXACTLY. The short version (full spec in that file):
 
-- Top-level `- [ ]` checkbox + `**#ID**` + tier marker (P0/P1/P2/P3) + Effort tag (S/M/L/XL)
-- `Where:` / `Affects:` / `What to do:` (bullets) / `Technical:` / `Plain English:` / `Evidence:` (verbatim code)
-- Bundles go under `## Suggested Bundled Sessions`
-- Items that should not run unattended go under `### Standalone — do NOT bundle`
+- Branch `audit-fix/<slug>-<date>` off `development`. Work units = each **bundle** + each **standalone** item, P0→P3.
+- Per unit: **plan (Opus)** → **implement (Sonnet)** → **independent review by a SEPARATE Sonnet instance** → tick the checkbox only after tests pass AND review says PASS → commit.
+- **Blocker gate:** P0 / auth / money / DB-or-migration / L-XL / anything under `Standalone` → produce the plan, present it, and **wait for Josh's sign-off** before implementing. Everything else proceeds.
+- Models come from the file's **Execution policy** header (Opus plan / Sonnet implement / Sonnet review; combine plan+impl for S/XS; escalate to Opus per-item when warranted).
 
-Companion files (`*-executive-summary.md`, `audit-ledger-*.md`, `*-legal-coding.md`) are not parsed by the orchestrator — only files with the item-list structure are.
+### Auto-archive — never ask "are the boxes ticked?"
+
+When every checkbox in a run folder's `CONSOLIDATED.md` is `[x]`, the folder moves itself to
+`audits/archive/<same path>` (git history preserved). The fix flow runs `scripts/audit/archive-done.sh`
+automatically at the end; you can also run `scripts/audit/archive-done.sh` anytime to sweep all finished
+audits. Do this automatically — it is never a question to Josh.
+
+### Audit finding format (canonical)
+
+Enforced by `scripts/audit/adjudicate-prompt.md` (the source of truth; `pilot-stage-1.md` is an archived
+historical example). Per finding: top-level `- [ ]` checkbox + `**#ID**` + tier (P0/P1/P2/P3) + `Effort`
+(S/M/L/XL) + `Where:` / `Affects:` / `What to do:` / `Technical:` / `Plain English:` / `Evidence:`
+(verbatim code). Bundles under `## Suggested Bundled Sessions`; standalone items under
+`## Standalone — do NOT bundle`.
 
 ## Workflow
 

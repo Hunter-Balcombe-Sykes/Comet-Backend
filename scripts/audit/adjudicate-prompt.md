@@ -146,8 +146,9 @@ Emit a complete audit markdown document in this structure. Use `<replace>` place
     - **What to do:**
         - Action bullet
         - Action bullet
-    - **Technical:** one paragraph technical reasoning
-    - **Plain English:** one paragraph for a non-engineer founder. Use analogies, no jargon.
+    - **Technical:** one paragraph technical reasoning (for an engineer who will fix it).
+    - **Plain English:** 2–4 sentences for a non-engineer founder OR someone still learning — what's
+      wrong, why it matters, what happens if ignored. Analogies welcome, no jargon, no Laravel/Supabase terms.
     - **Evidence:**
         ```php
         // verbatim excerpt from source
@@ -164,9 +165,29 @@ Emit a complete audit markdown document in this structure. Use `<replace>` place
 ## P3 — Nice to have
 
 [items]
+
+## Suggested Bundled Sessions
+
+Group findings that share a file, subsystem, or root-cause pattern into coherent fix sessions
+(each bundle = one `execute audit` working session). For each bundle:
+
+- **Bundle N — <theme>:** #ID, #ID, #ID
+    - **Why grouped:** one line (same file / same pattern / must change together).
+    - **Model:** follow the file's Execution policy (Plan: Opus · Implement: Sonnet · Review: Sonnet).
+      Note "escalate implement → Opus" only if the bundle is genuinely gnarly.
+
+## Standalone — do NOT bundle
+
+Items that must run alone with their own plan + sign-off. ALWAYS list here (never bundle): every P0,
+anything touching auth/authorization, money, or a DB migration/schema change, and any L/XL-effort item.
+
+- **#ID — <title>** · reason it's standalone (P0 / auth / money / DB / L-XL).
 ```
 
-If a tier has no findings, omit its section entirely. If NO tier has findings, still emit the document header + Progress block with all zeros — an explicitly clean audit is a valid, useful result.
+If a tier has no findings, omit its section entirely. If NO tier has findings, still emit the document
+header + Progress block with all zeros — an explicitly clean audit is a valid, useful result. Always emit
+the `## Suggested Bundled Sessions` and `## Standalone — do NOT bundle` sections (write "None" under either
+if empty) — the `execute audit` flow reads them to decide what runs together and what pauses for sign-off.
 
 # ID Convention
 
@@ -199,7 +220,8 @@ Use the prefix DeepSeek used (e.g., SEC-1) or invent a 3–5 letter prefix match
 # Strict Output Rules
 
 - **No preamble.** Start at the first `#` of the document title — no "Here's the final audit:" or commentary.
-- **No closing summary.** End at the last finding.
+- **No closing summary.** End at the `## Standalone — do NOT bundle` section (the bundling/standalone
+  sections are the only thing after the last finding — no prose summary after them).
 - **No code-fence wrapping the whole output.** Emit raw markdown.
 - **Plain English must be founder-readable.** Analogies, no jargon, no Laravel/Supabase terminology in this section.
 - **Every finding must have verbatim Evidence** matching the source. If you can't quote it, drop the finding.

@@ -1,0 +1,938 @@
+# Foundational Durability & Extensibility Audit — 2026-06-25
+
+**Branch:** audit-fix/triaged-survivors-standalone-2026-06-23
+**Lens:** Foundational durability & extensibility — shotgun surgery, denormalization debt, leaky abstraction boundaries
+**Pipeline:** scan-tier draft by `deepseek-v4-pro`, adjudicated by `claude-opus-4-5`
+**Source files audited:**
+- `app/Http/Controllers/Api/Platforms/`
+- `app/Services/Platforms/`
+- `supabase/migrations/`
+- `app/Models/Core/Site/` (Menu, MenuItem, Block, SiteMedia, IntegrationConnection, Site)
+- `config/partna.php`
+- `app/Jobs/Platforms/MenuFetchJob.php`
+- `app/Services/SmartLinks/`
+- `app/Services/User/SectionVisibilityService.php`
+- `app/Services/User/UpdateSiteAction.php`
+- `app/Services/PublicSite/IndividualProfilePayloadBuilder.php`
+- `app/Services/Streaming/LiveStatusPoller.php`
+- `app/Services/Analytics/AnalyticsQueryService.php`
+- `app/Services/Platforms/GoogleBusinessAutoSync.php`
+- `app/Http/Controllers/Api/User/SiteManagement/` (LinkBlock, SectionBlock, SmartLink, Service, ServiceCategory, Gallery, Workplace controllers)
+- `app/Http/Controllers/Api/User/Account/MfaController.php`
+- `app/Http/Controllers/Api/Staff/UserSiteManagement/` (StaffLinkBlockManagement, StaffSectionManagement, StaffServiceManagement controllers)
+- `app/Http/Requests/Platforms/`
+- `app/Http/Requests/Api/User/Site/` (UpdateSiteRequest, StoreLinkBlockRequest, UpdateLinkBlockRequest)
+- `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php`
+- `app/Http/Requests/Api/PublicSite/` (PublicEnquiryRequest, PublicEmailSubscribeRequest, PublicWaitlistSignupRequest, PublicCustomerLeadRequest)
+- `app/Jobs/Streaming/CheckStreamingLiveStatusJob.php`
+- `app/Jobs/Moderation/` (SuspendSiteJob, SuspendUserJob, QuarantineMediaJob, PurgeModerationCacheJob, Notify*)
+- `app/Jobs/Moderation/Concerns/HasActionLogLifecycle.php`
+- `app/Observers/Core/` (BlockObserver, ServiceObserver, SiteMediaObserver, UserObserver, SmartLinkObserver, IntegrationConnectionObserver)
+- `app/Policies/BasePolicy.php`
+- `routes/api/integrations.php`
+
+## Progress
+
+- P0 Blockers: 0 of 0 complete
+- P1 High: 0 of 5 complete
+- P2 Medium: 0 of 15 complete
+- P3 Low: 0 of 11 complete
+
+---
+
+## P1 — Fix before pilot launch
+
+- [ ] **#FOUND-1** · P1 — Platform enum stored as a CHECK constraint forces an ALTER TABLE migration on every new platform
+    - **Where:** `supabase/migrations/20260617140000_add_resdiary_nowbookit_platforms.sql` (representative); `site.platform_connections.platform` column; migrations `20260602150238` through `20260622120000`
+    - **Affects:** Every developer adding a platform integration; the deploy pipeline (DDL lock on `platform_connections`); four weeks of migrations each acquiring `ACCESS EXCLUSIVE` on a live table
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Create a `site.platforms` lookup table with `slug TEXT PRIMARY KEY, label TEXT, is_active BOOLEAN`.
+        - Seed it with the current 35+ platform slugs.
+        - Replace `platform TEXT CHECK (platform IN (...))` on `platform_connections` with `platform TEXT REFERENCES site.platforms(slug)` (or an unconstrained TEXT if FK churn is undesirable and the lookup-table validation is done app-side).
+        - Adding a future platform becomes an `INSERT INTO site.platforms` — zero DDL lock, zero migration.
+        - Apply the same treatment to `last_refresh_status` CHECK on the same table (widened in `20260616000000`).
+    - **Technical:** Fourteen separate `DROP CONSTRAINT / ADD CONSTRAINT` migrations have landed in the last four weeks (`20260602150238`, `20260606000000`, `20260610200000`, `20260610210000`, `20260611000000`, `20260611070000`, `20260611080000`, `20260612000000`, `20260612100000`, `20260612130000`, `20260617000000`, `20260617120000`, `20260617140000`, `20260622120000`). Each rebuild acquires `ACCESS EXCLUSIVE` on `site.platform_connections` — harmless at pre-beta row counts, but a write-blocking outage when the table is hot. More importantly, this is unsustainable: the team has added ~2 platforms per week. A lookup table turns "add a platform" into a data migration (an INSERT) and eliminates the DDL entirely. The existing PHP enum / `PlatformRefresher::REFRESHABLE` constant remains authoritative for code-side behaviour; the DB lookup table is purely for referential integrity and extensibility.
+    - **Plain English:** Every time the team wants to support a new platform, someone has to write a database script that tears down and rebuilds the "allowed platforms" list — locking the database table in the process. You've done this fourteen times in three weeks, like re-pouring a foundation every time you add a room. The fix is a proper "platform directory" the app checks against: adding a new platform is just writing one row into that directory, not rebuilding the foundation.
+    - **Evidence:**
+        ```sql
+        -- 20260617140000_add_resdiary_nowbookit_platforms.sql
+        ALTER TABLE site.platform_connections
+            DROP CONSTRAINT IF EXISTS platform_connections_platform_check;
+        ALTER TABLE site.platform_connections
+            ADD CONSTRAINT platform_connections_platform_check
+            CHECK (platform IN (
+                'shop', 'eventbrite', 'humanitix', ...
+                'resdiary', 'nowbookit'
+            ));
+        ```
+
+- [ ] **#FOUND-2** · P1 — `site.menus` hardcodes one column-triple per delivery platform; adding a third platform requires a migration AND edits across 5 code locations
+    - **Where:** `app/Models/Core/Site/Menu.php` (`$fillable`, `$casts`); `app/Jobs/Platforms/MenuFetchJob.php` (skip logic lines 83–92, status writes lines 107–124, persistence lines 134–155)
+    - **Affects:** Menu subsystem; any addition of a third food-delivery platform (Menulog, Deliveroo)
+    - **Effort:** L (~1–2d)
+    - **What to do:**
+        - Create `site.menu_platform_links` (or `menu_platform_details`) with columns: `menu_id UUID FK`, `platform TEXT`, `store_url TEXT`, `synced_at TIMESTAMPTZ`, `status TEXT`. Unique index on `(menu_id, platform)`.
+        - Backfill existing rows, then drop the six `uber_eats_*` / `doordash_*` columns from `site.menus`.
+        - Rewrite `MenuFetchJob`'s skip logic, status writes, and persistence loop to iterate over a platform map instead of naming columns.
+    - **Technical:** The current schema carries `uber_eats_store_url`, `uber_eats_synced_at`, `uber_eats_status`, `doordash_store_url`, `doordash_synced_at`, `doordash_status` — six columns for two platforms. `MenuFetchJob::handle()` reads and writes each by name in three separate logical blocks (skip, status, persist). A child table collapses this to zero schema edits per new platform: adding Menulog is one row in `menu_platform_links`, not three new columns and five code edits. The `MenuMerger` / `MenuApifyScraper` / `MenuSource` abstractions already express platform-variant scrape logic cleanly; only the persistence layer has not caught up.
+    - **Plain English:** The restaurant menu system stores each delivery platform's connection info in dedicated database columns — imagine a spreadsheet where column names are "Uber Eats URL," "DoorDash URL," and adding Menulog means literally adding new columns to the spreadsheet. Every new platform requires a database change AND editing five parts of the code. The fix is a separate "platform details" table where each row is "menu #5, DoorDash, URL = …" — so adding platform #3 is one new row, not a remodel.
+    - **Evidence:**
+        ```php
+        // app/Models/Core/Site/Menu.php — six hardcoded platform columns
+        protected $fillable = [
+            // ...
+            'uber_eats_store_url',
+            'uber_eats_synced_at',
+            'uber_eats_status',
+            'doordash_store_url',
+            'doordash_synced_at',
+            'doordash_status',
+        ];
+        protected $casts = [
+            'uber_eats_synced_at' => 'datetime',
+            'doordash_synced_at' => 'datetime',
+        ];
+        ```
+        ```php
+        // MenuFetchJob.php — skip logic reads named columns
+        && $existing->uber_eats_store_url === $plan['ueUrl']
+        && $existing->doordash_store_url === $plan['ddUrl']
+        ```
+
+- [ ] **#FOUND-3** · P1 — `SiteMedia` requires a new PHP constant + list entry + migration for every new platform cover image
+    - **Where:** `app/Models/Core/Site/SiteMedia.php` (`PURPOSE_COVER_*` constants, `DESIGN_SINGLETON_PURPOSES` array, migration comment citing `20260604000001` + `20260604000002`)
+    - **Affects:** Every future platform integration that needs a cover image; currently YouTube, Apple Music, Apple Podcast, Eventbrite (4 active; Shopify slot remains in the list)
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Replace the five `PURPOSE_COVER_*` constants with a convention-based format: `"cover_{platform_slug}"` validated against the `site.platforms` lookup table (see FOUND-1).
+        - Replace the per-purpose partial unique indexes (`WHERE purpose = 'cover_youtube' AND ...`) with a single index on `(site_id, purpose) WHERE pool = 'design' AND deleted_at IS NULL` plus an application-side check that `purpose` starts with a known prefix or is in the registry.
+        - Update `DESIGN_SINGLETON_PURPOSES` to derive its cover-image entries from the platform registry rather than a hardcoded list.
+        - Update `UploadDesignMediaRequest` validation to accept any `cover_{platform}` value where the platform slug is registered.
+    - **Technical:** Adding a cover image for a new platform currently requires three coordinated edits: (1) a new `public const PURPOSE_COVER_FOO`, (2) an entry in `DESIGN_SINGLETON_PURPOSES`, and (3) a migration adding a new partial unique index on `site.site_media(site_id) WHERE purpose = 'cover_foo' AND deleted_at IS NULL`. The intent — "one cover image per platform per site" — is identical for every platform; only the slug changes. A convention-based scheme (`cover_{platform}`) validated against the platform registry eliminates all three edit sites.
+    - **Plain English:** Every time a new platform gets a cover-image slot (like the YouTube hero or the Apple Music banner), the team has to: (1) carve a labelled slot in the PHP code, (2) add that slot to a master list, and (3) file database paperwork enforcing "only one photo per slot." Adding a sixth platform means three separate changes. The fix is a naming rule — "cover photos are labelled `cover_` plus the platform name" — so the system enforces the one-per-slot rule for any platform automatically.
+    - **Evidence:**
+        ```php
+        // app/Models/Core/Site/SiteMedia.php
+        public const PURPOSE_COVER_SHOPIFY    = 'cover_shopify';
+        public const PURPOSE_COVER_YOUTUBE    = 'cover_youtube';
+        public const PURPOSE_COVER_APPLE_MUSIC    = 'cover_apple_music';
+        public const PURPOSE_COVER_APPLE_PODCAST  = 'cover_apple_podcast';
+        public const PURPOSE_COVER_EVENTBRITE     = 'cover_eventbrite';
+
+        public const DESIGN_SINGLETON_PURPOSES = [
+            self::PURPOSE_LOGO_FULL,
+            self::PURPOSE_LOGO_SQUARE,
+            self::PURPOSE_COVER_SHOPIFY,
+            self::PURPOSE_COVER_YOUTUBE,
+            self::PURPOSE_COVER_APPLE_MUSIC,
+            self::PURPOSE_COVER_APPLE_PODCAST,
+            self::PURPOSE_COVER_EVENTBRITE,
+        ];
+        // Enforced by partial unique indexes (baseline + 20260604000001 + 20260604000002)
+        // and the app-side replace in MediaUploadService::uploadSingleton.
+        ```
+
+- [ ] **#FOUND-4** · P1 — Workplace card (~15 named fields) stored in `site.sites.settings` JSONB; visibility checks scan the JSON blob on every public page render
+    - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php` (upsert/show/destroy); `app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php` (normalizeProfile); `app/Services/User/SectionVisibilityService.php` (loadVisibilityContext ~line 229); `app/Services/PublicSite/SitepageDataResolverService.php` (getWorkplace)
+    - **Affects:** Every public sitepage render that includes a workplace section; dashboard save latency; `SectionVisibilityService::batchCheck()` on every page load
+    - **Effort:** L (~1–2d)
+    - **What to do:**
+        - Create `site.workplaces` (1:1 with `site.sites`): columns `site_id UUID PK FK`, `name TEXT`, `address TEXT`, `address_line1 TEXT`, `city TEXT`, `state TEXT`, `postcode TEXT`, `country TEXT`, `latitude DOUBLE PRECISION`, `longitude DOUBLE PRECISION`, `phone TEXT`, `website TEXT`, `previous_website TEXT`, `category TEXT`, `description TEXT`, `created_at`, `updated_at`.
+        - Backfill from `settings->'workplace'` in a single migration; strip the key from `settings` in the same migration.
+        - Update `SectionVisibilityService::loadVisibilityContext` to use `EXISTS (SELECT 1 FROM site.workplaces WHERE site_id = ? AND name IS NOT NULL)` — a simple FK lookup instead of a JSON extraction in a WHERE clause.
+        - Update `UserWorkplaceController`, `StaffWorkplaceController`, and `SitepageDataResolverService` to read/write the new table.
+    - **Technical:** The workplace is not free-form user notes — it is a known, validated, typed set of 15 fields with Google Places autofill integration. `SectionVisibilityService::loadVisibilityContext` currently runs `COALESCE(settings->'workplace'->>'name', '') <> ''` in a WHERE clause; this JSON-path expression cannot use a B-tree index. As the `site.sites` table grows with users, every public sitepage render that checks workplace visibility pays a full-row read + JSON extraction. The `UpsertWorkplaceRequest` Form Request already enumerates every field by name — three signals (known shape, queried by name, filtered in WHERE) that this is a table, not a blob.
+    - **Plain English:** A professional's workplace card — address, phone, GPS coordinates, description — is stuffed inside a general "miscellaneous settings" field. Every time someone loads a public page, the system has to open that field, unpack it, and check if a workplace name exists before deciding whether to show the section. It's like keeping your office address inside a locked diary: fine for storing, slow for looking up. Moving the 15 fields to their own database table means the lookup is instant and the database can enforce that a phone number looks like a phone number.
+    - **Evidence:**
+        ```php
+        // UserWorkplaceController.php — upsert writes 14 named sub-keys into settings JSONB
+        $profile = [
+            'name'           => (string) $data['name'],
+            'address'        => $this->trimOrNull($data['address'] ?? null),
+            'address_line1'  => $this->trimOrNull($data['address_line1'] ?? null),
+            'city'           => $this->trimOrNull($data['city'] ?? null),
+            'state'          => $this->trimOrNull($data['state'] ?? null),
+            'postcode'       => $this->trimOrNull($data['postcode'] ?? null),
+            'country'        => $this->trimOrNull($data['country'] ?? null),
+            'latitude'       => isset($data['latitude']) ? (float) $data['latitude'] : null,
+            'longitude'      => isset($data['longitude']) ? (float) $data['longitude'] : null,
+            'phone'          => $this->trimOrNull($data['phone'] ?? null),
+            'website'        => $this->trimOrNull($data['website'] ?? null),
+            'previous_website' => $this->trimOrNull($data['previous_website'] ?? null),
+            'category'       => $this->trimOrNull($data['category'] ?? null),
+            'description'    => $this->trimOrNull($data['description'] ?? null),
+        ];
+        $settings[self::SETTINGS_KEY] = $profile;
+        $site->settings = $settings;
+        $site->save();
+        ```
+        ```php
+        // SectionVisibilityService.php — JSON-path expression in WHERE (can't use B-tree index)
+        $subqueries['has_workplace'] = Site::query()
+            ->select(DB::raw('1'))
+            ->where('id', $siteId)
+            ->where(function ($q) {
+                $q->whereRaw("COALESCE(settings->'workplace'->>'name', '') <> ''")
+                    ->orWhereRaw("COALESCE(settings->'workplace'->>'address', '') <> ''");
+            })
+            ->getQuery();
+        ```
+
+- [ ] **#FOUND-5** · P1 — Credentials and experience stored as JSON arrays in `core.users.about`; visibility checks use `jsonb_array_elements` in a WHERE clause with no index support
+    - **Where:** `app/Services/User/SectionVisibilityService.php` (loadVisibilityContext lines 185–208); `app/Services/PublicSite/SitepageDataResolverService.php` (normaliseCredential, normaliseExperience)
+    - **Affects:** Public sitepage render for any professional with credentials or experience sections; SectionVisibilityService batch check on every page load; any future "search professionals by credential type" feature
+    - **Effort:** L (~1–2d)
+    - **What to do:**
+        - Create `core.user_credentials` (user_id FK, title TEXT, issuer TEXT, year TEXT, description TEXT, sort_order INT) and `core.user_experience` (user_id FK, role TEXT, organisation TEXT, start_year TEXT, end_year TEXT, description TEXT, sort_order INT). Index `user_id` on both.
+        - Migrate existing `about->'credentials'` and `about->'experience'` JSON arrays into the new tables.
+        - Replace the `jsonb_array_elements` subqueries in `SectionVisibilityService` with `EXISTS (SELECT 1 FROM core.user_credentials WHERE user_id = ? AND TRIM(title) <> '')`.
+        - Update `SitepageDataResolverService` to query the tables directly.
+    - **Technical:** `SectionVisibilityService::loadVisibilityContext` runs `jsonb_array_length(COALESCE(about->'credentials', '[]'::jsonb)) > 0` and a correlated `EXISTS` over `jsonb_array_elements(...)` with a text-trim predicate. These operators cannot use a B-tree index on `core.users.about`; a GIN index on the whole JSONB column would help but is heavier and far less precise. `SitepageDataResolverService::normaliseCredential` reads `title`, `issuer`, `year`, `description` by name — the code already treats these as structured records. At thousands of users each with dozens of credentials, the page-render path will pay a full row-read + JSON parse per visibility check. Child tables make the check a single O(log n) index scan and unlock future aggregate queries.
+    - **Plain English:** A professional's qualifications and work history are stored as nested lists inside a single "about" blob, but the code needs to read specific fields (title, year, issuer) from each item to decide what to show. It's like filing all your certificates in one unsealed envelope — fine for retrieving them yourself, but if the system needs to check "do you have any valid certificates?" it has to open the envelope and read every certificate by hand. Moving credentials and experience to their own proper records makes each check instant and makes future searches (like "find all professionals with a HLTAID014 certificate") possible.
+    - **Evidence:**
+        ```php
+        // SectionVisibilityService.php — jsonb_array_elements in WHERE, no index support
+        $subqueries['has_credential'] = User::query()
+            ->select(DB::raw('1'))
+            ->where('id', $userId)
+            ->whereNull('deleted_at')
+            ->whereNotNull('about->credentials')
+            ->whereRaw("jsonb_array_length(COALESCE(about->'credentials', '[]'::jsonb)) > 0")
+            ->whereRaw(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(about->'credentials', '[]'::jsonb)) AS c WHERE c->>'title' IS NOT NULL AND TRIM(c->>'title') <> '')",
+            )
+            ->getQuery();
+        ```
+        ```php
+        // SitepageDataResolverService.php — reads credentials by named sub-key
+        $title = trim((string) ($row['title'] ?? ''));
+        return [
+            'title'       => $title,
+            'issuer'      => trim((string) ($row['issuer'] ?? '')),
+            'year'        => isset($row['year']) && $row['year'] !== '' ? (string) $row['year'] : null,
+            'description' => $description !== '' ? $description : null,
+        ];
+        ```
+
+---
+
+## P2 — Should fix
+
+- [ ] **#FOUND-6** · P2 — `menu_items.platforms` JSONB array has a known, documented element schema that belongs in a child table
+    - **Where:** `app/Models/Core/Site/MenuItem.php` (`platforms` array cast); `supabase/migrations/20260623120000_add_menu_item_platforms.sql`
+    - **Affects:** Menu item read path (dashboard + future public sitepage); any query filtering items by platform availability or price
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Create `site.menu_item_platforms`: `menu_item_id UUID FK`, `platform TEXT`, `price NUMERIC(10,2)`, `modes JSONB` (pickup/delivery booleans — genuinely variable per platform), `order_url TEXT`. Unique index on `(menu_item_id, platform)`.
+        - Backfill from the JSON arrays, then drop the `platforms` column from `menu_items`.
+        - Update `MenuItem` model and the menu resource.
+    - **Technical:** The migration comment documents a fixed element schema: `[{platform, price, modes, url}]`. A JSON array with a fixed, known schema per element is the textbook 1:N child-table case. The current design prevents: (a) a DB-level uniqueness constraint on `(menu_item_id, platform)` — a scrape bug can silently insert duplicate platform entries, (b) indexing `price` for "sort cheapest" queries the dashboard analytics will eventually want, (c) filtering on platform without a full JSON-array scan. A child table solves all three. The `modes` sub-key (pickup/delivery flags) is platform-variable enough to stay JSONB in the child table.
+    - **Plain English:** Every dish on a menu stores its per-platform pricing inside a "notes" field — a text blob saying "Uber Eats: $12, DoorDash: $11.50." The format of those notes is completely known and consistent. Moving them to a proper "platform pricing" table (one row per dish per platform) means the database can find the cheapest dishes or filter by platform without having to open and parse every dish's notes.
+    - **Evidence:**
+        ```sql
+        -- 20260623120000_add_menu_item_platforms.sql
+        ALTER TABLE site.menu_items
+            ADD COLUMN IF NOT EXISTS platforms jsonb;
+        -- [ { platform: 'uber-eats'|'doordash', price: number|null,
+        --     modes: ['pickup','delivery'], url: string|null } ]
+        ```
+        ```php
+        // MenuItem.php
+        protected $fillable = [ ..., 'platforms', ... ];
+        protected $casts    = [ 'platforms' => 'array', ... ];
+        ```
+
+- [ ] **#FOUND-7** · P2 — `MenuMerger::merge()` hardcodes exactly two delivery platforms; adding a third requires a breaking signature change plus cascade edits through the merger
+    - **Where:** `app/Services/Platforms/MenuMerger.php` (signature line 53, `$canonical`/`$other` assignments lines 55–57, `fuse()` dual assignments throughout)
+    - **Affects:** Any third delivery platform (Menulog, Deliveroo); `MenuFetchJob` callers
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Change `merge()` to accept `array $platformMenus` (slug-keyed map, e.g. `['uber-eats' => $ueMenu, 'doordash' => $ddMenu]`) plus a `string $contentSource` priority.
+        - Replace `$canonical`/`$other` hardcoding with iteration over the priority-ordered platform list.
+        - The `PLATFORMS` constant already exists — use it to drive iteration in `fuse()` and `mergeStore()`.
+    - **Technical:** The signature `merge(?array $ueMenu, ?array $ddMenu, string $contentSource, ...)` and internal logic (`$canonical = $contentSource === 'uber-eats' ? $ueMenu : $ddMenu; $otherSource = $contentSource === 'uber-eats' ? 'doordash' : 'uber-eats'`) assume exactly two platforms. `PLATFORMS = ['uber-eats', 'doordash']` exists as a constant but is only used for `platforms[]` ordering, not for the spine/other logic. A third platform would require a 3-way spine choice, N-way fuse, and N-way store merge — all naturally expressed as iteration over a sorted list.
+    - **Plain English:** The menu merger knows about exactly two delivery apps and hardcodes "compare these two." Adding a third app would be like a game of catch with three players: the whole "two people throw to each other" rulebook needs rewriting. Changing to "iterate over all connected platforms in priority order" makes adding the third (or fourth) player a one-line config entry.
+    - **Evidence:**
+        ```php
+        // MenuMerger.php
+        private const PLATFORMS = ['uber-eats', 'doordash'];
+
+        public function merge(?array $ueMenu, ?array $ddMenu, string $contentSource, array $storeLinks = []): array
+        {
+            $canonical  = ($contentSource === 'uber-eats' ? $ueMenu : $ddMenu) ?? ['store' => [], 'categories' => []];
+            $otherSource = $contentSource === 'uber-eats' ? 'doordash' : 'uber-eats';
+            $other       = $contentSource === 'uber-eats' ? $ddMenu : $ueMenu;
+        ```
+
+- [ ] **#FOUND-8** · P2 — Adding a third events/ticketing platform requires 5 coordinated edits across `EventsCatalog`, `ProviderDetector`, and an `adapter()` cheat-sheet — no shared interface
+    - **Where:** `app/Services/Platforms/EventsCatalog.php` (`EVENT_PLATFORMS` line 29, `adapter()` lines 260–278); `app/Services/Platforms/ProviderDetector.php` (`CATEGORY_PROVIDERS['events']` line 19, `matches()` arms)
+    - **Affects:** Any future events/ticketing platform (Ticketmaster, Moshtix, Ticketek); drift between the two `EVENT_PLATFORMS`/`CATEGORY_PROVIDERS` lists is already a single-addition-away
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Define an `EventsPlatformScraper` interface: `normalizeOrgUrl(string $url): string`, `normalizeEventUrl(string $url): string`, `fetchSingleEvent(string $url): ?array`, `fetchEvents(string $url): array`.
+        - Implement it on `EventbriteScraper` and `HumanitixScraper`.
+        - Collapse `EventsCatalog::adapter()` to a `$this->scrapers[$provider]` map injected via DI — the interface makes the method names self-documenting.
+        - Unify `EVENT_PLATFORMS` and `CATEGORY_PROVIDERS['events']` into one `config('partna.event_platforms')` registry entry consumed by both.
+        - Update `ProviderDetector::matches()` to read host patterns from the config registry (see also FOUND-21).
+    - **Technical:** `EventsCatalog` has `private const EVENT_PLATFORMS = ['eventbrite', 'humanitix']` (line 29). `ProviderDetector` has `'events' => ['eventbrite', 'humanitix']` (line 19) — two parallel lists that must stay in sync. The `adapter()` method is a handwritten callable map bridging the two scrapers' different method names. Adding Ticketmaster requires: (1) new `adapter()` arm, (2) `EVENT_PLATFORMS` entry, (3) `CATEGORY_PROVIDERS['events']` entry, (4) `matches()` arm in ProviderDetector, (5) `EventsCatalog` constructor injection — five edit sites in two files, none of which will raise a compiler error if one is forgotten.
+    - **Plain English:** There are three separate guest lists for the "events" party — one in the catalog, one in the URL detector, and one handwritten phrase book mapping scraper method names. Adding a guest means writing their name on all three lists. A standard interface makes every events scraper speak the same language, so the phrase book disappears and both lists become one.
+    - **Evidence:**
+        ```php
+        // EventsCatalog.php
+        private const EVENT_PLATFORMS = ['eventbrite', 'humanitix'];
+
+        private function adapter(string $provider): array
+        {
+            if ($provider === 'humanitix') {
+                return [
+                    'eventUrl'      => fn (string $u) => $this->humanitix->normalizeEventUrl($u),
+                    'fetchEvent'    => fn (string $u) => $this->humanitix->fetchSingleEvent($u),
+                    'accountUrl'    => fn (string $u) => $this->humanitix->resolveHostUrl($u),
+                    'fetchAccount'  => fn (string $u) => $this->humanitix->fetchEvents($u),
+                ];
+            }
+            return [
+                'eventUrl' => fn (string $u) => $this->eventbrite->normalizeEventUrl($u), // ...
+            ];
+        }
+        ```
+        ```php
+        // ProviderDetector.php
+        private const CATEGORY_PROVIDERS = [
+            // ...
+            'events' => ['eventbrite', 'humanitix'],
+        ];
+        ```
+
+- [ ] **#FOUND-9** · P2 — `PlatformRefresher` has a 15-arm match statement plus a parallel `REFRESHABLE` constant; adding a refreshable platform requires 3 edits in one file
+    - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`REFRESHABLE` lines 24–28, `match` lines 53–69, and one new `*Payload` private method per platform)
+    - **Affects:** Every new auto-refresh platform; the `REFRESHABLE` constant duplicates the match set
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Define a `RefreshablePlatform` interface: `refresh(array $payload): array{payload: ?array, error: ?string, status: string}`.
+        - Register implementations in `config/partna.php` keyed by platform slug; inject the map into `PlatformRefresher`.
+        - Replace the match with `$handler = $this->handlers[$connection->platform] ?? null;` — null falls to the existing `unsupported_platform` branch.
+        - `REFRESHABLE` becomes `array_keys(config('partna.refresh_platforms'))` — no manual sync needed.
+    - **Technical:** The `REFRESHABLE` constant and the match statement are two redundant lists of the same 15 platforms. A developer adding a 16th must edit both. The `*Payload` private methods already follow a consistent contract (`return ['payload' => ..., 'error' => ..., 'status' => ...]`) making an interface trivial to extract. The shared patterns (`musicEmbedPayload`, `scrapedCardPayload`) become optional base implementations, keeping the common behaviour in one place.
+    - **Plain English:** The daily refresh scheduler has a 15-button switchboard with each button wired to a method, plus a manual list of which buttons exist. Adding a 16th platform means adding a new button, updating the list, and wiring a new method — three things to remember. A registration desk where each platform hands in its own refresh card means one thing to do.
+    - **Evidence:**
+        ```php
+        // PlatformRefresher.php
+        public const REFRESHABLE = [
+            'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
+            'bandcamp', 'spotify', 'soundcloud', 'deezer',
+            'vimeo', 'twitch', 'pinterest', 'strava', 'google-business',
+        ];
+
+        $result = match ($connection->platform) {
+            'youtube'          => $this->youtubePayload($payload),
+            'youtube-music'    => $this->youtubeMusicPayload($payload),
+            'eventbrite'       => $this->eventbritePayload($payload),
+            'humanitix'        => $this->humanitixPayload($payload),
+            // ... 11 more arms ...
+            default            => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
+        };
+        ```
+
+- [ ] **#FOUND-10** · P2 — `SectionVisibilityService` has 3 separate match arms + a boolean-flag block per section type; adding a new section requires 4 coordinated edits in one file
+    - **Where:** `app/Services/User/SectionVisibilityService.php` (`checkVisibilityRequirements` match, `loadVisibilityContext` boolean-flags block, `resolveFromContext` match, plus a private `check*Requirements` method)
+    - **Affects:** Every new section block type; the current 10-type count will grow as the platform adds sections
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Define a `SectionVisibilityContract` interface with `contextSubquery(string $userId, string $siteId): ?Builder` and `resolve(Block $block, array $context): array{bool, ?string}`.
+        - Register implementations keyed by `block_type` in `config/partna.php` or a service-provider tag.
+        - Collapse `checkVisibilityRequirements`, `loadVisibilityContext`, and `resolveFromContext` to iterate the registry — the boolean-flag pattern disappears entirely.
+    - **Technical:** The three methods form an entangled triple: `checkVisibilityRequirements` dispatches per type for single-block checks, `loadVisibilityContext` pre-loads context via N boolean flags + N optional subqueries for batch checks, and `resolveFromContext` re-dispatches per type against the loaded context. Any new section type must appear in all three (and in the private helper list). If a developer adds `'testimonials'` to `checkVisibilityRequirements` but forgets `loadVisibilityContext`, testimonials always pass the batch check without actually verifying the data requirement. A registry makes the coupling explicit and compiler-checkable.
+    - **Plain English:** Adding a new kind of section to a professional's page means editing the same service in four different spots. Miss one and the section exists on paper but fails the visibility check silently — showing or hiding incorrectly depending on which code path ran. A registry means you define the new section in one file and it's picked up everywhere automatically.
+    - **Evidence:**
+        ```php
+        // checkVisibilityRequirements — match arm per type
+        return match ($blockType) {
+            'gallery'        => $this->checkGalleryRequirements($siteId),
+            'booking'        => $this->checkBookingRequirements($userId),
+            'services'       => $this->checkServicesRequirements($userId),
+            'documents'      => $this->checkDocumentsRequirements($siteId),
+            'countdown'      => $this->checkCountdownRequirements($userId, $siteId, $pendingSettings),
+            'contact'        => $this->checkContactRequirements($userId, $siteId, $pendingSettings),
+            'public_contact' => $this->checkPublicContactRequirements($userId),
+            'workplace'      => $this->checkWorkplaceRequirements($siteId),
+            'credentials'    => $this->checkCredentialsRequirements($userId),
+            'experience'     => $this->checkExperienceRequirements($userId),
+            default => [true, null],
+        };
+        ```
+        ```php
+        // loadVisibilityContext — boolean flag + optional subquery per type
+        $needsGallery     = in_array('gallery', $presentTypes, true);
+        $needsDocument    = in_array('documents', $presentTypes, true);
+        $needsPricedService = in_array('services', $presentTypes, true);
+        $needsBooking     = in_array('booking', $presentTypes, true);
+        $needsCredentials = in_array('credentials', $presentTypes, true);
+        $needsExperience  = in_array('experience', $presentTypes, true);
+        $needsPublicContact = in_array('public_contact', $presentTypes, true);
+        $needsWorkplace   = in_array('workplace', $presentTypes, true);
+        ```
+
+- [ ] **#FOUND-11** · P2 — Reorder logic (advisory lock + lockForUpdate + two-pass offset + site touch) is copy-pasted across 11 controllers with inconsistent locking strategies
+    - **Where:** User-side: `UserLinkBlockController.php`, `UserSectionBlockController.php`, `UserSmartLinkController.php`, `UserUploadController.php`, `UserGalleryController.php`, `UserServiceController.php` (×2), `UserServiceCategoryController.php`; Staff-side: `StaffLinkBlockManagementController.php`, `StaffSectionManagementController.php`, `StaffServiceManagementController.php`
+    - **Affects:** Any change to the reorder contract (new locking strategy, audit log, sort-order uniqueness fix) must be applied to 11 independent implementations; current drift is already visible
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Extract a `ReorderService` with a single `reorder(array $ids, Builder $scopeQuery, string $lockKey, ?Closure $afterCommit = null): void` method that owns the lock acquisition, ID-set validation, two-pass offset-then-reassign, and site touch.
+        - Each controller reduces to calling the service with its entity-specific scope and lock key.
+        - As a companion fix, decide on one locking strategy (advisory + lockForUpdate seems most robust) and apply it consistently; `UserGalleryController` currently omits the advisory lock.
+    - **Technical:** Eight user controllers and three staff controllers each independently implement the 7-step reorder recipe: (1) acquire `pg_advisory_xact_lock`, (2) `SELECT ... FOR UPDATE` all eligible rows, (3) validate submitted IDs against the full set, (4) reject 422 on unknown IDs, (5) build merged order with remaining appended, (6) two-pass offset-then-reassign to avoid unique-constraint collisions, (7) `$site->touch()`. The locking strategies already diverge: user gallery uses only `lockForUpdate` with no advisory lock; staff service category may skip the advisory lock too. A change to the two-pass algorithm (e.g. switching from `+ 10000` to a gap-based scheme) must be made in 11 places.
+    - **Plain English:** Eleven different parts of the app know how to let users drag-and-drop to reorder items, but each has its own handwritten instruction card. The cards are mostly the same, but one forgot the door-lock step and another uses a different offset calculation. If the engineering team issues a new safety rule, someone has to find and update all eleven cards and will almost certainly miss one. A single master procedure posted centrally means one update fixes everything.
+    - **Evidence:**
+        ```php
+        // UserLinkBlockController.php — advisory + lockForUpdate + two-pass
+        DB::transaction(function () use ($pro, $site, $ids) {
+            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
+            $allIds = Block::query()->where('user_id', $pro->id)->where('site_id', $site->id)
+                ->where('block_group', 'links')->where('block_type', 'link')
+                ->lockForUpdate()->orderBy('sort_order')->orderBy('created_at')->pluck('id')->all();
+            // ... validate, merge, two-pass ...
+        });
+        $site->touch();
+        ```
+        ```php
+        // StaffSectionManagementController.php — identical pattern, different lock key
+        DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$site->id}"]);
+        $allIds = Block::query()->where(...)
+            ->lockForUpdate()->orderBy('sort_order')->orderBy('created_at')->pluck('id')->all();
+        ```
+
+- [ ] **#FOUND-12** · P2 — `requiresFreshAal2` security logic is copy-pasted from `BasePolicy` into `MfaController`; the controller copy will drift when Supabase adds a new MFA method
+    - **Where:** `app/Http/Controllers/Api/User/Account/MfaController.php` (lines 78–100, `private function requiresFreshAal2`); `app/Policies/BasePolicy.php` (canonical version)
+    - **Affects:** The MFA unenroll endpoint; any new MFA method Supabase adds (e.g. `passkey`) — `BasePolicy` gets the update, the controller does not
+    - **Effort:** S (~0.5–1h)
+    - **What to do:**
+        - Extract the freshness-check logic into `App\Services\Auth\Aal2FreshnessGate` with a single `check(Request $request, int $maxAgeSeconds): GateResponse` method.
+        - Both `BasePolicy` and `MfaController` call the service; the controller's "no model to authorize against" constraint is satisfied cleanly.
+    - **Technical:** The controller comment (`Inline copy of BasePolicy::requiresFreshAal2 — see destroy() comment for why it's not delegated to a policy`) acknowledges the duplication explicitly. The AMR-entry parsing logic, the MFA-method allowlist (`['totp', 'phone', 'webauthn']` at line 87), and the max-age comparison are byte-identical. If Supabase adds `passkey` as an MFA method, the `BasePolicy` copy gets the update in a PR; the controller copy stays at three methods and silently accepts a passkey-authenticated token as insufficient AAL2. Security-sensitive logic that can drift between two copies is the highest-risk category of duplication.
+    - **Plain English:** There's a rulebook for deciding if someone verified their identity recently enough to do sensitive operations. One copy lives with the security guard at the front gate. Another handwritten copy lives in the MFA settings room because the settings room doesn't have a guard station. When the main rulebook adds "passkeys" as a valid method next month, the handwritten copy won't get updated — and the settings room will quietly start accepting the wrong proof. The fix is one official rulebook that both places consult.
+    - **Evidence:**
+        ```php
+        // MfaController.php lines 78–95 — comment acknowledges the copy
+        /**
+         * Inline copy of BasePolicy::requiresFreshAal2 — see destroy() comment
+         * for why it's not delegated to a policy.
+         *
+         * Uses max(timestamp) across all MFA-method amr entries so the result is
+         * order-independent (Supabase emits amr chronologically, oldest-first).
+         */
+        private function requiresFreshAal2(Request $request, int $maxAgeSeconds): GateResponse
+        {
+            $amr        = $request->attributes->get('supabase_amr', []);
+            $mfaMethods = ['totp', 'phone', 'webauthn'];
+            // ... identical logic to BasePolicy ...
+        }
+        ```
+
+- [ ] **#FOUND-13** · P2 — Advisory-lock + `max(sort_order)` + insert boilerplate duplicated across 5 store/upsert controllers with subtle scope variations
+    - **Where:** `UserLinkBlockController.php:store()`, `UserSectionBlockController.php:syncAllowedSections()`, `UserSmartLinkController.php:store()`, `UserServiceController.php:store()`, `UserServiceCategoryController.php:store()`
+    - **Affects:** Any change to concurrent-insert strategy (new lock-key format, Redis-based locking, gap-safe `max`); different controllers already use slightly different `max` scopes
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Extract `InsertWithSortOrder::run(Builder $query, string $lockKey, Closure $create): Model` that owns the advisory-lock acquisition, `max(sort_order)` computation, and null-safe offset.
+        - Each controller calls the helper with its entity-specific query and lock key; the slight scope variations (some filter `deleted_at IS NULL` in the max query, some don't) become explicit parameters.
+    - **Technical:** Each `store()` method follows: `DB::transaction(fn () => { DB::select('pg_advisory_xact_lock(hashtext(?))', [$key]); $max = Model::query()->where(...)->max('sort_order'); $data['sort_order'] = is_null($max) ? 0 : (int)$max + 1; ... create(...); })`. The five copies differ in: whether `deleted_at IS NULL` is in the max scope, whether the null initialises to 0 or -1, and whether the lock key is by `$site->id` or `$pro->id`. These variations are data (configuration), not logic. The algorithm is identical — five copies to maintain.
+    - **Plain English:** Five different departments each have their own procedure for "grab the key, check how many items are in the room, add the new item at position +1." The procedure is the same; the key name and the room are different. If the lock-key convention changes, or if someone discovers the "null = 0 vs null = -1" difference causes a duplicate sort_order collision, all five must be updated. One shared procedure with the room as a parameter.
+    - **Evidence:**
+        ```php
+        // UserLinkBlockController.php:store()
+        DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
+        $maxSort = Block::query()->where('site_id', $site->id)
+            ->where('block_group', 'links')->max('sort_order');
+        $maxSort = is_null($maxSort) ? -1 : (int) $maxSort;
+
+        // UserServiceController.php:store()
+        DB::select('select pg_advisory_xact_lock(hashtext(?))', ["services:{$pro->id}"]);
+        $max = Service::query()->where('user_id', $pro->id)
+            ->whereNull('deleted_at')->max('sort_order');
+        $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
+        ```
+
+- [ ] **#FOUND-14** · P2 — `block_group` / `block_type` are unvalidated magic strings; a typo creates invisible blocks with no DB-layer detection
+    - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php` (hardcodes `'links'`/`'link'`); `UserSectionBlockController.php` (hardcodes `'sections'`); underlying `site.blocks` table (no CHECK constraint on either column)
+    - **Affects:** Any future block variant; today a migration that inserts `block_group = 'link'` (singular typo) creates rows that are invisible to every list endpoint — no error, no log
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Add a Postgres CHECK constraint on `site.blocks(block_group, block_type)` enumerating valid pairs, sourced from a single `config('partna.block_types')` map (which already partially exists as `config('partna.section_block_types')`).
+        - Add the link-block types (`{group: 'links', type: 'link'}`) to the same config entry.
+        - Update controllers to reference `config('partna.block_types')` string constants rather than bare literals.
+    - **Technical:** `config('partna.section_block_types')` enumerates section variants, but link variants have no registry at all. Controllers reference `'links'`/`'link'` as string literals in `->where('block_group', 'links')`, `abort_unless($block->block_group === 'links' && $block->block_type === 'link', 404)`, and the `new Block(['block_group' => 'links', 'block_type' => 'link'])` skeleton creation. No Postgres CHECK exists on either column. A new block-group variant (e.g. `'integrations'`) added via migration with a typo-ed string would pass silently and create a persistent data gap.
+    - **Plain English:** The blocks table has two label fields ("what kind of block" and "which specific variant") but the database accepts any label — even a misspelling. If someone writes "link" instead of "links" in a data migration, the block gets stored successfully and then silently disappears from every list on the user's page. Adding a database rule that only accepts known labels (like a bouncer with a guest list) means typos get caught at the door.
+    - **Evidence:**
+        ```php
+        // UserLinkBlockController.php — raw string literals throughout
+        ->where('block_group', 'links')
+        ->where('block_type', 'link')
+        abort_unless($linkBlock->block_group === 'links' && $linkBlock->block_type === 'link', 404);
+        ```
+
+- [ ] **#FOUND-15** · P2 — `Block.settings` sub-keys `category`, `platform`, and `live_check_enabled` are enumerated in config and filtered in queries, but stored in JSONB without column-level type or index support
+    - **Where:** `config/partna.php` (`link_block_settings_keys` line 181, `live_check_enabled` line 197); `app/Models/Core/Site/Block.php` (`settings => 'array'`); `supabase/migrations/20260526000000_baseline_standalone_user.sql` (expression index on `(settings->>'live_check_enabled')`)
+    - **Affects:** Live-check cap enforcement (JSON scan to count enabled blocks); platform live-status polling (JSON scan to collect handles); future analytics filtering by category
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Promote `live_check_enabled BOOLEAN NOT NULL DEFAULT false`, `category TEXT`, and `platform TEXT` to real nullable columns on `site.blocks`.
+        - Backfill from `settings->>'live_check_enabled'` etc., then drop the expression index (replaced by a normal partial index on the column).
+        - Leave genuinely freeform keys (`note`, `highlight`, `rel_*`, `open_in_new_tab`, `handle`) in `settings` JSONB — they are display hints never used in WHERE clauses.
+    - **Technical:** The expression index `idx_blocks_live_check_enabled ON site.blocks ((settings->>'live_check_enabled'))` in the baseline migration is the canonical signal that a field has escaped the freeform zone. The baseline and `CheckStreamingLiveStatusJob` both filter on `settings->>'live_check_enabled' = 'true'` in a WHERE clause. `StoreLinkBlockRequest` and `UpdateLinkBlockRequest` each count blocks where the flag is set (two separate implementations of the same JSON scan — see FOUND-20). The `config('partna.link_block_settings_keys')` list enumerating all 11 known sub-keys confirms the shape is fully known. Promoting three query-predicate fields to columns makes the expression index redundant, gives the query planner proper statistics, and removes the duplicate cap-enforcement scans.
+    - **Plain English:** Three pieces of information inside a link block's "settings bag" are important enough that the database built a special fast-lookup card for one of them — meaning they've outgrown the bag. Two others (the platform and category) are regularly used to group and filter blocks. These three should get their own labelled spots on the outside of the bag, where the database can index and query them properly without having to unpack everything inside.
+    - **Evidence:**
+        ```php
+        // config/partna.php lines 181–197 — all 11 known sub-keys enumerated
+        'link_block_settings_keys' => [
+            'open_in_new_tab', 'rel_nofollow', 'rel_sponsored', 'rel_ugc',
+            'highlight', 'note', 'platform', 'handle', 'category',
+            'live_check_enabled',
+        ],
+        ```
+        ```sql
+        -- Baseline migration — expression index signals field has escaped freeform JSON
+        CREATE INDEX idx_blocks_live_check_enabled ON site.blocks ((settings->>'live_check_enabled'))
+            WHERE block_group = 'links' AND deleted_at IS NULL AND is_active = true;
+        ```
+
+- [ ] **#FOUND-16** · P2 — `site.sites.settings` JSONB stores 10 named, individually-validated sub-keys that are read and written by name in PHP but invisible to the query planner
+    - **Where:** `app/Http/Requests/Api/User/Site/UpdateSiteRequest.php` (lines 59–70, `settings.*` rules); `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php` (mirror rules)
+    - **Affects:** Future staff filtering or admin reporting on `booking_mode`, `show_branding`, etc.; CHECK-constraint enforcement on enum fields; `SectionVisibilityService` booking checks
+    - **Effort:** L (~1–2d)
+    - **What to do:**
+        - Promote `hero_title`, `hero_subtitle`, `primary_button_text`, `primary_button_url`, `bio_text`, `show_branding`, `charlie_enabled`, `services_auto_sync_enabled`, `booking_mode`, and `manual_booking_url` to typed, nullable columns on `site.sites`.
+        - Add a CHECK constraint on `booking_mode IN ('manual', 'none')` (or extend when more modes ship).
+        - Backfill from `settings->>'...'` in the migration; update `UpdateSiteAction` to write columns directly.
+        - Leave the `settings` column for genuinely freeform future keys.
+    - **Technical:** `UpdateSiteRequest` validates each sub-key by name with explicit `max`, `url`, `boolean`, and `Rule::in` rules — exactly the pattern that signals "this is a column, not JSON." The DB cannot: (a) reject `booking_mode = 'calendley'` (typo), (b) enforce `NOT NULL` on `show_branding`, or (c) index `booking_mode` for a staff query like "all manual-booking professionals." Every `SectionVisibilityService` booking check reads the entire settings payload to extract one string. Promoting these 10 fields is a one-time migration investment that permanently unlocks typed constraints, indexability, and simpler query paths.
+    - **Plain English:** The site's most important display settings — the hero title, the branding switch, the booking link — are stuffed into a "miscellaneous" drawer alongside anything else. The system knows exactly what's in that drawer (there's a checklist), but the database can't enforce the rules or look anything up quickly. Moving these 10 fields to labeled slots in the filing cabinet means a typo in "booking mode" gets caught immediately and staff reports like "show me all manual-booking professionals" become a fast search instead of opening every drawer.
+    - **Evidence:**
+        ```php
+        // UpdateSiteRequest.php — 10 individually-validated JSON sub-keys
+        'settings.hero_title'                => ['sometimes', 'string', 'max:100'],
+        'settings.hero_subtitle'             => ['sometimes', 'string', 'max:200'],
+        'settings.primary_button_text'       => ['sometimes', 'string', 'max:50'],
+        'settings.primary_button_url'        => ['sometimes', 'nullable', 'url', 'max:2048'],
+        'settings.bio_text'                  => ['sometimes', 'nullable', 'string', 'max:500'],
+        'settings.show_branding'             => ['sometimes', 'boolean'],
+        'settings.charlie_enabled'           => ['sometimes', 'boolean'],
+        'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
+        'settings.booking_mode'              => ['sometimes', 'string', Rule::in(['manual'])],
+        'settings.manual_booking_url'        => ['sometimes', 'nullable', 'url', 'max:2048'],
+        ```
+
+- [ ] **#FOUND-17** · P2 — `SmartLinkTypeRegistry` has two match arms for the same platform set, and `SmartLinkValidator` has a third; adding a content platform requires 3 separate edits that will drift
+    - **Where:** `app/Services/SmartLinks/SmartLinkTypeRegistry.php` (`CONTENT_PLATFORMS` line 21, `resolveType()` match lines 41–51, `extractorChain()` match lines 62–70); `app/Services/SmartLinks/SmartLinkValidator.php` (third match ~lines 30–59)
+    - **Affects:** Any new content platform (SoundCloud being already wired into `PlatformRefresher` but not `CONTENT_PLATFORMS`); drift between the three dispatch tables is already possible
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Define a per-platform config entry in `config/partna.php`: `host_pattern`, `subtype_resolver` (callable or class), `extractor_chain` (array of extractor identifiers), `validation_rules`.
+        - `resolveType()` iterates the registry instead of a match; `extractorChain()` reads the config list; `SmartLinkValidator` derives its rules from the same registry.
+        - The `CONTENT_PLATFORMS` constant becomes `array_keys(config('partna.smart_link_platforms'))`.
+    - **Technical:** `CONTENT_PLATFORMS = ['spotify', 'apple_music', 'bandcamp', 'apple_podcasts', 'youtube', 'vimeo']` is the canonical platform list. `resolveType()` then dispatches each platform to its host-check + sub-type resolution. `extractorChain()` maps each resolved type to an ordered list of extractors. `SmartLinkValidator` has its own `match(true)` on type strings. These three dispatch tables share the same conceptual key space (`type`/`selection`) but are maintained separately. Adding SoundCloud (for example) would require: a `CONTENT_PLATFORMS` entry, a `resolveType` arm, an `extractorChain` arm, and a `SmartLinkValidator` arm — four edits that a developer touching one file will forget to complete.
+    - **Plain English:** To add a new music or video platform, a developer must update three or four separate switch-statements spread across two files. It's like having a restaurant menu, a kitchen board, and an allergen chart — all listing the same dishes but maintained separately. Miss the allergen chart and a customer gets the wrong information. One "platform recipe card" consumed by all three systems means adding a new platform is one card, not four updates.
+    - **Evidence:**
+        ```php
+        // SmartLinkTypeRegistry.php — CONTENT_PLATFORMS + resolveType match
+        public const CONTENT_PLATFORMS = ['spotify', 'apple_music', 'bandcamp', 'apple_podcasts', 'youtube', 'vimeo'];
+
+        return match ($selection) {
+            'spotify'        => $this->endsWith($url, 'open.spotify.com') ? $this->spotifySub($url) : null,
+            'apple_music'    => $url->host === 'music.apple.com' ? $this->appleMusicSub($url) : null,
+            'bandcamp'       => $this->endsWith($url, 'bandcamp.com') ? $this->bandcampSub($url) : null,
+            'apple_podcasts' => ($url->host === 'podcasts.apple.com' && isset($url->essentialQuery['i']))
+                ? 'content.podcast.episode' : null,
+            'youtube'        => $this->isYoutube($url) ? 'content.video' : null,
+            'vimeo'          => $this->isVimeo($url) ? 'content.video' : null,
+            default          => null,
+        };
+        ```
+        ```php
+        // extractorChain — second match over the same type space
+        return match (true) {
+            str_starts_with($type, 'content.music')   => [$this->spotify, $this->oembed, $this->itunes],
+            $type === 'content.podcast.episode'        => [$this->itunes, $this->spotify],
+            $type === 'content.video'                  => [$this->oembed],
+            default => [],
+        };
+        ```
+
+- [ ] **#FOUND-18** · P2 — `IntegrationConnection` payload carries a hidden async state machine (`apifyStatus`, `placeId`) that code reads to drive cross-job coordination
+    - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php` (payload writes lines 149–156, `connection()` filter on `placeId` lines 185–188); Google Business enrichment flow
+    - **Affects:** The Google Business async enrichment pipeline; any operator or developer trying to understand "which connections are pending enrichment" must know the secret JSON keys
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Add `apify_status TEXT` (nullable, CHECK IN ('pending', 'ok', 'unavailable')) and `place_id TEXT` (nullable) as real columns on `site.platform_connections`.
+        - Remove `apifyStatus` and `placeId` from the `payload` JSON writes; read from columns.
+        - The existing `last_refresh_status` column shows the right pattern — use the same approach for the Google Business async enrichment state.
+        - Leave `syncFindings`, `name`, `images`, `videoUrl` etc. in `payload` — these are genuinely platform-specific opaque data.
+    - **Technical:** `IntegrationConnection` already has proper columns for generic refresh state (`last_refresh_status`, `consecutive_failures`, `last_refreshed_at`). Google Business parallel-tracks a second state machine entirely in `payload.apifyStatus` (`'pending'` → keep polling, `'ok'` → done, `'unavailable'` → stop). The `connection()` method in `GoogleBusinessEnrichJob` filters on `data_get($connection->payload, 'placeId') === $this->placeId` — a PHP-side JSON comparison with no index support. As more platforms add async enrichment, the `payload` column accumulates invisible schema that only code comments explain.
+    - **Plain English:** Some important status information for Google Business connections — "is the enrichment still running?" and "which Google Place is this?" — is buried inside a catch-all "notes" field instead of in the labeled fields on the record. It's like writing a patient's surgery status in the free-text notes box instead of the dedicated "surgery status" field. When staff need to find all connections that are still processing, they can't just run a database query — they have to know the secret note keywords.
+    - **Evidence:**
+        ```php
+        // GoogleBusinessEnrichJob.php — state written into JSON
+        $connection->forceFill([
+            'payload' => [
+                ...Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
+                'apifyStatus'    => 'ok',
+                'apifyFetchedAt' => now()->toIso8601String(),
+                'syncFindings'   => $findings,
+            ],
+        ])->saveQuietly();
+        ```
+        ```php
+        // GoogleBusinessEnrichJob.php — placeId read from JSON for matching (can't be indexed)
+        return data_get($connection->payload, 'placeId') === $this->placeId ? $connection : null;
+        ```
+
+- [ ] **#FOUND-19** · P2 — ~24 platform connect Form Requests are near-identical one-field wrappers; each new platform requires a new file with the same `authorize: true` + single-rule boilerplate
+    - **Where:** `app/Http/Requests/Platforms/` (ConnectBandcampRequest, ConnectEventbriteRequest, ConnectHumanitixRequest, ConnectSpotifyRequest, ConnectSoundcloudRequest, ConnectSkoolRequest, ConnectDeezerRequest, ConnectVimeoRequest, ConnectPinterestRequest, ConnectStravaRequest, ConnectTwitchRequest, ConnectYoutubeMusicRequest, ConnectResDiaryRequest, ConnectNowBookitRequest, ConnectOpenTableRequest, ConnectFacebookRequest, ConnectTiktokRequest, ConnectSquareRequest, ConnectFreshaRequest, ConnectGoogleBusinessRequest, ConnectAppleMusicRequest, ConnectApplePodcastRequest, ConnectYoutubeRequest, ConnectSocialLinkRequest — 24 classes confirmed by Glob)
+    - **Affects:** Developer velocity when adding a platform; existing drift already visible (`max:500` on some, different patterns on others)
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Create a single `ConnectByUrlRequest` that reads per-platform validation rules (max length, scheme constraints, regex) from `config('partna.platforms.<slug>.connect_rules')`.
+        - Create a `ConnectByUsernameRequest` for username-shaped platforms (Facebook, TikTok).
+        - Leave the genuinely distinct outliers (GoogleBusiness with two-shape alternates, YouTube with video-ID extraction) as standalone classes — they're architecturally different, not just constants.
+        - Adding a new URL-shaped platform becomes one config entry, not one file.
+    - **Technical:** Fifteen-plus connect requests share the identical body: `authorize(): true` + `rules(): ['url' => ['required', 'string', 'max:500']]`. Three others share `['username' => ['required', 'string', 'max:200']]`. Each copy opens a drift surface: one platform might get a tightened `max:300`, another might omit the normalization the service layer expects, a third might miss a SSRF-safe rule the security team adds across all URL fields. At 24 files for two patterns, the set is already difficult to audit holistically.
+    - **Plain English:** Every time a new social media or booking platform is added, someone has to create a new one-page form that's 90% identical to the previous one — same boxes, same rules, just a different name on the cover sheet. With 24 of these forms already filed, they're drifting apart in subtle ways. One master form where each platform registers its specific quirks in a single config entry means the form gets written once and maintained in one place.
+    - **Evidence:**
+        ```php
+        // ConnectBandcampRequest.php
+        public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
+
+        // ConnectEventbriteRequest.php — byte-identical
+        public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
+
+        // ConnectHumanitixRequest.php — byte-identical
+        public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
+
+        // ConnectSpotifyRequest.php — byte-identical
+        public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
+        ```
+
+- [ ] **#FOUND-20** · P2 — Subdomain validation closure (~60 lines, 4 rule checks) is copy-pasted between `UpdateSiteRequest` and `StaffUpdateSiteRequest`; drift will produce inconsistent validation
+    - **Where:** `app/Http/Requests/Api/User/Site/UpdateSiteRequest.php` (subdomain closure ~lines 80–145); `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php` (near-identical closure)
+    - **Affects:** Subdomain change validation: reserved words, uniqueness, alias conflict, handle-alias conflict — any new check must be added in two places
+    - **Effort:** S (~0.5–1h)
+    - **What to do:**
+        - Extract a `SubdomainValidationRule` custom rule class (implementing `ValidationRule`) that accepts `$currentSiteId` and `$professional` as constructor params.
+        - Both Form Requests reference `new SubdomainValidationRule($currentSiteId, $professional)` — one source of truth for the 4-check logic.
+    - **Technical:** Both closures run the same 4 checks: (1) reserved words from `config('partna.reserved_subdomains')`, (2) case-insensitive uniqueness on `site.sites`, (3) active alias in `site.site_subdomain_aliases`, (4) active handle alias in `core.user_handle_aliases` (with `QueryException` catch + `report` + `Log::warning`). The two copies differ only in how `$currentSiteId` is resolved. A new check (e.g., blocked subdomains from a third-party list, or a reserved-word cache check) added to one copy will silently not apply when a staff member changes a subdomain via the staff route.
+    - **Plain English:** Two departments share the same security checklist for approving a new subdomain. Both checklists have 4 identical steps. If the security team adds a 5th step, one department gets the memo and the other doesn't — leaving a gap that attackers can exploit by going through the unchecked route. One shared checklist fixes this.
+    - **Evidence:**
+        ```php
+        // UpdateSiteRequest.php — 4-check closure
+        function ($attribute, $value, $fail) use ($currentSiteId, $professional) {
+            $reserved = array_map('strtolower', config('partna.reserved_subdomains', []));
+            if (in_array(strtolower($value), $reserved, true)) { $fail(...); return; }
+            $exists = Site::whereRaw('lower(subdomain) = ?', [strtolower($value)])
+                ->where('id', '!=', $currentSiteId)->exists();
+            if ($exists) { $fail(...); return; }
+            $aliasExists = DB::table('site.site_subdomain_aliases')...->exists();
+            if ($aliasExists) { $fail(...); return; }
+            $existsInUserAliases = DB::connection('pgsql')
+                ->table('core.user_handle_aliases')...->exists();
+            if ($existsInUserAliases) { $fail(...); }
+        }
+        // StaffUpdateSiteRequest.php — identical 4-check logic
+        ```
+
+---
+
+## P3 — Nice to have
+
+- [ ] **#FOUND-21** · P3 — Adding a platform integration requires 5 edit sites in `routes/api/integrations.php`; no single registration entry
+    - **Where:** `routes/api/integrations.php` (imports block, per-platform route group or `$singleSelection` entry, middleware application)
+    - **Effort:** L (~1–2d) — must coordinate with the controller/scraper factory pattern
+    - **What to do:** Move platform route-group definitions to a data-driven loop over `config('partna.platforms')` (the same registry proposed in FOUND-1/FOUND-9). Simple single-action platforms (Spotify, SoundCloud) collapse to one config entry. Complex platforms (YouTube, Fresha) keep standalone groups but their imports become derived from the registry. This is the capstone of the platform-registry pattern; tackle after FOUND-1 and FOUND-9.
+    - **Technical:** The route file manually imports every controller class and defines routes in a large closure. The `$singleSelection` array is a partial abstraction for simple platforms, but still requires a class import per entry. A registry-driven approach collapses "add a platform" to one config entry and one controller class, with the route layer generating standard endpoints (connect, disconnect, refresh, resource).
+    - **Plain English:** Every new platform integration requires manually adding it to the routing file's import list, choosing the right route pattern, and wiring up middleware. Missing any step means the routes exist in code but not in practice. A platform directory that knows each platform's route shape would generate routes automatically from one registration entry.
+    - **Evidence:**
+        ```php
+        // routes/api/integrations.php — manual import per controller
+        use App\Http\Controllers\Api\Platforms\FreshaController;
+        // ... 30+ more imports ...
+
+        // Manual per-platform group
+        Route::prefix("{$base}/fresha")->middleware($middleware)->group(function () { ... });
+
+        // Partial abstraction for simple platforms — still requires one entry per slug
+        $singleSelection = ['spotify' => SpotifyController::class, 'soundcloud' => SoundcloudController::class, ...];
+        foreach ($singleSelection as $slug => $controller) { ... }
+        ```
+
+- [ ] **#FOUND-22** · P3 — `GoogleBusinessAutoSync` scatters reservation and booking platform lists across 7 private locations; adding a new booking/reservation provider is 7 edits
+    - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php` (`hasAnyReservation()` line 193, `seedBooking()` line 218, `resolveReservationWrite()` multiple arms, `resolveBookingWrite()`, `applyFinding()` conflict remove arrays)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Define `RESERVATION_PLATFORMS` and `BOOKING_PLATFORMS` class constants; replace all seven inline arrays with references. In `resolveReservationWrite()`, extract a `UrlMatcherRegistry` (one entry per provider with its `isXxxUrl()` check) instead of a procedural if-ladder.
+    - **Technical:** `hasAnyReservation()` iterates `['opentable', 'resdiary', 'nowbookit', 'reservations']`. `seedBooking()` guards with `$this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')`. Conflict-finding `remove` arrays repeat the same set again. Seven independent list references — when a new reservation provider ships, missing one means the auto-sync either ignores it or can't correctly replace an existing connection.
+    - **Plain English:** The auto-sync service has seven separate handwritten lists of "these are the reservation services" and "these are the booking services." Adding a new one means finding all seven lists and adding it to each. Missing one means the new service works for manual connections but the auto-sync doesn't know about it.
+    - **Evidence:**
+        ```php
+        // GoogleBusinessAutoSync.php
+        private function hasAnyReservation(string $userId): bool
+        {
+            foreach (['opentable', 'resdiary', 'nowbookit', 'reservations'] as $platform) {
+                if ($this->has($userId, $platform)) { return true; }
+            }
+            return false;
+        }
+
+        // seedBooking() — different list for booking vs reservation
+        if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
+        ```
+
+- [ ] **#FOUND-23** · P3 — Cache-invalidation pattern (touch site + dispatch Cloudflare purge) is reimplemented independently across 6 observer classes
+    - **Where:** `app/Observers/Core/BlockObserver.php`, `ServiceObserver.php`, `SiteMediaObserver.php`, `UserObserver.php`, `SmartLinkObserver.php`, `IntegrationConnectionObserver.php`
+    - **Effort:** M (~2–4h)
+    - **What to do:** Extract a `SiteCacheInvalidator` class with `invalidate(Site $site, string $reason): void` that owns the `afterCommit` semantics, `$site->touch()`, and `CloudflareCachePurgeJob::dispatch()` dispatch — optionally with structured logging. Each observer calls the service instead of reimplementing the sequence.
+    - **Technical:** All six observers need to notify the public-sitepage edge cache that content changed. Each reimplements the sequence: try `$site->touch()` → dispatch Cloudflare job → `Log::warning` on failure → `report($e)`. Slight variations exist (some observers skip the Cloudflare dispatch, some use `afterCommit`). If a new cache-busting step is added (a future CDN provider, a Redis signal), all six must be updated in lockstep.
+    - **Plain English:** Six different content types (links, services, images, user profiles, smart links, integrations) all need to tell the public page "something changed, please update." Each has its own copy of the "ring the doorbell" procedure. When the doorbell manufacturer changes the wiring, six procedures need updating — and one will be missed.
+    - **Evidence:**
+        ```php
+        // BlockObserver.php — direct site touch
+        try { $block->site->touch(); } catch (\Throwable $e) { ... }
+
+        // IntegrationConnectionObserver.php — dispatches Cloudflare job directly
+        CloudflareCachePurgeJob::dispatch($subdomain);
+
+        // SmartLinkObserver.php — direct touch without try/catch
+        $pro->site?->touch();
+        ```
+
+- [ ] **#FOUND-24** · P3 — `MenuApifyScraper` dispatches platform-specific logic at 4 locations via string comparison; adding a delivery platform requires 4 file edits
+    - **Where:** `app/Services/Platforms/MenuApifyScraper.php` (`ACTORS` constant, `mapResponse()` ternary, `input()` match, `fetchStores()` target building)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Define a `MenuPlatformDriver` contract: `actorId(): string`, `mapItems(array $items): array`, `buildInput(string $url, ?string $address): array`. Register implementations per platform in config. `mapResponse()` and `input()` become `$this->drivers[$platform]->mapItems()` / `buildInput()` calls.
+    - **Technical:** The `ACTORS` constant, `mapUberEats()`/`mapDoorDash()` methods, ternary in `mapResponse()`, and match in `input()` all dispatch on the platform string. Three of the four have clean per-platform methods; they just need polymorphic dispatch. `fetchStores()` already uses `ACTORS` for actor-ID lookup — the same pattern extended to mapping and input-building.
+    - **Plain English:** The menu scraper knows about Uber Eats and DoorDash by name in four separate places. Adding Menulog means updating the actor list, adding a mapping method, updating which mapper to call, and updating the input-builder. Four things to remember. Giving each platform its own small class means one new file and one registration.
+    - **Evidence:**
+        ```php
+        // MenuApifyScraper.php
+        $menu = $platform === 'uber-eats' ? $this->mapUberEats($items) : $this->mapDoorDash($items);
+
+        return match ($platform) {
+            'uber-eats' => ['startUrls' => [['url' => $storeUrl]]],
+            'doordash'  => ['startUrls' => [['url' => $storeUrl]], 'address' => ...],
+            default     => [],
+        };
+        ```
+
+- [ ] **#FOUND-25** · P3 — "Preserve existing highlights on reconnect" pattern copy-pasted across 5 platform controllers
+    - **Where:** `YoutubeController.php` (connect ~lines 58–62), `VimeoController.php` (~67–70), `BandcampController.php` (~62–65), `AppleController.php` (keptHighlights), `YoutubeMusicController.php` (~61–65)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Add a `preserveHighlights(User $user, string $platform, string $identityField, mixed $identityValue): array` method to the `ManagesIntegrationConnection` trait; replace the 5 inline `matchAccountRow` + `data_get` patterns with a single call.
+    - **Technical:** Each controller calls `$this->matchAccountRow($user, $field, $value)?->payload` and `data_get($existing, 'highlights', [])`. The pattern is identical; only the identity field and value differ. A trait method with explicit parameters makes the "carry forward highlights on reconnect" contract visible and testable in one place.
+    - **Plain English:** Five different platform connection screens share the rule "when reconnecting, keep the previously-selected highlights." Each has its own copy of that rule. If the rule changes (e.g., also carry forward the description), five files need updating.
+    - **Evidence:**
+        ```php
+        // YoutubeController::connect()
+        $existing   = $this->matchAccountRow($user, 'handle', $handle)?->payload;
+        $highlights = data_get($existing, 'highlights', []);
+
+        // VimeoController::connect() — identical pattern, different key
+        $existing   = $this->matchAccountRow($user, 'apiPath', $source['apiPath'])?->payload;
+        $highlights = data_get($existing, 'highlights', []);
+        ```
+
+- [ ] **#FOUND-26** · P3 — `PlatformRefresher` has ~10 near-identical `*Payload` methods; a bug in the "spread existing + overwrite fresh" merge logic must be fixed in 10 places
+    - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`youtubePayload`, `bandcampPayload`, `appleMusicPayload`, `applePodcastPayload`, `deezerPayload`, `youtubeMusicPayload`, `vimeoPayload`, `twitchPayload`, `pinterestPayload`, `scrapedCardPayload`)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Extract a `preservePayload(array $existing, array $fresh, array $overwriteKeys): array` helper. Each `*Payload` method scrapes, then calls `preservePayload($payload, $fresh, ['latest', 'name', 'thumbnail', ...])`. The "which keys survive from existing vs. come from fresh" policy is explicit once rather than inferred from 10 spread operations.
+    - **Technical:** All 10 methods follow `return ['payload' => [...$payload, 'key' => $fresh['key'], ...], 'error' => null, 'status' => 'ok']`. The variation is which keys from `$fresh` overwrite `$payload`. A `preservePayload` helper makes the overwrite policy an explicit list, shrinks each method to ~3 lines, and means a bug in the merge logic is fixed once.
+    - **Plain English:** Ten different platform refresh methods all follow the same template: take the old data, take the new data, replace only certain fields. Each template is handwritten separately. A bug in which fields get replaced must be found and fixed in all ten copies.
+    - **Evidence:**
+        ```php
+        // appleMusicPayload — spread + named key overwrites
+        return ['payload' => [
+            ...$payload, 'latest' => $latest, 'name' => $latest['name'],
+            'thumbnail' => $latest['thumbnail'], 'releaseDate' => $latest['releaseDate'], 'link' => $latest['link'],
+        ], 'error' => null, 'status' => 'ok'];
+
+        // bandcampPayload — same pattern, different overwrite keys
+        return ['payload' => [
+            ...$payload, 'artist' => $profile['name'] ?? ($payload['artist'] ?? null),
+            'latest' => $latest, 'name' => $latest['name'],
+            'thumbnail' => $latest['thumbnail'] ?? $profile['thumbnail'], 'link' => $latest['link'],
+        ], 'error' => null, 'status' => 'ok'];
+        ```
+
+- [ ] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
+    - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`groupKitColumns` — `$twoTokenPrefixes`, `$singleTokenPrefixes`)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Move both prefix maps to `config/partna.php` (e.g. `design_kit_column_groups`). `groupKitColumns` reads from config — new columns added by migration are automatically projected to the wire format by registering their prefix in config at the same time.
+    - **Technical:** `loadDesignKit` queries `site.design_kits` and picks up new columns automatically (data-driven). But `groupKitColumns` acts as a silent filter — any column whose prefix isn't in the two hardcoded maps is dropped from the API response. A developer adding a `shadows_*` column family will see it in the DB but not in the public profile payload, with no error. Per the design-kit spec, new variables are added by migration; keeping the prefix map in config alongside the migration instruction makes the pairing explicit.
+    - **Plain English:** The design kit system picks up new database columns automatically — but then a second piece of code translates them to the format the frontend expects using a hardcoded translation map. Any column whose category name isn't in the map gets silently thrown away. Moving the map to the config file means adding a new category is one config line alongside the database column definition.
+    - **Evidence:**
+        ```php
+        // IndividualProfilePayloadBuilder.php — hardcoded prefix maps
+        $twoTokenPrefixes = [
+            'space_desktop' => 'spaceDesktop',
+            'sizing_desktop' => 'sizingDesktop',
+            'typography_desktop' => 'typographyDesktop',
+        ];
+        $singleTokenPrefixes = [
+            'color' => 'colors', 'typography' => 'typography',
+            'border' => 'borders', 'space' => 'space', 'motion' => 'motion',
+            'icon' => 'icons',    'icons' => 'icons',  'effect' => 'effects',
+            'sizing' => 'sizing', 'button' => 'buttons',
+        ];
+        ```
+
+- [ ] **#FOUND-28** · P3 — SmartLink type-to-wire-fields mapping is a `match()` in the payload builder; adding a new type requires this file AND the registry (FOUND-17)
+    - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`shapeSmartLink` — match on `$l->type`)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Move the type-to-metadata-fields map to `config/partna.php` (`smart_link_type_fields`). `shapeSmartLink` iterates the config entry for the link's type rather than a match arm. Combine with FOUND-17's registry so the field shape is co-located with the extractor chain.
+    - **Technical:** The `match($l->type)` with 6 arms is a projection of `$l->metadata` keys for each type. When a new smart-link type is added, both `SmartLinkTypeRegistry` (FOUND-17) and this match must be updated. The knowledge of which metadata fields to expose is part of the type definition; it belongs alongside the extractor chain, not in the payload builder.
+    - **Plain English:** Different kinds of smart links show different fields — a product shows a price, an event shows a date. The list of which fields to show is hardcoded in the page-builder rather than with the type definition. Adding a new type means remembering to update both the type registry and the page-builder.
+    - **Evidence:**
+        ```php
+        // IndividualProfilePayloadBuilder.php
+        return match ($l->type) {
+            'commerce.product'        => $base + ['price' => $this->smartLinkPrice($meta), 'stockStatus' => $meta['stockStatus'] ?? 'unknown'],
+            'commerce.collection'     => $base + ['collectionName' => $meta['collectionName'] ?? $l->title],
+            'commerce.brand'          => $base + ['heroImageUrl' => $meta['heroImageUrl'] ?? null],
+            'commerce.event'          => $base + ['startsAt' => $meta['startsAt'] ?? null, 'endsAt' => $meta['endsAt'] ?? null, 'location' => $meta['location'] ?? null],
+            'content.podcast.episode' => $base + ['showName' => $meta['showName'] ?? null, 'releaseDate' => $meta['releaseDate'] ?? null],
+            'content.video'           => $base + ['channelName' => $meta['channelName'] ?? null],
+            default                   => $base + ['artist' => $meta['artist'] ?? null, 'album' => $meta['album'] ?? null],
+        };
+        ```
+
+- [ ] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
+    - **Where:** `app/Services/User/UpdateSiteAction.php` (inline subdomain rename block after `if (array_key_exists('subdomain', $data))`)
+    - **Effort:** M (~2–4h)
+    - **What to do:** Extract a `RenameSubdomainAction` with `execute(Site $site, string $newSubdomain, User $professional): void`. `UpdateSiteAction` calls it on subdomain change detection. `ReclaimHandleAction` (which already delegates renames to `UpdateSiteAction`) would benefit from calling `RenameSubdomainAction` directly.
+    - **Technical:** The rename block is self-contained: it reads only `$data['subdomain']`, `$site`, and `$professional`, runs its own `lockForUpdate` re-read of `subdomain_changed_at`, creates aliases, syncs handles, and writes audit logs. Extracting it makes both `UpdateSiteAction` (now focused on general field updates) and the rename path independently testable and reusable by any future admin tool or bulk migration that needs subdomain renaming.
+    - **Plain English:** The "save site settings" method does two jobs: saving general settings (published status, hero title, etc.) and running a complex subdomain rename with cooldown checks, alias creation, and audit logging. These two jobs are tangled. If an admin tool later needs to rename a subdomain directly, it has to go through the full site-update method and pass a grab-bag of options. Pulling the rename into its own class means it can be called independently.
+    - **Evidence:**
+        ```php
+        // UpdateSiteAction.php — rename block inlined (~60 lines)
+        if (array_key_exists('subdomain', $data)) {
+            $incoming = strtolower($data['subdomain']);
+            $current  = strtolower((string) $site->subdomain);
+            if ($incoming === $current) {
+                unset($data['subdomain']);
+            } else {
+                $lockedChangedAt = DB::table('site.sites')
+                    ->where('id', $site->id)->lockForUpdate()->value('subdomain_changed_at');
+                // ... cooldown check, collision checks, alias creation,
+                // handle sync, alias collapse, audit logging ... all inline here
+            }
+        }
+        ```
+
+- [ ] **#FOUND-30** · P3 — `HasActionLogLifecycle` trait has no default `failed()` method; 7 moderation jobs each implement the identical failure-handling body independently
+    - **Where:** `app/Jobs/Moderation/Concerns/HasActionLogLifecycle.php` (no `failed()` method — confirmed by grep); `SuspendSiteJob`, `SuspendUserJob`, `QuarantineMediaJob`, `PurgeModerationCacheJob`, `NotifyOnCallStaffJob`, `NotifyReportedUserJob`, `NotifyReporterJob` (all implement `failed()` with identical `report() + update(['status' => 'failed', 'failed_at' => now()]) + Log::error()`)
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Add a `failed(Throwable $e): void` default to `HasActionLogLifecycle` that calls `report($e)`, updates `ActionLogEntry` status to `'failed'` with `failed_at`, and logs a standard error. Concrete jobs may call `parent::failed($e)` and add context, or rely on the default.
+    - **Technical:** The trait comment on `SuspendSiteJob` says the trait owns the lifecycle — yet the failure path is excluded. Seven jobs each have an identical `failed()` body. A change to the failure contract (adding a `failure_reason` column, emitting a Nightwatch alert) must propagate across seven files. The per-job variation (log message string, context keys) is minimal and can be parameterised via a protected `failedLogContext(): array` method.
+    - **Plain English:** Every moderation worker has the same emergency procedure: "write 'failed' on the log, record the time, report the error." Each worker has its own copy of this procedure, just with slightly different wording. Centralising the procedure in the shared toolkit means one update fixes all seven workers.
+    - **Evidence:**
+        ```php
+        // SuspendSiteJob::failed() — representative copy
+        public function failed(Throwable $e): void
+        {
+            report($e);
+            ActionLogEntry::query()->where('id', $this->actionLogId)->update([
+                'status' => 'failed',
+                'failed_at' => now(),
+            ]);
+            Log::error('Moderation enforcement job permanently failed', [
+                'job' => static::class, 'action_log_id' => $this->actionLogId,
+                'case_id' => $this->caseId, 'error' => $e->getMessage(),
+            ]);
+        }
+        // HasActionLogLifecycle.php — no failed() method (confirmed by grep: no matches)
+        ```
+
+- [ ] **#FOUND-31** · P3 — Bot-protection rules (honeypot + timing) are copy-pasted across 4 public Form Requests with existing drift (`required` vs `nullable` on `form_started_at_ms`)
+    - **Where:** `app/Http/Requests/Api/PublicSite/PublicCustomerLeadRequest.php`, `PublicEmailSubscribeRequest.php`, `PublicEnquiryRequest.php`, `PublicWaitlistSignupRequest.php`
+    - **Effort:** S (~0.5–1h)
+    - **What to do:** Extract a `WithBotProtection` trait (or a `PublicFormRequest` base class) that declares the `website` honeypot and `form_started_at_ms` timing rules plus the `prepareForValidation()` trim. New public forms get bot protection by `use WithBotProtection`. The `required` vs `nullable` drift is resolved by a single documented rule.
+    - **Technical:** Three of the four requests use `form_started_at_ms => ['required', ...]`; one uses `['nullable', ...]` with a comment "nullable until frontend sends it." This divergence is exactly the kind of drift that copy-pasted security rules accumulate. Any future change (second honeypot field, Turnstile integration, increased min-age threshold) must be applied in four files.
+    - **Plain English:** Four public-facing forms each have their own copy of the "are you a robot?" check. The copies are already drifting — one marks the timing field as required, another marks it optional. When the anti-bot rules are strengthened, someone will update three of the four forms and miss one.
+    - **Evidence:**
+        ```php
+        // PublicCustomerLeadRequest.php
+        'website'              => ['nullable', 'string', 'max:255'],     // honeypot
+        'form_started_at_ms'   => ['required', 'integer', 'min:0'],
+
+        // PublicEmailSubscribeRequest.php — diverged: nullable timing
+        'website'              => ['nullable', 'string', 'max:255'],
+        'form_started_at_ms'   => ['nullable', 'integer', 'min:0'],      // drift: nullable until frontend sends it
+
+        // PublicEnquiryRequest.php — same as CustomerLead
+        'form_started_at_ms'   => ['required', 'integer', 'min:0'],
+
+        // PublicWaitlistSignupRequest.php — matches EmailSubscribe
+        'form_started_at_ms'   => ['nullable', 'integer', 'min:0'],
+        ```
+
+---
+
+## Suggested Bundled Sessions
+
+- **Bundle 1 — Platform registry (extensibility backbone):** #FOUND-1, #FOUND-9, #FOUND-17, #FOUND-19, #FOUND-21
+    - **Why grouped:** All require a `config/partna.php` platform registry as the single registration point; FOUND-1 (lookup table) is the DB side, FOUND-9 (PlatformRefresher) and FOUND-17 (SmartLink registry) are the PHP dispatch side, FOUND-19 (Form Requests) and FOUND-21 (routes) are the HTTP layer. Build the registry once, collapse five surfaces.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 2 — Menu schema restructure:** #FOUND-7, #FOUND-24
+    - **Why grouped:** Both affect the menu subsystem's platform-extension path; FOUND-7 (MenuMerger signature) and FOUND-24 (MenuApifyScraper dispatch) must change together to avoid a broken state where the merger accepts N platforms but the scraper still dispatches to 2.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 3 — Events platform interface:** #FOUND-8
+    - **Why grouped:** Standalone because it touches both EventsCatalog and ProviderDetector and their shared protocol; do after FOUND-9's registry exists so events can register in it.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 4 — Section visibility registry:** #FOUND-10, #FOUND-14
+    - **Why grouped:** Adding a section type requires both a `SectionVisibilityContract` implementation (FOUND-10) and a matching `block_type` CHECK constraint (FOUND-14); the two must ship together or new section types can be created without a visibility handler.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 5 — Reorder / insert shared services:** #FOUND-11, #FOUND-13
+    - **Why grouped:** Same advisory-lock + sort-order pattern; extracting a `ReorderService` and `InsertWithSortOrder` helper touches the same 11 controllers and should be done in one session to avoid half-extracted logic.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 6 — Block.settings column promotions:** #FOUND-15, #FOUND-16
+    - **Why grouped:** Both require a `site.sites` / `site.blocks` migration + Eloquent model update + Form Request update; the column-promotion migration pattern is the same; review together to avoid inconsistency between the two tables.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 7 — SmartLink type registry:** #FOUND-17, #FOUND-28
+    - **Why grouped:** FOUND-17 (SmartLinkTypeRegistry) and FOUND-28 (payload builder match) share the same type namespace; the field-shape map should live alongside the extractor chain in the unified registry.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet. (Note: FOUND-17 is already listed in Bundle 1 for the platform-registry angle; if tackled in Bundle 1, carry FOUND-28 into that session.)
+
+- **Bundle 8 — Auth freshness service:** #FOUND-12
+    - **Why grouped:** Security-sensitive extraction; keep as its own session with an independent security review step.
+    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 9 — Moderation job hardening:** #FOUND-30
+    - **Why grouped:** Trait-level change touching 7 moderation jobs; bundle with any other moderation-job changes in flight.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 10 — P3 platform-config polish:** #FOUND-22, #FOUND-24, #FOUND-25, #FOUND-26, #FOUND-31
+    - **Why grouped:** Small S-effort extractors and constant consolidations; can be batched in one working session.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 11 — Design kit / SmartLink payload polish:** #FOUND-27, #FOUND-28, #FOUND-29
+    - **Why grouped:** Config-driven payload projections; one session touching `IndividualProfilePayloadBuilder` and `UpdateSiteAction`.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet.
+
+- **Bundle 12 — Observer / Form Request DRY:** #FOUND-20, #FOUND-23
+    - **Why grouped:** Trait/service extraction with cross-cutting reach; group to prevent two separate extractions creating conflicting patterns in the same trait layer.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet.
+
+---
+
+## Standalone — do NOT bundle
+
+- **#FOUND-1 — Platform CHECK constraint → lookup table** · P1 / DB migration on a live table.
+- **#FOUND-2 — Menu.menus per-platform columns → child table** · P1 / DB migration + backfill, L effort.
+- **#FOUND-3 — SiteMedia PURPOSE_COVER → convention-based** · P1 / DB migration (index changes) + model + request.
+- **#FOUND-4 — Workplace JSONB → site.workplaces table** · P1 / DB migration + backfill + 4 service/controller changes, L effort.
+- **#FOUND-5 — Credentials/experience JSON → child tables** · P1 / DB migration + backfill + visibility service rewrite, L effort.
+- **#FOUND-6 — menu_items.platforms → child table** · P2 / DB migration + backfill, must coordinate with FOUND-2 deploy window.
+- **#FOUND-12 — requiresFreshAal2 duplication** · P2 / Auth-critical security logic.
+- **#FOUND-18 — IntegrationConnection apifyStatus/placeId** · P2 / DB migration (new columns) + state-machine code change.

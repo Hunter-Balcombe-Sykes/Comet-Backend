@@ -29,15 +29,10 @@ Thumbs.db
 .DS_Store
 ._*
 
-# Audit orchestrator runtime state
-.audit-work/state.json
-.audit-work/state.json.before-*
-.audit-work/questions/
-.audit-work/blocked/
-.audit-work/logs/
-.audit-work/.run.lock
-# .audit-work/config.yml is intentionally NOT ignored (committed)
-# .audit-work/completed/ is intentionally NOT ignored (durable audit trail)
+# DeepSeek/adjudicate scan intermediates — only the final adjudicated CONSOLIDATED.md is a deliverable
+audits/.drafts/
+audits/**/.drafts/
+audits/**/.drafts/
 
 # AI tooling config — not deployable
 .junie/

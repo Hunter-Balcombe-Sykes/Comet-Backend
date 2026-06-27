@@ -45,13 +45,13 @@
 #
 # Codebase mode (whole-repo audit, per-lens scopes — usually with pre-pilot /
 # launch-readiness / scale-health / full-sweep):
-#   scripts/audit/audit.sh --codebase --bundle pre-pilot [--phase <name>]
+#   scripts/audit/audit.sh --codebase --bundle pre-pilot [--name <name>]
 #
 #   Runs every lens in the bundle against that lens's own built-in scope map
 #   (chunked to stay under the scan-recall payload ceiling), then adjudicates
 #   PER LENS with repo tools (--no-source), emitting one audit file per lens
-#   into audits/<phase>/ (default phase: codebase-<bundle>-YYYY-MM-DD).
-#   --scope / --lens / --out are not allowed with --codebase.
+#   PLUS a CONSOLIDATED.md, into audits/sweeps/<date>-<bundle>/.
+#   --scope / --lens are not allowed with --codebase.
 #
 # Parallelism:
 #   DeepSeek scans run in parallel waves (--scan-jobs N, default 4) — they are
@@ -60,24 +60,28 @@
 #   verification keeps failures isolated and the run resumable. Don't run two
 #   audit.sh invocations concurrently for the same reason.
 #
-# Phase organization (optional):
-#   Output always lands in audits/. Pass --phase <name> to organize further
-#   under audits/<name>/. Drafts (when --keep-drafts is also set) land in
-#   audits/<name>/.drafts/.
+# Output layout — ONE folder per run, always containing CONSOLIDATED.md:
+#   targeted single-topic   → audits/<category>/<date>-<name>/CONSOLIDATED.md
+#   bundle / codebase sweep → audits/sweeps/<date>-<name>/CONSOLIDATED.md
+#                             (codebase mode also writes one audit-<date>-<lens>.md per lens)
 #
-#     scripts/audit/audit.sh --lens "policy coverage" --scope app/Policies
-#     # → audits/audit-YYYY-MM-DD-policy-coverage.md
+#   --category <cat>   top-level folder for targeted runs (default: misc)
+#   --name <name>      short run name (default: slug of the lens, or the bundle name)
 #
-#     scripts/audit/audit.sh --phase phase-1-security \
-#       --lens "policy coverage" --scope app/Policies
-#     # → audits/phase-1-security/audit-YYYY-MM-DD-policy-coverage.md
+#     scripts/audit/audit.sh --category security --name frontpage \
+#       --lens "policy coverage on the frontpage" --scope app/Policies
+#     # → audits/security/YYYY-MM-DD-frontpage/CONSOLIDATED.md
+#
+# CONSOLIDATED.md always opens with a deterministic header: scope + paths,
+# a tier-count table, and the Execution policy (which Claude model plans /
+# implements / reviews). Run the fixes by saying `execute audit <that file>`
+# (runbook: scripts/audit/fix-flow.md).
 #
 # Auth:
 #   DEEPSEEK_API_KEY  loaded from scripts/audit/.env (gitignored) or shell env
 #   Claude            uses the local `claude` CLI's existing OAuth login
 #
-# Output: audit-YYYY-MM-DD-<slug>.md (or whatever --out is set to)
-# Pass --keep-drafts to keep the intermediate DeepSeek drafts.
+# Pass --keep-drafts to keep the intermediate DeepSeek drafts (in <folder>/.drafts/).
 
 set -euo pipefail
 
@@ -97,15 +101,91 @@ SCOPE_ARGS=()
 LENS_ARG=()
 FULL=false
 BUNDLE=""
-OUT=""
-PHASE=""
+CATEGORY=""        # top-level folder for targeted audits (e.g. security, caching)
+NAME=""            # short run name (e.g. frontpage, shopify-integration)
 KEEP_DRAFTS=false
 CODEBASE=false
 SCAN_JOBS=4
+OUT=""             # internal: computed path to the folder's CONSOLIDATED.md
 
 # Print the whole comment header (everything up to `set -euo`) as help text,
 # so the header can grow without the range going stale.
 usage() { awk '/^set -euo/{exit} NR>1 {sub(/^# ?/,""); print}' "$0"; }
+
+# slugify "Some Text!" -> "some-text" (used to derive a folder name from a lens)
+slugify() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+        | cut -c1-48
+}
+
+# Count finding-header checkbox lines for a given tier (P0/P1/P2/P3) in a file.
+# Matches the canonical line:  - [ ] **#ID** · P0 — title
+tier_count() {
+    grep -cE "^- \[[ x]\] \*\*#.*· $1 " "$2" 2>/dev/null || true
+}
+
+# Emit the shared Execution-policy block. Single source of truth for the model
+# assignment baked into every CONSOLIDATED.md header — mirrored in
+# scripts/audit/fix-flow.md and CLAUDE.md. Keep the three in sync.
+exec_policy_block() {
+    cat <<'EOF'
+## Execution policy  (how `execute audit` runs this file)
+
+- **Plan:**       Opus 4.8
+- **Implement:**  Sonnet 4.6
+- **Review:**     Sonnet 4.6  — a *separate, independent* instance (never the implementer)
+- **Combine plan+impl:** YES for S/XS effort · NO for P0/P1 or L/XL (those plan first, then implement)
+- **Per-item override:** escalate to Opus for gnarly logic or risky blast radius; a trivial
+  mechanical S item may drop to Haiku. Default to the table above unless an item clearly warrants a change.
+- **Trigger:** say `execute audit <path to this file>` to run plan → implement → independent review
+  per bundle/item. Blockers (P0 · auth · money · DB/migration · L/XL) pause for sign-off.
+  Full runbook: `scripts/audit/fix-flow.md`.
+EOF
+}
+
+# Build CONSOLIDATED.md: deterministic header (scope + counts + exec policy)
+# prepended to the adjudicated body. $1=final file, $2=title, $3=lens/bundle
+# text, $4=newline-separated scope paths.
+write_consolidated() {
+    local final="$1" title="$2" lens="$3" scopes="$4"
+    local body p0 p1 p2 p3 total branch
+    body="$(mktemp)"
+    cp "$final" "$body"
+    p0=$(tier_count P0 "$body"); p1=$(tier_count P1 "$body")
+    p2=$(tier_count P2 "$body"); p3=$(tier_count P3 "$body")
+    total=$((p0 + p1 + p2 + p3))
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    {
+        echo "# ${title} — CONSOLIDATED — $(date +%F)"
+        echo ""
+        echo "## Scope"
+        echo ""
+        echo "- **Lens:** ${lens}"
+        echo "- **Branch:** ${branch}"
+        echo "- **Generated by:** \`scripts/audit/audit.sh\` (DeepSeek scan + Claude adjudication)"
+        echo "- **Paths audited:**"
+        while IFS= read -r p; do [[ -n "$p" ]] && echo "    - \`${p}\`"; done <<< "$scopes"
+        echo ""
+        echo "## Findings at a glance"
+        echo ""
+        echo "| Tier | Count |"
+        echo "|------|-------|"
+        echo "| P0 — blockers | ${p0} |"
+        echo "| P1 — high     | ${p1} |"
+        echo "| P2 — medium   | ${p2} |"
+        echo "| P3 — low      | ${p3} |"
+        echo "| **Total**     | **${total}** |"
+        echo ""
+        exec_policy_block
+        echo ""
+        echo "---"
+        echo ""
+        cat "$body"
+    } > "$final"
+    rm -f "$body"
+    echo "  ✓ CONSOLIDATED — P0:${p0} P1:${p1} P2:${p2} P3:${p3} (total ${total})" >&2
+}
 
 # --- Codebase mode: per-lens scope maps -------------------------------------
 # Each line is "chunk-name|space-separated relative paths". Chunks are sized
@@ -212,6 +292,21 @@ core-services|app/Services/User app/Services/Site app/Services/PublicSite app/Se
 jobs-controllers|app/Jobs app/Http/Controllers/Api/User app/Policies app/DTOs
 EOF
         ;;
+        foundational-durability) cat <<'EOF'
+platforms-controllers|app/Http/Controllers/Api/Platforms
+platforms-services|app/Services/Platforms
+schema-migrations|supabase/migrations
+models-config|app/Models config/partna.php
+integration-cross-cutting|app/Jobs/Platforms app/Services/SmartLinks app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
+controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
+services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Auth app/Services/Cache
+services-vendor|app/Services/Media app/Services/Analytics app/Services/Moderation app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Diagnostics app/Services/Feedback app/Services/Webhooks app/Services/Audit app/Services/Email
+requests-resources|app/Http/Requests app/Http/Resources
+routing-middleware-policies|routes app/Console app/Http/Middleware app/Policies app/Observers
+jobs-providers-rest|app/Jobs/Moderation app/Jobs/Cloudflare app/Jobs/Gdpr app/Jobs/Cache app/Jobs/Account app/Jobs/Streaming app/Jobs/Analytics app/Jobs/Concerns app/Providers app/Mail app/Notifications app/Listeners app/Exceptions app/DTOs app/Support app/Enums app/Rules app/Contracts app/helpers.php
+EOF
+        ;;
         *) return 1 ;;
     esac
 }
@@ -225,8 +320,8 @@ while [[ $# -gt 0 ]]; do
         --bundle)        BUNDLE="$2"; shift 2 ;;
         --codebase)      CODEBASE=true; shift ;;
         --scan-jobs)     SCAN_JOBS="$2"; shift 2 ;;
-        --out)           OUT="$2"; shift 2 ;;
-        --phase)         PHASE="$2"; shift 2 ;;
+        --category)      CATEGORY="$2"; shift 2 ;;
+        --name)          NAME="$2"; shift 2 ;;
         --keep-drafts)   KEEP_DRAFTS=true; shift ;;
         -h|--help)       usage; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; usage >&2; exit 2 ;;
@@ -248,8 +343,6 @@ fi
 if $CODEBASE; then
     [[ -n "$BUNDLE" ]]              || { echo "--codebase requires --bundle <name> (or --full)" >&2; exit 2; }
     [[ ${#SCOPE_ARGS[@]} -eq 0 ]]   || { echo "--codebase uses built-in per-lens scopes; --scope is not allowed" >&2; exit 2; }
-    [[ -z "$OUT" ]]                 || { echo "--codebase emits one audit file per lens; --out is not allowed" >&2; exit 2; }
-    [[ -n "$PHASE" ]]               || PHASE="codebase-${BUNDLE}-$(date +%F)"
 else
     [[ ${#SCOPE_ARGS[@]} -gt 0 ]]   || { echo "--scope is required (one or more)" >&2; exit 2; }
 fi
@@ -257,12 +350,30 @@ fi
 [[ -n "${DEEPSEEK_API_KEY:-}" ]]  || { echo "DEEPSEEK_API_KEY not found (set in scripts/audit/.env or export)" >&2; exit 2; }
 command -v claude >/dev/null      || { echo "claude CLI not on PATH — install from claude.ai/code" >&2; exit 2; }
 
-# --- Output folder: always audits/, optionally with a phase subfolder ---
-BASE_DIR="audits"
-if [[ -n "$PHASE" ]]; then
-    BASE_DIR="audits/${PHASE}"
+# --- Output folder: one folder per audit run -------------------------------
+# Nested + sortable so it's easy to look back over time:
+#   targeted single-topic   → audits/<category>/<date>-<name>/
+#   bundle / codebase sweep → audits/sweeps/<date>-<name>/
+# Each folder always gets a CONSOLIDATED.md (the canonical tracked file the
+# `execute audit` flow reads). --category/--name override the derived defaults.
+RUN_DATE="$(date +%F)"
+if $FULL || $CODEBASE; then
+    RUN_NAME="${NAME:-$BUNDLE}"
+    BASE_DIR="audits/sweeps/${RUN_DATE}-${RUN_NAME}"
+else
+    RUN_CAT="${CATEGORY:-misc}"
+    if [[ -n "$NAME" ]]; then
+        RUN_NAME="$NAME"
+    elif [[ "${LENS_ARG[0]:-}" == "--lens" ]]; then
+        RUN_NAME="$(slugify "${LENS_ARG[1]}")"
+    else
+        # --lens-file path → use the lens file's basename
+        RUN_NAME="$(basename "${LENS_ARG[1]}" .md)"
+    fi
+    BASE_DIR="audits/${RUN_CAT}/${RUN_DATE}-${RUN_NAME}"
 fi
 mkdir -p "$BASE_DIR"
+echo "Audit folder: $BASE_DIR" >&2
 
 # --- Drafts location ---
 if $KEEP_DRAFTS; then
@@ -403,8 +514,18 @@ if $FULL; then
             META_PREFIXES="every audit theme the pipeline knows: SEC, LIFE, CACHE, SCALE, SCHEMA, CCH, WHK, TXN, DINT, JOB, OBS, CCG, PRIV, EDGE, CFG, MIG, API, TEST, SLOP, and SEM — the exhaustive nothing-left-unturned sweep"
             ADJ_BUDGET="12.00"
             ;;
+        foundational)
+            # Single custom lens, run through the chunked codebase path so its
+            # large app+migrations+config scope stays under the scan-recall
+            # ceiling. Scope map lives in codebase_chunks() under
+            # 'foundational-durability'. Use with --codebase.
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/foundational-durability.md"
+            )
+            META_PREFIXES="foundational durability & extensibility — shotgun surgery, denormalization debt (JSON that should be columns/tables), leaky abstraction boundaries, and breaking-migration risk (FOUND-*), biased toward the new platform-integration / menu-scraping subsystem"
+            ;;
         *)
-            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, security, launch-readiness, scale-health, full-sweep)" >&2
+            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, security, launch-readiness, scale-health, full-sweep, foundational)" >&2
             exit 2
             ;;
     esac
@@ -535,9 +656,30 @@ if $FULL; then
             fi
         done
 
+        # Build CONSOLIDATED.md: header + every per-lens file concatenated
+        # (each lens already carries its own bundling section). Cross-lens
+        # dedup happens at fix time. Mechanical = deterministic, never fails.
+        CONSOLIDATED="$BASE_DIR/CONSOLIDATED.md"
+        MERGED="$(mktemp)"
+        for f in ${WRITTEN[@]+"${WRITTEN[@]}"}; do
+            {
+                echo ""
+                echo "<!-- ═══════════ $(basename "$f") ═══════════ -->"
+                echo ""
+                cat "$f"
+                echo ""
+            } >> "$MERGED"
+        done
+        cp "$MERGED" "$CONSOLIDATED"; rm -f "$MERGED"
+        write_consolidated "$CONSOLIDATED" \
+            "${BUNDLE} codebase sweep" \
+            "bundle '${BUNDLE}' — whole-repo sweep across ${LENS_COUNT} lenses" \
+            "$(printf '%s\n' "${WRITTEN[@]##*/}")"
+
         echo "" >&2
         echo "════════ Codebase audit complete ════════" >&2
         for f in ${WRITTEN[@]+"${WRITTEN[@]}"}; do echo "  ✓ $f" >&2; done
+        echo "  ✓ $CONSOLIDATED" >&2
         if [[ ${#FAILED_LENSES[@]} -gt 0 ]]; then
             echo "  Incomplete lenses (re-run individually with --bundle/--lens):" >&2
             for fl in "${FAILED_LENSES[@]}"; do echo "    ✗ $fl" >&2; done
@@ -601,19 +743,29 @@ if $FULL; then
     # Meta-lens describing the bundle for the adjudicator
     META_LENS="Bundle '$BUNDLE' audit across $LENS_COUNT focused themes: ${META_PREFIXES}. Drafts below are concatenated from $LENS_COUNT lens-focused scans, each prefixed with a <!-- LENS: name --> marker. Dedupe across lenses where the same finding appears under multiple prefixes."
     LENS_PASS_ARGS=(--lens "$META_LENS")
-
-    # Default output name for bundle mode (apply phase prefix if set)
-    if [[ -z "$OUT" ]]; then
-        OUT="audit-$(date +%F)-${BUNDLE}.md"
-        [[ -n "$BASE_DIR" ]] && OUT="${BASE_DIR}/${OUT}"
-    fi
+    OUT="${BASE_DIR}/CONSOLIDATED.md"
+    HEADER_TITLE="${BUNDLE} bundle audit"
+    HEADER_LENS="bundle '${BUNDLE}' — ${META_PREFIXES}"
 else
     # --- Targeted mode — single scan ---
     echo "" >&2
     echo "════════ Step 1/2: DeepSeek scan ════════" >&2
     "$SCRIPT_DIR/audit-scan.sh" "${LENS_ARG[@]}" "${SCOPE_ARGS[@]}" --out "$DRAFTS"
     LENS_PASS_ARGS=("${LENS_ARG[@]}")
+    OUT="${BASE_DIR}/CONSOLIDATED.md"
+    HEADER_TITLE="${RUN_NAME} audit"
+    if [[ "${LENS_ARG[0]}" == "--lens" ]]; then
+        HEADER_LENS="${LENS_ARG[1]}"
+    else
+        HEADER_LENS="lens-file: $(basename "${LENS_ARG[1]}" .md)"
+    fi
 fi
+
+# Newline-separated scope paths for the header (strip the --scope tokens).
+SCOPE_LIST=""
+for tok in "${SCOPE_ARGS[@]}"; do
+    [[ "$tok" == "--scope" ]] || SCOPE_LIST+="${tok}"$'\n'
+done
 
 # --- Adjudicate ---
 echo "" >&2
@@ -623,21 +775,17 @@ else
     echo "════════ Step 2/2: Claude adjudication ════════" >&2
 fi
 
-OUT_FLAG=()
-[[ -n "$OUT" ]] && OUT_FLAG=(--out "$OUT")
-
-# Pass --out-dir so the adjudicator's auto-derived filename (targeted mode w/o --out)
-# lands inside the phase folder. Adjudicator ignores --out-dir when --out is given.
-ADJ_OUT_DIR=()
-[[ -n "$BASE_DIR" ]] && ADJ_OUT_DIR=(--out-dir "$BASE_DIR")
-
+# The adjudicator writes its full audit doc straight to the folder's
+# CONSOLIDATED.md; write_consolidated then prepends the deterministic
+# scope/counts/exec-policy header in place.
 "$SCRIPT_DIR/audit-adjudicate.sh" \
     --drafts "$DRAFTS" \
     --max-budget "$ADJ_BUDGET" \
-    ${ADJ_OUT_DIR[@]+"${ADJ_OUT_DIR[@]}"} \
     "${LENS_PASS_ARGS[@]}" \
     "${SCOPE_ARGS[@]}" \
-    ${OUT_FLAG[@]+"${OUT_FLAG[@]}"}
+    --out "$OUT"
+
+write_consolidated "$OUT" "$HEADER_TITLE" "$HEADER_LENS" "$SCOPE_LIST"
 
 if $KEEP_DRAFTS; then
     echo "" >&2

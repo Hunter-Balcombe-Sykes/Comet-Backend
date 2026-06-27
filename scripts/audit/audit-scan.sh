@@ -151,8 +151,8 @@ echo "→ Firing $MODEL (thinking: max) — payload ${PAYLOAD_BYTES} bytes (~$((
 # Soft guard: oversized scopes degrade scan recall (truncated attention) before they hard-fail.
 if (( PAYLOAD_BYTES > 400000 )); then
     echo "WARNING: payload exceeds ~100K tokens — scan recall degrades on oversized scopes." >&2
-    echo "         Consider splitting --scope into per-domain groups (see the lens's scope groups)" >&2
-    echo "         or using audit-pilot-splitscan.sh for byte-balanced chunks." >&2
+    echo "         Split --scope into per-domain groups (see the lens's scope groups), or use" >&2
+    echo "         --codebase mode, which chunks each lens's scope map automatically." >&2
 fi
 
 # --- Fire ---
