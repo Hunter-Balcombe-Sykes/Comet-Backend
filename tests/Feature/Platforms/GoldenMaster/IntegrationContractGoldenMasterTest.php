@@ -89,10 +89,12 @@ it('freezes the youtube accounts list contract', function () {
     expect($accounts[0]['handle'])->toBe('mychannel');
 });
 
-// ── Step 2: Shop /brands and Instagram /connect/status ───────────────────────
+// ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.
 // _leak in the stored map must not appear.
+// Note: instagram /connect/status _folder-drop is covered by PlatformResourceContractTest
+// ('instagram connectStatus ready payload drops _folder') — not duplicated here.
 
 it('freezes the shop brands list contract', function () {
     $user = gmUser('gmshop');
@@ -108,22 +110,6 @@ it('freezes the shop brands list contract', function () {
             'currency' => 'AUD', 'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
             'individual' => false, 'products' => [],
         ]]]);
-});
-
-// InstagramConnectionResource omits _folder from the stored payload so the
-// private upload path never leaks to the dashboard or public sitepage.
-it('freezes instagram connect/status ready contract drops _folder', function () {
-    $user = gmUser('gmig');
-    gmSeed($user, 'instagram', [
-        'username' => 'jane', 'fullName' => 'Jane', 'profilePicUrl' => null,
-        'businessCategory' => null, 'followersCount' => 0, 'postsCount' => 0,
-        'mode' => 'automatic', 'images' => [], 'imagesDropped' => 0,
-        '_folder' => 'platforms/instagram/123',
-    ]);
-
-    $body = actingAsUser($user)->getJson('/api/platforms/instagram/connect/status')->assertOk()->json();
-    expect($body['status'])->toBe('ready');
-    expect($body['connection'])->not->toHaveKey('_folder');
 });
 
 // ── Step 3: Category /status endpoints — empty-state shapes ──────────────────
@@ -193,7 +179,7 @@ it('covers every integration GET read-route in the golden master', function () {
         ->map(fn ($r) => $r->uri())
         ->unique()->values();
 
-    // Document the read surface this net guards. If this count changes, a route
-    // was added/removed — extend the net before changing this number.
-    expect($readRoutes->count())->toBeGreaterThan(0);
+    // This net guards 52 integration read routes. If this count changes, a route
+    // was added/removed — extend the net before updating 52.
+    expect($readRoutes->count())->toBe(52);
 })->note('Net-completeness guard: update when integration read routes change.');
