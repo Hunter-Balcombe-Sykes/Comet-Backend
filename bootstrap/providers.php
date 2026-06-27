@@ -10,4 +10,5 @@ return [
     DatabaseServiceProvider::class,
     EventServiceProvider::class,
     BotProtectionServiceProvider::class,
+    App\Providers\PlatformRegistryServiceProvider::class,
 ];
