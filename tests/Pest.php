@@ -3,6 +3,7 @@
 use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
 use App\Http\Middleware\Context\LoadCurrentUser;
+use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
@@ -68,6 +69,7 @@ expect()->extend('toBeOne', function () {
 */
 
 require_once __DIR__.'/Helpers/EnquiryInboxTestHelpers.php';
+require_once __DIR__.'/Feature/Platforms/GoldenMaster/golden_master_helpers.php';
 
 function something()
 {
@@ -1813,22 +1815,22 @@ function setupDataExportAuditTable(): void
  *
  * @param  array<string, mixed>  $overrides
  */
-function createDataExportAudit(array $overrides = []): \App\Models\Core\Gdpr\DataExportAudit
+function createDataExportAudit(array $overrides = []): DataExportAudit
 {
     setupDataExportAuditTable();
 
-    $id = (string) \Illuminate\Support\Str::uuid();
+    $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
     $row = array_merge([
-        'id'         => $id,
-        'status'     => \App\Models\Core\Gdpr\DataExportAudit::STATUS_COMPLETED,
+        'id' => $id,
+        'status' => DataExportAudit::STATUS_COMPLETED,
         'created_at' => $now,
     ], $overrides);
 
     DB::connection('pgsql')->table('audit.data_export_audit')->insert($row);
 
-    return \App\Models\Core\Gdpr\DataExportAudit::query()->findOrFail($id);
+    return DataExportAudit::query()->findOrFail($id);
 }
 
 /**
