@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
@@ -231,4 +233,49 @@ it('TwitchFetch throws FetchUnavailableException when channel is null (refresher
 
     $strategyRow = gmSeed(gmUser('gmtw6'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer']);
     expect(fn () => (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('PinterestFetch produces the same success payload as the refresher (latest/items fall back to stored when pins are empty)', function () {
+    $pins = [
+        ['itemId' => 'p1', 'thumbnail' => 'https://i.pinimg.com/564x/p1.jpg', 'link' => 'https://www.pinterest.com/pin/1/', 'name' => 'Pin One', 'date' => '2026-03-03T00:00:00+00:00'],
+        ['itemId' => 'p2', 'thumbnail' => 'https://i.pinimg.com/564x/p2.jpg', 'link' => 'https://www.pinterest.com/pin/2/', 'name' => 'Pin Two', 'date' => '2026-01-01T00:00:00+00:00'],
+    ];
+    $this->mock(PinterestScraper::class, function ($m) use ($pins) {
+        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Pinner', 'image' => 'https://i.pinimg.com/avatars/p.jpg', 'followers' => 500]);
+        $m->shouldReceive('fetchPins')->andReturn($pins);
+    });
+
+    $stored = ['url' => 'https://www.pinterest.com/pinner/', 'username' => 'pinner', 'name' => 'Old Name'];
+
+    $refresherRow = gmSeed(gmUser('gmpi1'), 'pinterest', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmpi2'), 'pinterest', $stored);
+    $result = (new PinterestFetch(app(PinterestScraper::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['latest'])->toBe($pins[0]);
+    expect($result['items'])->toBe($pins);
+});
+
+it('PinterestFetch throws FetchShapeException when username is missing (refresher status=error)', function () {
+    $row = gmSeed(gmUser('gmpi3'), 'pinterest', ['name' => 'no username']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+
+    $strategyRow = gmSeed(gmUser('gmpi4'), 'pinterest', ['name' => 'no username']);
+    expect(fn () => (new PinterestFetch(app(PinterestScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('PinterestFetch throws FetchUnavailableException when profile is null (refresher status=unavailable)', function () {
+    $this->mock(PinterestScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->andReturn(null);
+    });
+
+    $row = gmSeed(gmUser('gmpi5'), 'pinterest', ['username' => 'pinner']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmpi6'), 'pinterest', ['username' => 'pinner']);
+    expect(fn () => (new PinterestFetch(app(PinterestScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });

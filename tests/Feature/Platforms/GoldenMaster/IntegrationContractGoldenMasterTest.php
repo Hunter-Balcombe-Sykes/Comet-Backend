@@ -223,6 +223,37 @@ it('freezes the twitch accounts list contract', function () {
     expect($accounts[0]['login'])->toBe('streamer');
 });
 
+// Pinterest is a single-account feed platform (no /accounts). After the Task 7
+// migration to $migratedReads (multi=false), selection is served by
+// GenericPlatformController via FeedPayload → PinterestConnectionResource.
+it('freezes the pinterest selection contract', function () {
+    $user = gmUser('gmpisel');
+    $pin = ['itemId' => 'p1', 'thumbnail' => 'https://i.pinimg.com/564x/p1.jpg', 'link' => 'https://www.pinterest.com/pin/1/', 'name' => 'Pin One', 'date' => '2026-03-03T00:00:00+00:00'];
+    gmSeed($user, 'pinterest', [
+        'url' => 'https://www.pinterest.com/pinner/',
+        'username' => 'pinner',
+        'name' => 'Pinner',
+        'image' => 'https://i.pinimg.com/avatars/p.jpg',
+        'followers' => 500,
+        'latest' => $pin,
+        'items' => [$pin],
+        '_leak' => 'must-not-appear',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/pinterest/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'url' => 'https://www.pinterest.com/pinner/',
+        'username' => 'pinner',
+        'name' => 'Pinner',
+        'image' => 'https://i.pinimg.com/avatars/p.jpg',
+        'followers' => 500,
+        'latest' => $pin,
+        'items' => [$pin],
+    ]);
+    expect($sel)->not->toHaveKey('_leak');
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.

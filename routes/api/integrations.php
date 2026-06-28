@@ -265,7 +265,6 @@ $registerIntegrationRoutes = function (string $base): void {
     // one stored selection per user, no picker step. Probe-verified keyless
     // platforms only (see the integrations v3 migration header).
     $singleSelection = [
-        'pinterest' => PinterestController::class,
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
@@ -305,6 +304,9 @@ $registerIntegrationRoutes = function (string $base): void {
         'soundcloud' => ['controller' => SoundcloudController::class, 'multi' => true],
         'deezer' => ['controller' => DeezerController::class, 'multi' => true],
         'twitch' => ['controller' => TwitchController::class, 'multi' => true],
+        // Pinterest is single-account (no /accounts). multi=false keeps the net
+        // route count at 52 — it registers only /connect + /selection + DELETE /.
+        'pinterest' => ['controller' => PinterestController::class, 'multi' => false],
     ];
     foreach ($migratedReads as $slug => $cfg) {
         Route::prefix("{$base}/{$slug}")

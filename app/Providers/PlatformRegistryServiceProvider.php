@@ -34,6 +34,7 @@ use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Payloads\FeedPayload;
+use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -41,6 +42,7 @@ use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
+use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
@@ -131,7 +133,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('twitch')->fetch(new TwitchFetch(
                 $this->app->make(TwitchScraper::class),
             ));
-            $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable());
+            $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable()
+                ->payload(FeedPayload::class));
+            // Attach feed fetch strategy (Plan 3b / Task 7). Consumed by Plan 6's registry-driven refresher.
+            $r->get('pinterest')->fetch(new PinterestFetch(
+                $this->app->make(PinterestScraper::class),
+            ));
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
