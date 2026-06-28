@@ -54,18 +54,35 @@ dataset('oembed', [
 
 it('freezes oembed selection contract', function (string $platform, array $stored) {
     $user = gmUser("gm{$platform}");
-    // Seed _leak alongside stored payload — MusicEmbedConnectionResource must strip it.
     gmSeed($user, $platform, [...$stored, '_leak' => 'must-not-appear']);
 
     $selection = actingAsUser($user)->getJson("/api/platforms/{$platform}/selection")
         ->assertOk()
         ->json('selection');
 
-    // Snapshot: _leak is gone and the five canonical keys round-trip exactly.
-    expect($selection)->not->toHaveKey('_leak');
-    expect($selection['url'])->toBe($stored['url']);
-    expect($selection['embedUrl'])->toBe($stored['embedUrl']);
+    // EmbedPayload → MusicEmbedConnectionResource emits exactly these 5 keys, _leak stripped.
+    expect($selection)->toEqual([
+        'url' => $stored['url'], 'name' => $stored['name'], 'thumbnail' => $stored['thumbnail'],
+        'embedUrl' => $stored['embedUrl'], 'link' => $stored['link'],
+    ]);
 })->with('oembed');
+
+it('freezes the spotify accounts list contract', function () {
+    $user = gmUser('gmspacc');
+    gmSeed($user, 'spotify', [
+        'url' => 'https://open.spotify.com/artist/abc', 'name' => 'Artist', 'thumbnail' => 'https://i.scdn.co/t.jpg',
+        'embedUrl' => 'https://open.spotify.com/embed/artist/abc', 'link' => 'https://open.spotify.com/artist/abc',
+        '_leak' => 'x',
+    ], 'acct-'.substr(sha1('https://open.spotify.com/artist/abc'), 0, 16));
+
+    $accounts = actingAsUser($user)->getJson('/api/platforms/spotify/accounts')->assertOk()->json('accounts');
+
+    expect($accounts)->toHaveCount(1);
+    expect($accounts[0])->not->toHaveKey('_leak');
+    expect($accounts[0]['id'])->toBe('acct-'.substr(sha1('https://open.spotify.com/artist/abc'), 0, 16));
+    expect($accounts[0]['url'])->toBe('https://open.spotify.com/artist/abc');
+    expect($accounts[0]['embedUrl'])->toBe('https://open.spotify.com/embed/artist/abc');
+});
 
 // ── Step 1: Multi-account /accounts lists ────────────────────────────────────
 // YouTube (and the other watch/listen/events platforms) expose GET /accounts
