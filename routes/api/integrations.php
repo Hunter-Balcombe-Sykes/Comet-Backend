@@ -142,10 +142,11 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [BandcampController::class, 'connect']);
             Route::get('/recent', [BandcampController::class, 'recent']);
             Route::post('/highlights', [BandcampController::class, 'highlights']);
-            Route::get('/accounts', [BandcampController::class, 'accounts']);
-            Route::delete('/accounts/{id}', [BandcampController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/selection', [BandcampController::class, 'selection']);
-            Route::delete('/', [BandcampController::class, 'forget']);
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'bandcamp');
+            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'bandcamp');
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'bandcamp');
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'bandcamp');
         });
 
     // Vimeo — YouTube-style: connect + recent-uploads picker + curated highlights.

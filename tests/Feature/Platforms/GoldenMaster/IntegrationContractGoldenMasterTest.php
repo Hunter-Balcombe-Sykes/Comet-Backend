@@ -139,6 +139,34 @@ it('freezes the youtube-music selection contract', function () {
     expect($sel)->not->toHaveKey('channelId'); // internal — never emitted
 });
 
+it('freezes the bandcamp selection contract', function () {
+    $user = gmUser('gmbcsel');
+    gmSeed($user, 'bandcamp', [
+        'url' => 'https://artist.bandcamp.com',
+        'artist' => 'Artist',
+        'name' => 'Album Name',
+        'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
+        'link' => 'https://artist.bandcamp.com/album/test',
+        'latest' => ['name' => 'Album Name', 'thumbnail' => 'https://f4.bcbits.com/img/t.jpg', 'link' => 'https://artist.bandcamp.com/album/test'],
+        'highlights' => [],
+        '_leak' => 'must-not-appear',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/bandcamp/selection')->assertOk()->json('selection');
+
+    // BandcampConnectionResource emits exactly these 7 keys; _leak must be stripped.
+    expect($sel)->toEqual([
+        'url' => 'https://artist.bandcamp.com',
+        'artist' => 'Artist',
+        'name' => 'Album Name',
+        'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
+        'link' => 'https://artist.bandcamp.com/album/test',
+        'latest' => ['name' => 'Album Name', 'thumbnail' => 'https://f4.bcbits.com/img/t.jpg', 'link' => 'https://artist.bandcamp.com/album/test'],
+        'highlights' => [],
+    ]);
+    expect($sel)->not->toHaveKey('_leak');
+});
+
 it('freezes the vimeo selection contract', function () {
     $user = gmUser('gmvimsel');
     gmSeed($user, 'vimeo', [

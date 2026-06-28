@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
+use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\PlatformRefresher;
+use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
@@ -140,4 +142,50 @@ it('VimeoFetch throws FetchUnavailableException when no videos', function () {
     expect($row->fresh()->last_refresh_status)->toBe('unavailable');
     expect(fn () => (new VimeoFetch(app(VimeoApi::class)))->fetch(gmSeed(gmUser('gmvi6'), 'vimeo', ['apiPath' => 'pat'])))
         ->toThrow(FetchUnavailableException::class);
+});
+
+it('BandcampFetch produces the same success payload as the refresher (preserves url + highlights)', function () {
+    $profile = ['name' => 'X', 'items' => [['name' => 'Album', 'thumbnail' => 't', 'link' => 'l']], 'thumbnail' => 'pt'];
+    // enrichPrices echoes its argument — the strategy calls enrichPrices([$items[0]]) and reads [0],
+    // so the mock receives a single-element array and returns it unchanged.
+    $this->mock(BandcampScraper::class, function ($m) use ($profile) {
+        $m->shouldReceive('fetchProfile')->andReturn($profile);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
+    });
+
+    $stored = ['url' => 'https://artist.bandcamp.com', 'highlights' => [['itemId' => 'h1']]];
+
+    $refresherRow = gmSeed(gmUser('gmbc1'), 'bandcamp', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmbc2'), 'bandcamp', $stored);
+    $result = (new BandcampFetch(app(BandcampScraper::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['artist'])->toBe('X');
+    expect($result['name'])->toBe('Album');
+    expect($result['thumbnail'])->toBe('t');
+    expect($result['highlights'])->toBe([['itemId' => 'h1']]); // curated highlights preserved
+});
+
+it('BandcampFetch throws FetchShapeException when url is missing (refresher status=error)', function () {
+    $row = gmSeed(gmUser('gmbc3'), 'bandcamp', ['name' => 'no url']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+
+    $strategyRow = gmSeed(gmUser('gmbc4'), 'bandcamp', ['name' => 'no url']);
+    expect(fn () => (new BandcampFetch(app(BandcampScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('BandcampFetch throws FetchUnavailableException when profile is null (refresher status=unavailable)', function () {
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->andReturn(null);
+    });
+
+    $row = gmSeed(gmUser('gmbc5'), 'bandcamp', ['url' => 'https://artist.bandcamp.com']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmbc6'), 'bandcamp', ['url' => 'https://artist.bandcamp.com']);
+    expect(fn () => (new BandcampFetch(app(BandcampScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
