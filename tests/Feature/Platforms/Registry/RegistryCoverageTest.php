@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 
 it('registers exactly the platforms the app accepts today', function () {
     $registry = app(PlatformRegistry::class);
@@ -32,4 +33,13 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     sort($expected);
 
     expect($refreshable)->toBe($expected);
+});
+
+it('attaches an OEmbedFetch strategy to the spotify and soundcloud descriptors', function () {
+    $registry = app(PlatformRegistry::class);
+
+    expect($registry->get('spotify')->fetchStrategy())
+        ->toBeInstanceOf(OEmbedFetch::class);
+    expect($registry->get('soundcloud')->fetchStrategy())
+        ->toBeInstanceOf(OEmbedFetch::class);
 });

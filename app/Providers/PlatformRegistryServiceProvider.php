@@ -30,10 +30,12 @@ use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
+use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use Illuminate\Support\ServiceProvider;
 
 // Binds the PlatformRegistry singleton and registers every platform the app
@@ -77,6 +79,17 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // mixcloud + tidal are keyless embeds sharing the music-embed resource.
             $r->register(PD::oEmbed('mixcloud', 'Mixcloud', MusicEmbedConnectionResource::class)->refreshable(false));
             $r->register(PD::oEmbed('tidal', 'Tidal', MusicEmbedConnectionResource::class)->refreshable(false));
+
+            // Attach the live fetch strategies (Plan 3a). Consumed by Plan 6's
+            // registry-driven refresher; built eagerly here like the link-only
+            // UrlConnect strategies above.
+            $oembed = $this->app->make(OEmbedService::class);
+            $r->get('spotify')->fetch(new OEmbedFetch(
+                $oembed, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify',
+            ));
+            $r->get('soundcloud')->fetch(new OEmbedFetch(
+                $oembed, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
+            ));
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
             $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable());
