@@ -24,6 +24,7 @@ use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
+use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
@@ -35,6 +36,7 @@ use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use Illuminate\Support\ServiceProvider;
 
@@ -89,6 +91,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             ));
             $r->get('soundcloud')->fetch(new OEmbedFetch(
                 $oembed, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
+            ));
+            $r->get('deezer')->fetch(new DeezerFetch(
+                $this->app->make(DeezerApi::class),
             ));
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──

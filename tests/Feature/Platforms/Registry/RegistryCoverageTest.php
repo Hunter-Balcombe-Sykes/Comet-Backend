@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 
 it('registers exactly the platforms the app accepts today', function () {
@@ -42,4 +43,11 @@ it('attaches an OEmbedFetch strategy to the spotify and soundcloud descriptors',
         ->toBeInstanceOf(OEmbedFetch::class);
     expect($registry->get('soundcloud')->fetchStrategy())
         ->toBeInstanceOf(OEmbedFetch::class);
+});
+
+it('attaches a DeezerFetch strategy to the deezer descriptor', function () {
+    $registry = app(PlatformRegistry::class);
+
+    expect($registry->get('deezer')->fetchStrategy())
+        ->toBeInstanceOf(DeezerFetch::class);
 });
