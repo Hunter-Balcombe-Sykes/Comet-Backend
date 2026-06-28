@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
+use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
@@ -50,4 +52,24 @@ it('attaches a DeezerFetch strategy to the deezer descriptor', function () {
 
     expect($registry->get('deezer')->fetchStrategy())
         ->toBeInstanceOf(DeezerFetch::class);
+});
+
+it('assigns the dormant mixcloud/tidal embeds EmbedPayload with no fetch strategy', function () {
+    $registry = app(PlatformRegistry::class);
+
+    foreach (['mixcloud', 'tidal'] as $key) {
+        $d = $registry->get($key);
+        expect($d)->not->toBeNull();
+        expect($d->payloadClass())->toBe(EmbedPayload::class);
+        expect($d->resourceClass())->toBe(MusicEmbedConnectionResource::class);
+        expect($d->isRefreshable())->toBeFalse();
+        expect($d->fetchStrategy())->toBeNull(); // dormant — no upstream fetch, no routes
+    }
+});
+
+it('does not register routes for the dormant mixcloud/tidal embeds', function () {
+    $uris = collect(app('router')->getRoutes())->map(fn ($r) => $r->uri());
+
+    expect($uris->contains(fn ($u) => str_contains($u, 'platforms/mixcloud')))->toBeFalse();
+    expect($uris->contains(fn ($u) => str_contains($u, 'platforms/tidal')))->toBeFalse();
 });
