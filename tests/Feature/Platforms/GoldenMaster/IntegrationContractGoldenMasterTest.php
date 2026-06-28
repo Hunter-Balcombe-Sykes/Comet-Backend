@@ -106,6 +106,21 @@ it('freezes the youtube accounts list contract', function () {
     expect($accounts[0]['handle'])->toBe('mychannel');
 });
 
+it('freezes the youtube selection contract', function () {
+    $user = gmUser('gmytsel');
+    gmSeed($user, 'youtube', [
+        'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
+        'latest' => ['videoId' => 'v1'], 'highlights' => [], '_leak' => 'x',
+    ]);
+
+    $selection = actingAsUser($user)->getJson('/api/platforms/youtube/selection')->assertOk()->json('selection');
+
+    expect($selection)->toEqual([
+        'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
+        'latest' => ['videoId' => 'v1'], 'highlights' => [],
+    ]);
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.

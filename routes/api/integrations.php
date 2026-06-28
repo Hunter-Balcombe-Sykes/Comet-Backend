@@ -108,10 +108,11 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [YoutubeController::class, 'connect']);
             Route::get('/recent', [YoutubeController::class, 'recent']);
             Route::post('/highlights', [YoutubeController::class, 'highlights']);
-            Route::get('/accounts', [YoutubeController::class, 'accounts']);
-            Route::delete('/accounts/{id}', [YoutubeController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/selection', [YoutubeController::class, 'selection']);
-            Route::delete('/', [YoutubeController::class, 'forget']);
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube');
+            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'youtube');
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'youtube');
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'youtube');
         });
 
     Route::prefix("{$base}/apple")

@@ -32,12 +32,15 @@ use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
+use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
+use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\ServiceProvider;
 
 // Binds the PlatformRegistry singleton and registers every platform the app
@@ -97,7 +100,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             ));
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
-            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable());
+            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()
+                ->payload(FeedPayload::class));
+            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
+            $r->get('youtube')->fetch(new YoutubeFetch(
+                $this->app->make(YoutubeScraper::class),
+            ));
             $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable());
             $r->register(PD::make('vimeo')->label('Vimeo')->category(Cat::Content)->resource(VimeoConnectionResource::class)->refreshable());
             $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable());
