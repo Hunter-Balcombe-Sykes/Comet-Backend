@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
@@ -10,6 +11,7 @@ use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
@@ -363,4 +365,51 @@ it('ApplePodcastFetch throws FetchUnavailableException when no episodes (refresh
 
     $strategyRow = gmSeed(gmUser('gmap6'), 'apple-podcast', ['input' => 'Huberman Lab']);
     expect(fn () => (new ApplePodcastFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('GoogleBusinessFetch produces the same success payload as the refresher (stale detailsFetchedAt → re-fetches)', function () {
+    $details = ['rating' => 4.5, 'reviewCount' => 10];
+    $this->mock(GoogleBusinessService::class, fn ($m) => $m->shouldReceive('fetchPlaceDetails')->with('p1')->andReturn($details));
+
+    // detailsFetchedAt is 8 days old — past the 6-day freshness window, so both paths re-fetch.
+    $stored = ['placeId' => 'p1', 'name' => 'The Cafe', 'detailsFetchedAt' => now()->subDays(8)->toIso8601String()];
+
+    $refresherRow = gmSeed(gmUser('gmgb1'), 'google-business', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmgb2'), 'google-business', $stored);
+    $result = (new GoogleBusinessFetch(app(GoogleBusinessService::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['rating'])->toBe(4.5);
+    expect($result['reviewCount'])->toBe(10);
+});
+
+it('GoogleBusinessFetch short-circuits without an API call when detailsFetchedAt is fresh (refresher status=ok + payload unchanged)', function () {
+    // shouldNotReceive verifies neither the refresher nor the strategy calls the API when fresh.
+    $this->mock(GoogleBusinessService::class, fn ($m) => $m->shouldNotReceive('fetchPlaceDetails'));
+
+    // detailsFetchedAt is 1 day old — within the 6-day freshness window.
+    $stored = ['placeId' => 'p1', 'name' => 'The Cafe', 'detailsFetchedAt' => now()->subDay()->toIso8601String()];
+
+    $refresherRow = gmSeed(gmUser('gmgb3'), 'google-business', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+    // Refresher records ok + persists the payload unchanged (no API call fired).
+    expect($refresherRow->fresh()->last_refresh_status)->toBe('ok');
+    expect($refresherRow->fresh()->payload)->toEqual($stored);
+
+    $strategyRow = gmSeed(gmUser('gmgb4'), 'google-business', $stored);
+    $result = (new GoogleBusinessFetch(app(GoogleBusinessService::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+});
+
+it('GoogleBusinessFetch throws FetchUnavailableException when placeId is missing (refresher status=unavailable)', function () {
+    // Legacy link-paste rows legitimately have no placeId — transient/unavailable, not a shape error.
+    $row = gmSeed(gmUser('gmgb5'), 'google-business', ['url' => 'https://g.co/maps/abc', 'name' => 'No Place ID']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmgb6'), 'google-business', ['url' => 'https://g.co/maps/abc', 'name' => 'No Place ID']);
+    expect(fn () => (new GoogleBusinessFetch(app(GoogleBusinessService::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });

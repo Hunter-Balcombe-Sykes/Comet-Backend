@@ -27,6 +27,7 @@ use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\DeezerApi;
+use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
@@ -44,6 +45,7 @@ use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
+use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
@@ -161,6 +163,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $this->app->make(AppleSearch::class),
             ));
             $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable());
+            // Attach fetch strategy only (Plan 3b / Task 9). No ->payload(FeedPayload::class) —
+            // google-business emits a variable key set; payload DTO + read-path migration are Plan 5.
+            $r->get('google-business')->fetch(new GoogleBusinessFetch(
+                $this->app->make(GoogleBusinessService::class),
+            ));
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
