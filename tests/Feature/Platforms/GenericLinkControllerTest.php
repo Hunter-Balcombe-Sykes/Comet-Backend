@@ -127,3 +127,17 @@ it('facebook connect returns the exact 422 message on a handleless link', functi
         ->assertStatus(422)
         ->assertJsonPath('message', 'Enter your Facebook username or profile URL.');
 });
+
+it('forget clears the link connection and selection returns null (behaviour-equivalent under the generalized read path)', function () {
+    $user = genericLinkUser('gldforget');
+
+    actingAsUser($user)->postJson('/api/platforms/tiktok/connect', ['username' => '@dancer'])->assertOk();
+    actingAsUser($user)->getJson('/api/platforms/tiktok/selection')->assertOk()
+        ->assertJsonPath('selection.username', 'dancer');
+
+    actingAsUser($user)->deleteJson('/api/platforms/tiktok')->assertOk()
+        ->assertExactJson(['selection' => null]);
+
+    actingAsUser($user)->getJson('/api/platforms/tiktok/selection')->assertOk()
+        ->assertExactJson(['selection' => null]);
+});

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSocialLinkRequest;
+use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -69,26 +70,50 @@ class GenericPlatformController extends ApiController
         return $this->success((new $resourceClass($payload))->resolve());
     }
 
-    // GET /api/platforms/{platform}/selection — the saved link (or null).
+    // GET /api/platforms/{platform}/selection — the first connected account's
+    // selection (or null), hydrated through the descriptor's typed payload DTO.
+    // accountRows()->first() matches SingleSelectionPlatformController exactly for
+    // both single- and multi-account platforms (the single row is stored under
+    // resource_id = <slug>, which accountRows() includes).
     public function selection(Request $request): JsonResponse
     {
         $descriptor = $this->descriptor();
-        $payload = $this->readConnection($this->currentUser($request));
+        $payload = $this->accountRows($this->currentUser($request))->first()?->payload;
 
         if ($payload === null) {
             return $this->success(['selection' => null]);
         }
 
-        $resourceClass = $descriptor->resourceClass();
-        $selection = (new $resourceClass(LinkPayload::fromArray($payload)->toArray()))->resolve();
-
-        return $this->success(['selection' => $selection]);
+        return $this->success(['selection' => $this->shape($descriptor, $payload)]);
     }
 
-    // DELETE /api/platforms/{platform} — clear the connection.
+    // GET /api/platforms/{platform}/accounts — every connected account, ordered,
+    // each with its public resource_id as `id`.
+    public function accounts(Request $request): JsonResponse
+    {
+        $descriptor = $this->descriptor();
+
+        return $this->success(['accounts' => $this->accountsList($descriptor, $this->currentUser($request))]);
+    }
+
+    // DELETE /api/platforms/{platform}/accounts/{id} — remove one account.
+    public function removeAccount(Request $request, string $id): JsonResponse
+    {
+        $descriptor = $this->descriptor();
+        $user = $this->currentUser($request);
+
+        if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
+            return $this->error('Account not found.', 404);
+        }
+        $this->forgetConnection($user, $id);
+
+        return $this->success(['accounts' => $this->accountsList($descriptor, $user)]);
+    }
+
+    // DELETE /api/platforms/{platform} — clear every connection for the platform.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetConnection($this->currentUser($request));
+        $this->forgetAllConnections($this->currentUser($request));
 
         return $this->success(['selection' => null]);
     }
@@ -100,5 +125,22 @@ class GenericPlatformController extends ApiController
         abort_if($descriptor === null, 404);
 
         return $descriptor;
+    }
+
+    // Hydrate a stored payload through the descriptor's typed DTO, then serialize
+    // through its (frozen) resource. The DTO is the single tolerant-hydration home;
+    // the resource allowlists its own key subset, so any extra DTO key is dropped.
+    private function shape(PlatformDescriptor $descriptor, array $payload): array
+    {
+        $payloadClass = $descriptor->payloadClass() ?? LinkPayload::class;
+        $resourceClass = $descriptor->resourceClass();
+
+        return (new $resourceClass($payloadClass::fromArray($payload)->toArray()))->resolve();
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function accountsList(PlatformDescriptor $descriptor, User $user): array
+    {
+        return $this->accountsListData($user, fn (array $payload) => $this->shape($descriptor, $payload));
     }
 }
