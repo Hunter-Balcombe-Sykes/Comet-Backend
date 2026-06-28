@@ -13,7 +13,6 @@ use App\Http\Controllers\Api\Platforms\GenericPlatformController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
-use App\Http\Controllers\Api\Platforms\LinkedinController;
 use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
@@ -284,7 +283,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'resdiary' => ResDiaryController::class,
         'nowbookit' => NowBookitController::class,
         // Link-only socials (Facebook-style: store a canonical profile URL).
-        'linkedin' => LinkedinController::class,
         'threads' => ThreadsController::class,
         'reddit' => RedditController::class,
     ];
@@ -312,7 +310,7 @@ $registerIntegrationRoutes = function (string $base): void {
     // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
     // route table — and the golden-master net-completeness count — byte-identical
     // to the per-controller version these replace. Slugs are appended as they migrate.
-    foreach (['x'] as $slug) {
+    foreach (['x', 'linkedin'] as $slug) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($slug) {

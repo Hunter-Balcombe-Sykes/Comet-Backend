@@ -50,3 +50,17 @@ it('x selection round-trips the stored payload and forget clears it', function (
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'x')->whereNull('deleted_at')->exists())->toBeFalse();
 });
+
+it('linkedin connect stores an /in/ profile and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('gli1'))
+        ->postJson('/api/platforms/linkedin/connect', ['username' => 'https://www.linkedin.com/in/jane-doe/'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/']);
+});
+
+it('linkedin connect returns the exact 422 message on a non-profile url', function () {
+    actingAsUser(genericLinkUser('gli2'))
+        ->postJson('/api/platforms/linkedin/connect', ['username' => 'https://www.linkedin.com/feed/'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your LinkedIn profile URL (linkedin.com/in/yourname).');
+});

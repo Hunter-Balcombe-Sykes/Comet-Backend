@@ -24,6 +24,7 @@ use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
+use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
@@ -55,6 +56,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // plus its exact 422 message. get() returns the live descriptor; ->connect()
             // mutates it in place. A line is added here as each platform migrates.
             $r->get('x')->connect(new UrlConnect(new XNormalizer), 'Enter your X handle or profile URL (x.com/yourname).');
+            $r->get('linkedin')->connect(new UrlConnect(new LinkedinNormalizer), 'Enter your LinkedIn profile URL (linkedin.com/in/yourname).');
 
             // Skool + Strava are link/card style under their own resources.
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
