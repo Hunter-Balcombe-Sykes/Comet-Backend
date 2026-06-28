@@ -121,6 +121,24 @@ it('freezes the youtube selection contract', function () {
     ]);
 });
 
+it('freezes the youtube-music selection contract', function () {
+    $user = gmUser('gmymsel');
+    gmSeed($user, 'youtube-music', [
+        'url' => 'https://music.youtube.com/channel/UC', 'channelId' => 'UC', 'name' => 'Artist',
+        'thumbnail' => 't', 'link' => 'https://music.youtube.com/channel/UC',
+        'latest' => ['itemId' => 'i1'], 'items' => [['itemId' => 'i1']], 'highlights' => [], '_leak' => 'x',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/youtube-music/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'url' => 'https://music.youtube.com/channel/UC', 'name' => 'Artist', 'thumbnail' => 't',
+        'link' => 'https://music.youtube.com/channel/UC', 'latest' => ['itemId' => 'i1'],
+        'items' => [['itemId' => 'i1']], 'highlights' => [],
+    ]);
+    expect($sel)->not->toHaveKey('channelId'); // internal — never emitted
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.

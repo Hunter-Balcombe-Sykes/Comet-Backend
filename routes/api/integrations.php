@@ -169,10 +169,11 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [YoutubeMusicController::class, 'connect']);
             Route::get('/recent', [YoutubeMusicController::class, 'recent']);
             Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
-            Route::get('/accounts', [YoutubeMusicController::class, 'accounts']);
-            Route::delete('/accounts/{id}', [YoutubeMusicController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/selection', [YoutubeMusicController::class, 'selection']);
-            Route::delete('/', [YoutubeMusicController::class, 'forget']);
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube-music');
+            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'youtube-music');
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'youtube-music');
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'youtube-music');
         });
 
     // Events platforms — organiser/host accounts + individually-added events.
