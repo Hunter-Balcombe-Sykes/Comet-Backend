@@ -4,6 +4,7 @@ namespace App\Services\Platforms\Registry;
 
 use App\Models\Core\User\User;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
 // One declaration per platform — the single source of identity the registry,
 // validation, refresher, and (later) the generic controller read from. Built via
@@ -23,6 +24,10 @@ class PlatformDescriptor
     private ?ConnectStrategy $connectStrategy = null;
 
     private ?string $connectErrorMessage = null;
+
+    private ?string $payloadClass = null;
+
+    private ?FetchStrategy $fetchStrategy = null;
 
     private function __construct(private readonly string $key)
     {
@@ -123,6 +128,36 @@ class PlatformDescriptor
     public function connectErrorMessage(): ?string
     {
         return $this->connectErrorMessage;
+    }
+
+    /** The typed DTO that hydrates this platform's stored payload (read boundary). */
+    public function payload(string $payloadClass): self
+    {
+        $this->payloadClass = $payloadClass;
+
+        return $this;
+    }
+
+    public function payloadClass(): ?string
+    {
+        return $this->payloadClass;
+    }
+
+    /**
+     * The strategy that re-pulls this platform's display snapshot from upstream.
+     * Null for link-only / no-fetch platforms. Consumed by Plan 6's registry-driven
+     * refresher (`$registry->refreshable()` → `fetchStrategy()->fetch($connection)`).
+     */
+    public function fetch(FetchStrategy $strategy): self
+    {
+        $this->fetchStrategy = $strategy;
+
+        return $this;
+    }
+
+    public function fetchStrategy(): ?FetchStrategy
+    {
+        return $this->fetchStrategy;
     }
 
     // Capability seam — every dispatcher/route/render checks this. Returns true

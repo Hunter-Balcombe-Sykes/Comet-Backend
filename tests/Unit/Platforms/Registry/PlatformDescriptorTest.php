@@ -1,11 +1,14 @@
 <?php
 
 use App\Http\Resources\Platforms\LinkConnectionResource;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformCategory;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
 it('builds a descriptor via the fluent builder', function () {
     $d = PlatformDescriptor::make('fresha')
@@ -54,4 +57,32 @@ it('returns null connect accessors before a strategy is attached', function () {
 
     expect($d->connectStrategy())->toBeNull();
     expect($d->connectErrorMessage())->toBeNull();
+});
+
+it('carries a payload class', function () {
+    $d = PlatformDescriptor::make('spotify')
+        ->payload(LinkPayload::class);
+
+    expect($d->payloadClass())->toBe(LinkPayload::class);
+});
+
+it('defaults payloadClass and fetchStrategy to null', function () {
+    $d = PlatformDescriptor::make('plain');
+
+    expect($d->payloadClass())->toBeNull();
+    expect($d->fetchStrategy())->toBeNull();
+});
+
+it('carries a fetch strategy', function () {
+    $fetch = new class implements FetchStrategy
+    {
+        public function fetch(IntegrationConnection $connection): array
+        {
+            return ['fetched' => true];
+        }
+    };
+
+    $d = PlatformDescriptor::make('youtube')->fetch($fetch);
+
+    expect($d->fetchStrategy())->toBe($fetch);
 });
