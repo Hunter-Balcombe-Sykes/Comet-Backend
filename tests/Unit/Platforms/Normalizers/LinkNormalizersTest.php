@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
@@ -86,4 +87,28 @@ it('TikTok normalizes a tiktok.com/@handle url', function () {
 
 it('TikTok rejects an @-only input (empty handle)', function () {
     expect((new TiktokNormalizer)('@'))->toBeNull();
+});
+
+it('Facebook normalizes a vanity handle', function () {
+    expect((new FacebookNormalizer)('@nike'))
+        ->toBe(['username' => 'nike', 'url' => 'https://www.facebook.com/nike']);
+});
+
+it('Facebook keeps a legacy /pages/Name/ID link with an empty username', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/pages/Some-Cafe/123456789'))
+        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+});
+
+it('Facebook strips a query string from a /pages/ link', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/pages/Some-Cafe/123456789?ref=bookmarks'))
+        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+});
+
+it('Facebook keeps a numeric profile.php link with an empty username', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/profile.php?id=12345'))
+        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/profile.php?id=12345']);
+});
+
+it('Facebook rejects a bare facebook.com/ link with no handle', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/'))->toBeNull();
 });

@@ -106,3 +106,24 @@ it('tiktok connect returns the exact 422 message when no handle survives', funct
         ->assertStatus(422)
         ->assertJsonPath('message', 'Enter your TikTok username or profile URL.');
 });
+
+it('facebook connect stores a vanity handle and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('gfb1'))
+        ->postJson('/api/platforms/facebook/connect', ['username' => 'jane.doe'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe']);
+});
+
+it('facebook connect keeps a legacy /pages/ link with an empty username', function () {
+    actingAsUser(genericLinkUser('gfb2'))
+        ->postJson('/api/platforms/facebook/connect', ['username' => 'https://www.facebook.com/pages/Some-Cafe/123456789'])
+        ->assertOk()
+        ->assertExactJson(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+});
+
+it('facebook connect returns the exact 422 message on a handleless link', function () {
+    actingAsUser(genericLinkUser('gfb3'))
+        ->postJson('/api/platforms/facebook/connect', ['username' => 'https://www.facebook.com/'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your Facebook username or profile URL.');
+});

@@ -7,7 +7,6 @@ use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\EventsController;
-use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GenericPlatformController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
@@ -267,7 +266,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'deezer' => DeezerController::class,
         'twitch' => TwitchController::class,
         'pinterest' => PinterestController::class,
-        'facebook' => FacebookController::class,
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
@@ -303,7 +301,7 @@ $registerIntegrationRoutes = function (string $base): void {
     // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
     // route table — and the golden-master net-completeness count — byte-identical
     // to the per-controller version these replace. Slugs are appended as they migrate.
-    foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok'] as $slug) {
+    foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $slug) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($slug) {
