@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\EventsController;
 use App\Http\Controllers\Api\Platforms\FacebookController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
+use App\Http\Controllers\Api\Platforms\GenericPlatformController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
@@ -32,7 +33,6 @@ use App\Http\Controllers\Api\Platforms\ThreadsController;
 use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
-use App\Http\Controllers\Api\Platforms\XController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
@@ -284,7 +284,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'resdiary' => ResDiaryController::class,
         'nowbookit' => NowBookitController::class,
         // Link-only socials (Facebook-style: store a canonical profile URL).
-        'x' => XController::class,
         'linkedin' => LinkedinController::class,
         'threads' => ThreadsController::class,
         'reddit' => RedditController::class,
@@ -304,6 +303,22 @@ $registerIntegrationRoutes = function (string $base): void {
                     Route::get('/accounts', [$controller, 'accounts']);
                     Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
                 }
+            });
+    }
+
+    // Link-only socials migrated to the registry-driven GenericPlatformController.
+    // Each route carries its platform slug as a route DEFAULT (not a URI segment),
+    // so the controller resolves its descriptor via request()->route('platform')
+    // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
+    // route table — and the golden-master net-completeness count — byte-identical
+    // to the per-controller version these replace. Slugs are appended as they migrate.
+    foreach (['x'] as $slug) {
+        Route::prefix("{$base}/{$slug}")
+            ->middleware($middleware)
+            ->group(function () use ($slug) {
+                Route::post('/connect', [GenericPlatformController::class, 'connect'])->defaults('platform', $slug);
+                Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
+                Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
             });
     }
 

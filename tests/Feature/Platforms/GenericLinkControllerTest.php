@@ -1,0 +1,52 @@
+<?php
+
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use Illuminate\Support\Str;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+});
+
+function genericLinkUser(string $handle): User
+{
+    return User::create([
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'account_type' => 'individual',
+        'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => "{$handle}@example.com",
+    ]);
+}
+
+it('x connect stores the canonical link and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('gx1'))
+        ->postJson('/api/platforms/x/connect', ['username' => '@janed'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://x.com/janed']);
+});
+
+it('x connect returns the exact 422 message on unparseable input', function () {
+    actingAsUser(genericLinkUser('gx2'))
+        ->postJson('/api/platforms/x/connect', ['username' => 'https://x.com/home'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your X handle or profile URL (x.com/yourname).');
+});
+
+it('x selection round-trips the stored payload and forget clears it', function () {
+    $user = genericLinkUser('gx3');
+
+    actingAsUser($user)->postJson('/api/platforms/x/connect', ['username' => 'janed'])->assertOk();
+
+    actingAsUser($user)->getJson('/api/platforms/x/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => ['username' => 'janed', 'url' => 'https://x.com/janed']]);
+
+    actingAsUser($user)->deleteJson('/api/platforms/x')
+        ->assertOk()
+        ->assertExactJson(['selection' => null]);
+
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'x')->whereNull('deleted_at')->exists())->toBeFalse();
+});
