@@ -12,6 +12,7 @@ use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -63,7 +64,7 @@ class FreshaController extends ApiController
     // store URL plus the saved { storeName, employee, services } blob (or null).
     private function freshaUrl(User $user): ?string
     {
-        return data_get($this->readConnection($user), 'url');
+        return SelectionPayload::fromArray($this->readConnection($user) ?? [])->url;
     }
 
     // POST /api/platforms/fresha/connect
@@ -105,10 +106,13 @@ class FreshaController extends ApiController
 
         // Individual: preserve any existing selection (re-connecting the same store
         // keeps the saved team member); the dashboard re-picks via saveSelection.
-        $existing = $this->readConnection($user);
+        // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
+        // canonical stored selection round-trips byte-identically; a pending row
+        // (selection null) carries forward as null, exactly as before.
+        $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
         $this->writeConnection($user, [
             'url' => $url,
-            'selection' => data_get($existing, 'selection'),
+            'selection' => $existing->selection?->toArray(),
         ]);
 
         return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
@@ -160,8 +164,9 @@ class FreshaController extends ApiController
         // Preserve previously hidden services, dropping ids that no longer exist
         // in the refreshed menu so the hidden list never drifts stale.
         $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
+        $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
         $hidden = array_values(array_filter(
-            (array) data_get($this->readConnection($user), 'selection.hiddenServiceIds', []),
+            $existing->selection?->hiddenServiceIds() ?? [],
             static fn ($id): bool => in_array($id, $serviceIds, true),
         ));
 
@@ -200,14 +205,15 @@ class FreshaController extends ApiController
     // reads this; the dashboard reads it to restore its "saved" state on load).
     public function selection(Request $request): JsonResponse
     {
-        $payload = $this->readConnection($this->currentUser($request));
-        $selection = data_get($payload, 'selection');
+        $payload = SelectionPayload::fromArray($this->readConnection($this->currentUser($request)) ?? []);
 
         return $this->success([
-            'selection' => is_array($selection) ? (new FreshaSelectionResource($selection))->resolve() : null,
+            'selection' => $payload->selection !== null
+                ? (new FreshaSelectionResource($payload->selection->toArray()))->resolve()
+                : null,
             // Pending (Google-seeded) connections have a url but no selection — the
             // dashboard uses it to show "Finish setup" and open the picker.
-            'url' => data_get($payload, 'url'),
+            'url' => $payload->url,
         ]);
     }
 
@@ -224,23 +230,23 @@ class FreshaController extends ApiController
         $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $validated): JsonResponse {
-            $payload = $this->readConnection($user);
-            $selection = data_get($payload, 'selection');
-            if (! is_array($selection)) {
+            $payload = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+            $selection = $payload->selection;
+            if ($selection === null) {
                 return $this->error('No Fresha selection saved yet.', 404);
             }
 
             // Only toggle services that exist in the saved menu.
             $serviceIds = array_map(
                 static fn ($s) => is_array($s) ? ($s['serviceId'] ?? null) : null,
-                (array) data_get($selection, 'services', []),
+                $selection->services(),
             );
             if (! in_array($validated['serviceId'], $serviceIds, true)) {
                 return $this->error('That service is not part of the saved Fresha menu.', 404);
             }
 
             $hidden = array_values(array_filter(
-                (array) data_get($selection, 'hiddenServiceIds', []),
+                $selection->hiddenServiceIds(),
                 static fn ($id): bool => is_string($id),
             ));
 
@@ -250,10 +256,13 @@ class FreshaController extends ApiController
                 $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
             }
 
-            $selection['hiddenServiceIds'] = $hidden;
-            $this->writeConnection($user, ['url' => data_get($payload, 'url'), 'selection' => $selection]);
+            // Write back the inner blob VERBATIM with only hiddenServiceIds replaced —
+            // FreshaSelection::toArray() returns the stored blob unchanged, so the
+            // public (verbatim) selection payload never gains a canonical-null key.
+            $inner = [...$selection->toArray(), 'hiddenServiceIds' => $hidden];
+            $this->writeConnection($user, ['url' => $payload->url, 'selection' => $inner]);
 
-            return $this->success((new FreshaSelectionResource($selection))->resolve());
+            return $this->success((new FreshaSelectionResource($inner))->resolve());
         });
     }
 

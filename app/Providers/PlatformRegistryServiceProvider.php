@@ -36,6 +36,7 @@ use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Payloads\FeedPayload;
+use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
@@ -176,7 +177,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
-            $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class));
+            $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class));
