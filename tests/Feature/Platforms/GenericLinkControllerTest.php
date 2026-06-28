@@ -64,3 +64,17 @@ it('linkedin connect returns the exact 422 message on a non-profile url', functi
         ->assertStatus(422)
         ->assertJsonPath('message', 'Enter your LinkedIn profile URL (linkedin.com/in/yourname).');
 });
+
+it('threads connect stores the canonical link and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('gth1'))
+        ->postJson('/api/platforms/threads/connect', ['username' => '@janed'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.threads.net/@janed']);
+});
+
+it('threads connect returns the exact 422 message on invalid input', function () {
+    actingAsUser(genericLinkUser('gth2'))
+        ->postJson('/api/platforms/threads/connect', ['username' => 'has spaces!'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your Threads handle or profile URL (threads.net/@yourname).');
+});
