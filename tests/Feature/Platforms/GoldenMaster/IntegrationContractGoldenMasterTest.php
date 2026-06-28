@@ -185,6 +185,44 @@ it('freezes the vimeo selection contract', function () {
     expect($sel)->not->toHaveKey('apiPath'); // internal — never emitted
 });
 
+// Twitch is a card platform (embed is built sitepage-side); selection emits exactly
+// {url, login, name, image, description}. Served by GenericPlatformController via
+// FeedPayload → TwitchConnectionResource after the Task 6 $migratedReads migration.
+it('freezes the twitch selection contract', function () {
+    $user = gmUser('gmtwsel');
+    gmSeed($user, 'twitch', [
+        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
+        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
+        'description' => 'Gaming channel', '_leak' => 'must-not-appear',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/twitch/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
+        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
+        'description' => 'Gaming channel',
+    ]);
+    expect($sel)->not->toHaveKey('_leak');
+});
+
+it('freezes the twitch accounts list contract', function () {
+    $user = gmUser('gmtwacc');
+    gmSeed($user, 'twitch', [
+        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
+        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
+        'description' => 'Gaming channel', '_leak' => 'x',
+    ], 'acct-'.substr(sha1('streamer'), 0, 16));
+
+    $accounts = actingAsUser($user)->getJson('/api/platforms/twitch/accounts')->assertOk()->json('accounts');
+
+    expect($accounts)->toHaveCount(1);
+    expect($accounts[0])->not->toHaveKey('_leak');
+    expect($accounts[0]['id'])->toBe('acct-'.substr(sha1('streamer'), 0, 16));
+    expect($accounts[0]['url'])->toBe('https://www.twitch.tv/streamer');
+    expect($accounts[0]['login'])->toBe('streamer');
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.

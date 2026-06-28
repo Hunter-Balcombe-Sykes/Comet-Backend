@@ -6,9 +6,11 @@ use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 
@@ -188,4 +190,45 @@ it('BandcampFetch throws FetchUnavailableException when profile is null (refresh
 
     $strategyRow = gmSeed(gmUser('gmbc6'), 'bandcamp', ['url' => 'https://artist.bandcamp.com']);
     expect(fn () => (new BandcampFetch(app(BandcampScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('TwitchFetch produces the same success payload as the refresher (no latest/items — card only)', function () {
+    $channel = ['name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg', 'description' => 'Gaming streamer.'];
+    $this->mock(TwitchScraper::class, fn ($m) => $m->shouldReceive('fetchChannel')->andReturn($channel));
+
+    // Stored payload includes login + existing stale fields; refresher overwrites name/image/description.
+    $stored = ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer', 'name' => 'Old Name', 'image' => null, 'description' => null];
+
+    $refresherRow = gmSeed(gmUser('gmtw1'), 'twitch', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmtw2'), 'twitch', $stored);
+    $result = (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['name'])->toBe('StreamerName');
+    expect($result['image'])->toBe('https://static-cdn.jtvnw.net/avatar.jpg');
+    expect($result['description'])->toBe('Gaming streamer.');
+    expect($result)->not->toHaveKey('latest'); // Twitch is a card; embed is sitepage-side
+    expect($result)->not->toHaveKey('items');
+});
+
+it('TwitchFetch throws FetchShapeException when login is missing (refresher status=error)', function () {
+    $row = gmSeed(gmUser('gmtw3'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'name' => 'no login']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+
+    $strategyRow = gmSeed(gmUser('gmtw4'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'name' => 'no login']);
+    expect(fn () => (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('TwitchFetch throws FetchUnavailableException when channel is null (refresher status=unavailable)', function () {
+    $this->mock(TwitchScraper::class, fn ($m) => $m->shouldReceive('fetchChannel')->andReturn(null));
+
+    $row = gmSeed(gmUser('gmtw5'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmtw6'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer']);
+    expect(fn () => (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });

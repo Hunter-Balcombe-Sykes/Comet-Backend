@@ -41,9 +41,11 @@ use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
+use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\ServiceProvider;
@@ -123,7 +125,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('vimeo')->fetch(new VimeoFetch(
                 $this->app->make(VimeoApi::class),
             ));
-            $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable());
+            $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable()
+                ->payload(FeedPayload::class));
+            // Attach feed fetch strategy (Plan 3b / Task 6). Consumed by Plan 6's registry-driven refresher.
+            $r->get('twitch')->fetch(new TwitchFetch(
+                $this->app->make(TwitchScraper::class),
+            ));
             $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable());
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));

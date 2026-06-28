@@ -265,7 +265,6 @@ $registerIntegrationRoutes = function (string $base): void {
     // one stored selection per user, no picker step. Probe-verified keyless
     // platforms only (see the integrations v3 migration header).
     $singleSelection = [
-        'twitch' => TwitchController::class,
         'pinterest' => PinterestController::class,
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
@@ -281,7 +280,8 @@ $registerIntegrationRoutes = function (string $base): void {
     // Watch/listen platforms in the uniform shape that also take multiple
     // accounts (the controller's supportsMultipleAccounts flag is the
     // source of truth; this list only gates the extra routes).
-    $multiAccount = ['twitch'];
+    // Twitch moved to $migratedReads (multi=true) below; this array is now empty.
+    $multiAccount = [];
     foreach ($singleSelection as $slug => $controller) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
@@ -296,26 +296,28 @@ $registerIntegrationRoutes = function (string $base): void {
             });
     }
 
-    // Migrated embed read paths (Plan 3a). connect() stays on the thin controller
-    // (it fetches on connect); selection/accounts/forget are served by the
-    // registry-driven GenericPlatformController via the platform route default.
-    // URIs are unchanged from the $singleSelection version, so the golden-master
-    // net-completeness count (52) is unaffected.
+    // Migrated embed/feed read paths. connect() stays on the thin controller; the
+    // read paths are served by the registry-driven GenericPlatformController via the
+    // platform route default. `multi` gates the extra /accounts routes — single
+    // platforms must NOT gain them (keeps the net-completeness count at 52).
     $migratedReads = [
-        'spotify' => SpotifyController::class,
-        'soundcloud' => SoundcloudController::class,
-        'deezer' => DeezerController::class,
+        'spotify' => ['controller' => SpotifyController::class, 'multi' => true],
+        'soundcloud' => ['controller' => SoundcloudController::class, 'multi' => true],
+        'deezer' => ['controller' => DeezerController::class, 'multi' => true],
+        'twitch' => ['controller' => TwitchController::class, 'multi' => true],
     ];
-    foreach ($migratedReads as $slug => $connectController) {
+    foreach ($migratedReads as $slug => $cfg) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
-            ->group(function () use ($connectController, $slug) {
-                Route::post('/connect', [$connectController, 'connect']);
+            ->group(function () use ($cfg, $slug) {
+                Route::post('/connect', [$cfg['controller'], 'connect']);
                 Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
-                Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $slug);
-                Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                    ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $slug);
                 Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
+                if ($cfg['multi']) {
+                    Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $slug);
+                    Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                        ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $slug);
+                }
             });
     }
 
