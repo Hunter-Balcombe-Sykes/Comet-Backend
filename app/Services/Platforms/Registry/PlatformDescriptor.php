@@ -3,6 +3,7 @@
 namespace App\Services\Platforms\Registry;
 
 use App\Models\Core\User\User;
+use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 
 // One declaration per platform — the single source of identity the registry,
 // validation, refresher, and (later) the generic controller read from. Built via
@@ -18,6 +19,10 @@ class PlatformDescriptor
     private ?string $resourceClass = null;
 
     private bool $refreshable = false;
+
+    private ?ConnectStrategy $connectStrategy = null;
+
+    private ?string $connectErrorMessage = null;
 
     private function __construct(private readonly string $key)
     {
@@ -94,6 +99,30 @@ class PlatformDescriptor
     public function isRefreshable(): bool
     {
         return $this->refreshable;
+    }
+
+    /**
+     * Attach the live connect strategy — the platform's URL/handle normalizer
+     * wrapped in a ConnectStrategy (UrlConnect) — plus the 422 message shown when
+     * the input can't be parsed. The generic controller reads both. The message
+     * is part of the frozen API contract, so each platform keeps its exact wording.
+     */
+    public function connect(ConnectStrategy $strategy, string $errorMessage): self
+    {
+        $this->connectStrategy = $strategy;
+        $this->connectErrorMessage = $errorMessage;
+
+        return $this;
+    }
+
+    public function connectStrategy(): ?ConnectStrategy
+    {
+        return $this->connectStrategy;
+    }
+
+    public function connectErrorMessage(): ?string
+    {
+        return $this->connectErrorMessage;
     }
 
     // Capability seam — every dispatcher/route/render checks this. Returns true
