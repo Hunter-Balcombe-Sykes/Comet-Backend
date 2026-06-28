@@ -92,3 +92,17 @@ it('reddit connect returns the exact 422 message on a non-profile url', function
         ->assertStatus(422)
         ->assertJsonPath('message', 'Enter your Reddit username or community (u/yourname or r/yourcommunity).');
 });
+
+it('tiktok connect normalizes @handle and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('gtt1'))
+        ->postJson('/api/platforms/tiktok/connect', ['username' => '@dancer'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer']);
+});
+
+it('tiktok connect returns the exact 422 message when no handle survives', function () {
+    actingAsUser(genericLinkUser('gtt2'))
+        ->postJson('/api/platforms/tiktok/connect', ['username' => '@'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your TikTok username or profile URL.');
+});

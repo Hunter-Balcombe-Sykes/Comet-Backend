@@ -27,7 +27,6 @@ use App\Http\Controllers\Api\Platforms\SoundcloudController;
 use App\Http\Controllers\Api\Platforms\SpotifyController;
 use App\Http\Controllers\Api\Platforms\SquareController;
 use App\Http\Controllers\Api\Platforms\StravaController;
-use App\Http\Controllers\Api\Platforms\TiktokController;
 use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
@@ -268,7 +267,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'deezer' => DeezerController::class,
         'twitch' => TwitchController::class,
         'pinterest' => PinterestController::class,
-        'tiktok' => TiktokController::class,
         'facebook' => FacebookController::class,
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
@@ -305,7 +303,7 @@ $registerIntegrationRoutes = function (string $base): void {
     // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
     // route table — and the golden-master net-completeness count — byte-identical
     // to the per-controller version these replace. Slugs are appended as they migrate.
-    foreach (['x', 'linkedin', 'threads', 'reddit'] as $slug) {
+    foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok'] as $slug) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($slug) {

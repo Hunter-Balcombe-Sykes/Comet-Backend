@@ -3,6 +3,7 @@
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
+use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 
 it('X normalizes a bare @handle to the canonical url', function () {
@@ -71,4 +72,18 @@ it('Reddit maps a bare username to a user profile', function () {
 
 it('Reddit rejects a reddit.com url without a profile/community path', function () {
     expect((new RedditNormalizer)('https://www.reddit.com/about'))->toBeNull();
+});
+
+it('TikTok normalizes a bare @handle', function () {
+    expect((new TiktokNormalizer)('@dancer'))
+        ->toBe(['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer']);
+});
+
+it('TikTok normalizes a tiktok.com/@handle url', function () {
+    expect((new TiktokNormalizer)('https://www.tiktok.com/@dancer'))
+        ->toBe(['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer']);
+});
+
+it('TikTok rejects an @-only input (empty handle)', function () {
+    expect((new TiktokNormalizer)('@'))->toBeNull();
 });
