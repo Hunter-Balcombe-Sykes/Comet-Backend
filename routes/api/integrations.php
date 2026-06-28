@@ -18,7 +18,6 @@ use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\PinterestController;
-use App\Http\Controllers\Api\Platforms\RedditController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
 use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
@@ -281,8 +280,6 @@ $registerIntegrationRoutes = function (string $base): void {
         // connect-by-link flow as OpenTable (the embed is built from the URL).
         'resdiary' => ResDiaryController::class,
         'nowbookit' => NowBookitController::class,
-        // Link-only socials (Facebook-style: store a canonical profile URL).
-        'reddit' => RedditController::class,
     ];
     // Watch/listen platforms in the uniform shape that also take multiple
     // accounts (the controller's supportsMultipleAccounts flag is the
@@ -308,7 +305,7 @@ $registerIntegrationRoutes = function (string $base): void {
     // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
     // route table — and the golden-master net-completeness count — byte-identical
     // to the per-controller version these replace. Slugs are appended as they migrate.
-    foreach (['x', 'linkedin', 'threads'] as $slug) {
+    foreach (['x', 'linkedin', 'threads', 'reddit'] as $slug) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($slug) {

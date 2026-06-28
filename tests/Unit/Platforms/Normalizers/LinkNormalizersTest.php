@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
+use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 
@@ -51,4 +52,23 @@ it('Threads normalizes a threads.com profile url', function () {
 
 it('Threads rejects an invalid handle', function () {
     expect((new ThreadsNormalizer)('has spaces!'))->toBeNull();
+});
+
+it('Reddit normalizes a u/ username to the user profile url', function () {
+    expect((new RedditNormalizer)('u/janed'))
+        ->toBe(['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']);
+});
+
+it('Reddit normalizes an r/ community', function () {
+    expect((new RedditNormalizer)('r/community'))
+        ->toBe(['username' => 'community', 'url' => 'https://www.reddit.com/r/community/']);
+});
+
+it('Reddit maps a bare username to a user profile', function () {
+    expect((new RedditNormalizer)('janed'))
+        ->toBe(['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']);
+});
+
+it('Reddit rejects a reddit.com url without a profile/community path', function () {
+    expect((new RedditNormalizer)('https://www.reddit.com/about'))->toBeNull();
 });

@@ -78,3 +78,17 @@ it('threads connect returns the exact 422 message on invalid input', function ()
         ->assertStatus(422)
         ->assertJsonPath('message', 'Enter your Threads handle or profile URL (threads.net/@yourname).');
 });
+
+it('reddit connect stores a u/ profile and echoes {username,url}', function () {
+    actingAsUser(genericLinkUser('grd1'))
+        ->postJson('/api/platforms/reddit/connect', ['username' => 'u/janed'])
+        ->assertOk()
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']);
+});
+
+it('reddit connect returns the exact 422 message on a non-profile url', function () {
+    actingAsUser(genericLinkUser('grd2'))
+        ->postJson('/api/platforms/reddit/connect', ['username' => 'https://www.reddit.com/about'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Enter your Reddit username or community (u/yourname or r/yourcommunity).');
+});
