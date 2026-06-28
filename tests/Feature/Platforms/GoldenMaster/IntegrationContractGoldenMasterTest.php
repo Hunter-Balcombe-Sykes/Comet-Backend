@@ -254,6 +254,70 @@ it('freezes the pinterest selection contract', function () {
     expect($sel)->not->toHaveKey('_leak');
 });
 
+// Apple Music / Apple Podcast selection pins. Both are multi-account tile platforms;
+// after Task 8 the GET selection/accounts routes are served by GenericPlatformController
+// (platform=apple-music / apple-podcast) via FeedPayload → the platform's resource.
+// Routes live at /api/platforms/apple/music/selection and /podcast/selection.
+// Music header: {input,name,thumbnail,releaseDate,link,latest,highlights}.
+// Podcast adds description between thumbnail and releaseDate.
+it('freezes the apple-music selection contract', function () {
+    $user = gmUser('gmamsel');
+    $album = ['collectionId' => 'c1', 'name' => 'The Tortured Poets Department', 'thumbnail' => 'https://is1-ssl.mzstatic.com/t.jpg', 'releaseDate' => '2024-04-19T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'];
+    gmSeed($user, 'apple-music', [
+        'input' => 'Taylor Swift',
+        'name' => 'The Tortured Poets Department',
+        'thumbnail' => 'https://is1-ssl.mzstatic.com/t.jpg',
+        'releaseDate' => '2024-04-19T00:00:00+00:00',
+        'link' => 'https://music.apple.com/au/album/1',
+        'latest' => $album,
+        'highlights' => [],
+        '_leak' => 'must-not-appear',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/apple/music/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'input' => 'Taylor Swift',
+        'name' => 'The Tortured Poets Department',
+        'thumbnail' => 'https://is1-ssl.mzstatic.com/t.jpg',
+        'releaseDate' => '2024-04-19T00:00:00+00:00',
+        'link' => 'https://music.apple.com/au/album/1',
+        'latest' => $album,
+        'highlights' => [],
+    ]);
+    expect($sel)->not->toHaveKey('_leak');
+});
+
+it('freezes the apple-podcast selection contract', function () {
+    $user = gmUser('gmapsel');
+    $episode = ['trackId' => 'e1', 'name' => 'Dr. Andrew Huberman', 'thumbnail' => 'https://is1-ssl.mzstatic.com/ep.jpg', 'description' => 'Science-based tools for everyday life.', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://podcasts.apple.com/au/podcast/1'];
+    gmSeed($user, 'apple-podcast', [
+        'input' => 'Huberman Lab',
+        'name' => 'Dr. Andrew Huberman',
+        'thumbnail' => 'https://is1-ssl.mzstatic.com/ep.jpg',
+        'description' => 'Science-based tools for everyday life.',
+        'releaseDate' => '2026-03-01T00:00:00+00:00',
+        'link' => 'https://podcasts.apple.com/au/podcast/1',
+        'latest' => $episode,
+        'highlights' => [],
+        '_leak' => 'must-not-appear',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/apple/podcast/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'input' => 'Huberman Lab',
+        'name' => 'Dr. Andrew Huberman',
+        'thumbnail' => 'https://is1-ssl.mzstatic.com/ep.jpg',
+        'description' => 'Science-based tools for everyday life.',
+        'releaseDate' => '2026-03-01T00:00:00+00:00',
+        'link' => 'https://podcasts.apple.com/au/podcast/1',
+        'latest' => $episode,
+        'highlights' => [],
+    ]);
+    expect($sel)->not->toHaveKey('_leak');
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.

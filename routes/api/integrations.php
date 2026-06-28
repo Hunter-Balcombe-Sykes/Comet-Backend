@@ -121,15 +121,19 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/music/connect', [AppleController::class, 'connectMusic']);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
-            Route::get('/music/accounts', [AppleController::class, 'musicAccounts']);
-            Route::delete('/music/accounts/{id}', [AppleController::class, 'removeMusicAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/music/selection', [AppleController::class, 'musicSelection']);
+            // music reads → generic (platform=apple-music)
+            Route::get('/music/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'apple-music');
+            Route::delete('/music/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'apple-music');
+            Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'apple-music');
             Route::post('/podcast/connect', [AppleController::class, 'connectPodcast']);
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
-            Route::get('/podcast/accounts', [AppleController::class, 'podcastAccounts']);
-            Route::delete('/podcast/accounts/{id}', [AppleController::class, 'removePodcastAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/podcast/selection', [AppleController::class, 'podcastSelection']);
+            // podcast reads → generic (platform=apple-podcast)
+            Route::get('/podcast/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'apple-podcast');
+            Route::delete('/podcast/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'apple-podcast');
+            Route::get('/podcast/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'apple-podcast');
             Route::delete('/music', [AppleController::class, 'forgetMusic']);
             Route::delete('/podcast', [AppleController::class, 'forgetPodcast']);
             Route::delete('/', [AppleController::class, 'forget']);

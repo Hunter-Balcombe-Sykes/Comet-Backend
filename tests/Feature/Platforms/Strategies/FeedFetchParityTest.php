@@ -1,9 +1,12 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
+use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\PlatformRefresher;
+use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
+use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
@@ -278,4 +281,86 @@ it('PinterestFetch throws FetchUnavailableException when profile is null (refres
 
     $strategyRow = gmSeed(gmUser('gmpi6'), 'pinterest', ['username' => 'pinner']);
     expect(fn () => (new PinterestFetch(app(PinterestScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('AppleMusicFetch produces the same success payload as the refresher (preserves input + highlights)', function () {
+    $albums = [
+        ['collectionId' => 'c1', 'name' => 'Album One', 'thumbnail' => 'nt', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'],
+        ['collectionId' => 'c0', 'name' => 'Album Two', 'thumbnail' => 'ot', 'releaseDate' => '2026-01-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/0'],
+    ];
+    $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchAlbums')->andReturn($albums));
+
+    // input + curated highlights MUST survive the refresh.
+    $stored = ['input' => 'Taylor Swift', 'highlights' => [['collectionId' => 'h1']]];
+
+    $refresherRow = gmSeed(gmUser('gmam1'), 'apple-music', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmam2'), 'apple-music', $stored);
+    $result = (new AppleMusicFetch(app(AppleSearch::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['highlights'])->toBe([['collectionId' => 'h1']]); // curated highlights preserved
+    expect($result['latest'])->toBe($albums[0]);
+});
+
+it('AppleMusicFetch throws FetchShapeException when input is missing (refresher status=error)', function () {
+    $row = gmSeed(gmUser('gmam3'), 'apple-music', ['name' => 'no input']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+
+    $strategyRow = gmSeed(gmUser('gmam4'), 'apple-music', ['name' => 'no input']);
+    expect(fn () => (new AppleMusicFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('AppleMusicFetch throws FetchUnavailableException when no albums (refresher status=unavailable)', function () {
+    $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchAlbums')->andReturn([]));
+
+    $row = gmSeed(gmUser('gmam5'), 'apple-music', ['input' => 'Taylor Swift']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmam6'), 'apple-music', ['input' => 'Taylor Swift']);
+    expect(fn () => (new AppleMusicFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('ApplePodcastFetch produces the same success payload as the refresher (preserves input + highlights)', function () {
+    $episodes = [
+        ['trackId' => 'e1', 'name' => 'Episode One', 'thumbnail' => 'et1', 'description' => 'Great episode', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://podcasts.apple.com/ep/1'],
+        ['trackId' => 'e0', 'name' => 'Episode Two', 'thumbnail' => 'et0', 'description' => 'Another ep', 'releaseDate' => '2026-01-01T00:00:00+00:00', 'link' => 'https://podcasts.apple.com/ep/0'],
+    ];
+    $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchEpisodes')->andReturn($episodes));
+
+    // input + curated highlights MUST survive the refresh.
+    $stored = ['input' => 'Huberman Lab', 'highlights' => [['trackId' => 'h1']]];
+
+    $refresherRow = gmSeed(gmUser('gmap1'), 'apple-podcast', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmap2'), 'apple-podcast', $stored);
+    $result = (new ApplePodcastFetch(app(AppleSearch::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['highlights'])->toBe([['trackId' => 'h1']]); // curated highlights preserved
+    expect($result['latest'])->toBe($episodes[0]);
+});
+
+it('ApplePodcastFetch throws FetchShapeException when input is missing (refresher status=error)', function () {
+    $row = gmSeed(gmUser('gmap3'), 'apple-podcast', ['name' => 'no input']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+
+    $strategyRow = gmSeed(gmUser('gmap4'), 'apple-podcast', ['name' => 'no input']);
+    expect(fn () => (new ApplePodcastFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('ApplePodcastFetch throws FetchUnavailableException when no episodes (refresher status=unavailable)', function () {
+    $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchEpisodes')->andReturn([]));
+
+    $row = gmSeed(gmUser('gmap5'), 'apple-podcast', ['input' => 'Huberman Lab']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    $strategyRow = gmSeed(gmUser('gmap6'), 'apple-podcast', ['input' => 'Huberman Lab']);
+    expect(fn () => (new ApplePodcastFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
