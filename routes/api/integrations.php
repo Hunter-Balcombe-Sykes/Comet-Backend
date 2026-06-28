@@ -155,10 +155,11 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [VimeoController::class, 'connect']);
             Route::get('/recent', [VimeoController::class, 'recent']);
             Route::post('/highlights', [VimeoController::class, 'highlights']);
-            Route::get('/accounts', [VimeoController::class, 'accounts']);
-            Route::delete('/accounts/{id}', [VimeoController::class, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
-            Route::get('/selection', [VimeoController::class, 'selection']);
-            Route::delete('/', [VimeoController::class, 'forget']);
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'vimeo');
+            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'vimeo');
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'vimeo');
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'vimeo');
         });
 
     // YouTube Music — Vimeo-style: connect + recent-releases picker + curated

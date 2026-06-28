@@ -4,8 +4,10 @@ use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 
 // gmUser()/gmSeed() are loaded globally by tests/Pest.php:72 (it require_once's
@@ -101,4 +103,41 @@ it('YoutubeMusicFetch throws FetchUnavailableException when the feed is empty', 
 
     $strategyRow = gmSeed(gmUser('gmym6'), 'youtube-music', ['channelId' => 'UC123']);
     expect(fn () => (new YoutubeMusicFetch(app(YoutubeScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
+});
+
+it('VimeoFetch produces the same success payload as the refresher', function () {
+    $videos = array_map(fn ($i) => ['id' => $i], range(1, 15));
+    $this->mock(VimeoApi::class, function ($m) use ($videos) {
+        $m->shouldReceive('fetchVideos')->andReturn($videos);
+        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Pat', 'thumbnail' => 'nt']);
+    });
+
+    $stored = ['url' => 'https://vimeo.com/pat', 'apiPath' => 'pat', 'name' => 'Old', 'highlights' => [['id' => 'h']]];
+
+    $refresherRow = gmSeed(gmUser('gmvi1'), 'vimeo', $stored);
+    app(PlatformRefresher::class)->refresh($refresherRow);
+
+    $strategyRow = gmSeed(gmUser('gmvi2'), 'vimeo', $stored);
+    $result = (new VimeoFetch(app(VimeoApi::class)))->fetch($strategyRow);
+
+    expect($result)->toEqual($refresherRow->fresh()->payload);
+    expect($result['items'])->toHaveCount(12); // sliced
+    expect($result['latest'])->toBe($videos[0]);
+});
+
+it('VimeoFetch throws FetchShapeException when apiPath is missing', function () {
+    $row = gmSeed(gmUser('gmvi3'), 'vimeo', ['name' => 'no path']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('error');
+    expect(fn () => (new VimeoFetch(app(VimeoApi::class)))->fetch(gmSeed(gmUser('gmvi4'), 'vimeo', ['name' => 'no path'])))
+        ->toThrow(FetchShapeException::class);
+});
+
+it('VimeoFetch throws FetchUnavailableException when no videos', function () {
+    $this->mock(VimeoApi::class, fn ($m) => $m->shouldReceive('fetchVideos')->andReturn([]));
+    $row = gmSeed(gmUser('gmvi5'), 'vimeo', ['apiPath' => 'pat']);
+    app(PlatformRefresher::class)->refresh($row);
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+    expect(fn () => (new VimeoFetch(app(VimeoApi::class)))->fetch(gmSeed(gmUser('gmvi6'), 'vimeo', ['apiPath' => 'pat'])))
+        ->toThrow(FetchUnavailableException::class);
 });

@@ -139,6 +139,24 @@ it('freezes the youtube-music selection contract', function () {
     expect($sel)->not->toHaveKey('channelId'); // internal — never emitted
 });
 
+it('freezes the vimeo selection contract', function () {
+    $user = gmUser('gmvimsel');
+    gmSeed($user, 'vimeo', [
+        'url' => 'https://vimeo.com/pat', 'apiPath' => 'pat', 'name' => 'Pat',
+        'thumbnail' => 't', 'link' => 'https://vimeo.com/pat',
+        'latest' => ['itemId' => 'v1'], 'items' => [['itemId' => 'v1']], 'highlights' => [], '_leak' => 'x',
+    ]);
+
+    $sel = actingAsUser($user)->getJson('/api/platforms/vimeo/selection')->assertOk()->json('selection');
+
+    expect($sel)->toEqual([
+        'url' => 'https://vimeo.com/pat', 'name' => 'Pat', 'thumbnail' => 't',
+        'link' => 'https://vimeo.com/pat', 'latest' => ['itemId' => 'v1'],
+        'items' => [['itemId' => 'v1']], 'highlights' => [],
+    ]);
+    expect($sel)->not->toHaveKey('apiPath'); // internal — never emitted
+});
+
 // ── Step 2: Shop /brands ─────────────────────────────────────────────────────
 // ShopBrandResource emits: id, provider('shopify'), url, name, currency,
 // favicon, logo, discountCode(''), individual(false), products.
