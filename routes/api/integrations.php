@@ -362,7 +362,7 @@ $registerIntegrationRoutes = function (string $base): void {
 
     // Manual per-platform refresh (dashboard refresh button) — re-pull the
     // auto-content platforms on demand. {platform} is validated against
-    // PlatformRefresher::REFRESHABLE inside the controller; a per-user cooldown
+    // the registry's refreshable set inside the controller; a per-user cooldown
     // keeps it from hammering the upstream scrapers.
     Route::post("{$base}/{platform}/refresh", [RefreshController::class, 'refresh'])
         ->where('platform', '[a-z-]+')

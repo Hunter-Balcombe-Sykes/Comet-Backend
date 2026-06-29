@@ -6,29 +6,32 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\PlatformRefresher;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 // Manual, user-triggered refresh of a connected platform's data — the same
 // re-scrape the daily cron runs (PlatformRefresher), but on demand from the
-// dashboard's per-card refresh button. Only the auto-content platforms in
-// PlatformRefresher::REFRESHABLE can be refreshed; static link cards (TikTok,
-// Facebook, custom links) and booking links (Fresha, Square) have nothing to
-// re-pull. A short per-user+platform cooldown keeps the button from hammering
-// the upstream scrapers.
+// dashboard's per-card refresh button. Only the registry's refreshable platforms
+// can be refreshed; static link cards (TikTok, Facebook, custom links) and
+// booking links (Fresha, Square) have nothing to re-pull. A short per-user+platform
+// cooldown keeps the button from hammering the upstream scrapers.
 class RefreshController extends ApiController
 {
     use ResolveCurrentUser;
 
     private const COOLDOWN_SECONDS = 12;
 
-    public function __construct(private readonly PlatformRefresher $refresher) {}
+    public function __construct(
+        private readonly PlatformRefresher $refresher,
+        private readonly PlatformRegistry $registry,
+    ) {}
 
     // POST /integrations/{platform}/refresh
     public function refresh(Request $request, string $platform): JsonResponse
     {
-        if (! in_array($platform, PlatformRefresher::REFRESHABLE, true)) {
+        if (! $this->registry->isRefreshable($platform)) {
             return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
         }
 

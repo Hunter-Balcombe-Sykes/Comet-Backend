@@ -26,15 +26,6 @@ use Illuminate\Support\Facades\Log;
 // quiet 'unavailable'.
 class PlatformRefresher
 {
-    // Task 4 migrates callers (RefreshController, the command, RegistryCoverageTest)
-    // onto the registry's refreshable() map; until then this constant stays as the
-    // gating list those consumers read.
-    public const REFRESHABLE = [
-        'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'deezer',
-        'vimeo', 'twitch', 'pinterest', 'strava', 'google-business',
-    ];
-
     public function __construct(private readonly PlatformRegistry $registry) {}
 
     public function refresh(IntegrationConnection $connection): IntegrationConnection

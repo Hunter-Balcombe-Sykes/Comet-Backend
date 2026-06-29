@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\PlatformRefresher;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -18,14 +19,14 @@ class RefreshIntegrationConnectionsCommand extends Command
 
     protected $description = 'Re-fetch stale auto-content platform connections (pilot).';
 
-    public function handle(PlatformRefresher $refresher): int
+    public function handle(PlatformRefresher $refresher, PlatformRegistry $registry): int
     {
         $limit = (int) $this->option('limit');
         $throttleMs = (int) $this->option('throttle-ms');
 
         $connections = IntegrationConnection::query()
             ->active()
-            ->whereIn('platform', PlatformRefresher::REFRESHABLE)
+            ->whereIn('platform', array_keys($registry->refreshable()))
             ->orderByRaw('last_refreshed_at ASC NULLS FIRST')
             ->limit($limit)
             ->get();

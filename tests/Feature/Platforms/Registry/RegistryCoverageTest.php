@@ -3,7 +3,6 @@
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
-use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
@@ -34,7 +33,13 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     $refreshable = array_keys($registry->refreshable());
     sort($refreshable);
 
-    $expected = PlatformRefresher::REFRESHABLE;
+    // Frozen expectation (was PlatformRefresher::REFRESHABLE before Plan 6 deleted it).
+    // The 15 auto-content platforms the daily cron + manual refresh button re-pull.
+    $expected = [
+        'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
+        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'vimeo', 'twitch', 'pinterest', 'strava',
+        'google-business',
+    ];
     sort($expected);
 
     expect($refreshable)->toBe($expected);

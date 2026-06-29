@@ -36,7 +36,7 @@ class PublicIntegrationConnectionResource extends ApiResource
         // events-custom: a non-Eventbrite/Humanitix link added via the Tickets &
         // Events card, stored as a standalone event row so it renders in the
         // sitepage Events section. Single card — no organiser/upcoming. Snapshot
-        // once, never refreshed (absent from PlatformRefresher::REFRESHABLE).
+        // once, never refreshed (absent from the registry's refreshable set).
         'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
         // custom: one row per user-attached link.
         'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
