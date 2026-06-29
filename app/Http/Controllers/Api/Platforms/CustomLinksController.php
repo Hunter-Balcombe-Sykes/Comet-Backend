@@ -9,6 +9,7 @@ use App\Http\Requests\Platforms\AddCustomLinkRequest;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\Payloads\CardPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -107,15 +108,15 @@ class CustomLinksController extends ApiController
     private function linksData(User $user): array
     {
         return $this->linkRows($user)->map(function (IntegrationConnection $row): array {
-            $payload = is_array($row->payload) ? $row->payload : [];
+            $card = CardPayload::fromArray($row->payload);
 
             return [
                 'id' => $row->resource_id,
-                'url' => $payload['url'] ?? null,
-                'name' => $payload['name'] ?? null,
-                'description' => $payload['description'] ?? null,
-                'favicon' => $payload['favicon'] ?? null,
-                'logo' => $payload['logo'] ?? null,
+                'url' => $card->url(),
+                'name' => $card->name(),
+                'description' => $card->description(),
+                'favicon' => $card->favicon(),
+                'logo' => $card->logo(),
             ];
         })->values()->all();
     }
