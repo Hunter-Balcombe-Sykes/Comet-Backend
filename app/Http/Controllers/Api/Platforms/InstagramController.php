@@ -9,6 +9,7 @@ use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\InstagramApifyBudget;
+use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -106,7 +107,7 @@ class InstagramController extends ApiController
             return $this->success([
                 'status' => 'ready',
                 'connection' => $connection->payload
-                    ? (new InstagramConnectionResource($connection->payload))->resolve()
+                    ? (new InstagramConnectionResource(InstagramPayload::fromArray($connection->payload)->toArray()))->resolve()
                     : null,
             ]);
         }
@@ -127,7 +128,9 @@ class InstagramController extends ApiController
     {
         $payload = $this->readConnection($this->currentUser($request));
 
-        return $this->success(['selection' => $payload ? (new InstagramConnectionResource($payload))->resolve() : null]);
+        return $this->success(['selection' => $payload
+            ? (new InstagramConnectionResource(InstagramPayload::fromArray($payload)->toArray()))->resolve()
+            : null]);
     }
 
     // DELETE /api/platforms/instagram — clear the authenticated user's connection.

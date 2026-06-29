@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -158,10 +159,9 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
             '_folder' => $folder,
         ];
 
-        // Preserve a source tag set by an auto-sync placeholder (e.g. Google
-        // Business) so the connect modal's synced-step undo can still find this
-        // row once the scrape result overwrites the placeholder payload.
-        if (($source = data_get($connection->payload, 'source')) !== null) {
+        // Preserve the google-business origin tag across a re-scrape (it drives the
+        // /synced "Change to" flow). Read it typed; the scrape WRITE below stays literal.
+        if (($source = InstagramPayload::fromArray($connection->payload)->source) !== null) {
             $selection['source'] = $source;
         }
 

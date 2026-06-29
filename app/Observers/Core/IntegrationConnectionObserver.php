@@ -6,6 +6,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Support\Facades\Log;
 
 // Purges the user's public sitepage edge cache on any platform-connection write
@@ -53,8 +54,8 @@ class IntegrationConnectionObserver
             return;
         }
 
-        $old = data_get($connection->getOriginal('payload'), '_folder');
-        $new = data_get($connection->payload, '_folder');
+        $old = InstagramPayload::fromArray($connection->getOriginal('payload'))->folder;
+        $new = InstagramPayload::fromArray($connection->payload)->folder;
         if ($old && $new && $old !== $new) {
             DeleteMirroredMediaJob::dispatch($old);
         }
@@ -73,7 +74,7 @@ class IntegrationConnectionObserver
      */
     private function cleanupMirroredMedia(IntegrationConnection $connection): void
     {
-        $folder = data_get($connection->payload, '_folder');
+        $folder = InstagramPayload::fromArray($connection->payload)->folder;
         if ($connection->platform === 'instagram' && $folder) {
             DeleteMirroredMediaJob::dispatch($folder);
         }

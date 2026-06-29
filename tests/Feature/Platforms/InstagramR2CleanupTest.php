@@ -107,6 +107,21 @@ it('does not dispatch cleanup on the pending→ready transition (null → folder
 
 // ── _folder is persisted by the async connect job ───────────────────────────
 
+it('never exposes the internal _folder on the instagram status or selection endpoints', function () {
+    $user = r2CleanupUser('igfolder');
+    makeIgConnection($user, [
+        'username' => 'acme', 'images' => ['https://r2/0.jpg'], 'mode' => 'automatic',
+        '_folder' => 'platforms/instagram/123', 'source' => 'google-business',
+    ])->update(['is_active' => true, 'last_refresh_status' => 'ok']);
+
+    $status = actingAsUser($user)->getJson('/api/integrations/instagram/connect/status')->assertOk()->json();
+    $selection = actingAsUser($user)->getJson('/api/integrations/instagram/selection')->assertOk()->json();
+
+    expect($status['data']['connection'] ?? $status['connection'] ?? [])->not->toHaveKey('_folder');
+    expect($status['data']['connection'] ?? $status['connection'] ?? [])->not->toHaveKey('source');
+    expect(data_get($selection, 'data.selection') ?? data_get($selection, 'selection') ?? [])->not->toHaveKey('_folder');
+});
+
 it('the async connect job stores the R2 _folder in the payload', function () {
     Queue::fake();
     Storage::fake('media');
