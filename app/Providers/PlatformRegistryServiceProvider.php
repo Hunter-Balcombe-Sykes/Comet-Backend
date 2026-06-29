@@ -36,6 +36,7 @@ use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Payloads\FeedPayload;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
@@ -165,9 +166,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('apple-podcast')->fetch(new ApplePodcastFetch(
                 $this->app->make(AppleSearch::class),
             ));
-            $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable());
-            // Attach fetch strategy only (Plan 3b / Task 9). No ->payload(FeedPayload::class) —
-            // google-business emits a variable key set; payload DTO + read-path migration are Plan 5.
+            $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
+            // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
+            // (variable key set via array_intersect_key) — read paths migrated in Plan 5.
             $r->get('google-business')->fetch(new GoogleBusinessFetch(
                 $this->app->make(GoogleBusinessService::class),
             ));

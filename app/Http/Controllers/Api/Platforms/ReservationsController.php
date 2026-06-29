@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OpenTableService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\ProviderDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -82,8 +83,8 @@ class ReservationsController extends ApiController
     {
         $user = $this->currentUser($request);
         $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
-        $suggestion = $gb && is_array($gb->payload)
-            ? $this->openTable->suggestionFromGoogleBusiness($gb->payload)
+        $suggestion = $gb
+            ? $this->openTable->suggestionFromGoogleBusiness(GoogleBusinessPayload::fromArray($gb->payload)->toArray())
             : null;
 
         return $this->success(['suggestion' => $suggestion]);

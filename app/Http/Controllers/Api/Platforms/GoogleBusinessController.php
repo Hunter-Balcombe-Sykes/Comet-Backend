@@ -9,6 +9,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -119,7 +120,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
     {
         $user = $this->currentUser($request);
         $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
-        $findings = is_array(data_get($gb?->payload, 'syncFindings')) ? $gb->payload['syncFindings'] : [];
+        $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
 
         $synced = collect($findings)
             ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f) : null)
@@ -140,8 +141,9 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         $platform = $request->validate(['platform' => ['required', 'string', 'max:40']])['platform'];
 
         $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
-        $payload = is_array($gb?->payload) ? $gb->payload : [];
-        $findings = is_array($payload['syncFindings'] ?? null) ? array_values($payload['syncFindings']) : [];
+        $gbp = GoogleBusinessPayload::fromArray($gb?->payload);
+        $payload = $gbp->toArray();
+        $findings = $gbp->syncFindings();
 
         $idx = null;
         foreach ($findings as $i => $f) {

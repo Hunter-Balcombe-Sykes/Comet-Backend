@@ -6,6 +6,7 @@ use App\Http\Requests\Platforms\ConnectOpenTableRequest;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\OpenTableService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -66,8 +67,8 @@ class OpenTableController extends SingleSelectionPlatformController
             ->where('platform', 'google-business')
             ->first();
 
-        $suggestion = $gb && is_array($gb->payload)
-            ? $this->service->suggestionFromGoogleBusiness($gb->payload)
+        $suggestion = $gb
+            ? $this->service->suggestionFromGoogleBusiness(GoogleBusinessPayload::fromArray($gb->payload)->toArray())
             : null;
 
         return $this->success(['suggestion' => $suggestion]);

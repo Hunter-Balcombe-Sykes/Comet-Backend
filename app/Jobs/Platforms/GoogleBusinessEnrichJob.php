@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -80,11 +81,12 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
+        $gbp = GoogleBusinessPayload::fromArray($connection->payload);
         $findings = $autoSync->seed(
             $this->userId,
             $enrichment,
-            data_get($connection->payload, 'name'),
-            is_array($connection->payload) ? $connection->payload : [],
+            $gbp->name(),
+            $gbp->toArray(),
         );
 
         // Write back business-info only: strip the enrichment keys (stale ones from
@@ -133,7 +135,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
             return null;
         }
 
-        return data_get($connection->payload, 'placeId') === $this->placeId ? $connection : null;
+        return GoogleBusinessPayload::fromArray($connection->payload)->placeId() === $this->placeId ? $connection : null;
     }
 
     private function mark(IntegrationConnection $connection, string $status): void
@@ -150,6 +152,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
     /** @return array<string,mixed> */
     private function payloadOf(IntegrationConnection $connection): array
     {
-        return is_array($connection->payload) ? $connection->payload : [];
+        // before: return is_array($connection->payload) ? $connection->payload : [];
+        return GoogleBusinessPayload::fromArray($connection->payload)->toArray();
     }
 }
