@@ -152,7 +152,6 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
     /** @return array<string,mixed> */
     private function payloadOf(IntegrationConnection $connection): array
     {
-        // before: return is_array($connection->payload) ? $connection->payload : [];
         return GoogleBusinessPayload::fromArray($connection->payload)->toArray();
     }
 }
