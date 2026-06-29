@@ -5,8 +5,13 @@ use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
+use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
+use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
+use App\Services\Platforms\Strategies\Fetch\StravaFetch;
+use App\Services\Platforms\Strategies\Refresh\NoRefresh;
+use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 
 it('registers exactly the platforms the app accepts today', function () {
     $registry = app(PlatformRegistry::class);
@@ -82,11 +87,11 @@ it('does not register routes for the dormant mixcloud/tidal embeds', function ()
 });
 
 it('attaches the Plan-6 fetch strategies to strava, eventbrite and humanitix', function () {
-    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+    $registry = app(PlatformRegistry::class);
 
-    expect($registry->get('strava')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\StravaFetch::class);
-    expect($registry->get('eventbrite')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\EventbriteFetch::class);
-    expect($registry->get('humanitix')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\HumanitixFetch::class);
+    expect($registry->get('strava')->fetchStrategy())->toBeInstanceOf(StravaFetch::class);
+    expect($registry->get('eventbrite')->fetchStrategy())->toBeInstanceOf(EventbriteFetch::class);
+    expect($registry->get('humanitix')->fetchStrategy())->toBeInstanceOf(HumanitixFetch::class);
 });
 
 it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 read-path) to google-business', function () {
@@ -100,15 +105,15 @@ it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 re
 });
 
 it('derives a ScheduledRefresh for a refreshable platform and NoRefresh otherwise', function () {
-    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+    $registry = app(PlatformRegistry::class);
 
-    expect($registry->get('youtube')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\ScheduledRefresh::class);
-    expect($registry->get('instagram')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\NoRefresh::class); // not refreshable
-    expect($registry->get('tiktok')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\NoRefresh::class);   // link-only
+    expect($registry->get('youtube')->refreshStrategy())->toBeInstanceOf(ScheduledRefresh::class);
+    expect($registry->get('instagram')->refreshStrategy())->toBeInstanceOf(NoRefresh::class); // not refreshable
+    expect($registry->get('tiktok')->refreshStrategy())->toBeInstanceOf(NoRefresh::class);   // link-only
 });
 
 it('isRefreshable mirrors the refreshable() set', function () {
-    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+    $registry = app(PlatformRegistry::class);
 
     expect($registry->isRefreshable('youtube'))->toBeTrue();
     expect($registry->isRefreshable('instagram'))->toBeFalse();
