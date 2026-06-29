@@ -15,9 +15,8 @@ use Illuminate\Validation\ValidationException;
 // behind the pilot platform feature (promoted from the single-tenant test-mode
 // cache).
 //
-// Deliberately separate from SmartLink (product decision): platforms is an
-// additive, self-contained feature that does not combine with or override
-// smart_links. They share column conventions for consistency only.
+// Additive, self-contained feature (product decision): platforms is
+// independent and does not combine with or override other site content.
 //
 // `payload` holds BOTH the user-curated selection (which products/albums/
 // videos they feature) AND the last fetched upstream snapshot. Its shape

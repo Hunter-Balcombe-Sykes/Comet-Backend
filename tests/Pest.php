@@ -411,35 +411,6 @@ function setupSitesTable(): void
         // already exists / unsupported — ignore
     }
 
-    // site.smart_links — queried by IndividualProfilePayloadBuilder::buildSmartLinks
-    // on every public-profile build, so any test that sets up a site needs it.
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.smart_links (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        site_id TEXT NULL,
-        family TEXT NULL,
-        type TEXT NULL,
-        platform TEXT NULL,
-        canonical_url TEXT NULL,
-        tracking_query TEXT NULL,
-        discount_code TEXT NULL,
-        title TEXT NULL,
-        image_url TEXT NULL,
-        favicon_url TEXT NULL,
-        brand_name TEXT NULL,
-        brand_logo_url TEXT NULL,
-        metadata TEXT NULL,
-        image_sources TEXT NULL,
-        sort_order INTEGER NULL DEFAULT 0,
-        is_active INTEGER NULL DEFAULT 1,
-        last_refreshed_at TEXT NULL,
-        last_refresh_status TEXT NULL,
-        consecutive_failures INTEGER NULL DEFAULT 0,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        deleted_at TEXT NULL
-    )');
-
     // site.platform_connections — per-user platform integration selections
     // (Shopify/Apple/Instagram/...). Read by the public platforms endpoint +
     // dashboard; any test that sets up a site may touch it. Mirrors the
