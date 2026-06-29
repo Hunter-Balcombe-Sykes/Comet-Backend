@@ -272,9 +272,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
-        // OpenTable reservations — connect by restaurant link, render the
-        // keyless reservation widget (rid read from the URL; no scraping).
-        'opentable' => OpenTableController::class,
         // ResDiary + NowBookit reservations — keyless booking widgets, same
         // connect-by-link flow as OpenTable (the embed is built from the URL).
         'resdiary' => ResDiaryController::class,
@@ -311,6 +308,12 @@ $registerIntegrationRoutes = function (string $base): void {
         // Pinterest is single-account (no /accounts). multi=false keeps the net
         // route count at 52 — it registers only /connect + /selection + DELETE /.
         'pinterest' => ['controller' => PinterestController::class, 'multi' => false],
+        // Keyless reservation widgets — connect() (URL validation + widget-embed
+        // building + the google-seeded `source` un-tag) stays bespoke on the thin
+        // controller; /selection + DELETE / are served by the registry-driven
+        // GenericPlatformController via SelectionPayload. Single-slot (multi=false):
+        // no /accounts routes, so the net-completeness count stays 52.
+        'opentable' => ['controller' => OpenTableController::class, 'multi' => false],
     ];
     foreach ($migratedReads as $slug => $cfg) {
         Route::prefix("{$base}/{$slug}")
@@ -346,7 +349,7 @@ $registerIntegrationRoutes = function (string $base): void {
     // OpenTable one-click connect: the rid-bearing link harvested from the
     // user's Google Business reservation provider (OpenTable blocks us from
     // resolving slug links ourselves). connect/selection/forget come from the
-    // single-selection loop above.
+    // $migratedReads loop above (GenericPlatformController).
     Route::get("{$base}/opentable/suggestion", [OpenTableController::class, 'suggestion'])
         ->middleware($middleware);
 
