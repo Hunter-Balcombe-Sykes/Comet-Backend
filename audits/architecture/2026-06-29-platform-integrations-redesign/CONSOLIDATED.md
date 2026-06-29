@@ -37,7 +37,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 5 of 8 complete
+- P3 Low: 8 of 8 complete
 
 ---
 
@@ -209,7 +209,7 @@
         expect($readRoutes->count())->toBe(52);
         ```
 
-- [ ] **#TYPE-1** · P3 — Fetch strategies read re-fetch inputs untyped, bypassing the purpose-built DTOs
+- [x] **#TYPE-1** · P3 — Fetch strategies read re-fetch inputs untyped, bypassing the purpose-built DTOs
     - **Where:** `app/Services/Platforms/Strategies/Fetch/YoutubeFetch.php:18-20`; `VimeoFetch.php:18-20,33-34`; `OEmbedFetch.php:26-28,40-42` (and siblings)
     - **Affects:** Typed-boundary completeness on the refresh path (no contract/correctness risk).
     - **Effort:** M (~2–4h)
@@ -224,7 +224,7 @@
         $handle = $payload['handle'] ?? null;
         ```
 
-- [ ] **#ARCH-1** · P3 — `refreshable` is expressed in two places that could drift
+- [x] **#ARCH-1** · P3 — `refreshable` is expressed in two places that could drift
     - **Where:** `app/Services/Platforms/Registry/PlatformDescriptor.php:193-198` (`refreshStrategy()`); `app/Services/Platforms/Registry/PlatformRegistry.php:44-47` (`refreshable()`)
     - **Affects:** Robustness of the cron refresh selection (no current bug).
     - **Effort:** S (~0.5–1h)
@@ -240,7 +240,7 @@
             : new NoRefresh;
         ```
 
-- [ ] **#OBS-1** · P3 — `MenuApifyScraper` logs up to 600 chars of the upstream Apify response body
+- [x] **#OBS-1** · P3 — `MenuApifyScraper` logs up to 600 chars of the upstream Apify response body
     - **Where:** `app/Services/Platforms/MenuApifyScraper.php:375-380`
     - **Affects:** Log hygiene (third-party body, not our secret).
     - **Effort:** S (~0.5–1h)

@@ -11,8 +11,16 @@ const PAYLOAD_PLUMBING_ALLOWLIST = [
     'app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php',
 ];
 
-// Refresh/WRITE-path files deferred to Plan 6 (their payload reads are re-fetch
-// inputs that die in / move through the refresher collapse). Excluded by directory.
+// Refresh/WRITE-path files: Strategies/Fetch/ is an accepted, documented exemption.
+// Each FetchStrategy (YoutubeFetch, VimeoFetch, OEmbedFetch, etc.) reads
+// $connection->payload as a raw array to extract the stored handle/config it needs
+// to re-pull fresh data from upstream. This is the WRITE side of the refresh path —
+// the payload is an INPUT to a re-fetch, not a read boundary exposed to API consumers.
+// The output of each fetch is parity-tested byte-for-byte against the legacy refresher
+// (PlatformRefresher), so the raw reads are deliberate and stable.
+// FeedPayload/EmbedPayload keys *could* be consumed via typed DTOs here, but the
+// marginal tidiness doesn't justify touching the parity-sensitive refresh path.
+// Accepted exemption — do NOT migrate without a paired parity-test update.
 function isDeferredRefreshPath(string $path): bool
 {
     return str_contains($path, 'app/Services/Platforms/Strategies/Fetch/')

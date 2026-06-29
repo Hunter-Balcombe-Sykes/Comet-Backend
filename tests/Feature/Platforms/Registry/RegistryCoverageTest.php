@@ -119,3 +119,16 @@ it('isRefreshable mirrors the refreshable() set', function () {
     expect($registry->isRefreshable('instagram'))->toBeFalse();
     expect($registry->isRefreshable('not-a-platform'))->toBeFalse();
 });
+
+it('every refreshable descriptor has a non-null fetchStrategy (flag ⇒ fetch; prevents cron degrading to NoRefresh)', function () {
+    $registry = app(PlatformRegistry::class);
+
+    $missing = [];
+    foreach ($registry->refreshable() as $key => $descriptor) {
+        if ($descriptor->fetchStrategy() === null) {
+            $missing[] = $key;
+        }
+    }
+
+    expect($missing)->toBe([], 'Refreshable platform(s) have no fetchStrategy — cron would silently degrade to NoRefresh: '.implode(', ', $missing));
+});

@@ -377,7 +377,6 @@ class MenuApifyScraper
                 'user_id' => $userId,
                 'attempt' => $attempt,
                 'status' => $response->status(),
-                'body' => mb_substr((string) $response->body(), 0, 600),
             ]);
 
             return ['menu' => null, 'retryable' => $response->status() >= 500];
