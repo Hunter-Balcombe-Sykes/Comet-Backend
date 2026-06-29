@@ -178,7 +178,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // ── Picker / booking / reservations (no cron refresh) ──
             $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->payload(SelectionPayload::class));
-            $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class));
+            $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class));
             $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class));

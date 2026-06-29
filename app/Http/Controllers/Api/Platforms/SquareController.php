@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectSquareRequest;
+use App\Services\Platforms\Payloads\SelectionPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -42,7 +43,7 @@ class SquareController extends ApiController
     public function selection(Request $request): JsonResponse
     {
         return $this->success([
-            'url' => data_get($this->readConnection($this->currentUser($request)), 'url'),
+            'url' => SelectionPayload::fromArray($this->readConnection($this->currentUser($request)) ?? [])->url,
         ]);
     }
 
