@@ -290,3 +290,14 @@
 
 - **#SEC-1 — Dropped CHECK has no explicit write gate** · standalone: P1 security/data-integrity gate that replaces a dropped DB constraint and changes the model write boundary. Pause for sign-off on the enforcement point (model `saving` guard vs. FormRequest rule) before implementing.
 - **#HYG-1 — Stale phpstan baseline** · standalone: repo-wide tooling, out of scope for the platform-integrations refactor — do it separately (or skip) rather than folding it into a platform fix session.
+
+---
+
+## Discovered during fix flow (not in the original audit)
+
+- [x] **#SEC-3** · P1 — Registered, publicly-reachable platforms `mixcloud`/`tidal`/`square` had no `ALLOWLIST` entry (fail-OPEN leak pre-SEC-2; blank public render post-SEC-2)
+    - **Where:** `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php` (`const ALLOWLIST`); reachability confirmed in `app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php` (`whereNotIn` excludes only `booking`/`reservations`/`online-ordering`).
+    - **Affects:** Public, CDN-cached, unauthenticated sitepage payload (the same surface as SEC-2).
+    - **Effort:** S
+    - **What was done:** Added public-safe allowlist entries — `mixcloud`/`tidal` => `['url','name','thumbnail','embedUrl','link']` (the `MusicEmbedConnectionResource` contract, mirroring spotify/soundcloud/deezer); `square` => `['url']` (`SquareController::connect` stores only the user-pasted booking URL; no scraping). Tests assert each renders its exact public key set and strips a seeded internal key (`source` for square).
+    - **How surfaced:** The Bundle 2 independent review disproved the audit's SEC-2 premise ("all 36 registered platforms have allowlist entries"). Owner approved fixing all three on this branch. A follow-up independent review reconciled every registered platform against the allowlist — the gap is fully closed, no platform remains unallowlisted.

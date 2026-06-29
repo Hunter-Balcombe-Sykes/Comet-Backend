@@ -230,3 +230,95 @@ it('never exposes the dashboard-only category platforms on the public endpoint',
     // The public platform still ships untouched.
     expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
 });
+
+it('allowlists mixcloud using the MusicEmbed five-key contract and strips internal keys', function () {
+    $user = allowlistUser('allow11');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'mixcloud',
+        'resource_id' => 'mixcloud',
+        'payload' => [
+            'url' => 'https://www.mixcloud.com/djtest/set/my-mix/',
+            'name' => 'My Mix',
+            'thumbnail' => 'https://thumbnailer.mixcloud.com/unsafe/600x600/extaudio/1/2/3.jpg',
+            'embedUrl' => 'https://www.mixcloud.com/widget/iframe/?feed=%2Fdjtest%2Fset%2Fmy-mix%2F',
+            'link' => 'https://www.mixcloud.com/djtest/set/my-mix/',
+            '_scratch' => 'internal', // not on the allowlist — must be stripped
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allow11/integrations')
+        ->assertOk()
+        ->json('data.platforms.mixcloud.0.payload');
+
+    expect($payload)->toBe([
+        'url' => 'https://www.mixcloud.com/djtest/set/my-mix/',
+        'name' => 'My Mix',
+        'thumbnail' => 'https://thumbnailer.mixcloud.com/unsafe/600x600/extaudio/1/2/3.jpg',
+        'embedUrl' => 'https://www.mixcloud.com/widget/iframe/?feed=%2Fdjtest%2Fset%2Fmy-mix%2F',
+        'link' => 'https://www.mixcloud.com/djtest/set/my-mix/',
+    ]);
+    expect($payload)->not->toHaveKey('_scratch');
+});
+
+it('allowlists tidal using the MusicEmbed five-key contract and strips internal keys', function () {
+    $user = allowlistUser('allow12');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'tidal',
+        'resource_id' => 'tidal',
+        'payload' => [
+            'url' => 'https://listen.tidal.com/album/123456',
+            'name' => 'Test Album',
+            'thumbnail' => 'https://resources.tidal.com/images/abc/640x640.jpg',
+            'embedUrl' => 'https://embed.tidal.com/albums/123456',
+            'link' => 'https://listen.tidal.com/album/123456',
+            '_scratch' => 'internal', // not on the allowlist — must be stripped
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allow12/integrations')
+        ->assertOk()
+        ->json('data.platforms.tidal.0.payload');
+
+    expect($payload)->toBe([
+        'url' => 'https://listen.tidal.com/album/123456',
+        'name' => 'Test Album',
+        'thumbnail' => 'https://resources.tidal.com/images/abc/640x640.jpg',
+        'embedUrl' => 'https://embed.tidal.com/albums/123456',
+        'link' => 'https://listen.tidal.com/album/123456',
+    ]);
+    expect($payload)->not->toHaveKey('_scratch');
+});
+
+it('allowlists square to only the public booking url and strips any internal keys', function () {
+    $user = allowlistUser('allow13');
+
+    // Square stores only the user-pasted booking URL (no scraping). `source` is the
+    // real internal origin tag SelectionPayload can carry; seed it to prove the
+    // allowlist strips anything beyond `url`.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'square',
+        'resource_id' => 'square',
+        'payload' => [
+            'url' => 'https://book.squareup.com/appointments/abc123/location/xyz/services',
+            'source' => 'manual', // not on the allowlist — must be stripped
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allow13/integrations')
+        ->assertOk()
+        ->json('data.platforms.square.0.payload');
+
+    expect($payload)->toBe(['url' => 'https://book.squareup.com/appointments/abc123/location/xyz/services']);
+    expect($payload)->not->toHaveKey('source');
+});

@@ -50,6 +50,11 @@ class PublicIntegrationConnectionResource extends ApiResource
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'deezer' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        // mixcloud + tidal share MusicEmbedConnectionResource — same five-key contract.
+        'mixcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
+        // square: a single user-pasted booking URL. No scraping — only `url` is stored.
+        'square' => ['url'],
         'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights'],
         'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
         // youtube-music: channelId (the re-fetch input) stays private.
