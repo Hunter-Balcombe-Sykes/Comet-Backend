@@ -61,16 +61,6 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('purge-raw-events'));
 
-// Smart-link snapshot refresh — commerce stales at 6h, content weekly; the
-// command picks the stalest rows each run (capped via --limit). Every 6h is
-// frequent enough for the 6h commerce tier without hammering merchant sites.
-Schedule::command('smartlinks:refresh')
-    ->everySixHours()
-    ->runInBackground()
-    ->onOneServer()
-    ->withoutOverlapping(60)
-    ->onFailure($reportScheduledFailure('smartlinks:refresh'));
-
 // Pilot platform refresh — re-fetch the auto-content platforms (YouTube latest,
 // Eventbrite events, Apple latest release) daily so sitepages show fresh data
 // without the user re-connecting. Static links + costly/multi-step platforms are
