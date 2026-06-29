@@ -9,6 +9,7 @@ use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\Payloads\CardPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -68,14 +69,14 @@ class OnlineOrderingController extends ApiController
             // store path) folds into that existing row — one store = one entry
             // carrying both a pickup and a delivery URL — instead of a duplicate.
             $existing = $storeKey === null ? null : $this->entryRows($user)
-                ->first(fn (IntegrationConnection $row) => $this->storeKey(data_get($row->payload, 'url')) === $storeKey);
+                ->first(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey);
 
             if (! $existing && $this->entryRows($user)->count() >= self::MAX_ENTRIES) {
                 return $this->error('You can add up to '.self::MAX_ENTRIES.' ordering links.', 422);
             }
 
             if ($existing) {
-                $this->writeConnection($user, $this->mergeStorePayload($existing->payload ?? [], $meta, $mode), $existing->resource_id);
+                $this->writeConnection($user, $this->mergeStorePayload(CardPayload::fromArray($existing->payload)->toArray(), $meta, $mode), $existing->resource_id);
             } else {
                 $rid = $this->entryResourceId($meta['url']);
                 $this->writeConnection($user, $this->mergeStorePayload([
@@ -105,11 +106,11 @@ class OnlineOrderingController extends ApiController
         // The id is the consolidated entry's id (the store's primary row). Remove
         // EVERY row for that store so a pickup+delivery pair disappears in one
         // click — not just the primary, which would leave the sibling orphaned.
-        $storeKey = $this->storeKey(data_get($target->payload, 'url'));
+        $storeKey = $this->storeKey(CardPayload::fromArray($target->payload)->url());
         $rids = $storeKey === null
             ? [$id]
             : $this->entryRows($user)
-                ->filter(fn (IntegrationConnection $row) => $this->storeKey(data_get($row->payload, 'url')) === $storeKey)
+                ->filter(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey)
                 ->pluck('resource_id')
                 ->all();
 
@@ -162,11 +163,11 @@ class OnlineOrderingController extends ApiController
     {
         $groups = [];
         foreach ($this->entryRows($user) as $row) {
-            $p = is_array($row->payload) ? $row->payload : [];
+            $card = CardPayload::fromArray($row->payload);
             // Group by store; an unkeyable url (shouldn't happen) gets its own slot.
-            $key = $this->storeKey($p['url'] ?? null) ?? ('row:'.$row->resource_id);
+            $key = $this->storeKey($card->url()) ?? ('row:'.$row->resource_id);
             $groups[$key] ??= [];
-            $groups[$key][] = ['rid' => $row->resource_id, 'payload' => $p];
+            $groups[$key][] = ['rid' => $row->resource_id, 'payload' => $card->toArray()];
         }
 
         $out = [];
@@ -188,17 +189,16 @@ class OnlineOrderingController extends ApiController
      */
     private function consolidateEntry(array $rows): array
     {
-        $primary = $rows[0]['payload'];
-        $data = is_array($primary['data'] ?? null) ? $primary['data'] : [];
+        $primary = CardPayload::fromArray($rows[0]['payload']);
+        $data = $primary->data();
 
         $pickupUrl = $data['pickupUrl'] ?? null;
         $deliveryUrl = $data['deliveryUrl'] ?? null;
         foreach ($rows as $row) {
-            $p = $row['payload'];
-            $url = $p['url'] ?? null;
-            $mode = (data_get($p, 'data.type') === 'pickup' || data_get($p, 'data.type') === 'delivery')
-                ? data_get($p, 'data.type')
-                : $this->modeOf($url);
+            $card = CardPayload::fromArray($row['payload']);
+            $url = $card->url();
+            $type = $card->data()['type'] ?? null;
+            $mode = ($type === 'pickup' || $type === 'delivery') ? $type : $this->modeOf($url);
             if ($mode === 'pickup') {
                 $pickupUrl ??= $url;
             } elseif ($mode === 'delivery') {
@@ -206,8 +206,6 @@ class OnlineOrderingController extends ApiController
             }
         }
 
-        // Fold the resolved mode URLs back into data (drop nulls so an untyped
-        // single-link store keeps a clean `data`).
         $data = array_filter([
             ...$data,
             'pickupUrl' => $pickupUrl,
@@ -216,12 +214,12 @@ class OnlineOrderingController extends ApiController
 
         return [
             'id' => $rows[0]['rid'],
-            'provider' => $primary['provider'] ?? 'custom',
-            'url' => $primary['url'] ?? null,
-            'name' => $primary['name'] ?? null,
-            'favicon' => $primary['favicon'] ?? null,
-            'logo' => $primary['logo'] ?? null,
-            'source' => $primary['source'] ?? 'manual',
+            'provider' => $primary->provider() ?? 'custom',
+            'url' => $primary->url(),
+            'name' => $primary->name(),
+            'favicon' => $primary->favicon(),
+            'logo' => $primary->logo(),
+            'source' => $primary->source() ?? 'manual',
             'data' => $data === [] ? null : $data,
         ];
     }
@@ -238,7 +236,7 @@ class OnlineOrderingController extends ApiController
      */
     private function mergeStorePayload(array $payload, array $meta, ?string $mode): array
     {
-        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $data = CardPayload::fromArray($payload)->data();
         if ($mode === 'pickup') {
             $data['pickupUrl'] = $meta['url'];
         } elseif ($mode === 'delivery') {

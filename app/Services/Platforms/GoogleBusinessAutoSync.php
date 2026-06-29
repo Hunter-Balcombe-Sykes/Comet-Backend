@@ -9,6 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\InstagramApifyBudget;
+use App\Services\Platforms\Payloads\CardPayload;
 use Throwable;
 
 // Seeds Reservations / Online-ordering / Social connections from a Google
@@ -445,7 +446,7 @@ class GoogleBusinessAutoSync
             ->where('user_id', $userId)
             ->where('platform', 'online-ordering')
             ->get()
-            ->contains(fn (IntegrationConnection $row) => $this->storeKey(data_get($row->payload, 'url')) === $storeKey);
+            ->contains(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey);
     }
 
     /**

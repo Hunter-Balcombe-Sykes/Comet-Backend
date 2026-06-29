@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Payloads\CardPayload;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -210,7 +211,7 @@ class MenuSource
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
-            ->map(fn (IntegrationConnection $r) => is_array($r->payload) ? $r->payload : [])
+            ->map(fn (IntegrationConnection $r) => CardPayload::fromArray($r->payload)->toArray())
             ->filter(fn (array $p) => is_string($p['url'] ?? null) && $p['url'] !== '')
             ->values();
     }
