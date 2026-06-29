@@ -35,9 +35,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 1 of 2 complete
 - P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 1 of 8 complete
 
 ---
 
@@ -256,7 +256,7 @@
             'body' => mb_substr((string) $response->body(), 0, 600),
         ```
 
-- [ ] **#HYG-1** · P3 — `composer analyse` is red repo-wide from a stale phpstan baseline (out of scope for this refactor)
+- [x] **#HYG-1** · P3 — `composer analyse` is red repo-wide from a stale phpstan baseline (out of scope for this refactor)
     - **Where:** `phpstan-baseline.neon:2857` (references the deleted `app/Http/Resources/UserResource.php`); baseline added in commit `ae7982dc`
     - **Affects:** Static analysis cannot run to completion for anyone; not specific to platform integrations.
     - **Effort:** S (~0.5–1h)
