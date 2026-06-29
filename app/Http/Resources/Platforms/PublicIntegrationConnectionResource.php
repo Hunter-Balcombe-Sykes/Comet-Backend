@@ -120,13 +120,19 @@ class PublicIntegrationConnectionResource extends ApiResource
 
         $allowed = self::ALLOWLIST[$platform] ?? null;
         if ($allowed === null) {
-            // A new platform shipped without an allowlist entry — fail OPEN (never
-            // break public rendering) but surface the gap so it gets filled.
+            // A new platform shipped without an allowlist entry — fail CLOSED to
+            // never leak unvetted stored keys (e.g. _folder, source, sourceUrl) on
+            // the public, CDN-cached wire. The Log::warning surfaces the gap so the
+            // entry gets filled; until then the platform renders an empty payload
+            // publicly, which is safe. (Fail-open was the prior behaviour; removed
+            // by SEC-2 because every registered platform already has an entry, so
+            // this branch is only reachable by an unregistered platform — which
+            // the SEC-1 model saving guard also rejects at write time.)
             Log::warning('PublicIntegrationConnectionResource: no allowlist for platform', [
                 'platform' => $platform,
             ]);
 
-            return $payload;
+            return [];
         }
 
         return array_intersect_key($payload, array_flip($allowed));

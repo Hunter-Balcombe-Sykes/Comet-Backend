@@ -35,8 +35,8 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 2 complete
-- P2 Medium: 2 of 3 complete
+- P1 High: 2 of 2 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 5 of 8 complete
 
 ---
@@ -68,7 +68,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P1 — `PublicIntegrationConnectionResource::filterPayload` fails OPEN for an unknown platform
+- [x] **#SEC-2** · P1 — `PublicIntegrationConnectionResource::filterPayload` fails OPEN for an unknown platform
     - **Where:** `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:121-130`
     - **Affects:** Public, CDN-cached sitepage payload (`<handle>.partna.au`) — the unauthenticated render surface.
     - **Effort:** S (~0.5–1h)
@@ -96,7 +96,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#CAP-1** · P2 — Capability gate `availableFor()` is consulted at exactly one site; spec's "every dispatcher/route/render checks this" unmet
+- [x] **#CAP-1** · P2 — Capability gate `availableFor()` is consulted at exactly one site; spec's "every dispatcher/route/render checks this" unmet
     - **Where:** `app/Services/Platforms/Registry/PlatformDescriptor.php:203-206` (definition, returns `true`); sole call site `app/Http/Controllers/Api/Platforms/GenericPlatformController.php:54`
     - **Affects:** Future paid-tier / account-type gating; the public render path and ~20 bespoke connect flows would silently bypass it.
     - **Effort:** M (~2–4h)

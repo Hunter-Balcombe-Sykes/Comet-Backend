@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Str;
@@ -138,6 +139,36 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('apiPath');
     expect($platforms['vimeo'][0]['payload']['url'])->toBe('https://vimeo.com/mockuser');
     expect($platforms['vimeo'][0]['payload']['highlights'])->toHaveCount(1);   // curated picks are public
+});
+
+it('returns an empty payload array (fail-closed) for a platform with no allowlist entry', function () {
+    // SEC-2: the public resource must fail CLOSED — return [] — when a platform
+    // has no ALLOWLIST entry, never leaking raw stored keys like _folder / source / sourceUrl.
+    //
+    // We exercise the Resource directly over an UNSAVED model so the SEC-1 saving
+    // guard (which rejects unregistered platforms at persist time) does NOT fire.
+    // new IntegrationConnection([...]) fills the model attributes without touching
+    // the DB, giving us a valid carrier with an unregistered platform key.
+    $carrier = new IntegrationConnection([
+        'platform' => 'mystery',
+        'resource_id' => 'x',
+        'payload' => [
+            'url' => 'https://example.com',
+            '_folder' => 'secret',
+            'source' => 'internal',
+            'sourceUrl' => 'https://internal.example.com',
+        ],
+        'last_refreshed_at' => null,
+    ]);
+
+    $result = (new PublicIntegrationConnectionResource($carrier))->toArray(request());
+
+    // Fail-closed: the payload field must be an empty array, not the raw stored data.
+    expect($result['payload'])->toBe([]);
+    // Prove no internal keys leaked.
+    expect($result['payload'])->not->toHaveKey('_folder');
+    expect($result['payload'])->not->toHaveKey('source');
+    expect($result['payload'])->not->toHaveKey('sourceUrl');
 });
 
 it('never exposes the dashboard-only category platforms on the public endpoint', function () {

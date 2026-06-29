@@ -197,9 +197,22 @@ class PlatformDescriptor
             : new NoRefresh;
     }
 
-    // Capability seam — every dispatcher/route/render checks this. Returns true
-    // for everyone today; future paid-tier/account-type gating sets a predicate
-    // here (read via AccountCapabilities) without touching call sites.
+    /**
+     * Capability gate — intentional not-yet-wired seam. Returns true for all
+     * users today. Currently consulted at EXACTLY ONE production call site:
+     * `GenericPlatformController::connect` via `abort_unless($descriptor->availableFor($user), 403)`.
+     *
+     * Introducing a non-trivial predicate (e.g. paid-tier gating) REQUIRES first
+     * wiring the ~20 bespoke connect flows + `PublicIntegrationController::show`.
+     * The preferred wiring point for the public render path is
+     * `ManagesIntegrationConnection::writeConnection()`, which would need to resolve
+     * `app(PlatformRegistry::class)->get($this->platform())` since the trait holds
+     * no descriptor today.
+     *
+     * CRITICAL — if ever wired into the PUBLIC render path it MUST return 404, not
+     * 403. The public endpoint already 404s unknown handles to prevent enumeration;
+     * a 403 would leak handle existence to unauthenticated callers.
+     */
     public function availableFor(User $user): bool
     {
         return true;
