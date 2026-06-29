@@ -2,7 +2,7 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
-use App\Services\SmartLinks\ParsedUrl;
+use App\Services\Http\ParsedUrl;
 use App\Services\SmartLinks\ResolvedSmartLinkData;
 
 /**

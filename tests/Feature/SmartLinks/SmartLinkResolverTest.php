@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\SmartLinks\SmartLinkResolver;
 
 /** A fetcher that returns canned responses by URL substring — no network/DNS. */

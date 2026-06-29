@@ -1,8 +1,8 @@
 <?php
 
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\StravaClubScraper;
-use App\Services\SmartLinks\SafeUrlFetcher;
 
 afterEach(function () {
     Mockery::close();

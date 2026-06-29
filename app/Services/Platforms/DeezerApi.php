@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Deezer's public JSON API is fully open (api.deezer.com/artist/{id} — no
 // key), and the official widget (widget.deezer.com/widget/auto/artist/{id})

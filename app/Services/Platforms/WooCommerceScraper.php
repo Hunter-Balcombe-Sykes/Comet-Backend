@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Scrapes a WooCommerce store with no auth via the public Store API
 // (/wp-json/wc/store/v1/products — unauthenticated by design, used by Woo's

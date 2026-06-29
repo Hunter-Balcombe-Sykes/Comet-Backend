@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Strava club pages (strava.com/clubs/{slug-or-id}) server-render their og
 // tags plus the member count — no login wall. Athlete profiles ARE walled,

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\SmartLinks;
+namespace App\Services\Http;
 
 /** Structured metadata extracted from an HTML page by {@see MetadataParser}. */
 final class ParsedMetadata

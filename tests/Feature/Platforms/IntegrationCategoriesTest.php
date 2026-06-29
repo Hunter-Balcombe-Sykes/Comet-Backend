@@ -2,9 +2,9 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\ProviderDetector;
-use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Support\Str;
 
 beforeEach(function () {

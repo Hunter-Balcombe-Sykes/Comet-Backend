@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Scrapes a Bandcamp artist/label page with no auth. The /music page renders
 // a server-side album grid (#music-grid) of <li class="music-grid-item"

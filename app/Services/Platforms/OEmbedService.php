@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Resolves a public oEmbed endpoint (no auth, no key) into the small profile
 // the music-embed platforms store: display name, artwork, and the official

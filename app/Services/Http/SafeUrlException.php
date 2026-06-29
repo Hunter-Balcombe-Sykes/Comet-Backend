@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\SmartLinks;
+namespace App\Services\Http;
 
 use RuntimeException;
 

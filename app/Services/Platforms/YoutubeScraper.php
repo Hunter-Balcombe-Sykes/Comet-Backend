@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Scrapes a YouTube channel's recent uploads with no API key. Two
 // unauthenticated fetches: the channel page (to resolve the channel's own ID)

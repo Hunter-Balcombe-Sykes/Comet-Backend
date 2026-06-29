@@ -2,13 +2,13 @@
 
 namespace App\Services\SmartLinks\Extractors;
 
+use App\Services\Http\MetadataParser;
+use App\Services\Http\ParsedMetadata;
+use App\Services\Http\ParsedUrl;
+use App\Services\Http\SafeUrlException;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\SmartLinks\Extractors\Concerns\ExtractorHelpers;
-use App\Services\SmartLinks\MetadataParser;
-use App\Services\SmartLinks\ParsedMetadata;
-use App\Services\SmartLinks\ParsedUrl;
 use App\Services\SmartLinks\ResolvedSmartLinkData;
-use App\Services\SmartLinks\SafeUrlException;
-use App\Services\SmartLinks\SafeUrlFetcher;
 
 /**
  * JSON-LD + OpenGraph + favicon extractor. Serves:

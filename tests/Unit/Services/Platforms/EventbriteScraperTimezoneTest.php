@@ -1,7 +1,7 @@
 <?php
 
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\EventbriteScraper;
-use App\Services\SmartLinks\SafeUrlFetcher;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;

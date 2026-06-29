@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Big Cartel's legacy public API is keyless: api.bigcartel.com/{account}/
 // store.json (identity + currency) and products.json (full catalog with

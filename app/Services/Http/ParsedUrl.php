@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\SmartLinks;
+namespace App\Services\Http;
 
 /**
  * A normalized URL split into the pieces the resolver needs (spec §4).

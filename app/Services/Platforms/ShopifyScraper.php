@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Scrapes a Shopify store with no auth: products from /products.json, and a small
 // brand profile (id + name from /meta.json, favicon + logo from the homepage).
