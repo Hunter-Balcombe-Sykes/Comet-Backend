@@ -36,8 +36,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 1 of 8 complete
+- P2 Medium: 2 of 3 complete
+- P3 Low: 5 of 8 complete
 
 ---
 
@@ -119,7 +119,7 @@
         abort_unless($descriptor->availableFor($user), 403);
         ```
 
-- [ ] **#TEST-1** · P2 — `google-business/selection` has no exact-shape snapshot, and it is the only `array_intersect_key` dashboard resource
+- [x] **#TEST-1** · P2 — `google-business/selection` has no exact-shape snapshot, and it is the only `array_intersect_key` dashboard resource
     - **Where:** `app/Http/Resources/Platforms/GoogleBusinessConnectionResource.php:44`; coverage is `assertJsonPath`-only (`GoogleBusinessApifyTest.php`, `GoogleBusinessDetailsTest.php`)
     - **Affects:** Regression protection for the one resource whose emitted key set is variable (driven by stored keys).
     - **Effort:** S (~0.5–1h)
@@ -134,7 +134,7 @@
         ...array_intersect_key($this->resource, array_flip(self::ENRICHMENT_KEYS)),
         ```
 
-- [ ] **#TEST-2** · P2 — `humanitix` is entirely unpinned by a full snapshot, though it is a distinct controller + resource from the snapshotted `eventbrite`
+- [x] **#TEST-2** · P2 — `humanitix` is entirely unpinned by a full snapshot, though it is a distinct controller + resource from the snapshotted `eventbrite`
     - **Where:** `tests/Feature/Platforms/PlatformResourceContractTest.php` (snapshots eventbrite only); `humanitix/selection` + `humanitix/accounts` have no `assertExactJson`
     - **Affects:** Regression protection for the Humanitix read path.
     - **Effort:** S (~0.5–1h)
@@ -152,7 +152,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#TEST-3** · P3 — Reservation `/selection` (`opentable`/`resdiary`/`nowbookit`) only `assertJsonPath`-covered — the one place a normalizing DTO meets an enumerating resource without an exact snapshot
+- [x] **#TEST-3** · P3 — Reservation `/selection` (`opentable`/`resdiary`/`nowbookit`) only `assertJsonPath`-covered — the one place a normalizing DTO meets an enumerating resource without an exact snapshot
     - **Where:** `tests/Feature/Platforms/OpenTableConnectionTest.php:77`, `tests/Feature/Platforms/ReservationProvidersTest.php:259,270`
     - **Affects:** Regression protection where `SelectionPayload` (normalizing, emits canonical-null `rid`/`microsite`/`accountId`/`venueId`/`source`) feeds enumerating resources.
     - **Effort:** S (~0.5–1h)
@@ -166,7 +166,7 @@
         // ->assertJsonPath('selection.url', ...)  — positive-key only
         ```
 
-- [ ] **#TEST-4** · P3 — Seven `*/accounts` multi-account reads have zero test references; the rest are partially pinned
+- [x] **#TEST-4** · P3 — Seven `*/accounts` multi-account reads have zero test references; the rest are partially pinned
     - **Where:** `apple/music/accounts`, `apple/podcast/accounts`, `bandcamp/accounts`, `deezer/accounts`, `soundcloud/accounts`, `vimeo/accounts`, `youtube-music/accounts` (no test); `youtube`/`twitch`/`spotify` `/accounts` partially pinned (`IntegrationContractGoldenMasterTest.php:104-106,221-223`)
     - **Affects:** Regression protection on the shared multi-account read path.
     - **Effort:** M (~2–4h)
@@ -182,7 +182,7 @@
         // apple/bandcamp/deezer/soundcloud/vimeo/youtube-music /accounts: no references anywhere
         ```
 
-- [ ] **#TEST-5** · P3 — `strava/selection` and `custom/links` have no snapshot anywhere
+- [x] **#TEST-5** · P3 — `strava/selection` and `custom/links` have no snapshot anywhere
     - **Where:** `StravaController` / `CustomLinksController` read paths
     - **Affects:** Regression protection for two read endpoints.
     - **Effort:** S (~0.5–1h)
@@ -195,7 +195,7 @@
         // grep of tests/ finds no assertExactJson/toEqual on /strava/selection or /custom/links
         ```
 
-- [ ] **#TEST-6** · P3 — The net-completeness guard validates route count, not route identity
+- [x] **#TEST-6** · P3 — The net-completeness guard validates route count, not route identity
     - **Where:** `tests/Feature/Platforms/GoldenMaster/IntegrationContractGoldenMasterTest.php:413`
     - **Affects:** Drift detection — a route *swap* keeping the count at 52 passes silently.
     - **Effort:** S (~0.5–1h)

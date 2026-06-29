@@ -232,6 +232,73 @@ it('eventbrite selection filters past events, strips unknown keys, and exposes a
         ]]);
 });
 
+// ── Humanitix (HumanitixConnectionResource) ───────────────────────────────────
+//
+// TEST-2: Humanitix is key-identical to Eventbrite at the resource level but
+// routes through the HumanitixController + HumanitixScraper subclass. Pinning
+// its selection shape separately catches any future divergence between the two.
+
+it('humanitix selection filters past events, strips unknown keys, and exposes accounts + merged events', function () {
+    $user = platformContractUser('hum1');
+    $future = ['name' => 'Humanitix Future', 'endDate' => '2099-06-02T00:00:00+00:00'];
+    seedPlatformConnection($user, 'humanitix', [
+        'url' => 'https://events.humanitix.com/host/acme',
+        'organiser' => 'Acme Events',
+        'next' => ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
+        'upcoming' => [
+            ['name' => 'Past', 'endDate' => '2000-01-01T00:00:00+00:00'],
+            $future,
+        ],
+        '_internal' => 'leak',
+    ]);
+
+    $stamped = EventsPayload::withIds([$future])[0];
+    // Merged events are tagged with their source account row.
+    $merged = [...$stamped, 'source' => 'account', 'accountId' => 'humanitix'];
+
+    actingAsUser($user)->getJson('/api/platforms/humanitix/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => [
+            'accounts' => [[
+                'id' => 'humanitix',
+                'url' => 'https://events.humanitix.com/host/acme',
+                'organiser' => 'Acme Events',
+                'next' => $stamped,
+                'upcoming' => [$stamped],
+            ]],
+            'events' => [$merged],
+            // Legacy mirror keys (pre-multi-account consumers).
+            'url' => 'https://events.humanitix.com/host/acme',
+            'organiser' => 'Acme Events',
+            'next' => $merged,
+            'upcoming' => [$merged],
+        ]]);
+});
+
+it('humanitix accounts list strips unknown keys and exposes the account shape', function () {
+    $user = platformContractUser('hum2');
+    $future = ['name' => 'Future Gig', 'endDate' => '2099-06-02T00:00:00+00:00'];
+    seedPlatformConnection($user, 'humanitix', [
+        'url' => 'https://events.humanitix.com/host/acme',
+        'organiser' => 'Acme Events',
+        'next' => $future,
+        'upcoming' => [$future],
+        '_internal' => 'leak',
+    ], 'acct-'.substr(sha1('https://events.humanitix.com/host/acme'), 0, 16));
+
+    $stamped = EventsPayload::withIds([$future])[0];
+
+    actingAsUser($user)->getJson('/api/platforms/humanitix/accounts')
+        ->assertOk()
+        ->assertExactJson(['accounts' => [[
+            'id' => 'acct-'.substr(sha1('https://events.humanitix.com/host/acme'), 0, 16),
+            'url' => 'https://events.humanitix.com/host/acme',
+            'organiser' => 'Acme Events',
+            'next' => $stamped,
+            'upcoming' => [$stamped],
+        ]]]);
+});
+
 // ── Instagram (InstagramConnectionResource — drops internal _folder) ──────────
 
 it('instagram selection drops the internal _folder key', function () {

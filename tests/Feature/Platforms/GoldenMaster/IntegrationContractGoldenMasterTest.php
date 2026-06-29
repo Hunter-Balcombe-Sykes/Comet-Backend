@@ -106,6 +106,174 @@ it('freezes the youtube accounts list contract', function () {
     expect($accounts[0]['handle'])->toBe('mychannel');
 });
 
+// ── TEST-4: 7 previously unpinned /accounts endpoints ────────────────────────
+//
+// apple/music, apple/podcast, bandcamp, deezer, soundcloud, vimeo, youtube-music
+// all route through GenericPlatformController::accountsList → shape() → resource.
+// Each parametrized case seeds one row with a _leak key and asserts the exact
+// full-row shape via toEqual (catches both missing and extra keys).
+
+dataset('multi_account_unpinned', [
+    // apple/music: AppleMusicConnectionResource (TileConnectionResource subclass)
+    // emits {input, name, thumbnail, releaseDate, link, latest, highlights}.
+    'apple-music' => [
+        'apple/music',
+        'apple-music',
+        'acct-'.substr(sha1('Taylor Swift'), 0, 16),
+        [
+            'input' => 'Taylor Swift', 'name' => 'The Tortured Poets Department',
+            'thumbnail' => 'https://is1-ssl.mzstatic.com/t.jpg',
+            'releaseDate' => '2024-04-19T00:00:00+00:00',
+            'link' => 'https://music.apple.com/au/album/1',
+            'latest' => ['collectionId' => 'a1', 'name' => 'The Tortured Poets Department'],
+            'highlights' => [], '_leak' => 'x',
+        ],
+        [
+            'input' => 'Taylor Swift', 'name' => 'The Tortured Poets Department',
+            'thumbnail' => 'https://is1-ssl.mzstatic.com/t.jpg',
+            'releaseDate' => '2024-04-19T00:00:00+00:00',
+            'link' => 'https://music.apple.com/au/album/1',
+            'latest' => ['collectionId' => 'a1', 'name' => 'The Tortured Poets Department'],
+            'highlights' => [],
+        ],
+    ],
+    // apple/podcast: ApplePodcastConnectionResource adds `description` to the tile shape.
+    'apple-podcast' => [
+        'apple/podcast',
+        'apple-podcast',
+        'acct-'.substr(sha1('Huberman Lab'), 0, 16),
+        [
+            'input' => 'Huberman Lab', 'name' => 'Dr. Andrew Huberman',
+            'thumbnail' => 'https://is1-ssl.mzstatic.com/ep.jpg',
+            'description' => 'Science-based tools.',
+            'releaseDate' => '2026-03-01T00:00:00+00:00',
+            'link' => 'https://podcasts.apple.com/au/podcast/1',
+            'latest' => ['trackId' => 'e1', 'name' => 'Dr. Andrew Huberman'],
+            'highlights' => [], '_leak' => 'x',
+        ],
+        [
+            'input' => 'Huberman Lab', 'name' => 'Dr. Andrew Huberman',
+            'thumbnail' => 'https://is1-ssl.mzstatic.com/ep.jpg',
+            'description' => 'Science-based tools.',
+            'releaseDate' => '2026-03-01T00:00:00+00:00',
+            'link' => 'https://podcasts.apple.com/au/podcast/1',
+            'latest' => ['trackId' => 'e1', 'name' => 'Dr. Andrew Huberman'],
+            'highlights' => [],
+        ],
+    ],
+    // bandcamp: BandcampConnectionResource — {url, artist, name, thumbnail, link, latest, highlights}.
+    'bandcamp' => [
+        'bandcamp',
+        'bandcamp',
+        'acct-'.substr(sha1('https://artist.bandcamp.com'), 0, 16),
+        [
+            'url' => 'https://artist.bandcamp.com', 'artist' => 'Artist', 'name' => 'Album Name',
+            'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
+            'link' => 'https://artist.bandcamp.com/album/test',
+            'latest' => ['name' => 'Album Name', 'link' => 'https://artist.bandcamp.com/album/test'],
+            'highlights' => [], '_leak' => 'x',
+        ],
+        [
+            'url' => 'https://artist.bandcamp.com', 'artist' => 'Artist', 'name' => 'Album Name',
+            'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
+            'link' => 'https://artist.bandcamp.com/album/test',
+            'latest' => ['name' => 'Album Name', 'link' => 'https://artist.bandcamp.com/album/test'],
+            'highlights' => [],
+        ],
+    ],
+    // deezer: MusicEmbedConnectionResource — {url, name, thumbnail, embedUrl, link}.
+    'deezer' => [
+        'deezer',
+        'deezer',
+        'acct-'.substr(sha1('https://www.deezer.com/artist/123'), 0, 16),
+        [
+            'url' => 'https://www.deezer.com/artist/123', 'name' => 'Artist',
+            'thumbnail' => 'https://e-cdn.deezer.com/t.jpg',
+            'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
+            'link' => 'https://www.deezer.com/artist/123', '_leak' => 'x',
+        ],
+        [
+            'url' => 'https://www.deezer.com/artist/123', 'name' => 'Artist',
+            'thumbnail' => 'https://e-cdn.deezer.com/t.jpg',
+            'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
+            'link' => 'https://www.deezer.com/artist/123',
+        ],
+    ],
+    // soundcloud: MusicEmbedConnectionResource — same 5-key shape as deezer.
+    'soundcloud' => [
+        'soundcloud',
+        'soundcloud',
+        'acct-'.substr(sha1('https://soundcloud.com/artist'), 0, 16),
+        [
+            'url' => 'https://soundcloud.com/artist', 'name' => 'Artist',
+            'thumbnail' => 'https://i1.sndcdn.com/t.jpg',
+            'embedUrl' => 'https://w.soundcloud.com/player/?url=x',
+            'link' => 'https://soundcloud.com/artist', '_leak' => 'x',
+        ],
+        [
+            'url' => 'https://soundcloud.com/artist', 'name' => 'Artist',
+            'thumbnail' => 'https://i1.sndcdn.com/t.jpg',
+            'embedUrl' => 'https://w.soundcloud.com/player/?url=x',
+            'link' => 'https://soundcloud.com/artist',
+        ],
+    ],
+    // vimeo: VimeoConnectionResource — {url, name, thumbnail, link, latest, items, highlights}.
+    'vimeo' => [
+        'vimeo',
+        'vimeo',
+        'acct-'.substr(sha1('https://vimeo.com/pat'), 0, 16),
+        [
+            'url' => 'https://vimeo.com/pat', 'apiPath' => 'pat', 'name' => 'Pat',
+            'thumbnail' => 't', 'link' => 'https://vimeo.com/pat',
+            'latest' => ['itemId' => 'v1'], 'items' => [['itemId' => 'v1']], 'highlights' => [], '_leak' => 'x',
+        ],
+        // apiPath is internal — not in VimeoConnectionResource.toArray(); stripped.
+        [
+            'url' => 'https://vimeo.com/pat', 'name' => 'Pat',
+            'thumbnail' => 't', 'link' => 'https://vimeo.com/pat',
+            'latest' => ['itemId' => 'v1'], 'items' => [['itemId' => 'v1']], 'highlights' => [],
+        ],
+    ],
+    // youtube-music: YoutubeMusicConnectionResource — {url, name, thumbnail, link, latest, items, highlights}.
+    // channelId is internal and must not appear (asserted separately below in the selection test).
+    'youtube-music' => [
+        'youtube-music',
+        'youtube-music',
+        'acct-'.substr(sha1('https://music.youtube.com/channel/UC'), 0, 16),
+        [
+            'url' => 'https://music.youtube.com/channel/UC', 'channelId' => 'UC', 'name' => 'Artist',
+            'thumbnail' => 't', 'link' => 'https://music.youtube.com/channel/UC',
+            'latest' => ['itemId' => 'i1'], 'items' => [['itemId' => 'i1']], 'highlights' => [], '_leak' => 'x',
+        ],
+        // channelId is internal — YoutubeMusicConnectionResource strips it.
+        [
+            'url' => 'https://music.youtube.com/channel/UC', 'name' => 'Artist',
+            'thumbnail' => 't', 'link' => 'https://music.youtube.com/channel/UC',
+            'latest' => ['itemId' => 'i1'], 'items' => [['itemId' => 'i1']], 'highlights' => [],
+        ],
+    ],
+]);
+
+it('freezes the multi-account /accounts contract for unpinned platforms', function (
+    string $routeSegment,
+    string $platform,
+    string $resourceId,
+    array $stored,
+    array $expectedShape,
+) {
+    $user = gmUser("gmacc{$platform}");
+    gmSeed($user, $platform, $stored, $resourceId);
+
+    $accounts = actingAsUser($user)->getJson("/api/platforms/{$routeSegment}/accounts")
+        ->assertOk()
+        ->json('accounts');
+
+    expect($accounts)->toHaveCount(1);
+    // Full row shape — catches both missing and extra key leaks.
+    expect($accounts[0])->not->toHaveKey('_leak');
+    expect($accounts[0])->toEqual(['id' => $resourceId, ...$expectedShape]);
+})->with('multi_account_unpinned');
+
 it('freezes the youtube selection contract', function () {
     $user = gmUser('gmytsel');
     gmSeed($user, 'youtube', [
@@ -406,9 +574,64 @@ it('covers every integration GET read-route in the golden master', function () {
             || str_contains($r->uri(), '/products') || str_contains($r->uri(), '/suggestion')
             || str_contains($r->uri(), '/synced'))
         ->map(fn ($r) => $r->uri())
-        ->unique()->values();
+        ->unique()->sort()->values();
 
-    // This net guards 52 integration read routes. If this count changes, a route
-    // was added/removed — extend the net before updating 52.
+    // TEST-6: Pin route IDENTITY, not just count.
+    // Sorted URI snapshot — catches add/remove AND one-for-one swaps.
+    // Count guard kept too for fast failure messaging.
     expect($readRoutes->count())->toBe(52);
-})->note('Net-completeness guard: update when integration read routes change.');
+    expect($readRoutes->all())->toEqual([
+        'api/platforms/apple/music/accounts',
+        'api/platforms/apple/music/selection',
+        'api/platforms/apple/podcast/accounts',
+        'api/platforms/apple/podcast/selection',
+        'api/platforms/bandcamp/accounts',
+        'api/platforms/bandcamp/selection',
+        'api/platforms/booking/status',
+        'api/platforms/custom/links',
+        'api/platforms/deezer/accounts',
+        'api/platforms/deezer/selection',
+        'api/platforms/eventbrite/accounts',
+        'api/platforms/eventbrite/selection',
+        'api/platforms/events/selection',
+        'api/platforms/facebook/selection',
+        'api/platforms/fresha/selection',
+        'api/platforms/google-business/selection',
+        'api/platforms/humanitix/accounts',
+        'api/platforms/humanitix/selection',
+        'api/platforms/instagram/connect/status',
+        'api/platforms/instagram/selection',
+        'api/platforms/linkedin/selection',
+        'api/platforms/menu',
+        'api/platforms/menu/status',
+        'api/platforms/nowbookit/selection',
+        'api/platforms/online-ordering/entries',
+        'api/platforms/opentable/selection',
+        'api/platforms/pinterest/selection',
+        'api/platforms/reddit/selection',
+        'api/platforms/resdiary/selection',
+        'api/platforms/reservations/status',
+        'api/platforms/shop/brands',
+        'api/platforms/shop/selection',
+        'api/platforms/shopify/brands',
+        'api/platforms/shopify/selection',
+        'api/platforms/skool/selection',
+        'api/platforms/soundcloud/accounts',
+        'api/platforms/soundcloud/selection',
+        'api/platforms/spotify/accounts',
+        'api/platforms/spotify/selection',
+        'api/platforms/square/selection',
+        'api/platforms/strava/selection',
+        'api/platforms/threads/selection',
+        'api/platforms/tiktok/selection',
+        'api/platforms/twitch/accounts',
+        'api/platforms/twitch/selection',
+        'api/platforms/vimeo/accounts',
+        'api/platforms/vimeo/selection',
+        'api/platforms/x/selection',
+        'api/platforms/youtube-music/accounts',
+        'api/platforms/youtube-music/selection',
+        'api/platforms/youtube/accounts',
+        'api/platforms/youtube/selection',
+    ]);
+})->note('Net-completeness + identity guard: update BOTH the count and the URI list when integration read routes change.');
