@@ -35,11 +35,13 @@ use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
@@ -175,9 +177,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
-            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable());
-            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable());
-            $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class));
+            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
+            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
+            $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
             $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->payload(SelectionPayload::class));

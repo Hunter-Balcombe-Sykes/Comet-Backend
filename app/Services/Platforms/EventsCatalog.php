@@ -4,6 +4,8 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Payloads\EventsAccountPayload;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Support\Carbon;
 
 // Unified "Tickets & Events" catalogue over the Eventbrite + Humanitix platforms
@@ -98,15 +100,13 @@ class EventsCatalog
         // Organiser/host accounts (eventbrite + humanitix) + their upcoming events.
         foreach (self::EVENT_PLATFORMS as $platform) {
             foreach ($this->accountRows($user, $platform) as $row) {
-                $p = is_array($row->payload) ? $row->payload : [];
-                $upcoming = $this->dropElapsed(EventsPayload::withIds(
-                    is_array($p['upcoming'] ?? null) ? $p['upcoming'] : [],
-                ));
+                $account = EventsAccountPayload::fromArray($row->payload);
+                $upcoming = $this->dropElapsed(EventsPayload::withIds($account->upcoming()));
                 $accounts[] = [
                     'id' => $row->resource_id,
                     'platform' => $platform,
-                    'url' => $p['url'] ?? null,
-                    'organiser' => $p['organiser'] ?? null,
+                    'url' => $account->url(),
+                    'organiser' => $account->organiser(),
                     'next' => $upcoming[0] ?? null,
                     'upcoming' => $upcoming,
                     'removePath' => "/platforms/{$platform}/accounts/{$row->resource_id}",
@@ -127,11 +127,10 @@ class EventsCatalog
         // Standalone events: eventbrite/humanitix singles + custom cards.
         foreach ([...self::EVENT_PLATFORMS, self::CUSTOM_PLATFORM] as $platform) {
             foreach ($this->eventRows($user, $platform) as $row) {
-                $p = is_array($row->payload) ? $row->payload : [];
-                unset($p['kind']);
-                $id = $p['id'] ?? null;
+                $standalone = StandaloneEventPayload::fromArray($row->payload);
+                $id = $standalone->id();
                 $events[] = [
-                    ...$p,
+                    ...$standalone->event(),
                     'platform' => $platform,
                     'source' => $platform === self::CUSTOM_PLATFORM ? 'link' : 'standalone',
                     'removePath' => $platform === self::CUSTOM_PLATFORM
@@ -183,12 +182,12 @@ class EventsCatalog
         }
 
         // Re-connecting the same organiser keeps its per-event hides.
-        $hidden = data_get($existing?->payload, 'hiddenEventIds', []);
+        $hidden = EventsAccountPayload::fromArray($existing?->payload)->hiddenEventIds();
         $payload = EventsPayload::accountPayload(
             $url,
             $result['organiser'] ?? null,
             is_array($result['events'] ?? null) ? $result['events'] : [],
-            is_array($hidden) ? $hidden : [],
+            $hidden,
         );
         $this->writeRow($user, $platform, $rid, $payload);
 

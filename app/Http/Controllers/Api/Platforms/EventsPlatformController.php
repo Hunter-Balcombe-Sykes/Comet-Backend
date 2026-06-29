@@ -8,6 +8,8 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\EventsPayload;
+use App\Services\Platforms\Payloads\EventsAccountPayload;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -69,10 +71,10 @@ abstract class EventsPlatformController extends ApiController
         }
 
         // Re-adding an already-connected page keeps its per-event hides.
-        $existing = $this->matchAccountRow($user, 'url', $url)?->payload;
-        $hidden = data_get($existing, 'hiddenEventIds', []);
+        $existingRow = $this->matchAccountRow($user, 'url', $url);
+        $hidden = EventsAccountPayload::fromArray($existingRow?->payload)->hiddenEventIds();
 
-        $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], is_array($hidden) ? $hidden : []);
+        $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden);
         $row = $this->writeAccountConnection($user, $url, $payload);
         if ($row === null) {
             return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
@@ -145,18 +147,17 @@ abstract class EventsPlatformController extends ApiController
 
             // Find the account row owning the event and hide it there.
             foreach ($this->accountRows($user) as $row) {
-                $payload = $row->payload ?? [];
-                $upcoming = EventsPayload::withIds(is_array($payload['upcoming'] ?? null) ? $payload['upcoming'] : []);
+                $account = EventsAccountPayload::fromArray($row->payload);
+                $upcoming = EventsPayload::withIds($account->upcoming());
                 if (! collect($upcoming)->contains(fn (array $e) => ($e['id'] ?? null) === $id)) {
                     continue;
                 }
 
-                $hidden = is_array($payload['hiddenEventIds'] ?? null) ? $payload['hiddenEventIds'] : [];
                 $next = EventsPayload::accountPayload(
-                    (string) ($payload['url'] ?? ''),
-                    $payload['organiser'] ?? null,
+                    (string) ($account->url() ?? ''),
+                    $account->organiser(),
                     $upcoming,
-                    [...$hidden, $id],
+                    [...$account->hiddenEventIds(), $id],
                 );
                 $this->writeConnection($user, $next, $row->resource_id);
 
@@ -219,13 +220,12 @@ abstract class EventsPlatformController extends ApiController
     /** @return array<string,mixed> */
     private function accountData(array $payload): array
     {
-        $upcoming = $this->dropElapsed(EventsPayload::withIds(
-            is_array($payload['upcoming'] ?? null) ? $payload['upcoming'] : [],
-        ));
+        $account = EventsAccountPayload::fromArray($payload);
+        $upcoming = $this->dropElapsed(EventsPayload::withIds($account->upcoming()));
 
         return [
-            'url' => $payload['url'] ?? null,
-            'organiser' => $payload['organiser'] ?? null,
+            'url' => $account->url(),
+            'organiser' => $account->organiser(),
             'next' => $upcoming[0] ?? null,
             'upcoming' => $upcoming,
         ];
@@ -242,19 +242,13 @@ abstract class EventsPlatformController extends ApiController
         $events = [];
 
         foreach ($this->accountRows($user) as $row) {
-            $payload = $row->payload ?? [];
-            foreach (EventsPayload::withIds(is_array($payload['upcoming'] ?? null) ? $payload['upcoming'] : []) as $event) {
+            foreach (EventsPayload::withIds(EventsAccountPayload::fromArray($row->payload)->upcoming()) as $event) {
                 $events[] = [...$event, 'source' => 'account', 'accountId' => $row->resource_id];
             }
         }
 
         foreach ($this->eventRows($user) as $row) {
-            $payload = $row->payload ?? [];
-            if (! is_array($payload)) {
-                continue;
-            }
-            unset($payload['kind']);
-            $events[] = [...$payload, 'source' => 'custom'];
+            $events[] = [...StandaloneEventPayload::fromArray($row->payload)->event(), 'source' => 'custom'];
         }
 
         $events = $this->dropElapsed($events);
