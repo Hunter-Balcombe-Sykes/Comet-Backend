@@ -1,7 +1,7 @@
 <?php
 
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\HumanitixScraper;
-use App\Services\SmartLinks\SafeUrlFetcher;
 
 afterEach(function () {
     Mockery::close();

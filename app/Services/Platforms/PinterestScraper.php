@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 use Carbon\Carbon;
 
 // Two keyless Pinterest surfaces: the profile page's embedded state JSON

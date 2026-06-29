@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\SmartLinks;
+namespace App\Services\Http;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;

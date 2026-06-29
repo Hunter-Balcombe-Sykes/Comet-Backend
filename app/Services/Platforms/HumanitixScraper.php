@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Carbon;
 
 // Scrapes a Humanitix host's upcoming events with no auth. Event pages carry a

@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Squarespace storefronts answer `?format=json` on any page with the full
 // page model — no key, no auth. A commerce collection page returns

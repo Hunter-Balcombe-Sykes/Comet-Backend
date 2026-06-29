@@ -2,8 +2,8 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\MetadataParser;
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\MetadataParser;
+use App\Services\Http\SafeUrlFetcher;
 
 // Fetches a URL once and snapshots its public identity (name, description,
 // favicon, logo) for a branded link card. Shared by the custom-links

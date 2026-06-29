@@ -11,8 +11,7 @@ use Illuminate\Support\Facades\Log;
 // Pilot daily refresh of the auto-content platform connections (YouTube latest,
 // Eventbrite events, Apple latest release), stalest rows first. Other platforms
 // are intentionally NOT queried — see PlatformRefresher for why (static links
-// have nothing to refresh; Instagram/Fresha/Shopify are deferred). Mirrors
-// smartlinks:refresh.
+// have nothing to refresh; Instagram/Fresha/Shopify are deferred).
 class RefreshIntegrationConnectionsCommand extends Command
 {
     protected $signature = 'integrations:refresh {--limit=300 : Max connections to refresh this run} {--throttle-ms=200 : Politeness delay between fetches}';

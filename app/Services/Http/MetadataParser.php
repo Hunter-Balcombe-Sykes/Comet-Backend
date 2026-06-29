@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\SmartLinks;
+namespace App\Services\Http;
 
 /**
  * Extracts OpenGraph, JSON-LD, title, and favicon from an HTML document using

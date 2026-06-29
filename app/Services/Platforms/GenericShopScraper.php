@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Last-resort shop provider: reads schema.org Product JSON-LD off the exact
 // page the user pasted (a shop/collection/landing page). Covers Squarespace,

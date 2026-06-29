@@ -1,0 +1,30 @@
+-- Drop the SmartLinks feature table.
+--
+-- SmartLinks is removed entirely — superseded by Platform Integrations
+-- (site.platform_connections). The backend feature code, model, observer,
+-- form requests, resource, refresh command/cron, and the public-payload
+-- coupling were deleted in the same branch; this drops the storage.
+--
+-- CASCADE sweeps every object dependent on the table:
+--   * the updated_at trigger  set_timestamp_smart_links  (added 20260615000000),
+--   * the RLS policy(ies)      smart_links_app_backend_*  (added 20260615000000),
+--   * the indexes              idx_smart_links_site_family_sort,
+--                              idx_smart_links_last_refreshed, and the
+--                              canonical-URL UNIQUE index (20260615000001),
+--   * the inline FK constraints to core.users / site.sites.
+--
+-- The shared public.set_updated_at() function is intentionally NOT dropped —
+-- it is the timestamp trigger for ~30 other tables (core.users, site.sites,
+-- site.platform_connections, …). CASCADE on a table never drops a function it
+-- merely references, so this is safe.
+--
+-- IF EXISTS makes this a no-op on environments that lack the table (e.g. the
+-- paused prod project on the pre-standalone schema), so the migration is
+-- idempotent across the dev/prod split.
+--
+-- guard:no-unsafe-migrations:disable-file
+-- Exempt: DROP TABLE takes a brief ACCESS EXCLUSIVE lock on a table holding a
+-- handful of pre-beta rows on dev (and absent on prod). No data is read or
+-- rewritten, and nothing in the app references the table after this branch.
+
+DROP TABLE IF EXISTS site.smart_links CASCADE;

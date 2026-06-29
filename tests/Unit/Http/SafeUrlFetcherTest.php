@@ -1,7 +1,7 @@
 <?php
 
-use App\Services\SmartLinks\SafeUrlException;
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlException;
+use App\Services\Http\SafeUrlFetcher;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);

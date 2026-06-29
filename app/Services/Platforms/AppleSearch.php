@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Apple Music + Apple Podcasts lookups on the unauthenticated iTunes Search API
 // (no key). Resolves an artist/show to its id, then returns the recent releases

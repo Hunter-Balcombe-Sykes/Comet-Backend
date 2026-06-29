@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Vimeo's legacy Simple API is keyless: /api/v2/{user}/info.json for the
 // profile and /api/v2/{user}/videos.json for the latest uploads (channels use

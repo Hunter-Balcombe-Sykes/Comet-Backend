@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Reads a Skool community's public profile (name, avatar, description) from
 // the og: tags on its about page — skool.com/{slug}/about is public even for

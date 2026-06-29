@@ -7,10 +7,8 @@ use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\SmartLinks\SmartLinkVisitorUrl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -90,7 +88,10 @@ class IndividualProfilePayloadBuilder
             'newsletter' => $this->buildNewsletter($sections),
             'contact' => $this->buildContact($sections),
             'workplace' => $this->buildWorkplace($site, $sections),
-            'smart_links' => $this->buildSmartLinks($site),
+            // SmartLinks removed (superseded by Platform Integrations). The key is
+            // retained as a constant empty array so partna-pages doesn't break on a
+            // missing field during the frontend cutover; removed entirely in Phase 2.
+            'smart_links' => [],
         ]))->resolve();
     }
 
@@ -125,84 +126,6 @@ class IndividualProfilePayloadBuilder
             'experience' => array_values($data['experience'] ?? []),
             'publicContact' => $publicContact,
         ];
-    }
-
-    /**
-     * Smart links engine — list<SmartLink> in camelCase wire shape, active
-     * only, ordered family → sort_order. visitorUrl is computed (tracking +
-     * discount code baked in, where supported).
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function buildSmartLinks(?Site $site): array
-    {
-        if (! $site) {
-            return [];
-        }
-
-        $links = SmartLink::query()
-            ->where('site_id', $site->id)
-            ->where('is_active', true)
-            ->orderBy('family')
-            ->orderBy('sort_order')
-            ->orderBy('created_at')
-            ->get();
-
-        $visitorUrl = app(SmartLinkVisitorUrl::class);
-
-        return $links->map(fn (SmartLink $l) => $this->shapeSmartLink($l, $visitorUrl))->values()->all();
-    }
-
-    /** @return array<string, mixed> */
-    private function shapeSmartLink(SmartLink $l, SmartLinkVisitorUrl $visitorUrl): array
-    {
-        $meta = is_array($l->metadata) ? $l->metadata : [];
-        $base = [
-            'id' => (string) $l->id,
-            'type' => $l->type,
-            'family' => $l->family,
-            'platform' => $l->platform,
-            'visitorUrl' => $visitorUrl->build($l),
-            'title' => $l->title,
-            'imageUrl' => $l->image_url,
-            'faviconUrl' => $l->favicon_url,
-            'brandName' => $l->brand_name,
-            'brandLogoUrl' => $l->brand_logo_url,
-        ];
-
-        return match ($l->type) {
-            'commerce.product' => $base + [
-                'price' => $this->smartLinkPrice($meta),
-                'stockStatus' => $meta['stockStatus'] ?? 'unknown',
-            ],
-            'commerce.collection' => $base + ['collectionName' => $meta['collectionName'] ?? $l->title],
-            'commerce.brand' => $base + ['heroImageUrl' => $meta['heroImageUrl'] ?? null],
-            'commerce.event' => $base + [
-                'startsAt' => $meta['startsAt'] ?? null,
-                'endsAt' => $meta['endsAt'] ?? null,
-                'location' => $meta['location'] ?? null,
-            ],
-            'content.podcast.episode' => $base + [
-                'showName' => $meta['showName'] ?? null,
-                'releaseDate' => $meta['releaseDate'] ?? null,
-            ],
-            'content.video' => $base + ['channelName' => $meta['channelName'] ?? null],
-            // content.music.{track,album} — artist/album for the `Artist | Album | Track` line.
-            default => $base + [
-                'artist' => $meta['artist'] ?? null,
-                'album' => $meta['album'] ?? null,
-            ],
-        };
-    }
-
-    /** @param array<string,mixed> $meta @return array{amount:float,currency:string}|null */
-    private function smartLinkPrice(array $meta): ?array
-    {
-        if (! isset($meta['price']) || ! is_numeric($meta['price'])) {
-            return null;
-        }
-
-        return ['amount' => (float) $meta['price'], 'currency' => (string) ($meta['currency'] ?? 'USD')];
     }
 
     /**

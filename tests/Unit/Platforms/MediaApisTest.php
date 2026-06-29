@@ -1,9 +1,9 @@
 <?php
 
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
-use App\Services\SmartLinks\SafeUrlFetcher;
 
 afterEach(function () {
     Mockery::close();

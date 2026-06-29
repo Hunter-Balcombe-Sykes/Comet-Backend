@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Services\SmartLinks\SafeUrlFetcher;
+use App\Services\Http\SafeUrlFetcher;
 
 // Twitch channel pages server-render their og tags (display name, avatar,
 // bio) for any client — no auth. The live player embeds keylessly via

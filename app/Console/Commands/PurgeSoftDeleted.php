@@ -9,7 +9,6 @@ use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\Site\SmartLink;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
@@ -41,7 +40,6 @@ class PurgeSoftDeleted extends Command
         ServiceCategory::class,
         Block::class,
         Feedback::class,
-        SmartLink::class,
         IntegrationConnection::class,
         Menu::class,
     ];
