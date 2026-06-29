@@ -16,6 +16,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
+use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\SquarespaceScraper;
@@ -254,7 +255,7 @@ class ShopController extends ApiController
     // rendering. Returns null when no brand has products.
     public function selection(Request $request): JsonResponse
     {
-        $primary = collect($this->brandMap($this->currentUser($request)))->first(fn ($b) => ! empty($b['products']));
+        $primary = ShopPayload::fromArray($this->readConnection($this->currentUser($request)))->primaryWithProducts();
 
         $selection = $primary ? [
             'url' => $primary['url'],
@@ -444,22 +445,12 @@ class ShopController extends ApiController
 
     /**
      * The stored brand map (id => brand), or empty. Brands stored before the
-     * provider field existed are Shopify (the only provider back then).
+     * provider field existed are Shopify (the only provider back then) —
+     * ShopPayload applies that default and preserves every other brand key verbatim.
      */
     private function brandMap(User $user): array
     {
-        $map = $this->readConnection($user);
-        if (! is_array($map)) {
-            return [];
-        }
-
-        foreach ($map as &$brand) {
-            if (is_array($brand)) {
-                $brand['provider'] ??= 'shopify';
-            }
-        }
-
-        return $map;
+        return ShopPayload::fromArray($this->readConnection($user))->toArray();
     }
 
     /** Brands as a plain ordered list. */
