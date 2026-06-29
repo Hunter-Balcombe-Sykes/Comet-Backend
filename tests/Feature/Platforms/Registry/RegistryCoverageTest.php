@@ -2,6 +2,7 @@
 
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\Payloads\EmbedPayload;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
@@ -75,11 +76,12 @@ it('does not register routes for the dormant mixcloud/tidal embeds', function ()
     expect($uris->contains(fn ($u) => str_contains($u, 'platforms/tidal')))->toBeFalse();
 });
 
-it('attaches GoogleBusinessFetch but defers its payload/read-path to Plan 5', function () {
+it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 read-path) to google-business', function () {
     $registry = app(PlatformRegistry::class);
     $d = $registry->get('google-business');
 
     expect($d->fetchStrategy())->toBeInstanceOf(GoogleBusinessFetch::class);
-    // Intentionally NOT FeedPayload — its resource emits a variable key set (see plan).
-    expect($d->payloadClass())->toBeNull();
+    // GoogleBusinessPayload is verbatim-preserving (its resource emits a variable key set
+    // via array_intersect_key) — NOT FeedPayload. Read-path migrated in Plan 5.
+    expect($d->payloadClass())->toBe(GoogleBusinessPayload::class);
 });
