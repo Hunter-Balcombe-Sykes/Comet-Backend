@@ -25,6 +25,17 @@ function refreshCronUser(): User
 
 it('refreshes a stale YouTube connection to the new latest video, preserving highlights', function () {
     $user = refreshCronUser();
+
+    // The SEC-1 model guard resolves PlatformRegistry on the first connection save,
+    // which eagerly wires the registry's scrapers. So the YoutubeScraper mock must be
+    // bound BEFORE creating the connection — otherwise the registry captures the real
+    // scraper and the mock never applies.
+    $this->mock(YoutubeScraper::class, function ($m) {
+        $m->shouldReceive('fetchRecentVideos')->andReturn([
+            ['videoId' => 'v9', 'name' => 'New Video', 'description' => 'nd', 'link' => 'nl', 'thumbnail' => 'nt'],
+        ]);
+    });
+
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'youtube',
@@ -35,12 +46,6 @@ it('refreshes a stale YouTube connection to the new latest video, preserving hig
         ],
         'last_refreshed_at' => now()->subWeek(),
     ]);
-
-    $this->mock(YoutubeScraper::class, function ($m) {
-        $m->shouldReceive('fetchRecentVideos')->andReturn([
-            ['videoId' => 'v9', 'name' => 'New Video', 'description' => 'nd', 'link' => 'nl', 'thumbnail' => 'nt'],
-        ]);
-    });
 
     $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
 
@@ -72,6 +77,13 @@ it('does not touch non-refreshable platforms (Instagram is never queried)', func
 
 it('records unavailable status and increments consecutive_failures when the scraper returns no videos', function () {
     $user = refreshCronUser();
+
+    // Mock before create: the SEC-1 guard builds the registry (wiring scrapers) on
+    // first save, so the mock must be bound first to take effect.
+    $this->mock(YoutubeScraper::class, function ($m) {
+        $m->shouldReceive('fetchRecentVideos')->andReturn([]); // empty = nothing to refresh
+    });
+
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'youtube',
@@ -79,10 +91,6 @@ it('records unavailable status and increments consecutive_failures when the scra
         'payload' => ['handle' => 'chan', 'name' => 'Old Video', 'highlights' => []],
         'last_refreshed_at' => now()->subWeek(),
     ]);
-
-    $this->mock(YoutubeScraper::class, function ($m) {
-        $m->shouldReceive('fetchRecentVideos')->andReturn([]); // empty = nothing to refresh
-    });
 
     $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
 
@@ -115,6 +123,13 @@ it('marks a malformed connection (missing handle) as error, not unavailable', fu
 it('catches scraper exceptions without crashing the command loop', function () {
     Exceptions::fake();
     $user = refreshCronUser();
+
+    // Mock before create: the SEC-1 guard builds the registry (wiring scrapers) on
+    // first save, so the mock must be bound first to take effect.
+    $this->mock(YoutubeScraper::class, function ($m) {
+        $m->shouldReceive('fetchRecentVideos')->andThrow(new RuntimeException('scraper boom'));
+    });
+
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'youtube',
@@ -124,10 +139,6 @@ it('catches scraper exceptions without crashing the command loop', function () {
         'last_refresh_status' => 'ok',
         'consecutive_failures' => 0,
     ]);
-
-    $this->mock(YoutubeScraper::class, function ($m) {
-        $m->shouldReceive('fetchRecentVideos')->andThrow(new RuntimeException('scraper boom'));
-    });
 
     // The per-connection catch absorbs the throw, so the command still succeeds…
     $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
