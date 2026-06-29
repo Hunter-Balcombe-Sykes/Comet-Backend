@@ -76,6 +76,14 @@ it('does not register routes for the dormant mixcloud/tidal embeds', function ()
     expect($uris->contains(fn ($u) => str_contains($u, 'platforms/tidal')))->toBeFalse();
 });
 
+it('attaches the Plan-6 fetch strategies to strava, eventbrite and humanitix', function () {
+    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+
+    expect($registry->get('strava')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\StravaFetch::class);
+    expect($registry->get('eventbrite')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\EventbriteFetch::class);
+    expect($registry->get('humanitix')->fetchStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Fetch\HumanitixFetch::class);
+});
+
 it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 read-path) to google-business', function () {
     $registry = app(PlatformRegistry::class);
     $d = $registry->get('google-business');

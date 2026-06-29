@@ -27,7 +27,9 @@ use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\DeezerApi;
+use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
@@ -52,13 +54,17 @@ use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
+use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
+use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
+use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
@@ -97,6 +103,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Skool + Strava are link/card style under their own resources.
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
             $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
+            // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
+            $r->get('strava')->fetch(new StravaFetch($this->app->make(StravaClubScraper::class)));
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud', 'deezer' => 'Deezer'] as $key => $label) {
@@ -180,6 +188,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // ── Events (refreshable; organiser accounts + standalone events) ──
             $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
             $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
+            // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
+            $r->get('eventbrite')->fetch(new EventbriteFetch($this->app->make(EventbriteScraper::class)));
+            $r->get('humanitix')->fetch(new HumanitixFetch($this->app->make(HumanitixScraper::class)));
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
