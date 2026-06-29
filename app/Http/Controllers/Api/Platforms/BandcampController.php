@@ -7,6 +7,7 @@ use App\Http\Requests\Platforms\ConnectBandcampRequest;
 use App\Http\Requests\Platforms\SaveBandcampHighlightsRequest;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -84,7 +85,7 @@ class BandcampController extends SingleSelectionPlatformController
     public function recent(Request $request): JsonResponse
     {
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $url = data_get($row?->payload, 'url');
+        $url = FeedPayload::fromArray($row?->payload ?? [])->url;
         if (! $url) {
             return $this->error('Connect a Bandcamp page first.', 404);
         }

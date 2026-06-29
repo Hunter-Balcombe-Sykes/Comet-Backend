@@ -14,6 +14,7 @@ use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -271,7 +272,7 @@ class AppleController extends ApiController
     {
         $this->activePlatform = $cfg['platform'];
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $input = data_get($row?->payload, 'input');
+        $input = FeedPayload::fromArray($row?->payload ?? [])->input;
         if (! $input) {
             return $this->error($cfg['connectFirst'], 404);
         }
@@ -333,7 +334,7 @@ class AppleController extends ApiController
         // connectFor already set it before calling this.
         $this->activePlatform = $platform;
 
-        return data_get($this->matchAccountRow($user, 'input', $input)?->payload, 'highlights', []);
+        return FeedPayload::fromArray($this->matchAccountRow($user, 'input', $input)?->payload ?? [])->highlights ?? [];
     }
 
     /** Resolve the selection array through the platform-appropriate tile Resource. */

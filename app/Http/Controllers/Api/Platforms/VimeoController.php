@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\ConnectVimeoRequest;
 use App\Http\Requests\Platforms\SaveVimeoHighlightsRequest;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
+use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\VimeoApi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -82,7 +83,7 @@ class VimeoController extends SingleSelectionPlatformController
     public function recent(Request $request): JsonResponse
     {
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $apiPath = data_get($row?->payload, 'apiPath');
+        $apiPath = FeedPayload::fromArray($row?->payload ?? [])->apiPath;
         if (! $apiPath) {
             return $this->error('Connect a Vimeo profile first.', 404);
         }

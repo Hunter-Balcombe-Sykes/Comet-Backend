@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Requests\Platforms\ConnectYoutubeRequest;
 use App\Http\Requests\Platforms\SaveYoutubeHighlightsRequest;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
+use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -83,7 +84,7 @@ class YoutubeController extends SingleSelectionPlatformController
     public function recent(Request $request): JsonResponse
     {
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $handle = data_get($row?->payload, 'handle');
+        $handle = FeedPayload::fromArray($row?->payload ?? [])->handle;
         if (! $handle) {
             return $this->error('Connect a YouTube channel first.', 404);
         }

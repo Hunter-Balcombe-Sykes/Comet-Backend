@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\ConnectYoutubeMusicRequest;
 use App\Http\Requests\Platforms\SaveYoutubeMusicHighlightsRequest;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
+use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -88,7 +89,7 @@ class YoutubeMusicController extends SingleSelectionPlatformController
     public function recent(Request $request): JsonResponse
     {
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $channelId = data_get($row?->payload, 'channelId');
+        $channelId = FeedPayload::fromArray($row?->payload ?? [])->channelId;
         if (! $channelId) {
             return $this->error('Connect a YouTube Music artist first.', 404);
         }
