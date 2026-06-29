@@ -272,10 +272,6 @@ $registerIntegrationRoutes = function (string $base): void {
         'skool' => SkoolController::class,
         'strava' => StravaController::class,
         'google-business' => GoogleBusinessController::class,
-        // ResDiary + NowBookit reservations — keyless booking widgets, same
-        // connect-by-link flow as OpenTable (the embed is built from the URL).
-        'resdiary' => ResDiaryController::class,
-        'nowbookit' => NowBookitController::class,
     ];
     // Watch/listen platforms in the uniform shape that also take multiple
     // accounts (the controller's supportsMultipleAccounts flag is the
@@ -314,6 +310,8 @@ $registerIntegrationRoutes = function (string $base): void {
         // GenericPlatformController via SelectionPayload. Single-slot (multi=false):
         // no /accounts routes, so the net-completeness count stays 52.
         'opentable' => ['controller' => OpenTableController::class, 'multi' => false],
+        'resdiary' => ['controller' => ResDiaryController::class, 'multi' => false],
+        'nowbookit' => ['controller' => NowBookitController::class, 'multi' => false],
     ];
     foreach ($migratedReads as $slug => $cfg) {
         Route::prefix("{$base}/{$slug}")

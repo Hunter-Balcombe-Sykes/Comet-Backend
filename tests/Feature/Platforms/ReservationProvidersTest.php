@@ -243,3 +243,31 @@ it('rejects an invalid previous website url', function () {
     actingAsUser($user)->patchJson('/api/site/workplace/previous-website', ['previous_website' => 'not a url'])
         ->assertStatus(422);
 });
+
+// ── ResDiary + NowBookit /selection read-back guards ─────────────────────
+// These lock the target shape before the $singleSelection → $migratedReads
+// flip (Step 3), so the post-flip run proves byte-identical equivalence
+// through GenericPlatformController → SelectionPayload.
+
+it('reads the resdiary selection back through the read path', function () {
+    $user = resUser('rsel1');
+
+    actingAsUser($user)->postJson('/api/platforms/resdiary/connect', ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies'])->assertOk();
+
+    actingAsUser($user)->getJson('/api/platforms/resdiary/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.url', 'https://booking.resdiary.com/widget/Standard/Ollies')
+        ->assertJsonPath('selection.embedUrl', 'https://booking.resdiary.com/widget/Standard/Ollies');
+});
+
+it('reads the nowbookit selection back through the read path', function () {
+    $user = resUser('nsel1');
+
+    actingAsUser($user)->postJson('/api/platforms/nowbookit/connect', ['url' => 'https://booking.nowbookit.com/steps/sitting-details?accountid=12&venueid=34'])->assertOk();
+
+    actingAsUser($user)->getJson('/api/platforms/nowbookit/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.accountId', '12')
+        ->assertJsonPath('selection.venueId', '34')
+        ->assertJsonPath('selection.embedUrl', fn ($u) => str_contains((string) $u, 'accountid=12'));
+});
