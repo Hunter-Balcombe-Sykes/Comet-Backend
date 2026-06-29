@@ -93,3 +93,19 @@ it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 re
     // via array_intersect_key) — NOT FeedPayload. Read-path migrated in Plan 5.
     expect($d->payloadClass())->toBe(GoogleBusinessPayload::class);
 });
+
+it('derives a ScheduledRefresh for a refreshable platform and NoRefresh otherwise', function () {
+    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+
+    expect($registry->get('youtube')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\ScheduledRefresh::class);
+    expect($registry->get('instagram')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\NoRefresh::class); // not refreshable
+    expect($registry->get('tiktok')->refreshStrategy())->toBeInstanceOf(\App\Services\Platforms\Strategies\Refresh\NoRefresh::class);   // link-only
+});
+
+it('isRefreshable mirrors the refreshable() set', function () {
+    $registry = app(\App\Services\Platforms\Registry\PlatformRegistry::class);
+
+    expect($registry->isRefreshable('youtube'))->toBeTrue();
+    expect($registry->isRefreshable('instagram'))->toBeFalse();
+    expect($registry->isRefreshable('not-a-platform'))->toBeFalse();
+});

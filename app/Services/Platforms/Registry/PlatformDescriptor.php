@@ -7,6 +7,9 @@ use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Platforms\Strategies\Contracts\RefreshStrategy;
+use App\Services\Platforms\Strategies\Refresh\NoRefresh;
+use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 
 // One declaration per platform — the single source of identity the registry,
 // validation, refresher, and (later) the generic controller read from. Built via
@@ -162,6 +165,20 @@ class PlatformDescriptor
     public function fetchStrategy(): ?FetchStrategy
     {
         return $this->fetchStrategy;
+    }
+
+    /**
+     * The refresh behaviour for this platform, derived from its fetch strategy and
+     * refreshable flag: a re-pull-and-persist ScheduledRefresh when refreshable with
+     * a fetch, else the no-op NoRefresh. The registry-driven PlatformRefresher calls
+     * refreshStrategy()->run() and wraps it to record the failure buckets the
+     * strategy intentionally doesn't carry.
+     */
+    public function refreshStrategy(): RefreshStrategy
+    {
+        return $this->refreshable && $this->fetchStrategy !== null
+            ? new ScheduledRefresh($this->fetchStrategy)
+            : new NoRefresh;
     }
 
     // Capability seam — every dispatcher/route/render checks this. Returns true

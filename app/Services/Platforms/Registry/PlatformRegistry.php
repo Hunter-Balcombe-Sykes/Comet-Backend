@@ -45,4 +45,9 @@ class PlatformRegistry
     {
         return array_filter($this->descriptors, fn (PlatformDescriptor $d) => $d->isRefreshable());
     }
+
+    public function isRefreshable(string $key): bool
+    {
+        return isset($this->descriptors[$key]) && $this->descriptors[$key]->isRefreshable();
+    }
 }
