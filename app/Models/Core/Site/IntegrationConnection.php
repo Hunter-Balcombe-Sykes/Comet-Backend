@@ -4,9 +4,11 @@ namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Validation\ValidationException;
 
 // A user's connection to an external platform — a Shopify store, an Apple
 // artist, an Instagram username, a Fresha salon, and so on. The per-user store
@@ -57,6 +59,32 @@ class IntegrationConnection extends BaseModel
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    /**
+     * App-level replacement for the dropped `platform_connections_platform_check`
+     * DB constraint (see commit c3ead5f1). The PlatformRegistry is the gate.
+     *
+     * Only fires when `platform` is being set or changed — so innocent status-only
+     * updates to existing rows (e.g. the refresh cron writing `last_refresh_status`)
+     * never re-validate. This is a DATA-INTEGRITY write invariant, not resource
+     * authorization, so it correctly lives here rather than in a Policy.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $connection) {
+            if (! $connection->isDirty('platform')) {
+                return;
+            }
+
+            $platform = $connection->platform;
+
+            if (! is_string($platform) || ! app(PlatformRegistry::class)->has($platform)) {
+                throw ValidationException::withMessages([
+                    'platform' => 'The selected platform is not a supported platform.',
+                ]);
+            }
+        });
+    }
 
     public function user(): BelongsTo
     {

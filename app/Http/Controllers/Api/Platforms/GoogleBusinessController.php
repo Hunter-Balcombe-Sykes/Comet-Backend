@@ -6,6 +6,7 @@ use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\User\User;
+use App\Rules\PlatformInRegistry;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
@@ -138,7 +139,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
     public function applySync(Request $request, GoogleBusinessAutoSync $autoSync): JsonResponse
     {
         $user = $this->currentUser($request);
-        $platform = $request->validate(['platform' => ['required', 'string', 'max:40']])['platform'];
+        $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
 
         $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
         $gbp = GoogleBusinessPayload::fromArray($gb?->payload);

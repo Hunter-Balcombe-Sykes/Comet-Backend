@@ -9,6 +9,7 @@ use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use Illuminate\Support\Str;
 
 it('builds a descriptor via the fluent builder', function () {
     $d = PlatformDescriptor::make('fresha')
@@ -34,6 +35,27 @@ it('linkOnly preset sets social category, non-refreshable, given resource', func
 it('availableFor defaults to true for any user', function () {
     $d = PlatformDescriptor::linkOnly('x', 'X', 'App\\Http\\Resources\\Platforms\\LinkConnectionResource');
     expect($d->availableFor(new User))->toBeTrue();
+});
+
+// CAP-1 regression anchor — single-call-site seam.
+// availableFor() is currently wired at EXACTLY ONE production site:
+// GenericPlatformController::connect. Making it return false for any user
+// would silently break that gate without wiring the ~20 bespoke connect flows
+// or the public render path. This test forces that wiring conversation to happen
+// before the predicate changes. See PlatformDescriptor::availableFor() docblock
+// for the full wiring checklist (including the mandatory 404-not-403 rule on the
+// public endpoint).
+it('availableFor is a single-call-site seam that returns true — regression anchor', function () {
+    $d = PlatformDescriptor::make('instagram')
+        ->label('Instagram')
+        ->category(PlatformCategory::Social)
+        ->resource('App\\Http\\Resources\\Platforms\\InstagramConnectionResource');
+
+    $user = new User(['id' => (string) Str::uuid()]);
+
+    // If this fails after a predicate was introduced, wire all call sites first
+    // (see PlatformDescriptor::availableFor() docblock for the checklist).
+    expect($d->availableFor($user))->toBeTrue();
 });
 
 it('carries a live connect strategy and its error message', function () {

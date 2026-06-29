@@ -271,3 +271,102 @@ it('reads the nowbookit selection back through the read path', function () {
         ->assertJsonPath('selection.venueId', '34')
         ->assertJsonPath('selection.embedUrl', fn ($u) => str_contains((string) $u, 'accountid=12'));
 });
+
+// ── TEST-3: Reservation /selection exact-shape snapshots ─────────────────────
+//
+// The three reservation providers route through GenericPlatformController +
+// a normalising SelectionPayload DTO feeding enumerating resources. These pins
+// catch any DTO or resource key drift — the highest-value P3 because the
+// normalising-DTO-meets-resource pattern is most likely to diverge silently.
+
+it('opentable selection returns the exact 4-key shape and strips unknown stored keys', function () {
+    $user = resUser('otel1');
+
+    // Seed via connect so the resource normalisation path is exercised.
+    actingAsUser($user)->postJson('/api/platforms/opentable/connect', [
+        'url' => 'https://www.opentable.com.au/restaurant/profile/266537',
+    ])->assertOk();
+
+    // Inject an extra key to prove the resource strips it.
+    IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->where('platform', 'opentable')
+        ->firstOrFail()
+        ->update(['payload' => array_merge(
+            IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->firstOrFail()->payload,
+            ['_internal' => 'leak'],
+        )]);
+
+    $selection = actingAsUser($user)->getJson('/api/platforms/opentable/selection')
+        ->assertOk()
+        ->json('selection');
+
+    // OpenTableConnectionResource emits exactly {url, rid, name, embedUrl}.
+    expect($selection)->toHaveKeys(['url', 'rid', 'name', 'embedUrl']);
+    expect($selection)->not->toHaveKey('_internal', "'_internal' must be stripped by the resource");
+    // Exact key set — toEqual asserts no extra keys leak in either direction.
+    expect(array_keys($selection))->toEqual(['url', 'rid', 'name', 'embedUrl']);
+    expect($selection['rid'])->toBe('266537');
+    expect($selection['url'])->toBe('https://www.opentable.com.au/restaurant/profile/266537');
+    expect($selection['name'])->toBeNull(); // name is null when not enriched by Apify
+    expect($selection['embedUrl'])->toContain('rid=266537');
+});
+
+it('resdiary selection returns the exact 4-key shape and strips unknown stored keys', function () {
+    $user = resUser('rdsel1');
+
+    actingAsUser($user)->postJson('/api/platforms/resdiary/connect', [
+        'url' => 'https://booking.resdiary.com/widget/Standard/Ollies',
+    ])->assertOk();
+
+    IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->where('platform', 'resdiary')
+        ->firstOrFail()
+        ->update(['payload' => array_merge(
+            IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->firstOrFail()->payload,
+            ['_internal' => 'leak'],
+        )]);
+
+    $selection = actingAsUser($user)->getJson('/api/platforms/resdiary/selection')
+        ->assertOk()
+        ->json('selection');
+
+    // ResDiaryConnectionResource emits exactly {url, microsite, name, embedUrl}.
+    expect($selection)->not->toHaveKey('_internal', "'_internal' must be stripped by the resource");
+    expect(array_keys($selection))->toEqual(['url', 'microsite', 'name', 'embedUrl']);
+    expect($selection['url'])->toBe('https://booking.resdiary.com/widget/Standard/Ollies');
+    expect($selection['embedUrl'])->toBe('https://booking.resdiary.com/widget/Standard/Ollies');
+    expect($selection['microsite'])->toBe('Ollies'); // parseMicrosite extracts the trailing slug
+    expect($selection['name'])->toBe('Ollies');      // nameFromUrl derives it from the same slug
+});
+
+it('nowbookit selection returns the exact 5-key shape and strips unknown stored keys', function () {
+    $user = resUser('nbsel1');
+
+    actingAsUser($user)->postJson('/api/platforms/nowbookit/connect', [
+        'url' => 'https://booking.nowbookit.com/steps/sitting-details?accountid=12&venueid=34',
+    ])->assertOk();
+
+    IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->where('platform', 'nowbookit')
+        ->firstOrFail()
+        ->update(['payload' => array_merge(
+            IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'nowbookit')->firstOrFail()->payload,
+            ['_internal' => 'leak'],
+        )]);
+
+    $selection = actingAsUser($user)->getJson('/api/platforms/nowbookit/selection')
+        ->assertOk()
+        ->json('selection');
+
+    // NowBookitConnectionResource emits exactly {url, accountId, venueId, name, embedUrl}.
+    expect($selection)->not->toHaveKey('_internal', "'_internal' must be stripped by the resource");
+    expect(array_keys($selection))->toEqual(['url', 'accountId', 'venueId', 'name', 'embedUrl']);
+    expect($selection['accountId'])->toBe('12');
+    expect($selection['venueId'])->toBe('34');
+    expect($selection['url'])->toBe('https://booking.nowbookit.com/steps/sitting-details?accountid=12&venueid=34');
+    expect($selection['embedUrl'])->toContain('accountid=12')->toContain('venueid=34');
+    expect($selection['name'])->toBeNull(); // no name without enrichment
+});
