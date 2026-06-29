@@ -2,59 +2,39 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Platforms\Registry\PlatformCategory;
+use App\Services\Platforms\Registry\PlatformRegistry;
+
 // Maps a pasted URL to the known provider for a smart-detect category, or null
-// when nothing matches (→ the custom-link fallback). Detection is host-level
-// only — the provider's own connect endpoint does the strict path/rid
-// validation. A registry: new providers slot in by adding a host matcher and a
-// CATEGORY_PROVIDERS entry, no other code changes.
+// when nothing matches (→ the custom-link fallback). Registry-driven: a category's
+// candidate providers are the registered descriptors in that category that carry a
+// Detection strategy, tried in registration order (= priority). Adding a provider
+// is a descriptor + a ->detect(...) line in PlatformRegistryServiceProvider — no
+// edit here. Detection is host-level only; the provider's connect endpoint does
+// the strict path/rid validation.
 class ProviderDetector
 {
-    // Providers each category can detect, in priority order.
-    private const CATEGORY_PROVIDERS = [
-        'booking' => ['fresha', 'square'],
-        'reservations' => ['opentable', 'resdiary', 'nowbookit'],
-        // No ordering platforms integrated yet — every link is a custom card.
-        'online-ordering' => [],
-        // Ticketing platforms; anything else is a custom event card.
-        'events' => ['eventbrite', 'humanitix'],
-    ];
-
-    public function __construct(
-        private readonly OpenTableService $openTable,
-        private readonly ResDiaryService $resDiary,
-        private readonly NowBookitService $nowBookit,
-    ) {}
+    public function __construct(private readonly PlatformRegistry $registry) {}
 
     /** The known provider for a URL within a category, or null (custom fallback). */
     public function detectFor(string $category, string $url): ?string
     {
+        $cat = PlatformCategory::tryFrom($category);
+        if ($cat === null) {
+            return null;
+        }
+
         $url = PlatformInput::urlish($url);
 
-        foreach (self::CATEGORY_PROVIDERS[$category] ?? [] as $provider) {
-            if ($this->matches($provider, $url)) {
-                return $provider;
+        foreach ($this->registry->all() as $descriptor) {
+            $detection = $descriptor->detection();
+            if ($detection !== null
+                && $descriptor->getCategory() === $cat
+                && $detection->matches($url)) {
+                return $descriptor->key();
             }
         }
 
         return null;
-    }
-
-    private function matches(string $provider, string $url): bool
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-
-        return match ($provider) {
-            // Mirrors the host accepted by ConnectFreshaRequest (www.fresha.com).
-            'fresha' => (bool) preg_match('~(^|\.)fresha\.com$~', $host),
-            // Mirrors ConnectSquareRequest: book.squareup.com, squareup.com, *.square.site.
-            'square' => (bool) preg_match('~(^|\.)(squareup\.com|square\.site)$~', $host),
-            'opentable' => $this->openTable->isOpenTableUrl($url),
-            'resdiary' => $this->resDiary->isResDiaryUrl($url),
-            'nowbookit' => $this->nowBookit->isNowBookitUrl($url),
-            // Eventbrite has regional TLDs (.com / .com.au / …); Humanitix is single-domain.
-            'eventbrite' => (bool) preg_match('~(^|\.)eventbrite\.[a-z.]+$~', $host),
-            'humanitix' => (bool) preg_match('~(^|\.)humanitix\.com$~', $host),
-            default => false,
-        };
     }
 }

@@ -53,6 +53,13 @@ it('detects opentable for reservations and nothing for ordering', function () {
     expect($detector->detectFor('online-ordering', 'https://www.ubereats.com/store/x'))->toBeNull();
 });
 
+it('detects events providers by host (eventbrite / humanitix), custom otherwise', function () {
+    $detector = app(ProviderDetector::class);
+    expect($detector->detectFor('events', 'https://www.eventbrite.com.au/e/show-123'))->toBe('eventbrite');
+    expect($detector->detectFor('events', 'https://events.humanitix.com/my-gig'))->toBe('humanitix');
+    expect($detector->detectFor('events', 'https://meetup.com/group'))->toBeNull(); // unknown → custom
+});
+
 // ── Booking detect routing ────────────────────────────────────────────
 
 it('routes a Fresha URL to the picker step without writing a booking row', function () {

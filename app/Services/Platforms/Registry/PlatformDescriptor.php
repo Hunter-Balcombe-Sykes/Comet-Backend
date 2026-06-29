@@ -6,6 +6,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\Detection;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Platforms\Strategies\Contracts\RefreshStrategy;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
@@ -25,6 +26,8 @@ class PlatformDescriptor
     private ?string $resourceClass = null;
 
     private bool $refreshable = false;
+
+    private ?Detection $detection = null;
 
     private ?ConnectStrategy $connectStrategy = null;
 
@@ -86,6 +89,19 @@ class PlatformDescriptor
         $this->refreshable = $refreshable;
 
         return $this;
+    }
+
+    /** Attach the smart-detect URL matcher (booking/reservations/events providers). */
+    public function detect(Detection $detection): self
+    {
+        $this->detection = $detection;
+
+        return $this;
+    }
+
+    public function detection(): ?Detection
+    {
+        return $this->detection;
     }
 
     public function key(): string

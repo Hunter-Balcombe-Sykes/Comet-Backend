@@ -36,7 +36,9 @@ use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
+use App\Services\Platforms\NowBookitService;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\FeedPayload;
@@ -49,7 +51,10 @@ use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\Strategies\Detect\HostMatch;
+use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
@@ -199,6 +204,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class)->payload(SelectionPayload::class));
+
+            // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
+            // Booking: fresha host (mirrors ConnectFreshaRequest), then Square (squareup.com / *.square.site).
+            $r->get('fresha')->detect(new HostMatch('~(^|\.)fresha\.com$~'));
+            $r->get('square')->detect(new HostMatch('~(^|\.)(squareup\.com|square\.site)$~'));
+            // Reservations: keyless widgets delegate to their service's isXUrl matcher.
+            $openTable = $this->app->make(OpenTableService::class);
+            $resDiary = $this->app->make(ResDiaryService::class);
+            $nowBookit = $this->app->make(NowBookitService::class);
+            $r->get('opentable')->detect(new ServiceMatch(fn (string $u) => $openTable->isOpenTableUrl($u)));
+            $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
+            $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
+            // Events: Eventbrite has regional TLDs; Humanitix is single-domain.
+            $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.[a-z.]+$~'));
+            $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->payload(ShopPayload::class));
