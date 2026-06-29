@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -98,11 +100,13 @@ class BookingController extends ApiController
     {
         $fresha = $user->integrationConnections()->where('platform', 'fresha')->first();
         if ($fresha) {
+            $sel = SelectionPayload::fromArray($fresha->payload);
+
             return [
                 'connected' => true,
                 'provider' => 'fresha',
-                'name' => data_get($fresha->payload, 'selection.storeName'),
-                'url' => data_get($fresha->payload, 'url'),
+                'name' => $sel->selection?->storeName(),
+                'url' => $sel->url,
             ];
         }
 
@@ -112,17 +116,17 @@ class BookingController extends ApiController
                 'connected' => true,
                 'provider' => 'square',
                 'name' => null,
-                'url' => data_get($square->payload, 'url'),
+                'url' => SelectionPayload::fromArray($square->payload)->url,
             ];
         }
 
-        $custom = $this->readConnection($user);
-        if (is_array($custom) && ($custom['provider'] ?? null) === 'custom') {
+        $custom = CardPayload::fromArray($this->readConnection($user));
+        if ($custom->provider() === 'custom') {
             return [
                 'connected' => true,
                 'provider' => 'custom',
-                'name' => $custom['name'] ?? null,
-                'url' => $custom['url'] ?? null,
+                'name' => $custom->name(),
+                'url' => $custom->url(),
             ];
         }
 

@@ -8,7 +8,9 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OpenTableService;
+use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -109,23 +111,25 @@ class ReservationsController extends ApiController
         foreach (self::KEYLESS_PROVIDERS as $provider) {
             $row = $user->integrationConnections()->where('platform', $provider)->first();
             if ($row) {
+                $sel = SelectionPayload::fromArray($row->payload);
+
                 return [
                     'connected' => true,
                     'provider' => $provider,
-                    'name' => data_get($row->payload, 'name'),
-                    'url' => data_get($row->payload, 'url'),
-                    'embedUrl' => data_get($row->payload, 'embedUrl'),
+                    'name' => $sel->name,
+                    'url' => $sel->url,
+                    'embedUrl' => $sel->embedUrl,
                 ];
             }
         }
 
-        $custom = $this->readConnection($user);
-        if (is_array($custom) && ($custom['provider'] ?? null) === 'custom') {
+        $custom = CardPayload::fromArray($this->readConnection($user));
+        if ($custom->provider() === 'custom') {
             return [
                 'connected' => true,
                 'provider' => 'custom',
-                'name' => $custom['name'] ?? null,
-                'url' => $custom['url'] ?? null,
+                'name' => $custom->name(),
+                'url' => $custom->url(),
                 'embedUrl' => null,
             ];
         }
