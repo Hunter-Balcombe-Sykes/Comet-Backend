@@ -18,8 +18,8 @@ use Illuminate\Support\Collection;
 // Links section on the sitepage. Each link is one connection row
 // (resource_id 'link-<hash>'): the page is fetched once at add time and its
 // favicon, logo (og:image), name, and description are snapshotted into the
-// payload. Distinct from Smart Links — no tracking, no commerce metadata,
-// no refresh loop; just a titled, branded outbound link.
+// payload. Just a titled, branded outbound link — no tracking, no
+// commerce metadata, no refresh loop.
 class CustomLinksController extends ApiController
 {
     use ManagesIntegrationConnection;

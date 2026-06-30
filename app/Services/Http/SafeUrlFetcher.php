@@ -8,8 +8,8 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
- * SSRF-guarded outbound fetcher. Every smart-link / custom-link fetch of a
- * user-supplied URL goes through here.
+ * SSRF-guarded outbound fetcher. Every custom-link and platform-scraper fetch
+ * of a user-supplied URL goes through here.
  *
  * Guarantees before any byte is fetched:
  *   - scheme ∈ {http, https}

@@ -88,10 +88,6 @@ class IndividualProfilePayloadBuilder
             'newsletter' => $this->buildNewsletter($sections),
             'contact' => $this->buildContact($sections),
             'workplace' => $this->buildWorkplace($site, $sections),
-            // SmartLinks removed (superseded by Platform Integrations). The key is
-            // retained as a constant empty array so partna-pages doesn't break on a
-            // missing field during the frontend cutover; removed entirely in Phase 2.
-            'smart_links' => [],
         ]))->resolve();
     }
 
