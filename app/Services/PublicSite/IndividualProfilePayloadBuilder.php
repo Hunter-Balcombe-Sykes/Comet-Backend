@@ -562,6 +562,7 @@ class IndividualProfilePayloadBuilder
         // BEFORE the single-token prefixes so the longer match wins.
         $twoTokenPrefixes = [
             'space_desktop' => 'spaceDesktop',
+            'text_desktop' => 'textDesktop',
             'sizing_desktop' => 'sizingDesktop',
             'typography_desktop' => 'typographyDesktop',
         ];
@@ -571,14 +572,17 @@ class IndividualProfilePayloadBuilder
         $singleTokenPrefixes = [
             'color' => 'colors',
             'typography' => 'typography',
+            'text' => 'text',       // text scale (text_xs, text_sm, ...)
+            'weight' => 'weight',   // weight scale (weight_regular, weight_medium, ...)
             'border' => 'borders',
             'space' => 'space',
             'motion' => 'motion',
             'icon' => 'icons',   // singular prefix: icon_size, icon_color (reserved)
             'icons' => 'icons',  // plural prefix:   icons_xl_size, icons_stroke_width, etc.
             'effect' => 'effects',
-            'sizing' => 'sizing',
-            'button' => 'buttons',
+            'theme' => 'theme',  // theme_mode
+            'sizing' => 'sizing',   // legacy (columns dropped — kept for safety)
+            'button' => 'buttons',  // legacy (columns dropped — kept for safety)
         ];
 
         $out = [];
