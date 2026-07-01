@@ -11,6 +11,7 @@ use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Platforms\Strategies\Contracts\RefreshStrategy;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
+use Closure;
 
 // One declaration per platform — the single source of identity the registry,
 // validation, refresher, and (later) the generic controller read from. Built via
@@ -45,9 +46,16 @@ class PlatformDescriptor
 
     private bool $connectNormalizesUrlish = false;
 
+    private PlatformRouteShape $routeShape = PlatformRouteShape::Bespoke;
+
+    private ?string $connectController = null;
+
+    private bool $multiAccount = false;
+
     private ?string $payloadClass = null;
 
-    private ?FetchStrategy $fetchStrategy = null;
+    /** @var (Closure(): FetchStrategy)|null Lazily builds the fetch strategy (see fetch()). */
+    private ?Closure $fetchFactory = null;
 
     private function __construct(private readonly string $key)
     {
@@ -227,6 +235,37 @@ class PlatformDescriptor
         return $this->connectNormalizesUrlish;
     }
 
+    /**
+     * Declare the route archetype the registry-driven loop should emit for this
+     * platform. $connectController is the controller class serving the bespoke
+     * connect (and, for SingleSelection, selection/DELETE too); null for LinkOnly
+     * (served by GenericPlatformController). $multiAccount gates the /accounts pair
+     * for the MultiAccount shape.
+     */
+    public function routes(PlatformRouteShape $shape, ?string $connectController = null, bool $multiAccount = false): self
+    {
+        $this->routeShape = $shape;
+        $this->connectController = $connectController;
+        $this->multiAccount = $multiAccount;
+
+        return $this;
+    }
+
+    public function routeShape(): PlatformRouteShape
+    {
+        return $this->routeShape;
+    }
+
+    public function connectController(): ?string
+    {
+        return $this->connectController;
+    }
+
+    public function multiAccount(): bool
+    {
+        return $this->multiAccount;
+    }
+
     /** The typed DTO that hydrates this platform's stored payload (read boundary). */
     public function payload(string $payloadClass): self
     {
@@ -241,20 +280,34 @@ class PlatformDescriptor
     }
 
     /**
-     * The strategy that re-pulls this platform's display snapshot from upstream.
-     * Null for link-only / no-fetch platforms. Consumed by Plan 6's registry-driven
+     * Attach the strategy that re-pulls this platform's display snapshot from
+     * upstream. Accepts either a ready FetchStrategy or — preferred for strategies
+     * that wrap a scraper/API client — a Closure factory that builds it on demand.
+     *
+     * The factory form is LOAD-BEARING: the registry singleton is built at app boot
+     * (routes/api/integrations.php iterates it to emit routes), so eagerly resolving
+     * a scraper here would bake the real client into the descriptor before a test can
+     * bind its mock (the SEC-1 registry-timing gotcha). Deferring resolution to
+     * fetchStrategy() call-time — inside PlatformRefresher, after any mock is bound —
+     * keeps the strategy honest regardless of WHEN the registry is first built. A bare
+     * instance is wrapped in a closure so its identity is preserved.
+     *
+     * Null for link-only / no-fetch platforms. Consumed by the registry-driven
      * refresher (`$registry->refreshable()` → `fetchStrategy()->fetch($connection)`).
+     *
+     * @param  FetchStrategy|(Closure(): FetchStrategy)  $strategy
      */
-    public function fetch(FetchStrategy $strategy): self
+    public function fetch(FetchStrategy|Closure $strategy): self
     {
-        $this->fetchStrategy = $strategy;
+        $this->fetchFactory = $strategy instanceof Closure ? $strategy : fn () => $strategy;
 
         return $this;
     }
 
+    /** Resolve the fetch strategy fresh (lazy — see fetch()); null when none attached. */
     public function fetchStrategy(): ?FetchStrategy
     {
-        return $this->fetchStrategy;
+        return $this->fetchFactory !== null ? ($this->fetchFactory)() : null;
     }
 
     /**
@@ -266,8 +319,8 @@ class PlatformDescriptor
      */
     public function refreshStrategy(): RefreshStrategy
     {
-        return $this->refreshable && $this->fetchStrategy !== null
-            ? new ScheduledRefresh($this->fetchStrategy)
+        return $this->refreshable && $this->fetchFactory !== null
+            ? new ScheduledRefresh($this->fetchStrategy())
             : new NoRefresh;
     }
 
