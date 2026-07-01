@@ -67,15 +67,18 @@ class UpdateSiteAction
             // the client actually sent are written — columns the request didn't
             // touch keep their existing DB value. The client still SENDS these
             // under settings.* (no frontend change); columns are the source of
-            // truth. Phase 1 (dual-write) keeps the keys in $merged so the
-            // unchanged DB views still emit them; Phase 2 (strip) uncomments the
-            // unset so new writes stop populating the JSONB mirror.
+            // truth. Phase 2 (strip active): the key is removed from $merged so
+            // new writes no longer populate the JSONB mirror — the column is the
+            // sole write target. Migration 20260701200000 re-injects columns into
+            // both public-read views so the emitted settings blob is byte-identical.
             foreach (Site::PROMOTED_SETTINGS_KEYS as $key) {
                 if (array_key_exists($key, $merged)) {
                     $data[$key] = $merged[$key];
-                    // Phase 2: uncomment when the strip migration + view
-                    // re-inject (20260701190100) have landed:
-                    // unset($merged[$key]);
+                    // Phase 2: strip the key from settings so the column is the
+                    // sole write target. The views re-inject columns into the
+                    // emitted settings blob (migration 20260701200000), so the
+                    // wire shape is byte-identical — no frontend change required.
+                    unset($merged[$key]);
                 }
             }
 

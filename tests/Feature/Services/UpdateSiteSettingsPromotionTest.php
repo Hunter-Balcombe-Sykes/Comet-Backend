@@ -1,8 +1,8 @@
 <?php
 
-// FOUND-16: verifies that UpdateSiteAction hoists the 10 promoted settings.*
-// keys into their typed columns (dual-write Phase 1), so columns and the
-// settings JSONB are both populated after a write.
+// FOUND-16 Phase 2: verifies that UpdateSiteAction hoists the 10 promoted
+// settings.* keys into their typed columns AND strips them from the settings
+// JSONB. Columns are the sole write target after migration 20260701200000.
 
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
@@ -25,7 +25,7 @@ afterEach(function () {
     Carbon::setTestNow();
 });
 
-it('hoists the 10 settings.* keys into typed columns (dual-write)', function () {
+it('hoists the 10 settings.* keys into typed columns and strips them from JSONB', function () {
     $pro = createTenant('promote-owner');
 
     app(UpdateSiteAction::class)->execute($pro, [
@@ -45,6 +45,7 @@ it('hoists the 10 settings.* keys into typed columns (dual-write)', function () 
 
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
 
+    // Columns are the sole write target (Phase 2 — strip active).
     expect($row->hero_title)->toBe('Hi')
         ->and($row->hero_subtitle)->toBe('Sub')
         ->and($row->primary_button_text)->toBe('Book')
@@ -56,10 +57,20 @@ it('hoists the 10 settings.* keys into typed columns (dual-write)', function () 
         ->and($row->booking_mode)->toBe('none')
         ->and($row->manual_booking_url)->toBe('https://example.com/manual');
 
-    // Dual-write: the JSONB settings key must also still be populated (Phase 1).
-    $settings = json_decode($row->settings, true);
-    expect($settings['booking_mode'])->toBe('none')
-        ->and($settings['hero_title'])->toBe('Hi');
+    // Phase 2 strip: the 10 keys must NOT appear in the settings JSONB.
+    // The views re-inject from columns (migration 20260701200000), so the
+    // wire is byte-identical — but the physical JSONB no longer carries them.
+    $settings = json_decode($row->settings, true) ?? [];
+    expect($settings)->not->toHaveKey('booking_mode')
+        ->and($settings)->not->toHaveKey('hero_title')
+        ->and($settings)->not->toHaveKey('hero_subtitle')
+        ->and($settings)->not->toHaveKey('primary_button_text')
+        ->and($settings)->not->toHaveKey('primary_button_url')
+        ->and($settings)->not->toHaveKey('bio_text')
+        ->and($settings)->not->toHaveKey('show_branding')
+        ->and($settings)->not->toHaveKey('charlie_enabled')
+        ->and($settings)->not->toHaveKey('services_auto_sync_enabled')
+        ->and($settings)->not->toHaveKey('manual_booking_url');
 });
 
 it('leaves unmentioned columns untouched when only some keys are sent', function () {

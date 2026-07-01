@@ -197,7 +197,7 @@ These are the dependencies the parallel authors flagged; obey them when sequenci
 - [x] **PR4** — FOUND-14+10 — pair-CHECK + visibility registry — implemented · reviewed · deployed ✅ 2026-07-01 (dev d99db8f7; blocks_group_type_check applied+verified — cross-group rejected, 117 rows valid)
 - [x] **PR5a** — FOUND-15 Phase 1 (expand: add cols + backfill + dual-write) — implemented · reviewed · deployed ✅ 2026-07-01 (dev a6f4460a; 3 cols+CHECK+CONCURRENTLY idx applied; 12 link blocks backfilled, column↔settings synced, 0 mismatch; review found+fixed staff-update category dual-write gap)
 - [x] **PR5b** — FOUND-15 Phase 2 (strip JSON + both views + wire flip) — ✅ 2026-07-02 (dev 10afe6ca; Josh confirmed frontend ready; both views rewritten+verified — links top-level, settings stripped, booking untouched, index swapped)
-- [ ] **PR6a** — FOUND-16 Phase 1 (expand) — implemented · reviewed · deployed
+- [x] **PR6a** — FOUND-16 Phase 1 (expand) — implemented · reviewed · deployed ✅ 2026-07-02 (dev 6ec90b30; 10 cols+booking_mode CHECK applied; backfill 0 mismatch; CHECK rejects junk; wire byte-identical)
 - [ ] **PR6b** — FOUND-16 Phase 2 (strip + both views + wire flip) — ⛔ **FRONTEND-GATED — hard-pause**
 - [ ] **PR7** — FOUND-3 — cover convention (index-only migration) — implemented · reviewed · deployed
 - [ ] **PR8** — FOUND-18 — connection async state (3 files) — implemented · reviewed · deployed

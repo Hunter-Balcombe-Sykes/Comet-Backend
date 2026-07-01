@@ -196,20 +196,22 @@ it('merges settings PATCH-style, preserving unknown keys and stripping the dead 
 
     app(UpdateSiteAction::class)->execute($pro, [
         'settings' => [
-            'hero_title' => 'new',     // overwrites
-            'extra' => 'z',            // unknown key — must survive
+            'hero_title' => 'new',     // promoted key — goes to column, stripped from JSONB
+            'extra' => 'z',            // unknown key — must survive in JSONB
             'design' => ['accent' => '#fff'], // dead path — must be stripped
         ],
     ]);
 
-    $settings = json_decode(
-        DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('settings'),
-        true
-    );
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    $settings = json_decode($row->settings, true) ?? [];
 
+    // Non-promoted keys survive in the JSONB; design path is stripped.
     expect($settings)->toMatchArray([
         'keep_me' => 'yes',
-        'hero_title' => 'new',
         'extra' => 'z',
     ])->and($settings)->not->toHaveKey('design');
+
+    // Phase 2 strip: hero_title is a promoted key → column only, not in JSONB.
+    expect($settings)->not->toHaveKey('hero_title');
+    expect($row->hero_title)->toBe('new');
 });
