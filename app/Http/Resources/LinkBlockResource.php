@@ -5,8 +5,10 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 
 // V2: API resource for site.blocks rows where block_group='links'.
-// `settings` is passed through (it holds social-mode tags like platform/handle
-// and a free-form category) — the column itself is explicitly allowlisted.
+// Phase 2: platform/category/live_check_enabled are promoted columns emitted
+// at the top level. `settings` passes through the remaining JSONB keys (handle,
+// is_live, display-hint flags like highlight/note) — the column itself is
+// explicitly allowlisted and no longer carries the promoted keys.
 class LinkBlockResource extends ApiResource
 {
     /**
@@ -26,6 +28,9 @@ class LinkBlockResource extends ApiResource
             'sort_order' => $this->sort_order,
             'is_active' => $this->is_active,
             'is_enabled' => $this->is_enabled,
+            'platform' => $this->platform,
+            'category' => $this->category,
+            'live_check_enabled' => (bool) $this->live_check_enabled,
             'settings' => (object) ($this->settings ?? []),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

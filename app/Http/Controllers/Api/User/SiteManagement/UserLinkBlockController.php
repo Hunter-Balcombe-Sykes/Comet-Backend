@@ -24,7 +24,7 @@ use InvalidArgumentException;
  * Supports two write modes (see docs/social-links.md):
  *   - **Social mode**: client sends `platform` + (`handle` OR `url`). The
  *     SocialLinkNormalizer validates and rebuilds a canonical https URL; the
- *     controller stores `settings.platform` and `settings.handle` as soft tags.
+ *     controller stores `platform` as a column and `handle` in settings JSONB.
  *   - **Custom mode**: client sends `title` + `url` (legacy contract preserved).
  *     No platform binding, free-form icon_key.
  *
@@ -137,23 +137,9 @@ class UserLinkBlockController extends ApiController
         } else {
             // Strip the social-mode-only keys before fill — they're not Block columns.
             unset($data['platform'], $data['handle']);
-
-            // category is now a column (top-level $data['category'] fills it directly).
-            // Phase 1 dual-write: also mirror it into settings so the unchanged views
-            // keep emitting it. Preserve the existing settings on a category-only edit.
-            if (array_key_exists('category', $data)) {
-                $existingSettings = is_array($linkBlock->settings) ? $linkBlock->settings : [];
-                $existingSettings['category'] = $data['category'];
-                $data['settings'] = array_merge($existingSettings, $data['settings'] ?? []);
-            }
-
-            // live_check_enabled arrives nested in settings (Phase 1) — mirror it onto
-            // the column so the cap count and streaming job (now column-based) see it.
-            if (array_key_exists('settings', $data) && is_array($data['settings'])
-                && array_key_exists('live_check_enabled', $data['settings'])) {
-                $data['live_check_enabled'] = (bool) $data['settings']['live_check_enabled'];
-            }
-
+            // Phase 2: category + live_check_enabled are top-level columns; fill()
+            // maps them directly. Any settings the client sends no longer carries
+            // these keys (rejected by the allowlist in UpdateLinkBlockRequest).
             $linkBlock->fill($data);
         }
 

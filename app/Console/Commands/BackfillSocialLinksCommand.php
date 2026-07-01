@@ -10,18 +10,20 @@ use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 /**
- * One-shot backfill: tag ALL link blocks with `settings.platform`,
- * `settings.handle` (when extractable), and `settings.category`.
+ * One-shot backfill: tag ALL link blocks with the `platform` column,
+ * `settings.handle` (when extractable), and the `category` column.
+ *
+ * Phase 2: writes to the promoted columns (platform, category) instead of
+ * settings JSONB. handle stays in settings as it has no dedicated column.
  *
  * Idempotent — safe to re-run. Skips rows that already have both platform
- * and category set. Rows with a known social icon_key get full platform
+ * and category columns set. Rows with a known social icon_key get full platform
  * resolution; custom/unknown rows get category='other' only.
  *
  * Why we have this:
  *   When the social_platforms registry was introduced, existing link blocks
- *   used icon_key='instagram' etc. but had no platform tag in settings. The
- *   category field was added later, requiring another pass over all link
- *   blocks (including custom ones with no platform).
+ *   used icon_key='instagram' etc. but had no platform tag. The category field
+ *   was added later, requiring another pass over all link blocks.
  *
  * Run order:
  *   1. Always run with --dry-run first to preview the stats.
@@ -87,9 +89,9 @@ class BackfillSocialLinksCommand extends Command
                 foreach ($blocks as $block) {
                     $stats['total']++;
 
-                    $settings = is_array($block->settings) ? $block->settings : [];
-                    $hasCategory = isset($settings['category']);
-                    $hasPlatform = isset($settings['platform']);
+                    // Phase 2: idempotency reads the promoted columns, not settings.
+                    $hasCategory = $block->category !== null;
+                    $hasPlatform = $block->platform !== null;
 
                     // Fully-tagged rows: skip (idempotent).
                     if ($hasCategory && $hasPlatform) {
@@ -98,14 +100,16 @@ class BackfillSocialLinksCommand extends Command
                         continue;
                     }
 
+                    $settings = is_array($block->settings) ? $block->settings : [];
+
                     // Identify the platform to use for category lookup + (if the
                     // row isn't platform-tagged yet) URL normalization.
                     $platformKey = $hasPlatform
-                        ? $settings['platform']
+                        ? $block->platform
                         : ($iconToPlatform[$block->icon_key] ?? null);
 
                     // Legacy social-icon path: row has a social icon_key but no
-                    // settings.platform yet. Normalize URL, tag platform/handle.
+                    // platform column yet. Normalize URL, tag platform/handle.
                     if (! $hasPlatform && $platformKey !== null && $block->url !== null) {
                         try {
                             $normalized = $normalizer->normalize($platformKey, null, $block->url);
@@ -124,7 +128,8 @@ class BackfillSocialLinksCommand extends Command
                         }
 
                         if ($platformKey !== null && isset($normalized)) {
-                            $settings['platform'] = $platformKey;
+                            // Phase 2: write platform to the column; keep handle in settings.
+                            $block->platform = $platformKey;
                             if ($normalized['handle'] !== null) {
                                 $settings['handle'] = $normalized['handle'];
                                 $stats['tagged_with_handle']++;
@@ -144,7 +149,8 @@ class BackfillSocialLinksCommand extends Command
                     // Resolve category: platform default, or 'other' for
                     // custom/unknown rows and host-mismatch fallbacks.
                     if (! $hasCategory) {
-                        $settings['category'] = $platformKey !== null
+                        // Phase 2: write category to the column.
+                        $block->category = $platformKey !== null
                             ? ($registry[$platformKey]['default_category'] ?? 'other')
                             : 'other';
                         $stats['category_only']++;

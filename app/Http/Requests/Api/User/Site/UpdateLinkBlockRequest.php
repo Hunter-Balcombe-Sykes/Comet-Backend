@@ -80,15 +80,13 @@ class UpdateLinkBlockRequest extends BaseFormRequest
             'settings' => ['sometimes', 'array'],
             'settings.highlight' => ['sometimes', 'boolean'],
             'settings.note' => ['sometimes', 'string', 'max:140'],
-            // Defense-in-depth: see StoreLinkBlockRequest for rationale. Enum-validate
-            // settings.category so a client sending {category, settings: {category: 'bogus'}}
-            // cannot bypass the top-level enum check through the update-path settings merge.
-            'settings.category' => ['sometimes', 'nullable', 'string', Rule::in(config('partna.link_categories', []))],
-            'settings.live_check_enabled' => ['sometimes', 'boolean'],
 
             // Category enum — all-optional on update (partial updates allowed).
             // Enum is still checked when present; controller applies override semantics.
             'category' => ['sometimes', 'nullable', 'string', Rule::in(config('partna.link_categories', []))],
+            // Phase 2: live_check_enabled is a top-level field (promoted column),
+            // no longer nested under settings.
+            'live_check_enabled' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -127,7 +125,8 @@ class UpdateLinkBlockRequest extends BaseFormRequest
 
             // Per-site cap on live_check_enabled blocks — prevents one user from
             // monopolizing the streaming poll budget.
-            if (is_array($settings) && array_key_exists('live_check_enabled', $settings) && (bool) $settings['live_check_enabled']) {
+            // Phase 2: live_check_enabled is top-level (not nested under settings).
+            if ((bool) $this->input('live_check_enabled')) {
                 $currentBlock = $this->route('linkBlock') ?? $this->route('block');
                 $siteId = is_object($currentBlock) ? ($currentBlock->site_id ?? null) : null;
                 $currentBlockId = is_object($currentBlock) && method_exists($currentBlock, 'getKey')
@@ -145,7 +144,7 @@ class UpdateLinkBlockRequest extends BaseFormRequest
 
                     if ($existing >= $cap) {
                         $validator->errors()->add(
-                            'settings.live_check_enabled',
+                            'live_check_enabled',
                             "You can enable live status checking on at most {$cap} link blocks per site."
                         );
                     }

@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Redis;
 
 beforeEach(fn () => Redis::flushdb());
 
+// Phase 2: platform + live_check_enabled are promoted columns emitted as top-level
+// block keys by the public-site views. handle stays in settings.
+
 it('returns is_live=true for a live streaming link block on the public profile', function () {
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
     Redis::set('streaming:live:twitch:shroud', '1', 'EX', 180);
@@ -14,10 +17,10 @@ it('returns is_live=true for a live streaming link block on the public profile',
     $payload = [
         'links' => [[
             'block_group' => 'links',
+            'platform' => 'twitch',
+            'live_check_enabled' => true,
             'settings' => [
-                'platform' => 'twitch',
                 'handle' => 'shroud',
-                'live_check_enabled' => true,
             ],
         ]],
         'blocks' => [],
@@ -45,10 +48,10 @@ it('returns is_live=false when the handle is not in Redis', function () {
     $payload = [
         'links' => [[
             'block_group' => 'links',
+            'platform' => 'twitch',
+            'live_check_enabled' => true,
             'settings' => [
-                'platform' => 'twitch',
                 'handle' => 'offlineuser',
-                'live_check_enabled' => true,
             ],
         ]],
         'blocks' => [],

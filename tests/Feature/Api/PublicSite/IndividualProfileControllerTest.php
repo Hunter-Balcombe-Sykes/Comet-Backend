@@ -279,6 +279,8 @@ it('link projection emits only the structured shape (no extra JSONB leaks)', fun
     $pro = seedIndividualProfile('solo3');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
+    // Phase 2: platform is a promoted column; getLinks reads it from the column.
+    // Sensitive keys in settings still must not leak to the wire.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $pro->id,
@@ -288,12 +290,12 @@ it('link projection emits only the structured shape (no extra JSONB leaks)', fun
         'title' => 'Sensitive',
         'url' => 'https://example.test',
         'sort_order' => 0,
+        'platform' => 'instagram',
         // Sensitive keys MUST NOT appear in the wire payload — the controller
         // doesn't read these into the structured link row.
         'settings' => json_encode([
             'admin_token' => 'sk_live_secret',
             'internal_note' => 'staging only',
-            'platform' => 'instagram',
         ]),
         'is_active' => 1,
         'is_enabled' => 1,
@@ -779,6 +781,7 @@ it('links engine emits a flat list with id/title/url/category/platform', functio
     $pro = seedIndividualProfile('links-live');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
+    // Phase 2: category + platform are promoted columns; read by getLinks from columns.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $pro->id,
@@ -790,7 +793,9 @@ it('links engine emits a flat list with id/title/url/category/platform', functio
         'sort_order' => 1,
         'is_active' => 1,
         'is_enabled' => 1,
-        'settings' => json_encode(['category' => 'social', 'platform' => 'instagram']),
+        'category' => 'social',
+        'platform' => 'instagram',
+        'settings' => json_encode([]),
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

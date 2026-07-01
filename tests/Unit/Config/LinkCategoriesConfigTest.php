@@ -10,8 +10,10 @@ it('exposes the 7 link categories in config', function () {
     expect($categories)->toBe(['social', 'booking', 'education', 'content', 'events', 'streaming', 'other']);
 });
 
-it('includes category in the link_block_settings_keys allowlist', function () {
-    expect(config('partna.link_block_settings_keys'))->toContain('category');
+it('does not include category in the link_block_settings_keys allowlist (it is a column now)', function () {
+    // Phase 2: category is a promoted column on site.blocks; it is no longer
+    // accepted as a settings sub-key (stripped by migration 20260701180000).
+    expect(config('partna.link_block_settings_keys'))->not->toContain('category');
 });
 
 it('includes the 16 new platform icon keys in the allowlist', function () {
@@ -106,6 +108,8 @@ it('streaming_platforms config lists twitch and kick', function () {
     expect(config('partna.streaming_platforms'))->toBe(['twitch', 'kick']);
 });
 
-it('live_check_enabled is in the link_block_settings_keys allowlist', function () {
-    expect(config('partna.link_block_settings_keys'))->toContain('live_check_enabled');
+it('live_check_enabled is not in the link_block_settings_keys allowlist (it is a column now)', function () {
+    // Phase 2: live_check_enabled is a promoted column on site.blocks; it is no
+    // longer accepted as a settings sub-key (stripped by migration 20260701180000).
+    expect(config('partna.link_block_settings_keys'))->not->toContain('live_check_enabled');
 });

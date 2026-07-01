@@ -37,6 +37,10 @@ class LiveStatusInjector
      * Injects is_live into each block that has live_check_enabled=true and a streaming platform.
      * Missing Redis key → is_live=false (safe default, no error).
      *
+     * Phase 2: platform + live_check_enabled are promoted columns emitted as top-level
+     * block keys by the public-site views. handle stays in the settings bag.
+     * is_live continues to be written under settings.is_live (frontend wire contract).
+     *
      * @param  array<int, mixed>  $blocks
      * @return array<int, mixed>
      */
@@ -49,14 +53,13 @@ class LiveStatusInjector
                 return $block;
             }
 
-            $settings = $block['settings'] ?? [];
-            if (! is_array($settings)) {
-                return $block;
-            }
+            // platform + live_check_enabled are promoted columns, emitted as top-level
+            // block keys by the public-site views. handle stays in the settings bag.
+            $platform = $block['platform'] ?? null;
+            $liveCheckEnabled = (bool) ($block['live_check_enabled'] ?? false);
 
-            $platform = $settings['platform'] ?? null;
-            $handle = $settings['handle'] ?? null;
-            $liveCheckEnabled = (bool) ($settings['live_check_enabled'] ?? false);
+            $settings = $block['settings'] ?? [];
+            $handle = is_array($settings) ? ($settings['handle'] ?? null) : null;
 
             if (
                 ! $liveCheckEnabled
@@ -67,6 +70,10 @@ class LiveStatusInjector
                 return $block;
             }
 
+            // is_live continues to live under settings.is_live (wire contract for the frontend).
+            if (! is_array($block['settings'] ?? null)) {
+                $block['settings'] = [];
+            }
             $redisKey = self::LIVE_KEY_PREFIX."{$platform}:{$handle}";
             $block['settings']['is_live'] = Redis::get($redisKey) === '1';
 

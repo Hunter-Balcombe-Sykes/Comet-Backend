@@ -77,17 +77,15 @@ class StoreLinkBlockRequest extends BaseFormRequest
             'is_active' => ['sometimes', 'boolean'],
             'settings' => ['sometimes', 'array'],
             'settings.highlight' => ['sometimes', 'boolean'],
-            'settings.live_check_enabled' => ['sometimes', 'boolean'],
             'settings.note' => ['sometimes', 'string', 'max:140'],
-            // Defense-in-depth: even though the controller overwrites settings.category
-            // with the top-level category before save, enum-validate the nested form
-            // in case a code path ever merges settings without overwriting.
-            'settings.category' => ['sometimes', 'nullable', 'string', Rule::in(config('partna.link_categories', []))],
 
             // Category enum — always validated against the registry when supplied.
             // Required for custom links (enforced in withValidator); optional for
             // social links (controller falls back to the platform's default_category).
             'category' => ['sometimes', 'nullable', 'string', Rule::in(config('partna.link_categories', []))],
+            // Phase 2: live_check_enabled is a top-level field (promoted column),
+            // no longer nested under settings.
+            'live_check_enabled' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -163,9 +161,10 @@ class StoreLinkBlockRequest extends BaseFormRequest
             }
 
             // Per-site cap on live_check_enabled blocks — mirrors UpdateLinkBlockRequest.
+            // Phase 2: live_check_enabled is top-level (not nested under settings).
             // On creation there's no "current block" to exclude from the count.
-            $settings = $this->input('settings');
-            if (is_array($settings) && array_key_exists('live_check_enabled', $settings) && (bool) $settings['live_check_enabled']) {
+            $liveCheckRequested = (bool) $this->input('live_check_enabled');
+            if ($liveCheckRequested) {
                 $pro = $this->route('professional') ?? $this->attributes->get('professional');
                 $proId = $pro instanceof User ? $pro->id : null;
 
@@ -185,7 +184,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
 
                         if ($existing >= $cap) {
                             $validator->errors()->add(
-                                'settings.live_check_enabled',
+                                'live_check_enabled',
                                 "You can enable live status checking on at most {$cap} link blocks per site."
                             );
                         }
@@ -194,6 +193,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
             }
 
             // Settings allowlist (existing behaviour)
+            $settings = $this->input('settings');
             if (is_array($settings)) {
                 $allowed = config('partna.link_block_settings_keys', []);
                 $extra = array_diff(array_keys($settings), $allowed);

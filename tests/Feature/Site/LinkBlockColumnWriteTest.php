@@ -1,16 +1,15 @@
 <?php
 
 /**
- * Phase 1 dual-write assertions: verifies that link block writes populate both
- * the promoted columns (category, platform, live_check_enabled) AND keep the
- * settings mirror in place so the unchanged views/resource/injector keep working.
+ * Phase 2 column-write assertions: verifies that link block writes populate the
+ * promoted columns (category, platform, live_check_enabled) correctly, and that
+ * the settings bag no longer carries these keys.
  *
  * Tests cover:
  *  - user PATCH (category via HTTP) — proves the full user update path works
  *  - user custom-update branch logic for live_check_enabled (model layer)
- *  - staff store column population (model layer, mirrors the controller's new code)
- *
- * These must pass before Phase 2 strips the settings mirror.
+ *  - staff store column population (model layer, mirrors the controller's code)
+ *  - staff update column population (model layer)
  */
 
 use App\Models\Core\Site\Block;
@@ -21,10 +20,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupBlocksTable();
     config([
+        // Phase 2: platform/category/live_check_enabled removed from settings keys.
         'partna.link_block_settings_keys' => [
-            'platform', 'handle', 'category', 'highlight', 'note',
+            'handle', 'highlight', 'note',
             'open_in_new_tab', 'rel_nofollow', 'rel_sponsored', 'rel_ugc',
-            'live_check_enabled',
         ],
         'partna.link_categories' => [
             'social', 'booking', 'education', 'content', 'events', 'streaming', 'other',
@@ -39,7 +38,7 @@ beforeEach(function () {
 // User controller — PATCH with category: full HTTP path
 // ---------------------------------------------------------------------------
 
-it('PATCH with category sets the column AND the settings mirror', function () {
+it('PATCH with category sets the column (Phase 2 — no settings mirror)', function () {
     $pro = createTenant('colwrite-cat');
 
     $blockId = (string) Str::uuid();
@@ -67,14 +66,14 @@ it('PATCH with category sets the column AND the settings mirror', function () {
 
     $fresh = Block::query()->findOrFail($blockId);
 
-    // Column populated (Phase 1).
+    // Column populated (Phase 2).
     expect($fresh->category)->toBe('events');
-    // Settings mirror preserved so unchanged views keep emitting category.
-    expect($fresh->settings['category'] ?? null)->toBe('events');
+    // settings no longer carries category (Phase 2 strip).
+    expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------
-// User controller — custom-update branch: live_check_enabled hoist
+// User controller — custom-update branch: live_check_enabled top-level (Phase 2)
 //
 // Tests the controller's custom-update logic directly (Block model level) to
 // avoid the UpdateLinkBlockRequest prepareForValidation note-sanitization
@@ -82,54 +81,46 @@ it('PATCH with category sets the column AND the settings mirror', function () {
 // The HTTP path for category (above) already proves the update pipeline works.
 // ---------------------------------------------------------------------------
 
-it('custom-update branch hoists live_check_enabled from settings to column', function () {
+it('custom-update branch fills live_check_enabled column from top-level field (Phase 2)', function () {
     $pro = createTenant('colwrite-lce');
-    $site = $pro->site;
 
     $block = createLinkBlockFor($pro, [
         'category' => 'other',
-        'settings' => json_encode(['category' => 'other', 'live_check_enabled' => false]),
+        'settings' => json_encode([]),
     ]);
 
-    // Simulate the controller's custom-update else-branch logic (Phase 1):
-    // live_check_enabled arrives nested in settings → hoist to column.
-    $data = ['settings' => ['live_check_enabled' => true, 'category' => 'other']];
-
-    if (array_key_exists('settings', $data) && is_array($data['settings'])
-        && array_key_exists('live_check_enabled', $data['settings'])) {
-        $data['live_check_enabled'] = (bool) $data['settings']['live_check_enabled'];
-    }
+    // Phase 2: live_check_enabled arrives at the top level; fill() maps it directly.
+    $data = ['live_check_enabled' => true];
 
     $block->fill($data);
     $block->save();
 
     $fresh = Block::query()->findOrFail($block->id);
 
-    // Column populated (Phase 1).
+    // Column populated (Phase 2).
     expect($fresh->live_check_enabled)->toBeTrue();
-    // Settings mirror preserved (settings still carry live_check_enabled).
-    expect((bool) ($fresh->settings['live_check_enabled'] ?? false))->toBeTrue();
+    // settings does NOT carry live_check_enabled.
+    expect(array_key_exists('live_check_enabled', $fresh->settings ?? []))->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------
-// Staff controller — store: category column + settings mirror
+// Staff controller — store: category column (Phase 2 — no settings mirror)
 //
-// Tests the new Block([...'category'=>$data['category']...]) construction added
-// to StaffLinkBlockManagementController::store() in Phase 1. Mirrors the
-// controller's exact construction logic.
+// Tests the Block construction in StaffLinkBlockManagementController::store().
+// Phase 2: category comes from top-level only; settings no longer mirrors it.
 // ---------------------------------------------------------------------------
 
-it('staff store construction sets category column AND settings mirror', function () {
+it('staff store construction sets category column (Phase 2 — no settings mirror)', function () {
     $pro = createTenant('colwrite-staff');
     $site = $pro->site;
 
-    // Mirror what StaffLinkBlockManagementController::store() now does.
+    // Mirror what StaffLinkBlockManagementController::store() does in Phase 2.
     $data = [
         'title' => 'Staff link',
         'url' => 'https://example.com/staff',
         'is_active' => true,
         'category' => 'social',
-        'settings' => ['category' => 'social'],
+        'settings' => [],
     ];
 
     $block = new Block([
@@ -138,9 +129,9 @@ it('staff store construction sets category column AND settings mirror', function
         'title' => $data['title'],
         'url' => $data['url'],
         'is_active' => $data['is_active'] ?? true,
-        // Phase 1 dual-write: populate promoted columns.
-        'category' => $data['category'] ?? ($data['settings']['category'] ?? null),
-        'live_check_enabled' => (bool) ($data['settings']['live_check_enabled'] ?? false),
+        // Phase 2: category + live_check_enabled are columns; top-level only.
+        'category' => $data['category'] ?? null,
+        'live_check_enabled' => (bool) ($data['live_check_enabled'] ?? false),
         'settings' => $data['settings'] ?? [],
     ]);
     $block->user_id = $pro->id;
@@ -149,24 +140,22 @@ it('staff store construction sets category column AND settings mirror', function
 
     $fresh = Block::query()->findOrFail($block->id);
 
-    // Column populated (Phase 1).
+    // Column populated (Phase 2).
     expect($fresh->category)->toBe('social');
-    // Settings mirror preserved.
-    expect($fresh->settings['category'] ?? null)->toBe('social');
+    // settings does NOT carry category.
+    expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
     // live_check_enabled defaults to false when not supplied.
     expect($fresh->live_check_enabled)->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------
-// Staff controller — UPDATE: category dual-write (both directions)
+// Staff controller — UPDATE: fill() maps top-level columns directly (Phase 2)
 //
-// Tests the dual-write fix added to StaffLinkBlockManagementController::update().
-// Phase 1 requires both column and settings to stay in sync after every write
-// because settings-reading paths (views, resource, injector) still read settings
-// while query predicates now read the column.
+// Phase 2: the staff update controller does fill($request->validated()), so
+// top-level category maps directly to the column. No settings-mirroring.
 // ---------------------------------------------------------------------------
 
-it('staff PATCH with top-level category sets the column AND the settings mirror', function () {
+it('staff PATCH with top-level category sets the column (Phase 2 — no settings mirror)', function () {
     setupPartnaStaffTable();
 
     $staffId = (string) Str::uuid();
@@ -190,43 +179,29 @@ it('staff PATCH with top-level category sets the column AND the settings mirror'
         ->assertOk();
 
     $fresh = Block::query()->findOrFail($block->id);
-    // Direction A: column populated (Phase 1 dual-write).
+    // Column populated via fill() from top-level validated field.
     expect($fresh->category)->toBe('events');
-    // Direction A: settings mirror updated so Phase-1 settings-reading paths keep
-    // emitting category without code changes.
-    expect($fresh->settings['category'] ?? null)->toBe('events');
+    // settings does NOT carry category (Phase 2).
+    expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
 });
 
-// Direction B: settings.category → category column
-//
-// Uses direct model simulation (not HTTP) to avoid the UpdateLinkBlockRequest
-// prepareForValidation note-sanitization injecting note=>null into settings-only
-// payloads, which causes a string-rule 422 on HTTP. The HTTP path is already
-// exercised by direction A above; here we verify the controller's direction-B
-// hoist logic in isolation, mirroring the pattern of the live_check_enabled test.
-it('staff update direction B: settings.category hoists to the category column', function () {
-    setupBlocksTable();
-
+it('staff update fills category column from top-level field (Phase 2)', function () {
     $pro = createTenant('staff-dw-cat-b');
     $block = createLinkBlockFor($pro, [
         'category' => null,
         'settings' => json_encode(['highlight' => true]),
     ]);
 
-    // Simulate the controller's direction-B logic: settings.category → column when
-    // top-level category key is absent. This is the new code added to update().
-    $data = ['settings' => ['category' => 'booking', 'highlight' => true]];
-
-    if (! array_key_exists('category', $data) && isset($data['settings']['category'])) {
-        $data['category'] = $data['settings']['category'];
-    }
-
+    // Phase 2: fill() maps top-level category directly to the column.
+    // No settings-mirroring (direction-B hoist logic removed).
+    $data = ['category' => 'booking'];
     $block->fill($data);
     $block->save();
 
     $fresh = Block::query()->findOrFail($block->id);
-    // Direction B: column hoisted from settings.category (Phase 1 dual-write).
+    // Column set from top-level field.
     expect($fresh->category)->toBe('booking');
-    // Settings mirror preserved.
-    expect($fresh->settings['category'] ?? null)->toBe('booking');
+    // Existing settings preserved; category NOT added.
+    expect($fresh->settings['highlight'] ?? null)->toBeTrue();
+    expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
 });

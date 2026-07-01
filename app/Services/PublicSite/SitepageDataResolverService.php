@@ -302,18 +302,19 @@ class SitepageDataResolverService
             ->get()
             ->map(function (Block $block): array {
                 $settings = is_array($block->settings) ? $block->settings : [];
-                $platform = is_string($settings['platform'] ?? null)
-                    ? strtolower(trim((string) $settings['platform']))
+                // Phase 2: platform + category read from promoted columns.
+                $platform = is_string($block->platform)
+                    ? strtolower(trim($block->platform))
                     : null;
-                $platform = $platform !== '' ? $platform : null;
-                $category = is_string($settings['category'] ?? null)
-                    ? strtolower(trim((string) $settings['category']))
+                $platform = ($platform !== null && $platform !== '') ? $platform : null;
+                $category = is_string($block->category)
+                    ? strtolower(trim($block->category))
                     : 'custom';
 
                 $title = is_string($block->title) ? trim($block->title) : '';
                 $url = is_string($block->url) ? trim($block->url) : '';
 
-                // Older rows can have empty title/url at rest — settings.platform
+                // Older rows can have empty title/url at rest — platform (column)
                 // + settings.handle are the source of truth there. Rebuild both
                 // from the platform config so the row still renders.
                 if (($title === '' || $url === '') && $platform !== null) {

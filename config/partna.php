@@ -200,16 +200,10 @@ return [
         'rel_ugc',
         'highlight',
         'note',
-        // Social link tagging — set by SocialLinkNormalizer when a brand-controlled
-        // platform is selected. Soft tag in JSONB rather than a column; promote to
-        // a real column (Option B) only when query-ability matters. See docs/social-links.md.
-        'platform',
+        // platform/handle social-link tagging. platform + category + live_check_enabled
+        // are now promoted columns on site.blocks (see 20260701000000_promote_block_settings_columns);
+        // only handle remains in settings JSONB.
         'handle',
-        // Link category — one of config('partna.link_categories'). Required on every
-        // write; resolved from the platform's default_category when not supplied.
-        // Same JSONB-first rationale as `platform` above.
-        'category',
-        'live_check_enabled',
     ],
 
     /*
