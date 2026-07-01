@@ -202,7 +202,7 @@ These are the dependencies the parallel authors flagged; obey them when sequenci
 - [x] **PR7** — FOUND-3 — cover convention (index-only migration) — implemented · reviewed · deployed ✅ 2026-07-02 (dev 4a8bf64a; 7 old indexes→1 composite unique verified; applied non-CONCURRENTLY on dev/tiny-table, file keeps CONCURRENTLY for prod)
 - [x] **PR8** — FOUND-18 — connection async state (3 files) — implemented · reviewed · deployed ✅ 2026-07-02 (dev c5c7c68d; 3 migrations applied; 37 apify_status promoted+stripped, 42 place_id mirrored, placeId kept, 0 mismatch)
 - [x] **PR9** — FOUND-19 — connect requests → descriptor (+`composer dump-autoload -o`) — implemented · reviewed · deployed ✅ 2026-07-02 (dev dae2652d; 21 requests deleted, 26 connectInput rules byte-for-byte verified vs git history, toBe(52) held, classmap rebuilt)
-- [ ] **PR10** — FOUND-21 — route registry — implemented · reviewed · deployed
+- [x] **PR10** — FOUND-21 — route registry — implemented · reviewed · deployed ✅ 2026-07-02 (dev 74969b0b; routes byte-identical hash 99ce7a33, toBe(52) held; caught+fixed a boot-time eager-scraper regression — lazy fetch factories, 26→0)
 
 ---
 
