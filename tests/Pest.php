@@ -730,6 +730,9 @@ function setupBlocksTable(): void
         is_active INTEGER NULL,
         is_enabled INTEGER NULL,
         settings TEXT NULL,
+        live_check_enabled INTEGER NULL DEFAULT 0,
+        category TEXT NULL,
+        platform TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -1128,6 +1131,9 @@ function createLinkBlockFor(User $pro, array $overrides = []): Block
         'url' => 'https://example.com',
         'sort_order' => 0,
         'is_active' => 1,
+        'live_check_enabled' => 0,
+        'category' => null,
+        'platform' => null,
         'created_at' => $now,
         'updated_at' => $now,
     ], $overrides);

@@ -140,7 +140,7 @@ class UpdateLinkBlockRequest extends BaseFormRequest
                         ->where('site_id', $siteId)
                         ->where('block_group', 'links')
                         ->when($currentBlockId, fn ($q) => $q->where('id', '!=', $currentBlockId))
-                        ->whereRaw("settings->>'live_check_enabled' = 'true'")
+                        ->where('live_check_enabled', true)
                         ->count();
 
                     if ($existing >= $cap) {

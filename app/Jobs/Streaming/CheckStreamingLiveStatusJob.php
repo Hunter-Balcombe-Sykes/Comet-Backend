@@ -64,17 +64,17 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
         /** @var array<string, list<string>> $handlesByPlatform */
         $handlesByPlatform = array_fill_keys($streamingPlatforms, []);
 
-        // block_group='links' (NOT block_type='link') is the links/sections discriminator
-        // in site.blocks. All other queries in the codebase use block_group.
+        // block_group='links' (NOT block_type='link') is the links/sections discriminator.
+        // live_check_enabled + platform are promoted columns; handle stays in settings JSONB.
         Block::query()
             ->where('block_group', 'links')
-            ->whereRaw("settings->>'live_check_enabled' = ?", ['true'])
+            ->where('live_check_enabled', true)
             ->whereNull('deleted_at')
             ->where('is_active', true)
             ->chunkById(500, function ($blocks) use (&$handlesByPlatform, $streamingPlatforms): void {
                 foreach ($blocks as $block) {
+                    $platform = $block->platform;
                     $settings = is_array($block->settings) ? $block->settings : [];
-                    $platform = $settings['platform'] ?? null;
                     $handle = $settings['handle'] ?? null;
 
                     if (

@@ -89,7 +89,7 @@ class EnforcePlatformLinkCapCommand extends Command
                 ->orderBy('created_at')
                 ->orderBy('id') // stable tie-break for same-second inserts
                 ->get()
-                ->filter(fn (Block $b) => in_array($b->settings['category'] ?? null, $cappedCategories, true))
+                ->filter(fn (Block $b) => in_array($b->category, $cappedCategories, true))
                 ->values();
 
             if ($cappedBlocks->count() <= $max) {
@@ -101,7 +101,7 @@ class EnforcePlatformLinkCapCommand extends Command
 
             foreach ($excess as $block) {
                 $stats['blocks_soft_deleted']++;
-                $category = $block->settings['category'] ?? 'unknown';
+                $category = $block->category ?? 'unknown';
                 $this->line("  [soft-delete] block {$block->id} (pro {$proId}, category: {$category})");
 
                 if (! $dryRun) {

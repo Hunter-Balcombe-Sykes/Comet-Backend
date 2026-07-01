@@ -59,11 +59,14 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     config(['partna.streaming_platforms' => ['twitch']]);
 
     // Insert a live-check-enabled block so the job finds handles and calls poll.
+    // Phase 1: live_check_enabled + platform are promoted columns; handle stays in settings.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
         'block_group' => 'links',
         'is_active' => 1,
-        'settings' => json_encode(['live_check_enabled' => 'true', 'platform' => 'twitch', 'handle' => 'testuser']),
+        'live_check_enabled' => 1,
+        'platform' => 'twitch',
+        'settings' => json_encode(['handle' => 'testuser']),
         'deleted_at' => null,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),

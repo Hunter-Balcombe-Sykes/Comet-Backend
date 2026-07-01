@@ -36,12 +36,15 @@ function seedCappedLinks(string $userId, string $siteId, int $count, string $cat
 {
     $now = now()->toDateTimeString();
     for ($i = 0; $i < $count; $i++) {
+        // Phase 1: category is a promoted column; keep settings mirror for dual-write parity.
         DB::connection('pgsql')->table('site.blocks')->insert([
             'id' => (string) Str::uuid(),
             'user_id' => $userId,
             'site_id' => $siteId,
             'block_group' => 'links',
             'block_type' => 'link',
+            'category' => $category,
+            'platform' => 'instagram',
             'settings' => json_encode(['category' => $category, 'platform' => 'instagram', 'handle' => "h{$i}"]),
             'sort_order' => $i,
             'is_active' => 1,

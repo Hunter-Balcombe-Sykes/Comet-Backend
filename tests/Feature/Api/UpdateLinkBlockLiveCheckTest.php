@@ -96,18 +96,17 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
     $site = $professional->site;
 
     // Seed 2 existing blocks that already have live_check_enabled=true.
-    // Storing 'live_check_enabled' as the JSON string 'true' here is a
-    // SQLite-only test fixture quirk: Postgres `->>` returns text "true" for a
-    // JSON boolean (so production works fine), but SQLite's `->>` returns
-    // integer 1, causing = 'true' to miss. Production stores a real JSON
-    // boolean (Laravel's `boolean` rule + array cast) — only this fixture
-    // diverges, to make the same query work across both dialects in tests.
+    // Phase 1: live_check_enabled is a promoted column; keep settings mirror for
+    // dual-write parity. The SQLite-dialect JSON quirk no longer applies here
+    // because the cap query now reads the boolean column, not settings JSONB.
     foreach (['a', 'b'] as $suffix) {
         DB::connection('pgsql')->table('site.blocks')->insert([
             'id' => (string) Str::uuid(),
             'site_id' => $site->id,
             'block_group' => 'links',
             'block_type' => 'link',
+            'live_check_enabled' => 1,
+            'platform' => 'twitch',
             'settings' => json_encode(['live_check_enabled' => 'true', 'platform' => 'twitch', 'handle' => "handle-{$suffix}"]),
             'sort_order' => 0,
             'is_active' => 1,
