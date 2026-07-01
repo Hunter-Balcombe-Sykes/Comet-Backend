@@ -505,6 +505,8 @@ function setupSitesTable(): void
         last_refresh_status TEXT NULL,
         last_refresh_error TEXT NULL,
         consecutive_failures INTEGER NULL DEFAULT 0,
+        apify_status TEXT NULL,
+        place_id TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL

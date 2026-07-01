@@ -9,9 +9,11 @@ namespace App\Services\Platforms\Payloads;
 // selection keeps its 5-key shape; an Apify-enriched one carries rating/hours/…).
 // A normalizing DTO would inject canonical-null enrichment keys and the resource
 // would then leak them. Accessors cover the fields the read paths actually read:
-// name() + placeId() (the enrich job's reconnect guard + name adoption), apifyStatus(),
+// name() + placeId() (name adoption + verbatim identifier),
 // and syncFindings() (the /synced + /synced/apply "Change to" flow). The enrich job's
 // seeding WRITE-BACK and GoogleBusinessAutoSync are untouched.
+// apifyStatus is now a real column (site.platform_connections.apify_status) —
+// the payload no longer carries it; re-injection happens in the controller.
 final readonly class GoogleBusinessPayload
 {
     /** @param array<string,mixed> $raw the stored selection map, preserved verbatim */
@@ -30,11 +32,6 @@ final readonly class GoogleBusinessPayload
     public function placeId(): ?string
     {
         return is_string($this->raw['placeId'] ?? null) ? $this->raw['placeId'] : null;
-    }
-
-    public function apifyStatus(): ?string
-    {
-        return is_string($this->raw['apifyStatus'] ?? null) ? $this->raw['apifyStatus'] : null;
     }
 
     /** @return list<mixed> the recorded auto-sync findings, verbatim, or [] */

@@ -121,11 +121,12 @@ it('google-business selection freezes the full enriched shape', function () {
             'order' => ['googleFood' => 'https://food.example/fadelab'],
             'booking' => ['https://booking.example/fadelab'],
             'socials' => ['instagram' => 'https://instagram.com/fadelab'],
-            'apifyStatus' => 'ok',
+            // apifyStatus lives in the apify_status column now (re-injected by selection() override).
             'apifyFetchedAt' => '2026-06-16T00:00:00+00:00',
             // Extra key outside the allowlist — must not appear in the selection.
             '_internal' => 'leak',
         ],
+        'apify_status' => 'ok',   // promoted column — selection() override re-injects as apifyStatus
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);

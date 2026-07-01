@@ -33,6 +33,31 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         return GoogleBusinessConnectionResource::class;
     }
 
+    // GET /api/platforms/google-business/selection
+    // Overrides the base (payload-only) selection so apifyStatus is sourced from
+    // the promoted apify_status column, not the payload. The resource is built
+    // from the payload ARRAY, so we splice the column value into that array
+    // (the resource itself is unchanged — apifyStatus stays in ENRICHMENT_KEYS).
+    public function selection(Request $request): JsonResponse
+    {
+        $row = $this->accountRows($this->currentUser($request))->first();
+        if ($row === null) {
+            return $this->success(['selection' => null]);
+        }
+
+        $payload = GoogleBusinessPayload::fromArray($row->payload)->toArray();
+        // Column is the source of truth: drop any legacy payload copy, then add
+        // the column value back as apifyStatus when set (null = never enriched).
+        unset($payload['apifyStatus']);
+        if ($row->apify_status !== null) {
+            $payload['apifyStatus'] = $row->apify_status;
+        }
+
+        $resource = $this->resourceClass();
+
+        return $this->success(['selection' => (new $resource($payload))->resolve()]);
+    }
+
     // POST /api/platforms/google-business/connect
     public function connect(ConnectGoogleBusinessRequest $request): JsonResponse
     {
@@ -45,7 +70,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         if (isset($data['placeId'])) {
             $selection = [
                 'url' => 'https://www.google.com/maps/search/?api=1&query='.rawurlencode($data['name']).'&query_place_id='.rawurlencode($data['placeId']),
-                'placeId' => $data['placeId'],
+                'placeId' => $data['placeId'],   // KEPT in payload — first-class identifier
                 'name' => $data['name'],
                 'address' => $data['address'] ?? null,
                 'lat' => (float) $data['lat'],
@@ -62,18 +87,34 @@ class GoogleBusinessController extends SingleSelectionPlatformController
 
             // Apify enrichment (menu / reservation / order / booking / socials)
             // is too slow to block connect, so it runs in a background job while
-            // we return the instant Place Details card. apifyStatus = 'pending'
-            // drives the dashboard's poll; the job flips it to ok/unavailable.
-            // Gated on the token so a missing key is a clean no-op.
+            // we return the instant Place Details card. apify_status='pending'
+            // (a real column now, NOT a payload key) drives the dashboard's poll;
+            // the job flips it to ok/unavailable. Gated on the token so a missing
+            // key is a clean no-op.
             $enrich = (bool) config('services.apify.token');
-            if ($enrich) {
-                $merged['apifyStatus'] = 'pending';
-            }
 
             // Business accounts adopt the Google Business name as their display name.
             $this->maybeAdoptGoogleName($user, $data['name'] ?? null);
 
-            $response = $this->connected($user, $merged);
+            // writeConnection owns the create/update authorization + payload upsert;
+            // the promoted columns are a GB-specific follow-up. apify_status lives
+            // ONLY in the column; place_id mirrors the payload value for the indexed
+            // reconnect guard. saveQuietly — no public change beyond the payload
+            // write writeConnection already purged.
+            $row = $this->writeConnection($user, $merged);
+            $row->forceFill([
+                'place_id' => $data['placeId'],
+                'apify_status' => $enrich ? 'pending' : null,
+            ])->saveQuietly();
+
+            // Echo: re-inject apifyStatus from the column so the connect response
+            // keeps the key the dashboard polls on (resource is built from the array).
+            $resource = $this->resourceClass();
+            $echo = $merged;
+            if ($enrich) {
+                $echo['apifyStatus'] = 'pending';
+            }
+            $response = $this->success((new $resource($echo))->resolve());
 
             if ($enrich) {
                 GoogleBusinessEnrichJob::dispatch((string) $user->id, $data['placeId']);

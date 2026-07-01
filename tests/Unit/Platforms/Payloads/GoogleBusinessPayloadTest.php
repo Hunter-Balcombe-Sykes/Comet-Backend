@@ -17,10 +17,9 @@ it('preserves the stored map verbatim (lossless toArray)', function () {
 });
 
 it('exposes typed accessors and tolerates absence', function () {
-    $dto = GoogleBusinessPayload::fromArray(['name' => 'Fade Lab', 'placeId' => 'ChIJ', 'apifyStatus' => 'pending']);
+    $dto = GoogleBusinessPayload::fromArray(['name' => 'Fade Lab', 'placeId' => 'ChIJ']);
     expect($dto->name())->toBe('Fade Lab');
     expect($dto->placeId())->toBe('ChIJ');
-    expect($dto->apifyStatus())->toBe('pending');
     expect($dto->syncFindings())->toBe([]);
 
     $empty = GoogleBusinessPayload::fromArray(null);

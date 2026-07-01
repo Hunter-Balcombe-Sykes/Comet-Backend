@@ -45,6 +45,8 @@ class IntegrationConnection extends BaseModel
         'last_refresh_status',
         'last_refresh_error',
         'consecutive_failures',
+        'apify_status',
+        'place_id',
     ];
 
     protected $casts = [

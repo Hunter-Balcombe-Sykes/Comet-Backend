@@ -199,7 +199,7 @@ These are the dependencies the parallel authors flagged; obey them when sequenci
 - [x] **PR5b** — FOUND-15 Phase 2 (strip JSON + both views + wire flip) — ✅ 2026-07-02 (dev 10afe6ca; Josh confirmed frontend ready; both views rewritten+verified — links top-level, settings stripped, booking untouched, index swapped)
 - [x] **PR6a** — FOUND-16 Phase 1 (expand) — implemented · reviewed · deployed ✅ 2026-07-02 (dev 6ec90b30; 10 cols+booking_mode CHECK applied; backfill 0 mismatch; CHECK rejects junk; wire byte-identical)
 - [x] **PR6b** — FOUND-16 Phase 2 (strip + both views + re-inject) — ✅ 2026-07-02 (dev ddc8ba46; NOT a wire change — re-inject keeps payload.site.settings.* byte-identical, hash-verified before==after; Josh confirmed auto-deploy; physical settings stripped, 0 leftover)
-- [ ] **PR7** — FOUND-3 — cover convention (index-only migration) — implemented · reviewed · deployed
+- [x] **PR7** — FOUND-3 — cover convention (index-only migration) — implemented · reviewed · deployed ✅ 2026-07-02 (dev 4a8bf64a; 7 old indexes→1 composite unique verified; applied non-CONCURRENTLY on dev/tiny-table, file keeps CONCURRENTLY for prod)
 - [ ] **PR8** — FOUND-18 — connection async state (3 files) — implemented · reviewed · deployed
 - [ ] **PR9** — FOUND-19 — connect requests → descriptor (+`composer dump-autoload -o`) — implemented · reviewed · deployed
 - [ ] **PR10** — FOUND-21 — route registry — implemented · reviewed · deployed

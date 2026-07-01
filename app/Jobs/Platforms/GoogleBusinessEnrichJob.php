@@ -90,18 +90,19 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         );
 
         // Write back business-info only: strip the enrichment keys (stale ones from
-        // a pre-cleanup connect included) and flip the Apify status. The GB payload
-        // has no public change, so saveQuietly — the seeded rows above fired their
-        // own sitepage cache purges.
+        // a pre-cleanup connect included) and record apifyFetchedAt + this run's
+        // findings. apifyStatus is now a real column, not a payload key. The GB
+        // payload has no public change, so saveQuietly — the seeded rows above
+        // fired their own sitepage cache purges.
         $connection->forceFill([
             'payload' => [
                 ...Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
-                'apifyStatus' => 'ok',
                 'apifyFetchedAt' => now()->toIso8601String(),
                 // What THIS scrape produced — drives the connect modal's "found
                 // platforms" list (only this run's, with live status + Change-to).
                 'syncFindings' => $findings,
             ],
+            'apify_status' => 'ok',
         ])->saveQuietly();
     }
 
@@ -120,22 +121,17 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         }
     }
 
-    // The user's single google-business connection, but only if its stored
-    // placeId still matches — guards against clobbering after the user
-    // reconnected a different place while this job was queued. ::query()->first()
-    // respects the soft-delete scope, so a disconnected row returns null.
+    // The user's single google-business connection, matched on the indexed
+    // place_id column — guards against clobbering after the user reconnected a
+    // DIFFERENT place while this job was queued. The model's soft-delete scope
+    // adds deleted_at IS NULL, matching the partial index.
     private function connection(): ?IntegrationConnection
     {
-        $connection = IntegrationConnection::query()
+        return IntegrationConnection::query()
             ->where('user_id', $this->userId)
             ->where('platform', 'google-business')
+            ->where('place_id', $this->placeId)
             ->first();
-
-        if (! $connection) {
-            return null;
-        }
-
-        return GoogleBusinessPayload::fromArray($connection->payload)->placeId() === $this->placeId ? $connection : null;
     }
 
     private function mark(IntegrationConnection $connection, string $status): void
@@ -143,9 +139,9 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
         $connection->forceFill([
             'payload' => [
                 ...$this->payloadOf($connection),
-                'apifyStatus' => $status,
                 'apifyFetchedAt' => now()->toIso8601String(),
             ],
+            'apify_status' => $status,
         ])->saveQuietly();
     }
 

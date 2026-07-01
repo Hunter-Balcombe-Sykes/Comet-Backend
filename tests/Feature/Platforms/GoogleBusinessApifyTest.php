@@ -39,11 +39,12 @@ function gbApifyConnection(User $user, string $placeId = 'ChIJtest'): Integratio
         'resource_id' => 'google-business',
         'payload' => [
             'url' => 'https://maps.google.com/?cid=1',
-            'placeId' => $placeId,
+            'placeId' => $placeId,            // KEPT in payload (first-class)
             'name' => 'Fade Lab Barbers',
             'rating' => 4.8,
-            'apifyStatus' => 'pending',
         ],
+        'place_id' => $placeId,               // indexed mirror column
+        'apify_status' => 'pending',          // promoted column (was payload.apifyStatus)
         'last_refreshed_at' => now(),
     ]);
 }
@@ -106,6 +107,28 @@ it('marks apify pending and dispatches the enrich job on a picker connect', func
         GoogleBusinessEnrichJob::class,
         fn (GoogleBusinessEnrichJob $job) => $job->placeId === 'ChIJtest' && $job->userId === (string) $user->id,
     );
+});
+
+it('promotes apify_status to a column and mirrors place_id on a picker connect', function () {
+    config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => 'apify-token']);
+    Bus::fake([GoogleBusinessEnrichJob::class]);
+    Http::fake([
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response([
+            'id' => 'ChIJtest', 'displayName' => ['text' => 'Fade Lab'], 'location' => ['latitude' => -37.8, 'longitude' => 144.96],
+        ]),
+    ]);
+    $user = gbApifyUser('gbcol');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Fade Lab', 'lat' => -37.0, 'lng' => 144.0,
+    ])->assertOk()->assertJsonPath('apifyStatus', 'pending');
+
+    $conn = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
+    expect($conn->apify_status)->toBe('pending');          // promoted to column
+    expect($conn->place_id)->toBe('ChIJtest');             // indexed mirror
+    expect($conn->payload)->not->toHaveKey('apifyStatus');  // stripped from payload
+    expect($conn->payload['placeId'])->toBe('ChIJtest');    // KEPT in payload (first-class)
 });
 
 it('does not dispatch the enrich job when no apify token is configured', function () {
@@ -186,7 +209,8 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     // Google Business payload is business-info ONLY now — the harvested links moved out.
     $conn->refresh();
     $p = $conn->payload;
-    expect($p['apifyStatus'])->toBe('ok');
+    expect($conn->apify_status)->toBe('ok');           // promoted to column
+    expect($p)->not->toHaveKey('apifyStatus');         // stripped from payload
     expect($p)->toHaveKey('apifyFetchedAt');
     expect($p['rating'])->toBe(4.8);              // Place Details survives
     expect($p['name'])->toBe('Fade Lab Barbers');
@@ -437,7 +461,7 @@ it('marks apify unavailable when the scrape returns nothing', function () {
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
 
     $conn->refresh();
-    expect($conn->payload['apifyStatus'])->toBe('unavailable');
+    expect($conn->apify_status)->toBe('unavailable');
     expect($conn->payload['rating'])->toBe(4.8);   // core card untouched
     expect($conn->payload)->not->toHaveKey('menu');
 });
@@ -452,7 +476,7 @@ it('skips enrichment when the stored place no longer matches (reconnect guard)',
 
     $conn->refresh();
     expect($conn->payload)->not->toHaveKey('menu');
-    expect($conn->payload['apifyStatus'])->toBe('pending');   // untouched
+    expect($conn->apify_status)->toBe('pending');   // untouched (indexed guard skipped the job)
     Http::assertNothingSent();
 });
 
