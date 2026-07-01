@@ -27,9 +27,7 @@ class RetryUnavailableMenusCommand extends Command
         $since = now()->subHours($hours);
 
         $menus = Menu::query()
-            ->where(fn ($q) => $q
-                ->where('uber_eats_status', 'unavailable')
-                ->orWhere('doordash_status', 'unavailable'))
+            ->whereHas('platformLinks', fn ($q) => $q->where('status', 'unavailable'))
             // Bound the retry window so a permanently-dead store isn't re-billed
             // forever — last_fetched_at advances on every attempt, so a menu that
             // keeps failing eventually crosses the window and stops.

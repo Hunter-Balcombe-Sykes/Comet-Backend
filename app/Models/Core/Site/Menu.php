@@ -17,8 +17,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // (Uber Eats preferred, DoorDash fallback). `pickup_platform` / `delivery_platform`
 // record which platform priced each mode (from the Google-harvested type on the
 // user's online-ordering links) — every item then carries a pickup_price and a
-// delivery_price from those platforms. The per-platform *_store_url / *_synced_at
-// / *_status columns track each scrape independently. Per-item order LINKS are
+// delivery_price from those platforms. Each delivery platform's store URL,
+// last-sync timestamp, and status live in site.menu_platform_links (one row per
+// platform), tracking each scrape independently. Per-item order LINKS are
 // still computed at read time from the live ordering entries (MenuSource), never
 // stored. Dashboard-only — never exposed on the public sitepage.
 class Menu extends BaseModel
@@ -42,12 +43,6 @@ class Menu extends BaseModel
         'currency',
         'pickup_platform',
         'delivery_platform',
-        'uber_eats_store_url',
-        'uber_eats_synced_at',
-        'uber_eats_status',
-        'doordash_store_url',
-        'doordash_synced_at',
-        'doordash_status',
         'fetch_status',
         'last_fetched_at',
     ];
@@ -55,8 +50,6 @@ class Menu extends BaseModel
     protected $casts = [
         'rating' => 'float',
         'review_count' => 'integer',
-        'uber_eats_synced_at' => 'datetime',
-        'doordash_synced_at' => 'datetime',
         'last_fetched_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -78,5 +71,11 @@ class Menu extends BaseModel
     public function items(): HasMany
     {
         return $this->hasMany(MenuItem::class, 'menu_id');
+    }
+
+    /** Per-platform sync state (one row per delivery platform). */
+    public function platformLinks(): HasMany
+    {
+        return $this->hasMany(MenuPlatformLink::class, 'menu_id');
     }
 }

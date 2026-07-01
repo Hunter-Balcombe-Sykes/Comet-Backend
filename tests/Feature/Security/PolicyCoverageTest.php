@@ -9,6 +9,8 @@ use App\Models\Core\Notifications\SupabaseEmailEvent;
 use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
+use App\Models\Core\Site\MenuItemPlatform;
+use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Models\Core\Waitlist\WaitlistSignup;
@@ -60,6 +62,8 @@ const POLICY_EXEMPT = [
     // rebuilt wholesale by MenuFetchJob. No per-row API surface to gate.
     MenuCategory::class,
     MenuItem::class,
+    MenuPlatformLink::class,    // per-platform sync state; access flows through parent Menu
+    MenuItemPlatform::class,    // per-platform item availability; access flows through parent Menu
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional

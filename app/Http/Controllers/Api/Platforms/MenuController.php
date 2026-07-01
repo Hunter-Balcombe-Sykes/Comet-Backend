@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuItem;
+use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Http\JsonResponse;
@@ -96,6 +97,7 @@ class MenuController extends ApiController
             ->with([
                 'categories' => fn ($q) => $q->orderBy('position'),
                 'categories.items' => fn ($q) => $q->orderBy('position'),
+                'categories.items.platformLinks',
             ])
             ->first();
     }
@@ -137,47 +139,20 @@ class MenuController extends ApiController
     /**
      * The item's per-platform availability list — one entry per ordering platform
      * the dish is on, each with its pickup price + url and delivery price + url (a
-     * mode the store doesn't offer is null on both). Empty when a pre-union legacy
-     * row has nothing stored.
-     *
-     * Tolerates rows persisted before the per-mode split (shape {price, modes[],
-     * url}) by mapping that single price/url onto whichever modes the row listed,
-     * so the modal renders correctly until the next scrape rewrites the row.
+     * mode the store doesn't offer is null on both). Empty when the dish has no
+     * platform rows.
      *
      * @return list<array{platform:string, pickupPrice:float|null, pickupUrl:string|null, deliveryPrice:float|null, deliveryUrl:string|null}>
      */
     private function platforms(MenuItem $item): array
     {
-        $platforms = is_array($item->platforms) ? $item->platforms : [];
-
-        return array_values(array_map(function (array $p) {
-            // Current shape: explicit per-mode price + url.
-            if (array_key_exists('pickupUrl', $p) || array_key_exists('deliveryUrl', $p)
-                || array_key_exists('pickupPrice', $p) || array_key_exists('deliveryPrice', $p)) {
-                return [
-                    'platform' => $p['platform'] ?? null,
-                    'pickupPrice' => $this->numberOrNull($p['pickupPrice'] ?? null),
-                    'pickupUrl' => $this->textOrNull($p['pickupUrl'] ?? null),
-                    'deliveryPrice' => $this->numberOrNull($p['deliveryPrice'] ?? null),
-                    'deliveryUrl' => $this->textOrNull($p['deliveryUrl'] ?? null),
-                ];
-            }
-
-            // Legacy shape: single {price, modes[], url} → fan out to the listed modes.
-            $modes = (array) ($p['modes'] ?? []);
-            $price = $this->numberOrNull($p['price'] ?? null);
-            $url = $this->textOrNull($p['url'] ?? null);
-            $offersPickup = in_array('pickup', $modes, true);
-            $offersDelivery = in_array('delivery', $modes, true);
-
-            return [
-                'platform' => $p['platform'] ?? null,
-                'pickupPrice' => $offersPickup ? $price : null,
-                'pickupUrl' => $offersPickup ? $url : null,
-                'deliveryPrice' => $offersDelivery ? $price : null,
-                'deliveryUrl' => $offersDelivery ? $url : null,
-            ];
-        }, array_filter($platforms, fn ($p) => is_array($p) && isset($p['platform']))));
+        return $item->platformLinks->map(fn (MenuItemPlatform $p) => [
+            'platform' => $p->platform,
+            'pickupPrice' => $this->numberOrNull($p->pickup_price),
+            'pickupUrl' => $this->textOrNull($p->pickup_url),
+            'deliveryPrice' => $this->numberOrNull($p->delivery_price),
+            'deliveryUrl' => $this->textOrNull($p->delivery_url),
+        ])->values()->all();
     }
 
     private function numberOrNull(mixed $value): ?float

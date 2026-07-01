@@ -433,9 +433,10 @@ function setupSitesTable(): void
         deleted_at TEXT NULL
     )');
 
-    // site.menus + site.menu_categories + site.menu_items — the relational
-    // fetched menu (Uber Eats / DoorDash), one menu row per user. Mirrors
-    // migrations 20260617130000 + 20260619050000 (jsonb→TEXT, numeric→REAL).
+    // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
+    // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
+    // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
+    // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -447,12 +448,6 @@ function setupSitesTable(): void
         currency TEXT NULL,
         pickup_platform TEXT NULL,
         delivery_platform TEXT NULL,
-        uber_eats_store_url TEXT NULL,
-        uber_eats_synced_at TEXT NULL,
-        uber_eats_status TEXT NULL,
-        doordash_store_url TEXT NULL,
-        doordash_synced_at TEXT NULL,
-        doordash_status TEXT NULL,
         fetch_status TEXT NULL,
         last_fetched_at TEXT NULL,
         created_at TEXT NULL,
@@ -486,8 +481,30 @@ function setupSitesTable(): void
         pickup_source TEXT NULL,
         delivery_price REAL NULL,
         delivery_source TEXT NULL,
-        platforms TEXT NULL,
         dd_external_id TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_platform_links (
+        id TEXT PRIMARY KEY,
+        menu_id TEXT NULL,
+        platform TEXT NULL,
+        store_url TEXT NULL,
+        synced_at TEXT NULL,
+        status TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_item_platforms (
+        id TEXT PRIMARY KEY,
+        menu_item_id TEXT NULL,
+        platform TEXT NULL,
+        pickup_price REAL NULL,
+        pickup_url TEXT NULL,
+        delivery_price REAL NULL,
+        delivery_url TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
