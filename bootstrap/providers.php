@@ -5,6 +5,7 @@ use App\Providers\BotProtectionServiceProvider;
 use App\Providers\DatabaseServiceProvider;
 use App\Providers\EventServiceProvider;
 use App\Providers\PlatformRegistryServiceProvider;
+use App\Providers\SectionVisibilityServiceProvider;
 
 return [
     AppServiceProvider::class,
@@ -12,4 +13,5 @@ return [
     EventServiceProvider::class,
     BotProtectionServiceProvider::class,
     PlatformRegistryServiceProvider::class,
+    SectionVisibilityServiceProvider::class,
 ];

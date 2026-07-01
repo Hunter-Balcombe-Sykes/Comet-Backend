@@ -25,7 +25,7 @@ class StaffSectionManagementController extends ApiController
         // Return ALL section blocks (active + inactive) so staff can toggle
         $sections = Block::query()
             ->where('user_id', $professional->id)
-            ->where('block_group', 'sections')
+            ->where('block_group', Block::GROUP_SECTIONS)
             ->orderBy('sort_order')
             ->get();
 
@@ -50,7 +50,7 @@ class StaffSectionManagementController extends ApiController
             $block = Block::query()->firstOrNew([
                 'user_id' => $professional->id,
                 'site_id' => $site->id,
-                'block_group' => 'sections',
+                'block_group' => Block::GROUP_SECTIONS,
                 'block_type' => $blockType,
             ]);
 
@@ -61,7 +61,7 @@ class StaffSectionManagementController extends ApiController
             if (! $block->exists) {
                 $maxSort = Block::query()
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->max('sort_order');
 
                 $block->sort_order = is_null($maxSort) ? 0 : ((int) $maxSort + 1);
@@ -114,7 +114,7 @@ class StaffSectionManagementController extends ApiController
             $allIds = Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'sections')
+                ->where('block_group', Block::GROUP_SECTIONS)
                 ->lockForUpdate()
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
@@ -134,14 +134,14 @@ class StaffSectionManagementController extends ApiController
             $offset = (int) Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'sections')
+                ->where('block_group', Block::GROUP_SECTIONS)
                 ->max('sort_order') + 1000;
 
             foreach ($newOrder as $i => $id) {
                 Block::query()
                     ->where('user_id', $professional->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->where('id', $id)
                     ->update(['sort_order' => $offset + $i]);
             }
@@ -150,7 +150,7 @@ class StaffSectionManagementController extends ApiController
                 Block::query()
                     ->where('user_id', $professional->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->where('id', $id)
                     ->update(['sort_order' => $i]);
             }
@@ -172,7 +172,7 @@ class StaffSectionManagementController extends ApiController
         $block = Block::query()
             ->where('user_id', $professional->id)
             ->where('site_id', $site->id)
-            ->where('block_group', 'sections')
+            ->where('block_group', Block::GROUP_SECTIONS)
             ->where('block_type', $blockType)
             ->first();
 

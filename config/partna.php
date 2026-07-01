@@ -5,6 +5,21 @@ use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 
+// Canonical block-type registry — block_group => allowed block_types. Single
+// source of truth for the section/link type split. The 'sections' list is
+// cross-referenced to the DB CHECK `blocks_group_type_check`
+// (supabase/migrations/20260701160000_blocks_group_type_pair_check.sql) and to
+// the Block::GROUP_* / TYPE_* constants — keep all three in sync. The flat
+// `section_block_types` key below is derived from this so the two never drift.
+$blockTypes = [
+    'links' => ['link'],
+    'sections' => [
+        'gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics',
+        'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact',
+        'public_contact', 'workplace', 'credentials', 'experience', 'bio',
+    ],
+];
+
 return [
     // Shared-secret token for GET /api/internal/env-check. Required to enable
     // the endpoint. When unset, the endpoint returns 503 — fail-closed by default
@@ -742,7 +757,13 @@ return [
     //                    publicly on the sitepage — distinct domain, distinct toggle.
     // `workplace`      = the professional's business / workplace card backed by
     //                    `sites.settings.google_business_profile` (Google Places-fed).
-    'section_block_types' => ['gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'countdown', 'contact', 'public_contact', 'workplace', 'credentials', 'experience', 'bio'],
+    // Canonical group → types map. Cross-referenced to the DB CHECK blocks_group_type_check
+    // and to Block::GROUP_* / TYPE_* constants — keep all three in sync.
+    'block_types' => $blockTypes,
+
+    // Flat alias of block_types['sections'] — many consumers + tests read this and
+    // override it via Config::set(). Derived so it can never drift from block_types.
+    'section_block_types' => $blockTypes['sections'],
 
     // Platform-default subject dropdown options for the contact section block.
     // Merged with the affiliate's settings.subject_options at render and

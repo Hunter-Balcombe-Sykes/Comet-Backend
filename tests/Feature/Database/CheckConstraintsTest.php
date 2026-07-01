@@ -49,11 +49,11 @@ function assertCheckConstraintExists(string $schema, string $table, string $cons
 
 // ─── site.blocks ────────────────────────────────────────────────────────────
 
-it('blocks_block_type_check constraint exists and is validated', function () {
+it('blocks_group_type_check constraint exists and is validated', function () {
     if (! checkConstraintsSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
-    assertCheckConstraintExists('site', 'blocks', 'blocks_block_type_check');
+    assertCheckConstraintExists('site', 'blocks', 'blocks_group_type_check');
 });
 
 // ─── site.site_media ────────────────────────────────────────────────────────
