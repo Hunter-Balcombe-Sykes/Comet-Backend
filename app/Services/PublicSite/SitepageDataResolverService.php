@@ -371,9 +371,16 @@ class SitepageDataResolverService
     public function getBio(User $pro, Collection $sections): array
     {
         return $this->sectionEnvelope($sections, 'bio', function () use ($pro): array {
-            $about = is_array($pro->about) ? $pro->about : [];
-            $credentials = is_array($about['credentials'] ?? null) ? $about['credentials'] : [];
-            $experience = is_array($about['experience'] ?? null) ? $about['experience'] : [];
+            // Credentials and experience now live in child tables (FOUND-5).
+            // aboutPayload() calls loadMissing internally, so this is safe whether
+            // or not the relations were eager-loaded by the calling controller.
+            $payload = $pro->aboutPayload();
+
+            // The wire shape for normaliseCredential/normaliseExperience matches
+            // the arrays emitted by aboutPayload(), so run them through the same
+            // normalisers to get trimming and null-collapse for free.
+            $credentials = is_array($payload['credentials']) ? $payload['credentials'] : [];
+            $experience = is_array($payload['experience']) ? $payload['experience'] : [];
 
             // Public contact opt-in — render the blob only when at
             // least one of the two fields is set; collapse to null
@@ -401,12 +408,10 @@ class SitepageDataResolverService
     }
 
     /**
-     * Workplace — business-location card data stored on
-     * site.sites.settings.workplace by the dashboard. Whether the
-     * visitor used the Google Places autofill or hand-typed every
-     * field, the stored blob looks identical. Gated by the
-     * 'workplace' section block so a designer can hide the workplace
-     * card without deleting the underlying data.
+     * Workplace — business-location card data from site.workplaces (FOUND-4).
+     * Promoted from site.sites.settings.workplace JSONB so the table is
+     * indexable and the visibility check avoids JSON arrow operators.
+     * Gated by the 'workplace' section block — hide card without deleting data.
      */
     public function getWorkplace(?Site $site, Collection $sections): array
     {
@@ -414,28 +419,35 @@ class SitepageDataResolverService
             if (! $site) {
                 return null;
             }
-            $settings = is_array($site->settings) ? $site->settings : [];
-            $profile = $settings['workplace'] ?? null;
-            if (! is_array($profile)) {
+
+            // loadMissing avoids N+1 when the calling controller already eager-loaded.
+            $site->loadMissing('workplace');
+            $workplace = $site->workplace;
+
+            if (! $workplace) {
                 return null;
             }
-            $name = trim((string) ($profile['name'] ?? ''));
-            if ($name === '') {
+
+            // A row with a null name renders as null on the public wire —
+            // setPreviousWebsite and GoogleBusinessAutoSync may write other fields
+            // without a name, but the card only goes live once a name is present.
+            $name = $this->trimToNull($workplace->name);
+            if ($name === null) {
                 return null;
             }
 
             return [
                 'name' => $name,
-                'address' => $this->trimToNull($profile['address'] ?? null),
-                'address_line1' => $this->trimToNull($profile['address_line1'] ?? null),
-                'city' => $this->trimToNull($profile['city'] ?? null),
-                'state' => $this->trimToNull($profile['state'] ?? null),
-                'postcode' => $this->trimToNull($profile['postcode'] ?? null),
-                'country' => $this->trimToNull($profile['country'] ?? null),
-                'latitude' => isset($profile['latitude']) ? (float) $profile['latitude'] : null,
-                'longitude' => isset($profile['longitude']) ? (float) $profile['longitude'] : null,
-                'phone' => $this->trimToNull($profile['phone'] ?? null),
-                'website' => $this->trimToNull($profile['website'] ?? null),
+                'address' => $this->trimToNull($workplace->address),
+                'address_line1' => $this->trimToNull($workplace->address_line1),
+                'city' => $this->trimToNull($workplace->city),
+                'state' => $this->trimToNull($workplace->state),
+                'postcode' => $this->trimToNull($workplace->postcode),
+                'country' => $this->trimToNull($workplace->country),
+                'latitude' => $workplace->latitude !== null ? (float) $workplace->latitude : null,
+                'longitude' => $workplace->longitude !== null ? (float) $workplace->longitude : null,
+                'phone' => $this->trimToNull($workplace->phone),
+                'website' => $this->trimToNull($workplace->website),
             ];
         });
     }

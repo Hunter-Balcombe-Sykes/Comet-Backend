@@ -6,6 +6,7 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\InstagramApifyBudget;
@@ -270,8 +271,8 @@ class GoogleBusinessAutoSync
 
     // Fill the workplace card's previous-website / category / description from
     // the Google Business Place Details — per field, only when the user hasn't
-    // set it. Never seeds the identity fields (name/address). No card finding —
-    // it's a site-settings fill, not an entry in the synced list.
+    // set it. Never seeds the identity fields (name/address). Writes to
+    // site.workplaces (FOUND-4 — promoted from settings JSONB).
     //
     // @param array<string,mixed> $gbPayload
     private function seedWorkplace(string $userId, array $gbPayload): void
@@ -294,23 +295,22 @@ class GoogleBusinessAutoSync
             if ($site === null) {
                 return;
             }
-            $settings = is_array($site->settings) ? $site->settings : [];
-            $workplace = is_array($settings['workplace'] ?? null) ? $settings['workplace'] : [];
+
+            // Load existing row (or a fresh unsaved model) to preserve fields the user already set.
+            $workplace = Workplace::query()->firstOrNew(['site_id' => (string) $site->id]);
 
             $changed = false;
             foreach ($fields as $key => $value) {
-                if ($this->blank($workplace[$key] ?? null)) {
-                    $workplace[$key] = $value;
+                // Only fill if the column is currently blank — never overwrite user data.
+                if ($this->blank($workplace->{$key} ?? null)) {
+                    $workplace->{$key} = $value;
                     $changed = true;
                 }
             }
-            if (! $changed) {
-                return;
-            }
 
-            $settings['workplace'] = $workplace;
-            $site->settings = $settings;
-            $site->save();
+            if ($changed) {
+                $workplace->save();
+            }
         } catch (Throwable $e) {
             report($e);
         }

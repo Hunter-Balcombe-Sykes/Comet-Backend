@@ -628,17 +628,31 @@ it('bio engine returns BioData when the bio section is live', function () {
     $pro = seedIndividualProfile('bio-live');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
-    // Live bio block + non-empty bio + about jsonb on the user.
+    // FOUND-5: credentials/experience are now read from child tables — seed there,
+    // NOT in the about JSONB. bio text still lives on core.users.
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
         'bio' => 'Solo Pro story',
-        'about' => json_encode([
-            'credentials' => [
-                ['title' => 'BA', 'issuer' => 'Sydney Uni', 'year' => '2018'],
-            ],
-            'experience' => [
-                ['role' => 'Stylist', 'place' => 'Salon A', 'start' => '2020', 'end' => null],
-            ],
-        ]),
+    ]);
+    DB::connection('pgsql')->table('core.user_credentials')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'title' => 'BA',
+        'issuer' => 'Sydney Uni',
+        'year' => '2018',
+        'sort_order' => 0,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('core.user_experience')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'role' => 'Stylist',
+        'organisation' => 'Salon A',
+        'start_year' => '2020',
+        'end_year' => null,
+        'sort_order' => 0,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
     ]);
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
@@ -666,6 +680,50 @@ it('bio engine returns BioData when the bio section is live', function () {
     expect($bio['experience'][0])->toMatchArray([
         'title' => 'Stylist', 'organisation' => 'Salon A', 'period' => '2020 – Current',
     ]);
+});
+
+it('workplace engine returns WorkplaceData when the workplace section is live', function () {
+    // FOUND-4: workplace data now lives in site.workplaces (promoted from settings JSONB).
+    $pro = seedIndividualProfile('workplace-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => 'Fade Lab Barbers',
+        'address' => '10 Crown St, Surry Hills',
+        'city' => 'Surry Hills',
+        'state' => 'NSW',
+        'country' => 'AU',
+        'latitude' => -33.886,
+        'longitude' => 151.209,
+        'phone' => '+61 2 9000 0000',
+        'website' => 'https://fadelab.example',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'workplace',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $workplace = $this->getJson('/api/public/profiles/workplace-live')->assertOk()->json('data.profile.workplace');
+
+    // buildWorkplace() remaps snake_case → camelCase: 11 keys on the wire.
+    expect($workplace)->toHaveKeys(['name', 'address', 'addressLine1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude', 'phone', 'website']);
+    expect($workplace['name'])->toBe('Fade Lab Barbers');
+    expect($workplace['address'])->toBe('10 Crown St, Surry Hills');
+    expect($workplace['latitude'])->toBe(-33.886);
+    expect($workplace['phone'])->toBe('+61 2 9000 0000');
 });
 
 it('gallery engine returns camelCase GalleryImage[] when items are ready', function () {

@@ -136,3 +136,109 @@ it('allows booking section via manual booking_url when smart_booking flag is off
 
     expect($canBeVisible)->toBeTrue();
 });
+
+// ── FOUND-4: workplace visibility ────────────────────────────────────────────
+
+it('workplace section is visible when name is present (FOUND-4)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => 'Fade Lab',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    [$canBeVisible, $reason] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'workplace');
+
+    expect($canBeVisible)->toBeTrue()
+        ->and($reason)->toBeNull();
+});
+
+it('workplace section is visible when address is present but name is absent (FOUND-4)', function () {
+    // The visibility gate is name OR address — an address-only entry is a valid
+    // manual-location record and must go live.
+    [$proId, $siteId] = seedProAndSite();
+
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => null,
+        'address' => '10 Crown St, Surry Hills',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    [$canBeVisible] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'workplace');
+
+    expect($canBeVisible)->toBeTrue();
+});
+
+it('workplace section is draft when no workplace row exists (FOUND-4)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    [$canBeVisible, $reason] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'workplace');
+
+    expect($canBeVisible)->toBeFalse()
+        ->and($reason)->toContain('name or address');
+});
+
+// ── FOUND-5: credentials/experience visibility ────────────────────────────────
+
+it('credentials section is visible when at least one credential with a title exists (FOUND-5)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    DB::connection('pgsql')->table('core.user_credentials')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'title' => 'BA Design',
+        'sort_order' => 0,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    [$canBeVisible] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'credentials');
+
+    expect($canBeVisible)->toBeTrue();
+});
+
+it('credentials section is draft when no credential rows exist (FOUND-5)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    [$canBeVisible, $reason] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'credentials');
+
+    expect($canBeVisible)->toBeFalse()
+        ->and($reason)->toContain('credential');
+});
+
+it('experience section is visible when at least one experience with a role exists (FOUND-5)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    DB::connection('pgsql')->table('core.user_experience')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'role' => 'Senior Stylist',
+        'sort_order' => 0,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    [$canBeVisible] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'experience');
+
+    expect($canBeVisible)->toBeTrue();
+});
+
+it('experience section is draft when no experience rows exist (FOUND-5)', function () {
+    [$proId, $siteId] = seedProAndSite();
+
+    [$canBeVisible, $reason] = app(SectionVisibilityService::class)
+        ->checkVisibilityRequirements($proId, $siteId, 'experience');
+
+    expect($canBeVisible)->toBeFalse()
+        ->and($reason)->toContain('role');
+});

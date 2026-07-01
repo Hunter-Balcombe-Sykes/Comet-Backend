@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * @property mixed $id
@@ -55,6 +56,13 @@ class Site extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    // 1:1 workplace card — promoted from settings->'workplace' JSONB (FOUND-4).
+    // A null result means no workplace row exists; callers check ->workplace->name before rendering.
+    public function workplace(): HasOne
+    {
+        return $this->hasOne(Workplace::class, 'site_id');
     }
 
     public function blocks(): HasMany

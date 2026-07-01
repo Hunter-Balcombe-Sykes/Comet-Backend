@@ -13,6 +13,7 @@ use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
+use App\Services\User\SyncUserAboutService;
 use Exception;
 use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
@@ -26,6 +27,10 @@ class StaffUserController extends ApiController
     use HandlesSearchQueries;
     use NormalizesPerPage;
     use ReturnsPaginatedResponse;
+
+    public function __construct(
+        private readonly SyncUserAboutService $aboutSync,
+    ) {}
 
     /**
      * GET /api/staff/professionals?q=...&status=...&per_page=...
@@ -187,9 +192,26 @@ class StaffUserController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
-        DB::transaction(function () use ($professional, $request): void {
-            $professional->fill($request->validated());
+        $validated = $request->validated();
+
+        // Mirror UserSelfController::update: strip credentials/experience before fill()
+        // so the legacy about JSON column never re-accumulates them. Synced to child
+        // tables by SyncUserAboutService (FOUND-5). Consistent regardless of actor.
+        $about = $validated['about'] ?? null;
+        if (is_array($about)) {
+            unset($validated['about']['credentials'], $validated['about']['experience']);
+            if ($validated['about'] === []) {
+                $validated['about'] = null;
+            }
+        }
+
+        DB::transaction(function () use ($professional, $validated, $about): void {
+            $professional->fill($validated);
             $professional->save();
+
+            if (is_array($about)) {
+                $this->aboutSync->sync($professional, $about);
+            }
         });
 
         return $this->success([

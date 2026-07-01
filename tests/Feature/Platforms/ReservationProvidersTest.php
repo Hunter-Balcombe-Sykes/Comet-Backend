@@ -50,11 +50,16 @@ function resSite(User $user, array $settings = []): void
     ]);
 }
 
+// FOUND-4: workplace data now lives in site.workplaces (promoted from settings JSONB).
 function resWorkplace(User $user): ?array
 {
-    $settings = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('settings');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('id');
+    if (! $siteId) {
+        return null;
+    }
+    $row = DB::connection('pgsql')->table('site.workplaces')->where('site_id', $siteId)->first();
 
-    return data_get(json_decode((string) $settings, true), 'workplace');
+    return $row ? (array) $row : null;
 }
 
 // ── Service-level: detection + embed construction ─────────────────────
@@ -165,8 +170,18 @@ it('auto-fills workplace category, description and old website from place detail
 });
 
 it('does not overwrite a workplace field the user already set', function () {
+    // FOUND-4: pre-seed the workplace in site.workplaces (not settings JSONB).
     $user = resUser('rp7');
-    resSite($user, ['workplace' => ['name' => 'Ollies', 'category' => 'My own category']]);
+    resSite($user);
+
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('id');
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => 'Ollies',
+        'category' => 'My own category',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [], 'Ollies', [
         'category' => 'Japanese restaurant',

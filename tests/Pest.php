@@ -294,6 +294,47 @@ function attachTestSchemas(): void
  * Permissive core.users table — every column nullable. Just enough
  * structure for tests that read/write professionals via the model or raw queries.
  */
+/**
+ * core.user_credentials — child table for credential entries (FOUND-5).
+ * Mirrors production schema; sort_order is stored but not FK-checked on SQLite.
+ */
+function setupUserCredentialsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        title TEXT NULL,
+        issuer TEXT NULL,
+        year TEXT NULL,
+        description TEXT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * core.user_experience — child table for experience / work-history entries (FOUND-5).
+ * `organisation` holds the legacy "place" field; start_year/end_year are text.
+ */
+function setupUserExperienceTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_experience (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        role TEXT NULL,
+        organisation TEXT NULL,
+        start_year TEXT NULL,
+        end_year TEXT NULL,
+        description TEXT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
 function setupUsersTable(): void
 {
     attachTestSchemas();
@@ -329,6 +370,11 @@ function setupUsersTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Wire in child tables so any test that calls setupUsersTable() gets the
+    // full user-owned schema. Both functions are idempotent (CREATE IF NOT EXISTS).
+    setupUserCredentialsTable();
+    setupUserExperienceTable();
 }
 
 /**
@@ -505,6 +551,38 @@ function setupSitesTable(): void
         pickup_url TEXT NULL,
         delivery_price REAL NULL,
         delivery_url TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    // Wire in workplace table so any test calling setupSitesTable() has the
+    // full site-owned schema. Idempotent (CREATE IF NOT EXISTS).
+    setupWorkplacesTable();
+}
+
+/**
+ * site.workplaces — 1:1 child of site.sites, promoted from settings JSONB (FOUND-4).
+ * FK is omitted on SQLite (not enforced anyway); site_id is the PK.
+ */
+function setupWorkplacesTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.workplaces (
+        site_id TEXT PRIMARY KEY,
+        name TEXT NULL,
+        address TEXT NULL,
+        address_line1 TEXT NULL,
+        city TEXT NULL,
+        state TEXT NULL,
+        postcode TEXT NULL,
+        country TEXT NULL,
+        latitude REAL NULL,
+        longitude REAL NULL,
+        phone TEXT NULL,
+        website TEXT NULL,
+        previous_website TEXT NULL,
+        category TEXT NULL,
+        description TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

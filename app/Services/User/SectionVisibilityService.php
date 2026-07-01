@@ -5,8 +5,11 @@ namespace App\Services\User;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Models\Core\User\UserCredential;
+use App\Models\Core\User\UserExperience;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -176,35 +179,24 @@ class SectionVisibilityService
                 ->getQuery();
         }
 
-        // Credentials / experience subqueries mirror professionalHasCredential /
-        // professionalHasExperience exactly — same Eloquent base + raw JSON checks
-        // so the bundled SELECT generates the same SQL the per-helper methods do.
-        // The whereRaw clauses are pgsql-specific (jsonb_array_length, jsonb_array_elements);
-        // SectionVisibilityService is only called on the pgsql connection in
-        // production, so dialect portability lives at the Eloquent layer above.
+        // Credentials / experience subqueries read from the child tables (FOUND-5).
+        // Portable Eloquent — no whereRaw/JSONB arrows — so these work on both
+        // the pgsql production connection and the SQLite test driver.
         if ($needsCredentials) {
-            $subqueries['has_credential'] = User::query()
+            $subqueries['has_credential'] = UserCredential::query()
                 ->select(DB::raw('1'))
-                ->where('id', $userId)
-                ->whereNull('deleted_at')
-                ->whereNotNull('about->credentials')
-                ->whereRaw("jsonb_array_length(COALESCE(about->'credentials', '[]'::jsonb)) > 0")
-                ->whereRaw(
-                    "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(about->'credentials', '[]'::jsonb)) AS c WHERE c->>'title' IS NOT NULL AND TRIM(c->>'title') <> '')",
-                )
+                ->where('user_id', $userId)
+                ->whereNotNull('title')
+                ->where('title', '<>', '')
                 ->getQuery();
         }
 
         if ($needsExperience) {
-            $subqueries['has_experience'] = User::query()
+            $subqueries['has_experience'] = UserExperience::query()
                 ->select(DB::raw('1'))
-                ->where('id', $userId)
-                ->whereNull('deleted_at')
-                ->whereNotNull('about->experience')
-                ->whereRaw("jsonb_array_length(COALESCE(about->'experience', '[]'::jsonb)) > 0")
-                ->whereRaw(
-                    "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(about->'experience', '[]'::jsonb)) AS e WHERE e->>'role' IS NOT NULL AND TRIM(e->>'role') <> '')",
-                )
+                ->where('user_id', $userId)
+                ->whereNotNull('role')
+                ->where('role', '<>', '')
                 ->getQuery();
         }
 
@@ -222,16 +214,18 @@ class SectionVisibilityService
                 ->getQuery();
         }
 
-        // Workplace: at least a name or address on the settings.workplace
-        // JSONB. pgsql-specific JSON arrow — same dialect contract as
-        // has_credential / has_experience above.
+        // Workplace: at least a name or address in site.workplaces (FOUND-4).
+        // Portable Eloquent — no JSON arrows — works on both pgsql and SQLite.
         if ($needsWorkplace) {
-            $subqueries['has_workplace'] = Site::query()
+            $subqueries['has_workplace'] = Workplace::query()
                 ->select(DB::raw('1'))
-                ->where('id', $siteId)
+                ->where('site_id', $siteId)
                 ->where(function ($q) {
-                    $q->whereRaw("COALESCE(settings->'workplace'->>'name', '') <> ''")
-                        ->orWhereRaw("COALESCE(settings->'workplace'->>'address', '') <> ''");
+                    $q->where(function ($inner) {
+                        $inner->whereNotNull('name')->where('name', '<>', '');
+                    })->orWhere(function ($inner) {
+                        $inner->whereNotNull('address')->where('address', '<>', '');
+                    });
                 })
                 ->getQuery();
         }
@@ -515,29 +509,23 @@ class SectionVisibilityService
         return [true, null];
     }
 
+    // Reads from core.user_credentials — portable Eloquent, no whereRaw (FOUND-5).
     private function professionalHasCredential(string $userId): bool
     {
-        return User::query()
-            ->where('id', $userId)
-            ->whereNull('deleted_at')
-            ->whereNotNull('about->credentials')
-            ->whereRaw("jsonb_array_length(COALESCE(about->'credentials', '[]'::jsonb)) > 0")
-            ->whereRaw(
-                "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(about->'credentials', '[]'::jsonb)) AS c WHERE c->>'title' IS NOT NULL AND TRIM(c->>'title') <> '')",
-            )
+        return UserCredential::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('title')
+            ->where('title', '<>', '')
             ->exists();
     }
 
+    // Reads from core.user_experience — portable Eloquent, no whereRaw (FOUND-5).
     private function professionalHasExperience(string $userId): bool
     {
-        return User::query()
-            ->where('id', $userId)
-            ->whereNull('deleted_at')
-            ->whereNotNull('about->experience')
-            ->whereRaw("jsonb_array_length(COALESCE(about->'experience', '[]'::jsonb)) > 0")
-            ->whereRaw(
-                "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(about->'experience', '[]'::jsonb)) AS e WHERE e->>'role' IS NOT NULL AND TRIM(e->>'role') <> '')",
-            )
+        return UserExperience::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('role')
+            ->where('role', '<>', '')
             ->exists();
     }
 
@@ -673,25 +661,24 @@ class SectionVisibilityService
 
     /**
      * Workplace section goes live once the professional has at least a name
-     * OR an address on the settings.workplace JSONB. Either field is
-     * enough — name without address is a generic-business listing; address
-     * without name is a manual-only entry. Both empty → draft.
+     * OR an address in site.workplaces. Either field is enough — name without
+     * address is a generic-business listing; address without name is manual-only.
+     * Both empty (or no row) → draft. Reads from child table (FOUND-4).
      */
     private function checkWorkplaceRequirements(string $siteId): array
     {
-        $site = Site::query()
-            ->select('settings')
-            ->where('id', $siteId)
-            ->first();
+        $exists = Workplace::query()
+            ->where('site_id', $siteId)
+            ->where(function ($q) {
+                $q->where(function ($inner) {
+                    $inner->whereNotNull('name')->where('name', '<>', '');
+                })->orWhere(function ($inner) {
+                    $inner->whereNotNull('address')->where('address', '<>', '');
+                });
+            })
+            ->exists();
 
-        $profile = $site && is_array($site->settings)
-            ? data_get($site->settings, 'workplace')
-            : null;
-
-        $hasName = is_array($profile) && is_string($profile['name'] ?? null) && trim($profile['name']) !== '';
-        $hasAddress = is_array($profile) && is_string($profile['address'] ?? null) && trim($profile['address']) !== '';
-
-        if (! $hasName && ! $hasAddress) {
+        if (! $exists) {
             return [false, 'Workplace section requires a name or address before it can go live.'];
         }
 
