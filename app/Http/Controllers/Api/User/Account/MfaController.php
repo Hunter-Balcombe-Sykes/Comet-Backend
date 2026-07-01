@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User\Account;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Services\Auth\Aal2FreshnessGate;
 use App\Services\Auth\AuthFactorEventRepository;
 use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Auth\Access\Response as GateResponse;
@@ -75,34 +76,13 @@ class MfaController extends ApiController
     }
 
     /**
-     * Inline copy of BasePolicy::requiresFreshAal2 — see destroy() comment
-     * for why it's not delegated to a policy.
-     *
-     * Uses max(timestamp) across all MFA-method amr entries so the result is
-     * order-independent (Supabase emits amr chronologically, oldest-first).
+     * Fresh-AAL2 gate for the unenroll endpoint. Kept as a local wrapper (not
+     * delegated to a policy) because there is no model to authorize against — the
+     * factor lives in Supabase, not our DB; see destroy(). The actual scan is the
+     * shared Aal2FreshnessGate, so this path can no longer drift from BasePolicy.
      */
     private function requiresFreshAal2(Request $request, int $maxAgeSeconds): GateResponse
     {
-        $amr = $request->attributes->get('supabase_amr', []);
-        $mfaMethods = ['totp', 'phone', 'webauthn'];
-
-        $mostRecentMfaTs = null;
-        foreach ($amr as $entry) {
-            $method = $entry['method'] ?? null;
-            if (in_array($method, $mfaMethods, true)) {
-                $ts = (int) ($entry['timestamp'] ?? 0);
-                if ($mostRecentMfaTs === null || $ts > $mostRecentMfaTs) {
-                    $mostRecentMfaTs = $ts;
-                }
-            }
-        }
-
-        if ($mostRecentMfaTs === null) {
-            return GateResponse::denyWithStatus(401, 'Recent MFA verification required');
-        }
-
-        return (time() - $mostRecentMfaTs) <= $maxAgeSeconds
-            ? GateResponse::allow()
-            : GateResponse::denyWithStatus(401, 'Recent MFA verification required');
+        return app(Aal2FreshnessGate::class)->check($request, $maxAgeSeconds);
     }
 }

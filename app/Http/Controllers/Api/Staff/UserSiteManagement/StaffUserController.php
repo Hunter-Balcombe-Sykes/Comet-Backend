@@ -12,6 +12,7 @@ use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
+use App\Services\Auth\Aal2FreshnessGate;
 use Exception;
 use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
@@ -232,37 +233,18 @@ class StaffUserController extends ApiController
     }
 
     /**
-     * Inline copy of BasePolicy::requiresFreshAal2 / MfaController::requiresFreshAal2.
-     *
-     * Kept as a local copy (not a shared trait) following the convention established
-     * in MfaController: these high-risk staff actions have no model to authorize against
-     * and a controller cannot call a protected policy method. Uses the staff fresh window
-     * (config('partna.mfa.fresh_window_seconds', 300)) rather than the unenroll window.
+     * Fresh-AAL2 gate for high-risk staff actions (updateStatus / bulkUpdateStatus
+     * / forceDestroy). Local wrapper (not a policy) following MfaController's
+     * convention: these actions have no model to authorize against and a controller
+     * cannot call a protected policy method. Uses the staff fresh window
+     * (config('partna.mfa.fresh_window_seconds', 300)); the scan is the shared
+     * Aal2FreshnessGate so this path can no longer drift from BasePolicy.
      */
     private function requiresFreshAal2(Request $request, ?int $maxAgeSeconds = null): GateResponse
     {
         $maxAgeSeconds ??= (int) config('partna.mfa.fresh_window_seconds', 300);
-        $amr = $request->attributes->get('supabase_amr', []);
-        $mfaMethods = ['totp', 'phone', 'webauthn'];
 
-        $mostRecentMfaTs = null;
-        foreach ($amr as $entry) {
-            $method = $entry['method'] ?? null;
-            if (in_array($method, $mfaMethods, true)) {
-                $ts = (int) ($entry['timestamp'] ?? 0);
-                if ($mostRecentMfaTs === null || $ts > $mostRecentMfaTs) {
-                    $mostRecentMfaTs = $ts;
-                }
-            }
-        }
-
-        if ($mostRecentMfaTs === null) {
-            return GateResponse::denyWithStatus(401, 'Recent MFA verification required');
-        }
-
-        return (time() - $mostRecentMfaTs) <= $maxAgeSeconds
-            ? GateResponse::allow()
-            : GateResponse::denyWithStatus(401, 'Recent MFA verification required');
+        return app(Aal2FreshnessGate::class)->check($request, $maxAgeSeconds);
     }
 
     public function forceDestroy(Request $request, User $professional): JsonResponse

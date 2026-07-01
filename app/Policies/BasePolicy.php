@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\User\User;
+use App\Services\Auth\Aal2FreshnessGate;
 use Illuminate\Auth\Access\Response;
 
 // V2: Base for all auth Policies. Provides the shared pending_deletion read-only
@@ -57,38 +58,17 @@ abstract class BasePolicy
      * $maxAgeSeconds? Use for high-risk actions where AAL2 alone is too weak
      * (an attacker on an already-aal2 session could otherwise act freely).
      *
-     * AAL stays sticky at aal2 for the life of the session (Supabase doesn't
-     * downgrade it on token refresh), so we have to inspect the amr timeline
-     * to enforce "verify recently". We scan all entries, take the max
-     * MFA-method timestamp, and compare to now — order-independent so we
-     * stay correct regardless of whether Supabase emits amr oldest-first or
-     * newest-first.
+     * Delegates the amr scan to Aal2FreshnessGate (the single source of truth
+     * shared with MfaController + StaffUserController) so the MFA-method allowlist
+     * cannot drift. This signature stays put: TestableBasePolicy + UserSelfPolicy
+     * call it, so the default-window resolution lives here, not in the gate.
      *
      * @param  int  $maxAgeSeconds  Window. Default in config('partna.mfa.fresh_window_seconds').
      */
     protected function requiresFreshAal2(?int $maxAgeSeconds = null): Response
     {
         $maxAgeSeconds ??= (int) config('partna.mfa.fresh_window_seconds', 300);
-        $amr = request()->attributes->get('supabase_amr', []);
-        $mfaMethods = ['totp', 'phone', 'webauthn'];
 
-        $mostRecentMfaTs = null;
-        foreach ($amr as $entry) {
-            $method = $entry['method'] ?? null;
-            if (in_array($method, $mfaMethods, true)) {
-                $ts = (int) ($entry['timestamp'] ?? 0);
-                if ($mostRecentMfaTs === null || $ts > $mostRecentMfaTs) {
-                    $mostRecentMfaTs = $ts;
-                }
-            }
-        }
-
-        if ($mostRecentMfaTs === null) {
-            return Response::denyWithStatus(401, 'Recent MFA verification required');
-        }
-
-        return (time() - $mostRecentMfaTs) <= $maxAgeSeconds
-            ? Response::allow()
-            : Response::denyWithStatus(401, 'Recent MFA verification required');
+        return app(Aal2FreshnessGate::class)->check(request(), $maxAgeSeconds);
     }
 }
