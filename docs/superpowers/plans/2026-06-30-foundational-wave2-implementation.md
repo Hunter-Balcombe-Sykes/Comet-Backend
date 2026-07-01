@@ -193,7 +193,7 @@ These are the dependencies the parallel authors flagged; obey them when sequenci
 
 - [x] **PR1** — FOUND-12 — `Aal2FreshnessGate` (AUTH; security-review) — implemented · reviewed · deployed ✅ 2026-07-01 (dev 84a2cdff)
 - [x] **PR2** — FOUND-2+6 — menu → child tables (2 migrations) — implemented · reviewed · deployed ✅ 2026-07-01 (dev 2b131002; migration backfill fixed for real legacy-shape data — 102 rows, 0 loss)
-- [ ] **PR3** — FOUND-4+5 — profile → tables + write-path rewire — implemented · reviewed · deployed
+- [x] **PR3** — FOUND-4+5 — profile → tables + write-path rewire — implemented · reviewed · deployed ✅ 2026-07-01 (dev 202e439c; backfill verified 2 workplaces + 2 cred + 3 exp, 0 loss; about kept for follow-up drop)
 - [ ] **PR4** — FOUND-14+10 — pair-CHECK + visibility registry — implemented · reviewed · deployed
 - [ ] **PR5a** — FOUND-15 Phase 1 (expand: add cols + backfill + dual-write) — implemented · reviewed · deployed
 - [ ] **PR5b** — FOUND-15 Phase 2 (strip JSON + both views + wire flip) — ⛔ **FRONTEND-GATED — hard-pause**
