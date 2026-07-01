@@ -6,7 +6,6 @@ use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -152,7 +151,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
                         ->where('user_id', $proId)
                         ->where('block_group', 'links')
                         ->whereNull('deleted_at')
-                        ->whereIn(DB::raw("settings->>'category'"), $cappedCategories)
+                        ->whereIn('category', $cappedCategories)
                         ->count();
                     if ($existing >= $max) {
                         $validator->errors()->add(
@@ -181,7 +180,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
                         $existing = Block::query()
                             ->where('site_id', $siteId)
                             ->where('block_group', 'links')
-                            ->whereRaw("settings->>'live_check_enabled' = 'true'")
+                            ->where('live_check_enabled', true)
                             ->count();
 
                         if ($existing >= $cap) {

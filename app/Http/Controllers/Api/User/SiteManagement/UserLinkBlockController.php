@@ -138,13 +138,20 @@ class UserLinkBlockController extends ApiController
             // Strip the social-mode-only keys before fill — they're not Block columns.
             unset($data['platform'], $data['handle']);
 
-            // Category lives in settings JSONB, not as a column. If the client
-            // supplied a new category in isolation, merge it into existing settings.
+            // category is now a column (top-level $data['category'] fills it directly).
+            // Phase 1 dual-write: also mirror it into settings so the unchanged views
+            // keep emitting it. Preserve the existing settings on a category-only edit.
             if (array_key_exists('category', $data)) {
                 $existingSettings = is_array($linkBlock->settings) ? $linkBlock->settings : [];
                 $existingSettings['category'] = $data['category'];
                 $data['settings'] = array_merge($existingSettings, $data['settings'] ?? []);
-                unset($data['category']);
+            }
+
+            // live_check_enabled arrives nested in settings (Phase 1) — mirror it onto
+            // the column so the cap count and streaming job (now column-based) see it.
+            if (array_key_exists('settings', $data) && is_array($data['settings'])
+                && array_key_exists('live_check_enabled', $data['settings'])) {
+                $data['live_check_enabled'] = (bool) $data['settings']['live_check_enabled'];
             }
 
             $linkBlock->fill($data);

@@ -34,12 +34,16 @@ class Block extends BaseModel
         'is_active',
         'is_enabled',
         'settings',
+        'live_check_enabled',
+        'category',
+        'platform',
     ];
 
     protected $casts = [
         'sort_order' => 'integer',
         'is_active' => 'boolean',
         'is_enabled' => 'boolean',
+        'live_check_enabled' => 'boolean',
         'settings' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
