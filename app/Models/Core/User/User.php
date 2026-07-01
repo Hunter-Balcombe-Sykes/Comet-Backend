@@ -196,6 +196,53 @@ class User extends BaseModel
         return $this->hasMany(IntegrationConnection::class, 'user_id');
     }
 
+    // Credentials and experience are stored in child tables (FOUND-5).
+    // Ordered by sort_order so the UI round-trip preserves drag-and-drop position.
+    public function credentials(): HasMany
+    {
+        return $this->hasMany(UserCredential::class, 'user_id')->orderBy('sort_order');
+    }
+
+    public function experience(): HasMany
+    {
+        return $this->hasMany(UserExperience::class, 'user_id')->orderBy('sort_order');
+    }
+
+    /**
+     * Canonical about payload — reads from child tables (not the legacy about JSONB).
+     * Called by UserDashboardResource and UserStaffResource for the `about` key, and
+     * by SitepageDataResolverService::getBio() via User::loadMissing().
+     *
+     * @return array{credentials: array<int, array{title: string, issuer: string|null, year: int|null}>, experience: array<int, array{role: string, place: string|null, start: string|null, end: string|null, description: string|null}>}
+     */
+    public function aboutPayload(): array
+    {
+        // Guard: a non-persisted model (created with new User([...]) for testing
+        // or inline construction) has no DB row and no child rows — return empty.
+        if (! $this->exists) {
+            return ['credentials' => [], 'experience' => []];
+        }
+
+        // loadMissing avoids a duplicate query when the caller already eager-loaded.
+        $this->loadMissing(['credentials', 'experience']);
+
+        return [
+            'credentials' => $this->credentials->map(fn (UserCredential $c): array => [
+                'title' => $c->title,
+                'issuer' => $c->issuer,
+                // year stored as text; cast to int for the wire (matches original contract).
+                'year' => ($c->year !== null && $c->year !== '') ? (int) $c->year : null,
+            ])->all(),
+            'experience' => $this->experience->map(fn (UserExperience $e): array => [
+                'role' => $e->role,
+                'place' => $e->organisation,    // legacy key "place" preserved on wire
+                'start' => $e->start_year,
+                'end' => $e->end_year,
+                'description' => $e->description,
+            ])->all(),
+        ];
+    }
+
     // Point HasFactory at the non-namespaced UserFactory so User::factory()
     // resolves correctly regardless of whether it's called from Feature or Unit tests.
     protected static function newFactory(): UserFactory

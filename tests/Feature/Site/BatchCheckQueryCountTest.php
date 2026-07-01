@@ -17,9 +17,11 @@ beforeEach(function () {
 it('batchCheck issues exactly one SQL query regardless of section count', function () {
     $pro = createBrandTenant('one-query-batch');
 
-    // Build a Block collection with all 6 requirement-bearing types (gallery,
-    // documents, services, booking, countdown, contact).
-    $types = ['gallery', 'documents', 'services', 'booking', 'countdown', 'contact'];
+    // Build a Block collection with all 9 requirement-bearing types (gallery,
+    // documents, services, booking, countdown, contact, workplace, credentials, experience).
+    // workplace/credentials/experience were added in FOUND-4/5 — portable Eloquent subqueries
+    // that compile on SQLite so the single-query invariant holds for all 9.
+    $types = ['gallery', 'documents', 'services', 'booking', 'countdown', 'contact', 'workplace', 'credentials', 'experience'];
     $blocks = collect();
     $now = now()->toDateTimeString();
     foreach ($types as $i => $type) {
@@ -51,5 +53,7 @@ it('batchCheck issues exactly one SQL query regardless of section count', functi
     // multiple `exists (...)` subqueries inside it.
     expect($queries)->toHaveCount(1);
     expect($queries[0])->toStartWith('select exists');
-    expect(substr_count($queries[0], 'exists ('))->toBeGreaterThanOrEqual(5);
+    // 5 original (gallery, document, priced-service, active-service, booking-link)
+    // + 3 new portable subqueries (workplace, credential, experience) = 8.
+    expect(substr_count($queries[0], 'exists ('))->toBeGreaterThanOrEqual(8);
 });

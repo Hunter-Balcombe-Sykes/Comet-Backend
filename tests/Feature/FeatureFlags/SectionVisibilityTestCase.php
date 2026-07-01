@@ -91,5 +91,52 @@ class SectionVisibilityTestCase
             created_at TEXT NULL,
             updated_at TEXT NULL
         )');
+
+        // FOUND-4: workplace card promoted from settings JSONB to child table.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.workplaces (
+            site_id TEXT PRIMARY KEY,
+            name TEXT NULL,
+            address TEXT NULL,
+            address_line1 TEXT NULL,
+            city TEXT NULL,
+            state TEXT NULL,
+            postcode TEXT NULL,
+            country TEXT NULL,
+            latitude REAL NULL,
+            longitude REAL NULL,
+            phone TEXT NULL,
+            website TEXT NULL,
+            previous_website TEXT NULL,
+            category TEXT NULL,
+            description TEXT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )');
+
+        // FOUND-5: credentials/experience promoted from about JSONB to child tables.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_credentials (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            title TEXT NULL,
+            issuer TEXT NULL,
+            year TEXT NULL,
+            description TEXT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )');
+
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_experience (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            role TEXT NULL,
+            organisation TEXT NULL,
+            start_year TEXT NULL,
+            end_year TEXT NULL,
+            description TEXT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
+        )');
     }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
+use App\Models\Core\Site\Workplace;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,13 +14,11 @@ use Illuminate\Http\Request;
 // Store and retrieve a professional's workplace card data — business name,
 // address, contact details. The dashboard's editor offers a Google Places
 // autofill on the name field; whichever way the visitor populates the
-// record, the stored shape is the same.
+// record, the stored shape is the same. Data lives in site.workplaces (FOUND-4).
 class UserWorkplaceController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
-
-    private const SETTINGS_KEY = 'workplace';
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
@@ -29,10 +28,11 @@ class UserWorkplaceController extends ApiController
     {
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
-        $settings = is_array($site->settings) ? $site->settings : [];
+
+        $workplace = Workplace::query()->where('site_id', $site->id)->first();
 
         return $this->success([
-            'workplace' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
+            'workplace' => $this->normalizeProfile($workplace),
         ]);
     }
 
@@ -42,35 +42,31 @@ class UserWorkplaceController extends ApiController
         $site = $this->currentSite($professional);
         $data = $request->validated();
 
-        $profile = [
-            'name' => (string) $data['name'],
-            'address' => $this->trimOrNull($data['address'] ?? null),
-            // Structured address components stored alongside the formatted
-            // string so manual edits to a single component (e.g. fixing a
-            // postcode) survive the save round-trip without rebuilding the
-            // formatted form.
-            'address_line1' => $this->trimOrNull($data['address_line1'] ?? null),
-            'city' => $this->trimOrNull($data['city'] ?? null),
-            'state' => $this->trimOrNull($data['state'] ?? null),
-            'postcode' => $this->trimOrNull($data['postcode'] ?? null),
-            'country' => $this->trimOrNull($data['country'] ?? null),
-            'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
-            'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
-            'phone' => $this->trimOrNull($data['phone'] ?? null),
-            'website' => $this->trimOrNull($data['website'] ?? null),
-            // Archive of the business's old website + Google-sourced category and
-            // editorial description (all also auto-filled from Google Business).
-            'previous_website' => $this->trimOrNull($data['previous_website'] ?? null),
-            'category' => $this->trimOrNull($data['category'] ?? null),
-            'description' => $this->trimOrNull($data['description'] ?? null),
-        ];
+        $workplace = Workplace::updateOrCreate(
+            ['site_id' => (string) $site->id],
+            [
+                'name' => (string) $data['name'],
+                'address' => $this->trimOrNull($data['address'] ?? null),
+                // Structured address components stored alongside the formatted
+                // string so manual edits survive the save round-trip.
+                'address_line1' => $this->trimOrNull($data['address_line1'] ?? null),
+                'city' => $this->trimOrNull($data['city'] ?? null),
+                'state' => $this->trimOrNull($data['state'] ?? null),
+                'postcode' => $this->trimOrNull($data['postcode'] ?? null),
+                'country' => $this->trimOrNull($data['country'] ?? null),
+                'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
+                'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
+                'phone' => $this->trimOrNull($data['phone'] ?? null),
+                'website' => $this->trimOrNull($data['website'] ?? null),
+                // Archive of the business's old website + Google-sourced category
+                // and editorial description (auto-filled from Google Business).
+                'previous_website' => $this->trimOrNull($data['previous_website'] ?? null),
+                'category' => $this->trimOrNull($data['category'] ?? null),
+                'description' => $this->trimOrNull($data['description'] ?? null),
+            ],
+        );
 
-        $settings = is_array($site->settings) ? $site->settings : [];
-        $settings[self::SETTINGS_KEY] = $profile;
-        $site->settings = $settings;
-        $site->save();
-
-        // The 'workplace' section block reads its visibility from this JSONB.
+        // The 'workplace' section block reads its visibility from site.workplaces.
         // Re-evaluate is_enabled so the dashboard's Live toggle frees up the
         // instant the workplace has a name or address.
         $this->visibilityService->reevaluateEnabled(
@@ -80,7 +76,7 @@ class UserWorkplaceController extends ApiController
         );
 
         return $this->success([
-            'workplace' => $this->normalizeProfile($settings[self::SETTINGS_KEY] ?? null),
+            'workplace' => $this->normalizeProfile($workplace),
         ]);
     }
 
@@ -89,14 +85,11 @@ class UserWorkplaceController extends ApiController
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
 
-        $settings = is_array($site->settings) ? $site->settings : [];
-        unset($settings[self::SETTINGS_KEY]);
-        $site->settings = $settings;
-        $site->save();
+        Workplace::query()->where('site_id', (string) $site->id)->delete();
 
-        // The 'workplace' section block now has no data — re-eval flips
-        // is_enabled back to false so the dashboard's Live toggle locks
-        // and the public render path stops emitting the (gone) section.
+        // The workplace row is gone — re-eval flips is_enabled back to false
+        // so the dashboard's Live toggle locks and the public render path stops
+        // emitting the (now deleted) section.
         $this->visibilityService->reevaluateEnabled(
             (string) $professional->id,
             (string) $site->id,
@@ -112,16 +105,16 @@ class UserWorkplaceController extends ApiController
     public function showPreviousWebsite(Request $request): JsonResponse
     {
         $site = $this->currentSite($this->currentUser($request));
-        $settings = is_array($site->settings) ? $site->settings : [];
+        $workplace = Workplace::query()->where('site_id', (string) $site->id)->first();
 
         return $this->success([
-            'previousWebsite' => $this->trimOrNull(data_get($settings, self::SETTINGS_KEY.'.previous_website')),
+            'previousWebsite' => $workplace ? $this->trimOrNull($workplace->previous_website) : null,
         ]);
     }
 
     // PATCH /site/workplace/previous-website — set just the archived old website,
-    // merging into settings.workplace without touching the other fields (no name
-    // requirement, unlike the full upsert).
+    // writing or creating the workplace row without touching the other fields
+    // (no name requirement, unlike the full upsert).
     public function setPreviousWebsite(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -130,16 +123,15 @@ class UserWorkplaceController extends ApiController
 
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
+        $previousWebsite = $this->trimOrNull($validated['previous_website'] ?? null);
 
-        $settings = is_array($site->settings) ? $site->settings : [];
-        $workplace = is_array($settings[self::SETTINGS_KEY] ?? null) ? $settings[self::SETTINGS_KEY] : [];
-        $workplace['previous_website'] = $this->trimOrNull($validated['previous_website'] ?? null);
-        $settings[self::SETTINGS_KEY] = $workplace;
-        $site->settings = $settings;
-        $site->save();
+        Workplace::updateOrCreate(
+            ['site_id' => (string) $site->id],
+            ['previous_website' => $previousWebsite],
+        );
 
         return $this->success([
-            'previousWebsite' => $workplace['previous_website'],
+            'previousWebsite' => $previousWebsite,
         ]);
     }
 
@@ -154,34 +146,34 @@ class UserWorkplaceController extends ApiController
         return $trimmed !== '' ? $trimmed : null;
     }
 
-    private function normalizeProfile(mixed $raw): ?array
+    // A row with no name has no identity — return null. Every other field
+    // is optional; the dashboard can save a workplace with just a name.
+    private function normalizeProfile(?Workplace $workplace): ?array
     {
-        if (! is_array($raw)) {
+        if (! $workplace) {
             return null;
         }
 
-        // A row with no name has no identity — drop it. Every other field
-        // is optional; the dashboard can save a workplace with just a name.
-        $name = $this->trimOrNull($raw['name'] ?? null);
+        $name = $this->trimOrNull($workplace->name);
         if (! $name) {
             return null;
         }
 
         return [
             'name' => $name,
-            'address' => $this->trimOrNull($raw['address'] ?? null),
-            'address_line1' => $this->trimOrNull($raw['address_line1'] ?? null),
-            'city' => $this->trimOrNull($raw['city'] ?? null),
-            'state' => $this->trimOrNull($raw['state'] ?? null),
-            'postcode' => $this->trimOrNull($raw['postcode'] ?? null),
-            'country' => $this->trimOrNull($raw['country'] ?? null),
-            'latitude' => is_numeric($raw['latitude'] ?? null) ? (float) $raw['latitude'] : null,
-            'longitude' => is_numeric($raw['longitude'] ?? null) ? (float) $raw['longitude'] : null,
-            'phone' => $this->trimOrNull($raw['phone'] ?? null),
-            'website' => $this->trimOrNull($raw['website'] ?? null),
-            'previous_website' => $this->trimOrNull($raw['previous_website'] ?? null),
-            'category' => $this->trimOrNull($raw['category'] ?? null),
-            'description' => $this->trimOrNull($raw['description'] ?? null),
+            'address' => $this->trimOrNull($workplace->address),
+            'address_line1' => $this->trimOrNull($workplace->address_line1),
+            'city' => $this->trimOrNull($workplace->city),
+            'state' => $this->trimOrNull($workplace->state),
+            'postcode' => $this->trimOrNull($workplace->postcode),
+            'country' => $this->trimOrNull($workplace->country),
+            'latitude' => $workplace->latitude !== null ? (float) $workplace->latitude : null,
+            'longitude' => $workplace->longitude !== null ? (float) $workplace->longitude : null,
+            'phone' => $this->trimOrNull($workplace->phone),
+            'website' => $this->trimOrNull($workplace->website),
+            'previous_website' => $this->trimOrNull($workplace->previous_website),
+            'category' => $this->trimOrNull($workplace->category),
+            'description' => $this->trimOrNull($workplace->description),
         ];
     }
 }

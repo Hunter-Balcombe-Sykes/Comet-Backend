@@ -46,6 +46,33 @@ beforeEach(function () {
         custom_domain_primary INTEGER NULL,
         deleted_at TEXT NULL
     )');
+
+    // UserStaffResource (and UserDashboardResource) call aboutPayload() which queries
+    // these two child tables; they must exist even when the test doesn't insert any rows.
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        issuer TEXT,
+        year TEXT,
+        description TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        updated_at TEXT
+    )');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_experience (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        organisation TEXT,
+        start_year TEXT,
+        end_year TEXT,
+        description TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        updated_at TEXT
+    )');
 });
 
 it('accepts admin_notes through the staff update form request', function () {
@@ -84,7 +111,7 @@ it('persists admin_notes when staff PATCHes the professional', function () {
     $staff->role = PartnaStaff::ROLE_ADMIN;
     $request->attributes->set('partna_staff', $staff);
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $controller->update($request, $professional);
 
     $fresh = User::query()->findOrFail($id);

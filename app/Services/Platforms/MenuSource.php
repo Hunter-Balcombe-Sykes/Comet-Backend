@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\CardPayload;
 use Illuminate\Support\Collection;
@@ -231,21 +232,27 @@ class MenuSource
     /**
      * The user's workplace address (DoorDash needs a consumer locale), falling
      * back to city + state, then null (the scraper applies an AU default).
+     * Reads from site.workplaces (FOUND-4 — promoted from settings JSONB).
      */
     private function address(User|string $user): ?string
     {
         $userId = $user instanceof User ? $user->id : $user;
-        $settings = DB::connection('pgsql')->table('site.sites')->where('user_id', $userId)->value('settings');
-        $settings = is_string($settings) ? json_decode($settings, true) : $settings;
-        $workplace = data_get($settings, 'workplace');
 
-        $address = data_get($workplace, 'address');
+        // Join through site to get the user's workplace row.
+        $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $userId)->value('id');
+        if (! $siteId) {
+            return null;
+        }
+
+        $workplace = Workplace::query()->where('site_id', $siteId)->first();
+
+        $address = $workplace?->address;
         if (is_string($address) && trim($address) !== '') {
             return trim($address);
         }
 
         $parts = array_filter(
-            [data_get($workplace, 'city'), data_get($workplace, 'state')],
+            [$workplace?->city, $workplace?->state],
             fn ($v) => is_string($v) && trim($v) !== '',
         );
 

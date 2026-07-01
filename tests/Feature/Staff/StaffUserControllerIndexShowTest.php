@@ -59,7 +59,7 @@ function seedProfessionalWithSite(string $skeletonId = 'skeleton-2'): User
 it('index returns 200 and does not crash without a theme relationship', function () {
     seedProfessionalWithSite();
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $request = Request::create('/', 'GET');
 
     $response = $controller->index($request);
@@ -70,7 +70,7 @@ it('index returns 200 and does not crash without a theme relationship', function
 it('index includes skeleton_id in the site payload and omits theme', function () {
     seedProfessionalWithSite('skeleton-3');
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $request = Request::create('/', 'GET');
 
     $response = $controller->index($request);
@@ -97,7 +97,7 @@ it('index site payload is null when the professional has no site', function () {
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $request = Request::create('/', 'GET');
 
     $response = $controller->index($request);
@@ -116,7 +116,7 @@ it('index site payload is null when the professional has no site', function () {
 it('show returns 200 and does not crash without a theme relationship', function () {
     $pro = seedProfessionalWithSite();
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
 
     $response = $controller->show($pro);
 
@@ -126,7 +126,7 @@ it('show returns 200 and does not crash without a theme relationship', function 
 it('show includes skeleton_id in the site payload and omits theme', function () {
     $pro = seedProfessionalWithSite('skeleton-1');
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $response = $controller->show($pro);
     $body = json_decode($response->getContent(), true);
 
@@ -148,7 +148,7 @@ it('show site payload is null when the professional has no site', function () {
     ]);
     $pro = User::query()->findOrFail($userId);
 
-    $controller = new StaffUserController;
+    $controller = app(StaffUserController::class);
     $response = $controller->show($pro);
     $body = json_decode($response->getContent(), true);
 

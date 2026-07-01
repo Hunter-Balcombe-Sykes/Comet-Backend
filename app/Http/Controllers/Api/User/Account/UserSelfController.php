@@ -11,6 +11,7 @@ use App\Http\Resources\SiteResource;
 use App\Http\Resources\UserDashboardResource;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
+use App\Services\User\SyncUserAboutService;
 use Illuminate\Support\Facades\DB;
 
 // V2: Returns authenticated professional's full profile with site, services, and blocks. Dashboard entry point.
@@ -18,6 +19,10 @@ class UserSelfController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
+
+    public function __construct(
+        private readonly SyncUserAboutService $aboutSync,
+    ) {}
 
     public function show(UserShowRequest $request)
     {
@@ -64,9 +69,30 @@ class UserSelfController extends ApiController
     {
         $professional = $this->currentUser($request);
         $this->authorizeForUser($professional, 'update', $professional);
-        DB::transaction(function () use ($professional, $request): void {
-            $professional->fill($request->validated());
+
+        $validated = $request->validated();
+
+        // Strip credentials/experience from the validated payload before fill()
+        // so the legacy about JSON column never re-accumulates them. They are
+        // written to child tables by SyncUserAboutService instead (FOUND-5).
+        $about = $validated['about'] ?? null;
+        if (is_array($about)) {
+            unset($validated['about']['credentials'], $validated['about']['experience']);
+            // If about is now empty after stripping, collapse to null so the column
+            // is cleared rather than persisting an empty object.
+            if ($validated['about'] === []) {
+                $validated['about'] = null;
+            }
+        }
+
+        DB::transaction(function () use ($professional, $validated, $about): void {
+            $professional->fill($validated);
             $professional->save();
+
+            // Sync credentials/experience from the original (pre-strip) about payload.
+            if (is_array($about)) {
+                $this->aboutSync->sync($professional, $about);
+            }
         });
 
         return $this->success([
