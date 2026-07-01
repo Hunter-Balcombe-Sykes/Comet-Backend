@@ -3,9 +3,11 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Support\Facades\Log;
 
@@ -27,12 +29,25 @@ class IntegrationConnectionObserver
     public function saved(IntegrationConnection $connection): void
     {
         $this->purge($connection);
+
+        // Re-resolve design presets on MEANINGFUL changes only — a connect
+        // (created), a payload refresh, or an (de)activation — not status-only
+        // writes like last_visited_at / refresh status. The job is
+        // ShouldBeUnique + idempotent, so a burst coalesces to one rebuild.
+        if ($connection->wasRecentlyCreated
+            || $connection->wasChanged('payload')
+            || $connection->wasChanged('is_active')) {
+            $this->resolveDesignPresets($connection);
+        }
     }
 
     public function deleted(IntegrationConnection $connection): void
     {
         $this->purge($connection);
         $this->cleanupMirroredMedia($connection);
+        // Disconnect drops this integration's contributions; affected columns
+        // re-resolve to the next-best source / manual / default.
+        $this->resolveDesignPresets($connection);
     }
 
     /**
@@ -64,6 +79,7 @@ class IntegrationConnectionObserver
     public function restored(IntegrationConnection $connection): void
     {
         $this->purge($connection);
+        $this->resolveDesignPresets($connection);
     }
 
     /**
@@ -98,6 +114,28 @@ class IntegrationConnectionObserver
             // parent write.
             report($e);
             Log::warning('IntegrationConnectionObserver purge failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    // Queue a per-user rebuild of design-kit preset contributions. Swallow +
+    // report on failure: an observer must never crash the parent write.
+    private function resolveDesignPresets(IntegrationConnection $connection): void
+    {
+        try {
+            // Only a platform that actually sources a design factor can move the
+            // preset layer — skip the rebuild for every other integration.
+            if (! $connection->user_id
+                || app(DesignFactorRegistry::class)->factorsFor((string) $connection->platform) === []) {
+                return;
+            }
+            ResolveDesignPresetsJob::dispatch((string) $connection->user_id);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver preset resolve dispatch failed', [
                 'platform_connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
                 'message' => $e->getMessage(),

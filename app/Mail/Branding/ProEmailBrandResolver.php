@@ -8,6 +8,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
+use App\Services\Design\Presets\DesignPresetResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -63,10 +64,18 @@ class ProEmailBrandResolver
             ? 'https://'.$user->handle.'.partna.au'
             : 'https://partna.au';
 
-        $kit = (array) (DB::connection('pgsql')
-            ->table('site.design_kits')
-            ->where('site_id', $siteId)
-            ->first() ?? []);
+        // Merge the integration-driven preset layer under the user's manual kit
+        // (manual wins) so white-label emails reflect the same auto-styling as
+        // the sitepage. Falls back to the raw manual kit if resolution fails.
+        try {
+            $kit = app(DesignPresetResolver::class)->mergedFlatKit($siteId);
+        } catch (\Throwable $e) {
+            report($e);
+            $kit = (array) (DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $siteId)
+                ->first() ?? []);
+        }
 
         return new EmailBrand(
             isPartna: false,

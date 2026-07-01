@@ -9,6 +9,7 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Design\Presets\DesignPresetResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -443,21 +444,31 @@ class IndividualProfilePayloadBuilder
             ->where('site_id', $site->id)
             ->first();
 
-        if (! $row) {
+        // Manual layer: the user's stored (non-null) columns. partna-pages fills
+        // the remaining nulls from code-side defaults via mergeDesignKit().
+        $manual = [];
+        if ($row) {
+            $cols = (array) $row;
+            unset($cols['site_id']);
+            $manual = array_filter($cols, fn ($v) => $v !== null);
+        }
+
+        // Overlay manual on the integration-driven preset layer:
+        //   defaults <- presets <- manual   (manual non-null wins per column).
+        // Defensive: a preset bug yields an empty layer, never breaking render.
+        $preset = [];
+        try {
+            $preset = app(DesignPresetResolver::class)->presetLayer((string) $site->id);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $merged = array_merge($preset, $manual);
+        if ($merged === []) {
             return [];
         }
 
-        // Convert stdClass → array, drop the FK column + any null values
-        // (partna-pages fills nulls from code-side defaults).
-        $cols = (array) $row;
-        unset($cols['site_id']);
-
-        $stored = array_filter($cols, fn ($v) => $v !== null);
-        if ($stored === []) {
-            return [];
-        }
-
-        return $this->groupKitColumns($stored);
+        return $this->groupKitColumns($merged);
     }
 
     /**
