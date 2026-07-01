@@ -124,7 +124,7 @@ class UserSectionBlockController extends ApiController
         $existingBlock = Block::query()
             ->where('user_id', $pro->id)
             ->where('site_id', $site->id)
-            ->where('block_group', 'sections')
+            ->where('block_group', Block::GROUP_SECTIONS)
             ->where('block_type', $blockType)
             ->first();
 
@@ -164,7 +164,7 @@ class UserSectionBlockController extends ApiController
             $block = Block::query()->firstOrNew([
                 'user_id' => $pro->id,
                 'site_id' => $site->id,
-                'block_group' => 'sections',
+                'block_group' => Block::GROUP_SECTIONS,
                 'block_type' => $blockType,
             ]);
 
@@ -175,7 +175,7 @@ class UserSectionBlockController extends ApiController
                 // hard-deleted. ?? -1 then +1 yields 0 for an empty set.
                 $maxSortOrder = Block::query()
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->max('sort_order') ?? -1;
                 $block->sort_order = (int) $maxSortOrder + 1;
                 $block->settings = $data['settings'] ?? [];
@@ -247,7 +247,7 @@ class UserSectionBlockController extends ApiController
             $allIds = Block::query()
                 ->where('user_id', $pro->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'sections')
+                ->where('block_group', Block::GROUP_SECTIONS)
                 ->lockForUpdate()
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
@@ -267,14 +267,14 @@ class UserSectionBlockController extends ApiController
             $offset = (int) Block::query()
                 ->where('user_id', $pro->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'sections')
+                ->where('block_group', Block::GROUP_SECTIONS)
                 ->max('sort_order') + 1000;
 
             foreach ($newOrder as $i => $id) {
                 Block::query()
                     ->where('user_id', $pro->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->where('id', $id)
                     ->update(['sort_order' => $offset + $i]);
             }
@@ -283,7 +283,7 @@ class UserSectionBlockController extends ApiController
                 Block::query()
                     ->where('user_id', $pro->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'sections')
+                    ->where('block_group', Block::GROUP_SECTIONS)
                     ->where('id', $id)
                     ->update(['sort_order' => $i]);
             }
@@ -312,7 +312,7 @@ class UserSectionBlockController extends ApiController
         $block = Block::query()
             ->where('user_id', $pro->id)
             ->where('site_id', $site->id)
-            ->where('block_group', 'sections')
+            ->where('block_group', Block::GROUP_SECTIONS)
             ->where('block_type', $blockType)
             ->first();
 
@@ -362,7 +362,7 @@ class UserSectionBlockController extends ApiController
             $allBlocks = Block::query()
                 ->where('user_id', $userId)
                 ->where('site_id', $siteId)
-                ->where('block_group', 'sections')
+                ->where('block_group', Block::GROUP_SECTIONS)
                 ->get();
 
             $byType = $allBlocks->keyBy('block_type');
@@ -378,7 +378,7 @@ class UserSectionBlockController extends ApiController
                 $block = new Block([
                     'user_id' => $userId,
                     'site_id' => $siteId,
-                    'block_group' => 'sections',
+                    'block_group' => Block::GROUP_SECTIONS,
                     'block_type' => $blockType,
                 ]);
 

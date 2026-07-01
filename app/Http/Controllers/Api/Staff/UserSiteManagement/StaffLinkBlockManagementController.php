@@ -40,14 +40,14 @@ class StaffLinkBlockManagementController extends ApiController
 
             $maxSort = Block::query()
                 ->where('site_id', $site->id)
-                ->where('block_group', 'links')
+                ->where('block_group', Block::GROUP_LINKS)
                 ->max('sort_order');
 
             $maxSort = is_null($maxSort) ? -1 : (int) $maxSort;
 
             $block = new Block([
-                'block_group' => 'links',
-                'block_type' => 'link',
+                'block_group' => Block::GROUP_LINKS,
+                'block_type' => Block::TYPE_LINK,
                 'title' => $data['title'],
                 'url' => $data['url'],
                 'icon_key' => $data['icon_key'] ?? null,
@@ -72,7 +72,7 @@ class StaffLinkBlockManagementController extends ApiController
         $this->authorizeForUser($staff, 'staffManageBlock', $professional);
 
         // Business rule: only link-kind blocks belong to this endpoint.
-        if ($linkBlock->block_group !== 'links' || $linkBlock->block_type !== 'link') {
+        if ($linkBlock->block_group !== Block::GROUP_LINKS || $linkBlock->block_type !== Block::TYPE_LINK) {
             abort(404);
         }
 
@@ -89,7 +89,7 @@ class StaffLinkBlockManagementController extends ApiController
         $this->authorizeForUser($staff, 'staffManageBlock', $professional);
 
         // Business rule: only link-kind blocks belong to this endpoint.
-        if ($linkBlock->block_group !== 'links' || $linkBlock->block_type !== 'link') {
+        if ($linkBlock->block_group !== Block::GROUP_LINKS || $linkBlock->block_type !== Block::TYPE_LINK) {
             abort(404);
         }
 
@@ -109,8 +109,8 @@ class StaffLinkBlockManagementController extends ApiController
             $allIds = Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'links')
-                ->where('block_type', 'link')
+                ->where('block_group', Block::GROUP_LINKS)
+                ->where('block_type', Block::TYPE_LINK)
                 ->lockForUpdate()
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
@@ -130,15 +130,15 @@ class StaffLinkBlockManagementController extends ApiController
             $offset = (int) Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', 'links')
+                ->where('block_group', Block::GROUP_LINKS)
                 ->max('sort_order') + 1000;
 
             foreach ($newOrder as $i => $id) {
                 Block::query()
                     ->where('user_id', $professional->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'links')
-                    ->where('block_type', 'link')
+                    ->where('block_group', Block::GROUP_LINKS)
+                    ->where('block_type', Block::TYPE_LINK)
                     ->where('id', $id)
                     ->update(['sort_order' => $offset + $i]);
             }
@@ -147,8 +147,8 @@ class StaffLinkBlockManagementController extends ApiController
                 Block::query()
                     ->where('user_id', $professional->id)
                     ->where('site_id', $site->id)
-                    ->where('block_group', 'links')
-                    ->where('block_type', 'link')
+                    ->where('block_group', Block::GROUP_LINKS)
+                    ->where('block_type', Block::TYPE_LINK)
                     ->where('id', $id)
                     ->update(['sort_order' => $i]);
             }

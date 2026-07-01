@@ -46,6 +46,17 @@ class Block extends BaseModel
         'deleted_at' => 'datetime',
     ];
 
+    /**
+     * block_group values. Mirror config('partna.block_types') keys and the
+     * blocks_group_type_check DB CHECK. There are exactly two groups.
+     */
+    public const GROUP_LINKS = 'links';
+
+    public const GROUP_SECTIONS = 'sections';
+
+    /** The sole block_type permitted in the 'links' group. */
+    public const TYPE_LINK = 'link';
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
