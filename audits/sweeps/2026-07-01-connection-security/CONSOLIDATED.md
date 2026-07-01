@@ -35,7 +35,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 3 of 5 complete
+- P2 Medium: 4 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -86,7 +86,7 @@
         live dev DB: site.platform_connections rls_enabled=true, rls_forced=false; table grants = app_backend only
         ```
 
-- [ ] **#PRIV-2** · P2 — Full workplace/business address sent to Apify at full precision for DoorDash menu locale
+- [x] **#PRIV-2** · P2 — Full workplace/business address sent to Apify at full precision for DoorDash menu locale
     - **Where:** app/Services/Platforms/MenuSource.php (`address()`) · app/Services/Platforms/Menu/Drivers/DoorDashMenuDriver.php:37-51
     - **Affects:** Users who connect a DoorDash ordering link — their saved workplace address (which a sole trader may have entered as a home address) is sent to Apify purely to steer the scraper's consumer locale.
     - **Effort:** S (~0.5–1h)

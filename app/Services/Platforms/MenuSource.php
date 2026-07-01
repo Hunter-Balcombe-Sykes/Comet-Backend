@@ -59,7 +59,7 @@ class MenuSource
      *                        from the newest pickup-typed ordering link that is one
      *                        of those two (null when none is)
      *   - deliveryPlatform — same, for delivery
-     *   - address          — the user's workplace address, for DoorDash's locale
+     *   - address          — city/state locale for DoorDash (city + state only; never the full street)
      *
      * @return array{contentSource:string, ueUrl:?string, ddUrl:?string, pickupPlatform:?string, deliveryPlatform:?string, address:?string}|null
      */
@@ -230,9 +230,14 @@ class MenuSource
     }
 
     /**
-     * The user's workplace address (DoorDash needs a consumer locale), falling
-     * back to city + state, then null (the scraper applies an AU default).
-     * Reads from site.workplaces (FOUND-4 — promoted from settings JSONB).
+     * City + state locale string for DoorDash's consumer address field, or null
+     * when neither city nor state is stored (the scraper falls back to
+     * DOORDASH_FALLBACK_ADDRESS). Reads from site.workplaces (FOUND-4).
+     *
+     * Data minimisation: the workplace street address — which a sole trader may
+     * have entered as a home address — must not reach a US third-party processor
+     * (Apify). City + state is sufficient for the actor's locale-fix purpose
+     * (preventing the default Chicago, IL) without exposing a home address.
      */
     private function address(User|string $user): ?string
     {
@@ -245,11 +250,6 @@ class MenuSource
         }
 
         $workplace = Workplace::query()->where('site_id', $siteId)->first();
-
-        $address = $workplace?->address;
-        if (is_string($address) && trim($address) !== '') {
-            return trim($address);
-        }
 
         $parts = array_filter(
             [$workplace?->city, $workplace?->state],
