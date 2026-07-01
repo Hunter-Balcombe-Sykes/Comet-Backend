@@ -206,7 +206,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class)->payload(SelectionPayload::class));
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
-            // Booking: fresha host (mirrors ConnectFreshaRequest), then Square (squareup.com / *.square.site).
+            // Booking: fresha host (mirrors the fresha connect regex), then Square (squareup.com / *.square.site).
             $r->get('fresha')->detect(new HostMatch('~(^|\.)fresha\.com$~'));
             $r->get('square')->detect(new HostMatch('~(^|\.)(squareup\.com|square\.site)$~'));
             // Reservations: keyless widgets delegate to their service's isXUrl matcher.
@@ -226,6 +226,40 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));
             $r->register(PD::make('online-ordering')->label('Online Ordering')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
+
+            // ── Connect-request validation contract (FOUND-19) ──────────────────
+            // The single source of truth for each reducible platform's connect input
+            // shape. Read by the shared PlatformConnectRequest via the route's
+            // 'platform' default. Field names / maxes / regex / 422 messages are the
+            // frozen API contract — reproduce verbatim. GoogleBusiness is irreducible
+            // (multi-field) and keeps ConnectGoogleBusinessRequest.
+
+            // url-shaped (17). The max differs per platform — these are NOT uniform.
+            $r->get('bandcamp')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('deezer')->connectInput('url', ['required', 'string', 'max:300']);
+            $r->get('eventbrite')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
+            $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
+            $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
+            $r->get('pinterest')->connectInput('url', ['required', 'string', 'max:200']);
+            $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
+            $r->get('skool')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('spotify')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
+            $r->get('strava')->connectInput('url', ['required', 'string', 'max:300']);
+            $r->get('twitch')->connectInput('url', ['required', 'string', 'max:120']);
+            $r->get('vimeo')->connectInput('url', ['required', 'string', 'max:300']);
+            $r->get('youtube-music')->connectInput('url', ['required', 'string', 'max:300']);
+
+            // single-named-field (3 distinct + 6 socials share 'username').
+            $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
+            $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
+            $r->get('youtube')->connectInput('channel', ['required', 'string', 'max:200']);
+            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $social) {
+                $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
+            }
 
             return $r;
         });

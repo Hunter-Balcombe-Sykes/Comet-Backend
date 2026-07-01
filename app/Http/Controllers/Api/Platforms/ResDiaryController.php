@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectResDiaryRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Services\Platforms\ResDiaryService;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +26,7 @@ class ResDiaryController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/resdiary/connect
-    public function connect(ConnectResDiaryRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $url = $request->validated()['url'];

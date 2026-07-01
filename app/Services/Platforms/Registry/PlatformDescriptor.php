@@ -35,6 +35,16 @@ class PlatformDescriptor
 
     private ?string $connectErrorMessage = null;
 
+    private ?string $connectField = null;
+
+    /** @var array<int, mixed> */
+    private array $connectRules = [];
+
+    /** @var array<string, string> */
+    private array $connectMessages = [];
+
+    private bool $connectNormalizesUrlish = false;
+
     private ?string $payloadClass = null;
 
     private ?FetchStrategy $fetchStrategy = null;
@@ -171,6 +181,50 @@ class PlatformDescriptor
     public function connectErrorMessage(): ?string
     {
         return $this->connectErrorMessage;
+    }
+
+    /**
+     * Declare this platform's connect-request validation contract — the single
+     * input field, its Laravel rules (incl. regex), any custom 422 messages, and
+     * whether the field is run through PlatformInput::urlish() before validation
+     * (scheme-less pastes that the regex anchors on https?:// would otherwise miss).
+     * Read by the shared PlatformConnectRequest. The field name + rules + messages
+     * are part of the frozen API contract, so each platform reproduces its exact set.
+     *
+     * @param  array<int, mixed>  $rules
+     * @param  array<string, string>  $messages
+     */
+    public function connectInput(string $field, array $rules, array $messages = [], bool $normalizeUrlish = false): self
+    {
+        $this->connectField = $field;
+        $this->connectRules = $rules;
+        $this->connectMessages = $messages;
+        $this->connectNormalizesUrlish = $normalizeUrlish;
+
+        return $this;
+    }
+
+    /** The connect-request input field name, or null when this platform isn't shared-request driven. */
+    public function connectField(): ?string
+    {
+        return $this->connectField;
+    }
+
+    /** @return array<int, mixed> */
+    public function connectRules(): array
+    {
+        return $this->connectRules;
+    }
+
+    /** @return array<string, string> */
+    public function connectMessages(): array
+    {
+        return $this->connectMessages;
+    }
+
+    public function connectNormalizesUrlish(): bool
+    {
+        return $this->connectNormalizesUrlish;
     }
 
     /** The typed DTO that hydrates this platform's stored payload (read boundary). */

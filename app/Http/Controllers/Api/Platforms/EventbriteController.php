@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\AddPlatformEventRequest;
-use App\Http\Requests\Platforms\ConnectEventbriteRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Http\JsonResponse;
 
@@ -56,7 +56,7 @@ class EventbriteController extends EventsPlatformController
     }
 
     // POST /api/platforms/eventbrite/connect — add an organiser account.
-    public function connect(ConnectEventbriteRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         return $this->addAccount($this->currentUser($request), $request->validated()['url']);
     }

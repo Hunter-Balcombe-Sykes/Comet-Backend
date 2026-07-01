@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectVimeoRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveVimeoHighlightsRequest;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Services\Platforms\Payloads\FeedPayload;
@@ -45,7 +45,7 @@ class VimeoController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/vimeo/connect
-    public function connect(ConnectVimeoRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectOpenTableRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\OpenTableService;
@@ -29,7 +29,7 @@ class OpenTableController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/opentable/connect
-    public function connect(ConnectOpenTableRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $url = $request->validated()['url'];

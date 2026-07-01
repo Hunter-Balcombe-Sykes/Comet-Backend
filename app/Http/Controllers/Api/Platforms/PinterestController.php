@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectPinterestRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\PinterestConnectionResource;
 use App\Services\Platforms\PinterestScraper;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +25,7 @@ class PinterestController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/pinterest/connect
-    public function connect(ConnectPinterestRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

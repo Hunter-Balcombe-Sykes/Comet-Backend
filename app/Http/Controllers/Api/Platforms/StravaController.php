@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectStravaRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\StravaConnectionResource;
 use App\Services\Platforms\StravaClubScraper;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +25,7 @@ class StravaController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/strava/connect
-    public function connect(ConnectStravaRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

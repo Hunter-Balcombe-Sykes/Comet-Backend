@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\ConnectSquareRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +25,7 @@ class SquareController extends ApiController
     }
 
     // POST /api/platforms/square/connect
-    public function connect(ConnectSquareRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

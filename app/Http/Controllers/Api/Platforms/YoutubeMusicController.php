@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectYoutubeMusicRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveYoutubeMusicHighlightsRequest;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Services\Platforms\Payloads\FeedPayload;
@@ -48,7 +48,7 @@ class YoutubeMusicController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/youtube-music/connect
-    public function connect(ConnectYoutubeMusicRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\AddPlatformEventRequest;
-use App\Http\Requests\Platforms\ConnectHumanitixRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Services\Platforms\HumanitixScraper;
 use Illuminate\Http\JsonResponse;
 
@@ -55,7 +55,7 @@ class HumanitixController extends EventsPlatformController
     }
 
     // POST /api/platforms/humanitix/connect — add a host account.
-    public function connect(ConnectHumanitixRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         return $this->addAccount($this->currentUser($request), $request->validated()['url']);
     }

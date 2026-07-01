@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\ConnectFreshaRequest;
 use App\Http\Requests\Platforms\FreshaEmployeeServicesRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveFreshaSelectionRequest;
 use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
@@ -68,7 +68,7 @@ class FreshaController extends ApiController
     }
 
     // POST /api/platforms/fresha/connect
-    public function connect(ConnectFreshaRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

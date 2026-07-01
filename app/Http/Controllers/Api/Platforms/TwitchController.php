@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectTwitchRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Services\Platforms\TwitchScraper;
 use Illuminate\Http\JsonResponse;
@@ -31,7 +31,7 @@ class TwitchController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/twitch/connect
-    public function connect(ConnectTwitchRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 
