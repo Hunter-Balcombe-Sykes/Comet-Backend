@@ -2,6 +2,7 @@
 
 namespace App\Models\Core\Site;
 
+use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -80,6 +81,14 @@ class IntegrationConnection extends BaseModel
             $platform = $connection->platform;
 
             if (! is_string($platform) || ! app(PlatformRegistry::class)->has($platform)) {
+                // report() before throwing so Nightwatch sees this. ValidationException
+                // is in Laravel's $internalDontReport, making guard-trips in queued
+                // jobs invisible without this explicit report call.
+                report(new UnregisteredPlatformException(
+                    platform: is_string($platform) ? $platform : '(non-string)',
+                    userId: $connection->user_id,
+                ));
+
                 throw ValidationException::withMessages([
                     'platform' => 'The selected platform is not a supported platform.',
                 ]);

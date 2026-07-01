@@ -1,7 +1,9 @@
 <?php
 
+use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Validation\ValidationException;
 
 // Tests for the IntegrationConnection model's saving guard — the app-level
@@ -87,4 +89,40 @@ it('allows status-only update on an existing row without re-validating platform 
     $conn->update(['last_refresh_status' => 'ok']);
 
     expect($conn->fresh()->last_refresh_status)->toBe('ok');
+});
+
+// SEC-3: guard-trip observability — ValidationException is in Laravel's
+// $internalDontReport, so without an explicit report() call a guard-trip
+// in a queued job is silent to Nightwatch.
+
+it('reports UnregisteredPlatformException when an unregistered platform is saved', function () {
+    Exceptions::fake();
+
+    $user = makeGuardTestUser('guard-user-6');
+
+    expect(fn () => IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'myspace', // not in registry
+        'resource_id' => 'ms-123',
+        'payload' => [],
+    ]))->toThrow(ValidationException::class);
+
+    // The dedicated exception must have been reported — this is the Nightwatch signal.
+    Exceptions::assertReported(UnregisteredPlatformException::class);
+});
+
+it('does not report UnregisteredPlatformException when a valid platform is saved', function () {
+    Exceptions::fake();
+
+    $user = makeGuardTestUser('guard-user-7');
+
+    // The saving guard resolves PlatformRegistry on first connection save, which
+    // can eagerly wire scrapers. Instagram has no scraper dependency in tests,
+    // so no mock is needed here — mirrors the pattern in the existing valid-platform cases.
+    IntegrationConnection::updateOrCreate(
+        ['user_id' => $user->id, 'platform' => 'instagram'],
+        ['resource_id' => 'ig-no-report', 'payload' => []]
+    );
+
+    Exceptions::assertNotReported(UnregisteredPlatformException::class);
 });

@@ -35,7 +35,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 2 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -131,7 +131,7 @@
         live dev DB: site.menus / menu_categories / menu_items rls_enabled=false; table grants = app_backend only
         ```
 
-- [ ] **#SEC-3** · P2 — Dropped `platform` DB CHECK left the app guard as the sole gate: it is unreported *and* bypassable
+- [x] **#SEC-3** · P2 — Dropped `platform` DB CHECK left the app guard as the sole gate: it is unreported *and* bypassable
     - **Where:** app/Models/Core/Site/IntegrationConnection.php:71-86 (`saving()` guard) · supabase/migrations/20260629120000_drop_platform_connections_check.sql (CHECK removed, no DB backstop)
     - **Affects:** Integrity + failure-visibility of the `platform` column on `site.platform_connections`.
     - **Effort:** S (~0.5–1h)
