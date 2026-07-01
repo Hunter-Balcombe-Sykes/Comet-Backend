@@ -33,6 +33,18 @@ it('registers exactly the platforms the app accepts today', function () {
     expect($actual)->toBe($expected);
 });
 
+it('marks exactly the cover-capable platforms as coverable', function () {
+    $registry = app(PlatformRegistry::class);
+    $coverable = array_keys($registry->coverable());
+    sort($coverable);
+
+    // The 4 platforms with a per-integration cover-image slot (SiteMedia design singletons).
+    $expected = ['apple-music', 'apple-podcast', 'eventbrite', 'youtube'];
+    sort($expected);
+
+    expect($coverable)->toBe($expected);
+});
+
 it('marks exactly the current REFRESHABLE platforms as refreshable', function () {
     $registry = app(PlatformRegistry::class);
     $refreshable = array_keys($registry->refreshable());

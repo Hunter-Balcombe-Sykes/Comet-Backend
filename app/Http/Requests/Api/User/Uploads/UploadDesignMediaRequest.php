@@ -20,7 +20,7 @@ class UploadDesignMediaRequest extends BaseFormRequest
         $imageMaxKb = (int) config('partna.image_max_upload_size', 10240);
 
         return [
-            'purpose' => ['required', 'string', Rule::in(SiteMedia::DESIGN_SINGLETON_PURPOSES)],
+            'purpose' => ['required', 'string', Rule::in(SiteMedia::designSingletonPurposes())],
             'image' => ['required', 'file', 'image', 'mimes:jpeg,png,webp', "max:{$imageMaxKb}"],
         ];
     }

@@ -235,7 +235,7 @@ class SitepageDataResolverService
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
      * (logo_full / logo_square) and the per-integration cover images
-     * (cover_shopify, cover_youtube, ...). Each maps to {url, url_hd, url_svg}
+     * (cover_youtube, cover_apple_music, ...; registry-derived). Each maps to {url, url_hd, url_svg}
      * from the ready WebP variants (url_svg only for vectorized logos); purposes
      * with no uploaded/ready image are absent.
      *
@@ -254,7 +254,7 @@ class SitepageDataResolverService
         return SiteMedia::query()
             ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
-            ->whereIn('purpose', SiteMedia::DESIGN_SINGLETON_PURPOSES)
+            ->whereIn('purpose', SiteMedia::designSingletonPurposes())
             ->where('is_active', true)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->with('mediaVariants')

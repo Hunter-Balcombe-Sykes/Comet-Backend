@@ -46,6 +46,17 @@ class PlatformRegistry
         return array_filter($this->descriptors, fn (PlatformDescriptor $d) => $d->isRefreshable());
     }
 
+    /**
+     * Platforms that own a design-pool cover-image singleton slot. Read by
+     * SiteMedia::designSingletonPurposes() to build the `cover_<key>` allowlist.
+     *
+     * @return array<string, PlatformDescriptor>
+     */
+    public function coverable(): array
+    {
+        return array_filter($this->descriptors, fn (PlatformDescriptor $d) => $d->isCoverable());
+    }
+
     public function isRefreshable(string $key): bool
     {
         return isset($this->descriptors[$key]) && $this->descriptors[$key]->isRefreshable();
