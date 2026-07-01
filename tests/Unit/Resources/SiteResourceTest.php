@@ -60,3 +60,43 @@ it('handles empty settings as {} not []', function () {
     expect($array)->not->toHaveKey('booking_mode');
     expect($array)->not->toHaveKey('manual_booking_url');
 });
+
+it('builds settings.booking_mode + top-level booking_mode from the promoted column', function () {
+    // FOUND-16: column is the source of truth; settings JSONB is empty (post-strip shape).
+    $site = new Site([
+        'subdomain' => 'example',
+        'skeleton_id' => 'skeleton-1',
+        'is_published' => true,
+        'settings' => [],
+    ]);
+    $site->id = '22222222-2222-2222-2222-222222222222';
+    // Simulate columns populated by Phase 1 (no JSONB fallback needed).
+    $site->booking_mode = 'none';
+    $site->show_branding = false;
+
+    $array = (new SiteResource($site))->resolve();
+
+    expect($array['settings']->booking_mode)->toBe('none')
+        ->and($array['settings']->show_branding)->toBeFalse()
+        ->and($array['booking_mode'])->toBe('none')
+        ->and($array)->not->toHaveKey('manual_booking_url');
+});
+
+it('promoted columns win over residual JSONB value during dual-write', function () {
+    // Both the column and the JSONB carry a value; the column must win.
+    $site = new Site([
+        'subdomain' => 'example',
+        'skeleton_id' => 'skeleton-1',
+        'is_published' => true,
+        'settings' => ['booking_mode' => 'manual', 'hero_title' => 'Old'],
+    ]);
+    $site->id = '33333333-3333-3333-3333-333333333333';
+    $site->booking_mode = 'none';
+    $site->hero_title = 'New';
+
+    $array = (new SiteResource($site))->resolve();
+
+    expect($array['booking_mode'])->toBe('none')
+        ->and($array['settings']->booking_mode)->toBe('none')
+        ->and($array['settings']->hero_title)->toBe('New');
+});

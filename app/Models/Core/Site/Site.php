@@ -27,6 +27,32 @@ class Site extends BaseModel
     /** Default skeleton when none has been explicitly chosen. Must match the DB CHECK constraint. */
     public const DEFAULT_SKELETON_ID = 'skeleton-1';
 
+    /**
+     * Allowed booking modes — mirrors the sites_booking_mode_check DB CHECK
+     * constraint. Referenced by UpdateSiteRequest / StaffUpdateSiteRequest /
+     * UpdateBookingSettingsRequest so validation and the DB constraint share a
+     * single source of truth. Adding a mode = add here + widen the CHECK.
+     */
+    public const BOOKING_MODES = ['manual', 'none'];
+
+    /**
+     * settings JSONB sub-keys promoted to typed columns (FOUND-16). The column
+     * name equals the settings key in every case. Used by UpdateSiteAction
+     * (hoist) and SiteResource (re-merge for byte-identical responses).
+     */
+    public const PROMOTED_SETTINGS_KEYS = [
+        'hero_title',
+        'hero_subtitle',
+        'primary_button_text',
+        'primary_button_url',
+        'bio_text',
+        'show_branding',
+        'charlie_enabled',
+        'services_auto_sync_enabled',
+        'booking_mode',
+        'manual_booking_url',
+    ];
+
     protected $table = 'site.sites';
 
     public $incrementing = false;
@@ -40,6 +66,18 @@ class Site extends BaseModel
         'unpublished_at',
         'settings',
         'moderation_state',
+        // FOUND-16: 10 promoted columns (were settings.* sub-keys). Columns are
+        // the source of truth; UpdateSiteAction hoists them out of settings.
+        'hero_title',
+        'hero_subtitle',
+        'primary_button_text',
+        'primary_button_url',
+        'bio_text',
+        'show_branding',
+        'charlie_enabled',
+        'services_auto_sync_enabled',
+        'booking_mode',
+        'manual_booking_url',
     ];
 
     protected $casts = [
@@ -51,6 +89,10 @@ class Site extends BaseModel
         'custom_domain_primary' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        // FOUND-16 promoted booleans.
+        'show_branding' => 'boolean',
+        'charlie_enabled' => 'boolean',
+        'services_auto_sync_enabled' => 'boolean',
     ];
 
     public function user(): BelongsTo

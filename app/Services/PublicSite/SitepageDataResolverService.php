@@ -603,8 +603,11 @@ class SitepageDataResolverService
     public function buildServicesData(?Site $site, string $proId): array
     {
         $settings = is_array($site?->settings) ? $site->settings : [];
-        $bookingMode = strtolower((string) ($settings['booking_mode'] ?? 'manual'));
-        $manualBookingUrl = trim((string) ($settings['manual_booking_url'] ?? ''));
+        // FOUND-16: booking_mode / manual_booking_url are promoted columns.
+        // Column-first with a settings fallback (identical during dual-write,
+        // column-authoritative after the strip).
+        $bookingMode = strtolower((string) ($site?->booking_mode ?? $settings['booking_mode'] ?? 'manual'));
+        $manualBookingUrl = trim((string) ($site?->manual_booking_url ?? $settings['manual_booking_url'] ?? ''));
 
         $services = Service::query()
             ->with('category:id,title')
