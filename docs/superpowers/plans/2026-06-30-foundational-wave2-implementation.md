@@ -192,7 +192,7 @@ These are the dependencies the parallel authors flagged; obey them when sequenci
 ## Execution progress (the execution loop ticks these; `a`/`b` = the dual-write-then-strip phases)
 
 - [x] **PR1** — FOUND-12 — `Aal2FreshnessGate` (AUTH; security-review) — implemented · reviewed · deployed ✅ 2026-07-01 (dev 84a2cdff)
-- [ ] **PR2** — FOUND-2+6 — menu → child tables (2 migrations) — implemented · reviewed · deployed
+- [x] **PR2** — FOUND-2+6 — menu → child tables (2 migrations) — implemented · reviewed · deployed ✅ 2026-07-01 (dev 2b131002; migration backfill fixed for real legacy-shape data — 102 rows, 0 loss)
 - [ ] **PR3** — FOUND-4+5 — profile → tables + write-path rewire — implemented · reviewed · deployed
 - [ ] **PR4** — FOUND-14+10 — pair-CHECK + visibility registry — implemented · reviewed · deployed
 - [ ] **PR5a** — FOUND-15 Phase 1 (expand: add cols + backfill + dual-write) — implemented · reviewed · deployed
