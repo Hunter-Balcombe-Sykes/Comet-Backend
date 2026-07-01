@@ -4,9 +4,11 @@ use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Design\Presets\CategoryStylePresets;
 use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\DesignPresetResolver;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
+use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -18,10 +20,13 @@ beforeEach(function () {
     setupDesignKitContributionsTable();
 });
 
-/** A resolver wired with only the Google Business type factor. */
+/** A resolver wired with both category factors, matching production registration. */
 function dkPresetResolver(): DesignPresetResolver
 {
-    return new DesignPresetResolver(new DesignFactorRegistry([new GoogleBusinessTypeFactor]));
+    return new DesignPresetResolver(new DesignFactorRegistry([
+        new GoogleBusinessTypeFactor,
+        new InstagramCategoryFactor,
+    ]));
 }
 
 /** Raw-insert a platform connection (bypasses model events). */
@@ -60,9 +65,11 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
         ->and($layer['motion_pace'])->toBe('fast');
 });
 
-it('contributes nothing for a non-restaurant Google Business', function () {
-    $user = createTenant('janes-cafe');
-    dkSeedConnection($user, ['category' => 'Cafe']);
+it('contributes nothing for a Google Business type with no matching bucket', function () {
+    // 'Cafe' now legitimately matches food_drink under the bucket system —
+    // this test needs a type with no keyword match at all.
+    $user = createTenant('janes-locksmith');
+    dkSeedConnection($user, ['category' => 'Locksmith']);
 
     dkPresetResolver()->resolveForUser($user);
 
@@ -175,4 +182,115 @@ it('dispatches a preset resolve job when a connection is created', function () {
     ]);
 
     Queue::assertPushed(ResolveDesignPresetsJob::class);
+});
+
+// ── Category buckets ───────────────────────────────────────────────────────
+
+it('classifies a range of Google Business types into their expected bucket', function (string $category, string $bucket) {
+    $user = createTenant('gb-bucket-'.Str::slug($category).'-'.Str::random(4));
+    dkSeedConnection($user, ['category' => $category]);
+
+    dkPresetResolver()->resolveForUser($user);
+
+    expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
+})->with([
+    'Barber shop' => ['Barber shop', CategoryStylePresets::BEAUTY_PERSONAL_CARE],   // collision guard: NOT food_drink via 'bar'
+    'Hair salon' => ['Hair salon', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
+    'Gym' => ['Gym', CategoryStylePresets::HEALTH_FITNESS],
+    'Yoga studio' => ['Yoga studio', CategoryStylePresets::HEALTH_FITNESS],
+    'Sports Club' => ['Sports Club', CategoryStylePresets::HEALTH_FITNESS],
+    'Real estate agency' => ['Real estate agency', CategoryStylePresets::PROFESSIONAL_SERVICES],
+    'Clothing store' => ['Clothing store', CategoryStylePresets::RETAIL_SHOPPING],
+    'Plumber' => ['Plumber', CategoryStylePresets::HOME_SERVICES],
+    'Hotel' => ['Hotel', CategoryStylePresets::HOSPITALITY],
+    'Car repair' => ['Car repair', CategoryStylePresets::AUTOMOTIVE],
+    'Art gallery' => ['Art gallery', CategoryStylePresets::CREATIVE_ENTERTAINMENT],
+    'Dance school' => ['Dance school', CategoryStylePresets::EDUCATION_COACHING],
+    'Pizza Restaurant' => ['Pizza Restaurant', CategoryStylePresets::FOOD_DRINK],
+]);
+
+it('classifies a range of Instagram business categories into their expected bucket', function (string $category, string $bucket) {
+    $user = createTenant('ig-bucket-'.Str::slug($category).'-'.Str::random(4));
+    dkSeedConnection($user, ['businessCategory' => $category], 'instagram');
+
+    dkPresetResolver()->resolveForUser($user);
+
+    expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
+})->with([
+    'Beauty, Cosmetic & Personal Care' => ['Beauty, Cosmetic & Personal Care', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
+    'Gym/Physical Fitness Center' => ['Gym/Physical Fitness Center', CategoryStylePresets::HEALTH_FITNESS],
+    'Photographer' => ['Photographer', CategoryStylePresets::CREATIVE_ENTERTAINMENT],
+    'Business Consultant' => ['Business Consultant', CategoryStylePresets::PROFESSIONAL_SERVICES],
+    'Life Coach' => ['Life Coach', CategoryStylePresets::EDUCATION_COACHING],
+    'Shopping & Retail' => ['Shopping & Retail', CategoryStylePresets::RETAIL_SHOPPING],
+    'Restaurant' => ['Restaurant', CategoryStylePresets::FOOD_DRINK],
+]);
+
+it('contributes nothing for Instagram categories with no real signal', function (string $category) {
+    $user = createTenant('ig-nomatch-'.Str::slug((string) $category).'-'.Str::random(4));
+    dkSeedConnection($user, ['businessCategory' => $category], 'instagram');
+
+    dkPresetResolver()->resolveForUser($user);
+
+    expect(dkPresetResolver()->presetLayer($user->site->id))->toBe([]);
+})->with([
+    'None' => ['None'],           // the literal sentinel the scraper actually emits
+    'Personal Blog' => ['Personal Blog'],
+    'Public Figure' => ['Public Figure'],
+    'Just For Fun' => ['Just For Fun'],
+    'Community' => ['Community'],
+    'Local Business' => ['Local Business'],
+]);
+
+// ── Cross-platform priority (Google outranks Instagram) ────────────────────
+
+it('lets Instagram fill the preset layer when Google is not connected', function () {
+    $user = createTenant('ig-only');
+    dkSeedConnection($user, ['businessCategory' => 'Beauty, Cosmetic & Personal Care'], 'instagram');
+
+    dkPresetResolver()->resolveForUser($user);
+
+    expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::BEAUTY_PERSONAL_CARE));
+});
+
+it('lets Instagram fill the layer when Google is connected but does not match a bucket', function () {
+    $user = createTenant('ig-fills-gap');
+    dkSeedConnection($user, ['category' => 'Some Unrecognised Place Type'], 'google-business');
+    dkSeedConnection($user, ['businessCategory' => 'Gym/Physical Fitness Center'], 'instagram');
+
+    dkPresetResolver()->resolveForUser($user);
+
+    expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::HEALTH_FITNESS));
+});
+
+it('fully overrides Instagram with Google when both match DIFFERENT buckets (every column overlaps)', function () {
+    $user = createTenant('gb-wins');
+    dkSeedConnection($user, ['category' => 'Restaurant'], 'google-business');                                  // -> food_drink
+    dkSeedConnection($user, ['businessCategory' => 'Beauty, Cosmetic & Personal Care'], 'instagram');           // -> beauty_personal_care
+
+    dkPresetResolver()->resolveForUser($user);
+
+    // Every bucket sets the same 7 keys, so Google's priority (50 > 30) wins
+    // ALL of them — not a partial blend of the two buckets.
+    expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK));
+});
+
+it('produces the identical merged result regardless of which platform connects first', function () {
+    $userA = createTenant('order-a');
+    dkSeedConnection($userA, ['category' => 'Restaurant'], 'google-business');
+    dkSeedConnection($userA, ['businessCategory' => 'Beauty, Cosmetic & Personal Care'], 'instagram');
+    dkPresetResolver()->resolveForUser($userA);
+
+    $userB = createTenant('order-b');
+    dkSeedConnection($userB, ['businessCategory' => 'Beauty, Cosmetic & Personal Care'], 'instagram');
+    dkSeedConnection($userB, ['category' => 'Restaurant'], 'google-business');
+    dkPresetResolver()->resolveForUser($userB);
+
+    expect(dkPresetResolver()->presetLayer($userA->site->id))
+        ->toBe(dkPresetResolver()->presetLayer($userB->site->id));
 });

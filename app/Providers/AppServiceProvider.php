@@ -50,6 +50,7 @@ use App\Services\Analytics\Ingestors\SyncIngestor;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
+use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
@@ -106,6 +107,7 @@ class AppServiceProvider extends ServiceProvider
         // concrete factor list; an empty list makes the preset system a no-op.
         $this->app->singleton(DesignFactorRegistry::class, fn () => new DesignFactorRegistry([
             new GoogleBusinessTypeFactor,
+            new InstagramCategoryFactor,
         ]));
     }
 
