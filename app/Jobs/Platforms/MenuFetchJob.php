@@ -5,6 +5,8 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
+use App\Models\Core\Site\MenuItemPlatform;
+use App\Models\Core\Site\MenuPlatformLink;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
@@ -15,6 +17,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -76,7 +79,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $existing = Menu::query()->where('user_id', $this->userId)->first();
+        $existing = Menu::query()->where('user_id', $this->userId)->with('platformLinks')->first();
+        $existingLinks = $existing?->platformLinks->keyBy('platform') ?? collect();
 
         // Skip the scrape when both store URLs are unchanged, the last fetch
         // succeeded, EVERY connected platform last scraped 'ok', and this isn't a
@@ -87,10 +91,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
         if (! $this->force
             && $existing
             && $existing->fetch_status === 'ok'
-            && $existing->uber_eats_store_url === $plan['ueUrl']
-            && $existing->doordash_store_url === $plan['ddUrl']
-            && $this->platformSettled($existing, 'uber-eats', $plan['ueUrl'])
-            && $this->platformSettled($existing, 'doordash', $plan['ddUrl'])) {
+            && ($existingLinks->get('uber-eats')?->store_url) === $plan['ueUrl']
+            && ($existingLinks->get('doordash')?->store_url) === $plan['ddUrl']
+            && $this->platformSettled($existingLinks, 'uber-eats', $plan['ueUrl'])
+            && $this->platformSettled($existingLinks, 'doordash', $plan['ddUrl'])) {
             return;
         }
 
@@ -102,11 +106,23 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                 'content_source' => $plan['contentSource'],
                 'pickup_platform' => $plan['pickupPlatform'],
                 'delivery_platform' => $plan['deliveryPlatform'],
-                'uber_eats_store_url' => $plan['ueUrl'],
-                'doordash_store_url' => $plan['ddUrl'],
                 'fetch_status' => 'pending',
             ],
         );
+
+        // Upsert the per-platform store URLs; a disconnected platform (null URL)
+        // drops its link row so the skip-comparison sees "not connected".
+        foreach (['uber-eats' => $plan['ueUrl'], 'doordash' => $plan['ddUrl']] as $platform => $url) {
+            if ($url === null) {
+                $menu->platformLinks()->where('platform', $platform)->delete();
+
+                continue;
+            }
+            MenuPlatformLink::updateOrCreate(
+                ['menu_id' => $menu->id, 'platform' => $platform],
+                ['store_url' => $url],
+            );
+        }
 
         // Per-platform consolidated store links (one store's pickup + delivery rows
         // already collapsed) — the scrape targets AND each item's modes/url source.
@@ -123,13 +139,21 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
 
         $now = now();
 
-        // Per-platform sync status, independent of the merge outcome.
-        $menu->forceFill(array_filter([
-            'uber_eats_synced_at' => $ueLink ? $now : null,
-            'uber_eats_status' => $ueLink ? ($ueMenu ? 'ok' : 'unavailable') : null,
-            'doordash_synced_at' => $ddLink ? $now : null,
-            'doordash_status' => $ddLink ? ($ddMenu ? 'ok' : 'unavailable') : null,
-        ], fn ($v) => $v !== null))->save();
+        // Per-platform sync status, independent of the merge outcome — only for
+        // connected platforms (those with a store link).
+        $statuses = [
+            'uber-eats' => ['link' => $ueLink, 'menu' => $ueMenu],
+            'doordash' => ['link' => $ddLink, 'menu' => $ddMenu],
+        ];
+        foreach ($statuses as $platform => $r) {
+            if ($r['link'] === null) {
+                continue;
+            }
+            MenuPlatformLink::updateOrCreate(
+                ['menu_id' => $menu->id, 'platform' => $platform],
+                ['synced_at' => $now, 'status' => $r['menu'] ? 'ok' : 'unavailable'],
+            );
+        }
 
         // Nothing usable from EITHER platform — keep the last menu, mark
         // unavailable so the dashboard stops polling. A manual refresh retries.
@@ -153,26 +177,31 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
      * Whether a platform is "settled" for skip purposes: an unconnected platform
      * (no store URL) always is; a connected one only when its last scrape was 'ok'.
      * A connected-but-'unavailable' platform forces a re-scrape (recovery).
+     *
+     * @param  Collection<string, MenuPlatformLink>  $links
      */
-    private function platformSettled(Menu $menu, string $platform, ?string $url): bool
+    private function platformSettled(Collection $links, string $platform, ?string $url): bool
     {
         if ($url === null) {
             return true;
         }
-        $status = $platform === 'uber-eats' ? $menu->uber_eats_status : $menu->doordash_status;
 
-        return $status === 'ok';
+        return $links->get($platform)?->status === 'ok';
     }
 
     /**
-     * Replace the menu's categories + items wholesale within a transaction, and
-     * write the resolved store-level fields.
+     * Replace the menu's categories + items + per-platform availability wholesale
+     * within a transaction, and write the resolved store-level fields.
      *
      * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}  $merged
      */
     private function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
     {
         DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now) {
+            // Clear children first (FK cascade covers this on Postgres, but be
+            // explicit so SQLite tests don't leak orphaned item-platform rows).
+            $itemIds = MenuItem::query()->where('menu_id', $menu->id)->pluck('id');
+            MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
             MenuItem::query()->where('menu_id', $menu->id)->delete();
             MenuCategory::query()->where('menu_id', $menu->id)->delete();
 
@@ -188,6 +217,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                 'last_fetched_at' => $now,
             ])->save();
 
+            // Accumulate item-platform child rows across all categories; insert
+            // them once, after every menu_items row exists (FK menu_item_id).
+            $platformRows = [];
+
             foreach ($merged['categories'] as $ci => $category) {
                 $cat = MenuCategory::create([
                     'menu_id' => $menu->id,
@@ -198,8 +231,9 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
 
                 $rows = [];
                 foreach ($category['items'] as $ii => $item) {
+                    $itemId = (string) Str::uuid();
                     $rows[] = [
-                        'id' => (string) Str::uuid(),
+                        'id' => $itemId,
                         'menu_id' => $menu->id,
                         'category_id' => $cat->id,
                         'position' => $ii,
@@ -214,16 +248,36 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
                         'pickup_source' => $item['pickupSource'] ?? null,
                         'delivery_price' => $item['deliveryPrice'] ?? null,
                         'delivery_source' => $item['deliverySource'] ?? null,
-                        'platforms' => isset($item['platforms']) ? json_encode($item['platforms']) : null,
                         'dd_external_id' => $item['ddExternalId'] ?? null,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ];
+
+                    foreach (($item['platforms'] ?? []) as $p) {
+                        if (! is_array($p) || ! isset($p['platform'])) {
+                            continue;
+                        }
+                        $platformRows[] = [
+                            'id' => (string) Str::uuid(),
+                            'menu_item_id' => $itemId,
+                            'platform' => $p['platform'],
+                            'pickup_price' => $p['pickupPrice'] ?? null,
+                            'pickup_url' => $p['pickupUrl'] ?? null,
+                            'delivery_price' => $p['deliveryPrice'] ?? null,
+                            'delivery_url' => $p['deliveryUrl'] ?? null,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ];
+                    }
                 }
                 if ($rows !== []) {
-                    // Bulk insert (bypasses casts — badges/platforms already JSON).
+                    // Bulk insert (bypasses casts — badges already JSON).
                     MenuItem::query()->insert($rows);
                 }
+            }
+
+            if ($platformRows !== []) {
+                MenuItemPlatform::query()->insert($platformRows);
             }
         });
     }
