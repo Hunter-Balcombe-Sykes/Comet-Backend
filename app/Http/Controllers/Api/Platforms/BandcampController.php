@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
-use App\Http\Requests\Platforms\ConnectBandcampRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveBandcampHighlightsRequest;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
 use App\Services\Platforms\BandcampScraper;
@@ -45,7 +45,7 @@ class BandcampController extends SingleSelectionPlatformController
 
     // POST /api/platforms/bandcamp/connect — resolve the artist page, store the
     // latest release + artist profile. Highlights survive a same-page re-add.
-    public function connect(ConnectBandcampRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validated();

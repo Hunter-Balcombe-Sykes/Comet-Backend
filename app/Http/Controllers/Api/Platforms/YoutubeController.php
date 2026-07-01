@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
-use App\Http\Requests\Platforms\ConnectYoutubeRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveYoutubeHighlightsRequest;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Services\Platforms\Payloads\FeedPayload;
@@ -44,7 +44,7 @@ class YoutubeController extends SingleSelectionPlatformController
 
     // POST /api/platforms/youtube/connect — add a channel account with its
     // auto-latest video.
-    public function connect(ConnectYoutubeRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

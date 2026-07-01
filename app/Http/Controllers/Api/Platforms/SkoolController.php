@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\ConnectSkoolRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\SkoolConnectionResource;
 use App\Services\Platforms\SkoolScraper;
 use Illuminate\Http\JsonResponse;
@@ -28,7 +28,7 @@ class SkoolController extends ApiController
     }
 
     // POST /api/platforms/skool/connect
-    public function connect(ConnectSkoolRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validated();

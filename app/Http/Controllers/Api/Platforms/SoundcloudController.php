@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectSoundcloudRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\PlatformInput;
@@ -34,7 +34,7 @@ class SoundcloudController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/soundcloud/connect
-    public function connect(ConnectSoundcloudRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validated();

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectDeezerRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\DeezerApi;
 use Illuminate\Http\JsonResponse;
@@ -31,7 +31,7 @@ class DeezerController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/deezer/connect
-    public function connect(ConnectDeezerRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
 

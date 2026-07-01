@@ -50,7 +50,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/fresha")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [FreshaController::class, 'connect']);
+            Route::post('/connect', [FreshaController::class, 'connect'])->defaults('platform', 'fresha');
             Route::get('/team', [FreshaController::class, 'team']);
             Route::get('/url', [FreshaController::class, 'show']);
             Route::get('/employee-services', [FreshaController::class, 'employeeServices']);
@@ -66,7 +66,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/square")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [SquareController::class, 'connect']);
+            Route::post('/connect', [SquareController::class, 'connect'])->defaults('platform', 'square');
             Route::get('/selection', [SquareController::class, 'selection']);
             Route::delete('/', [SquareController::class, 'forget']);
         });
@@ -105,7 +105,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/youtube")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [YoutubeController::class, 'connect']);
+            Route::post('/connect', [YoutubeController::class, 'connect'])->defaults('platform', 'youtube');
             Route::get('/recent', [YoutubeController::class, 'recent']);
             Route::post('/highlights', [YoutubeController::class, 'highlights']);
             Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube');
@@ -118,7 +118,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/apple")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/music/connect', [AppleController::class, 'connectMusic']);
+            Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', 'apple-music');
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
@@ -126,7 +126,7 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/music/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                 ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'apple-music');
             Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'apple-music');
-            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast']);
+            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', 'apple-podcast');
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)
@@ -143,7 +143,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/bandcamp")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [BandcampController::class, 'connect']);
+            Route::post('/connect', [BandcampController::class, 'connect'])->defaults('platform', 'bandcamp');
             Route::get('/recent', [BandcampController::class, 'recent']);
             Route::post('/highlights', [BandcampController::class, 'highlights']);
             Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'bandcamp');
@@ -157,7 +157,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/vimeo")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [VimeoController::class, 'connect']);
+            Route::post('/connect', [VimeoController::class, 'connect'])->defaults('platform', 'vimeo');
             Route::get('/recent', [VimeoController::class, 'recent']);
             Route::post('/highlights', [VimeoController::class, 'highlights']);
             Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'vimeo');
@@ -172,7 +172,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/youtube-music")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [YoutubeMusicController::class, 'connect']);
+            Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', 'youtube-music');
             Route::get('/recent', [YoutubeMusicController::class, 'recent']);
             Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
             Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube-music');
@@ -186,8 +186,8 @@ $registerIntegrationRoutes = function (string $base): void {
     foreach (['eventbrite' => EventbriteController::class, 'humanitix' => HumanitixController::class] as $slug => $controller) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
-            ->group(function () use ($controller) {
-                Route::post('/connect', [$controller, 'connect']);
+            ->group(function () use ($controller, $slug) {
+                Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug);
                 Route::get('/accounts', [$controller, 'accounts']);
                 Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
                 Route::post('/events', [$controller, 'addEvent']);
@@ -282,7 +282,7 @@ $registerIntegrationRoutes = function (string $base): void {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($controller, $slug, $multiAccount) {
-                Route::post('/connect', [$controller, 'connect']);
+                Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug);
                 Route::get('/selection', [$controller, 'selection']);
                 Route::delete('/', [$controller, 'forget']);
                 if (in_array($slug, $multiAccount, true)) {
@@ -317,7 +317,7 @@ $registerIntegrationRoutes = function (string $base): void {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($cfg, $slug) {
-                Route::post('/connect', [$cfg['controller'], 'connect']);
+                Route::post('/connect', [$cfg['controller'], 'connect'])->defaults('platform', $slug);
                 Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
                 Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
                 if ($cfg['multi']) {

@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\ConnectSocialLinkRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
@@ -44,7 +44,7 @@ class GenericPlatformController extends ApiController
 
     // POST /api/platforms/{platform}/connect — parse the input via the descriptor's
     // connect strategy, store the canonical {username,url}, echo it.
-    public function connect(ConnectSocialLinkRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $descriptor = $this->descriptor();
@@ -56,7 +56,7 @@ class GenericPlatformController extends ApiController
         $strategy = $descriptor->connectStrategy();
         abort_if($strategy === null, 404);
 
-        $selection = $strategy->normalize($request->validated()['username']);
+        $selection = $strategy->normalize($request->validated()[$descriptor->connectField()]);
         if ($selection === null) {
             return $this->error($descriptor->connectErrorMessage() ?? 'Enter a valid link.', 422);
         }

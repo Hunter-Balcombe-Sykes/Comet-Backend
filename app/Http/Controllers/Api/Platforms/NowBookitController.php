@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\ConnectNowBookitRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Services\Platforms\NowBookitService;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +25,7 @@ class NowBookitController extends SingleSelectionPlatformController
     }
 
     // POST /api/platforms/nowbookit/connect
-    public function connect(ConnectNowBookitRequest $request): JsonResponse
+    public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $url = $request->validated()['url'];

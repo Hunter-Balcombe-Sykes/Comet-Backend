@@ -6,8 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Platforms\ConnectAppleMusicRequest;
-use App\Http\Requests\Platforms\ConnectApplePodcastRequest;
+use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveAppleMusicHighlightsRequest;
 use App\Http\Requests\Platforms\SaveApplePodcastHighlightsRequest;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
@@ -61,7 +60,7 @@ class AppleController extends ApiController
     // ── Music ────────────────────────────────────────────────────
 
     // POST /api/platforms/apple/music/connect
-    public function connectMusic(ConnectAppleMusicRequest $request): JsonResponse
+    public function connectMusic(PlatformConnectRequest $request): JsonResponse
     {
         return $this->connectFor($request, $this->musicConfig(), $request->validated());
     }
@@ -99,7 +98,7 @@ class AppleController extends ApiController
     // ── Podcast ───────────────────────────────────────────────────
 
     // POST /api/platforms/apple/podcast/connect
-    public function connectPodcast(ConnectApplePodcastRequest $request): JsonResponse
+    public function connectPodcast(PlatformConnectRequest $request): JsonResponse
     {
         return $this->connectFor($request, $this->podcastConfig(), $request->validated());
     }
