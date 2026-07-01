@@ -69,7 +69,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.booking_mode' => [
                 'sometimes',
                 'string',
-                Rule::in(['manual']),
+                Rule::in(Site::BOOKING_MODES),
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
 

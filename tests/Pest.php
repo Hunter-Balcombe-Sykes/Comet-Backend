@@ -428,6 +428,16 @@ function setupSitesTable(): void
         custom_domain_verified_at TEXT NULL,
         custom_domain_cf_id TEXT NULL,
         custom_domain_primary INTEGER NOT NULL DEFAULT 0,
+        hero_title TEXT NULL,
+        hero_subtitle TEXT NULL,
+        primary_button_text TEXT NULL,
+        primary_button_url TEXT NULL,
+        bio_text TEXT NULL,
+        show_branding INTEGER NULL,
+        charlie_enabled INTEGER NULL,
+        services_auto_sync_enabled INTEGER NULL,
+        booking_mode TEXT NULL,
+        manual_booking_url TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -455,6 +465,27 @@ function setupSitesTable(): void
         DB::connection('pgsql')->statement('ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS custom_domain_primary INTEGER NOT NULL DEFAULT 0');
     } catch (Throwable $e) {
         // already exists / unsupported — ignore
+    }
+
+    // FOUND-16 promoted columns — defensive ALTER for any pre-existing test table.
+    $promotedCols = [
+        'hero_title' => 'TEXT NULL',
+        'hero_subtitle' => 'TEXT NULL',
+        'primary_button_text' => 'TEXT NULL',
+        'primary_button_url' => 'TEXT NULL',
+        'bio_text' => 'TEXT NULL',
+        'show_branding' => 'INTEGER NULL',
+        'charlie_enabled' => 'INTEGER NULL',
+        'services_auto_sync_enabled' => 'INTEGER NULL',
+        'booking_mode' => 'TEXT NULL',
+        'manual_booking_url' => 'TEXT NULL',
+    ];
+    foreach ($promotedCols as $col => $type) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS {$col} {$type}");
+        } catch (Throwable $e) {
+            // already exists / unsupported — ignore
+        }
     }
 
     // site.platform_connections — per-user platform integration selections

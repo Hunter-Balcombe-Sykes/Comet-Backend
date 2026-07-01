@@ -145,11 +145,12 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'settings.primary_button_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             'settings.bio_text' => ['sometimes', 'nullable', 'string', 'max:500'],
             'settings.show_branding' => ['sometimes', 'boolean'],
+            'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
                 'string',
-                Rule::in(['manual']),
+                Rule::in(Site::BOOKING_MODES),
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
 
