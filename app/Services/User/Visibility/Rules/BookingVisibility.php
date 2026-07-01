@@ -31,12 +31,12 @@ class BookingVisibility implements SectionVisibilityContract
                 ->getQuery(),
 
             // Current "has a booking destination" path: a links-group block with
-            // settings.category = 'booking'. Portable JSON arrow (pgsql + sqlite).
+            // category='booking'. Phase 2: reads the promoted column (not settings JSONB).
             'has_booking_link_block' => Block::query()
                 ->select(DB::raw('1'))
                 ->where('user_id', $userId)
                 ->where('block_group', Block::GROUP_LINKS)
-                ->where('settings->category', 'booking')
+                ->where('category', 'booking')
                 ->whereNull('deleted_at')
                 ->getQuery(),
         ];

@@ -101,13 +101,15 @@ it('allows booking section via booking link block', function () {
 
     // Link blocks with category='booking' are the current path — stored in the
     // links block_group, not on the booking section block itself.
+    // Phase 2: category is a promoted column; BookingVisibility queries the column.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $proId,
         'site_id' => $siteId,
         'block_group' => 'links',
         'block_type' => 'link',
-        'settings' => json_encode(['category' => 'booking', 'url' => 'https://example.com/book']),
+        'category' => 'booking',
+        'settings' => json_encode(['url' => 'https://example.com/book']),
     ]);
 
     [$canBeVisible] = app(SectionVisibilityService::class)

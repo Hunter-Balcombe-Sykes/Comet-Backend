@@ -145,9 +145,13 @@ it('rejects an update with an invalid category', function () {
     expect($result['errors'])->toHaveKey('category');
 });
 
-// --- Defense-in-depth: settings.category is enum-validated too ---
+// --- Defense-in-depth: settings.category is now rejected by the allowlist ---
+//
+// Phase 2: category is a promoted column — sending it under settings is rejected
+// by the settings allowlist check (not by a per-key enum rule). The error key
+// is 'settings' (the whole bag is rejected) rather than 'settings.category'.
 
-it('rejects an invalid settings.category on create (defense-in-depth)', function () {
+it('rejects category sent inside settings on create (rejected by allowlist)', function () {
     $result = validateStoreRequestCategory([
         'title' => 'My link',
         'url' => 'https://example.com',
@@ -156,14 +160,16 @@ it('rejects an invalid settings.category on create (defense-in-depth)', function
     ]);
 
     expect($result['ok'])->toBeFalse();
-    expect($result['errors'])->toHaveKey('settings.category');
+    // The allowlist rejects the unsupported 'category' settings key.
+    expect($result['errors'])->toHaveKey('settings');
 });
 
-it('rejects an invalid settings.category on update (defense-in-depth)', function () {
+it('rejects category sent inside settings on update (rejected by allowlist)', function () {
     $result = validateUpdateRequestCategory([
         'settings' => ['category' => 'not-real'],
     ]);
 
     expect($result['ok'])->toBeFalse();
-    expect($result['errors'])->toHaveKey('settings.category');
+    // The allowlist rejects the unsupported 'category' settings key.
+    expect($result['errors'])->toHaveKey('settings');
 });

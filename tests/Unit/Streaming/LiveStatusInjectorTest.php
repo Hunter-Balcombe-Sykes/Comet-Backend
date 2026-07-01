@@ -10,15 +10,18 @@ uses(TestCase::class)->in(__FILE__);
 
 beforeEach(fn () => Redis::flushdb());
 
+// Phase 2: platform + live_check_enabled are promoted columns emitted as top-level
+// block keys by the public-site views. handle stays in settings.
+
 it('injects is_live=true into a streaming block whose handle is live in Redis', function () {
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
     Redis::set('streaming:live:twitch:shroud', '1', 'EX', 180);
 
     $blocks = [[
+        'platform' => 'twitch',
+        'live_check_enabled' => true,
         'settings' => [
-            'platform' => 'twitch',
             'handle' => 'shroud',
-            'live_check_enabled' => true,
         ],
     ]];
 
@@ -33,10 +36,10 @@ it('injects is_live=false when Redis key is missing', function () {
     // No Redis key set
 
     $blocks = [[
+        'platform' => 'twitch',
+        'live_check_enabled' => true,
         'settings' => [
-            'platform' => 'twitch',
             'handle' => 'offlineuser',
-            'live_check_enabled' => true,
         ],
     ]];
 
@@ -51,10 +54,10 @@ it('does not add is_live to blocks where live_check_enabled is false', function 
     Redis::set('streaming:live:twitch:shroud', '1', 'EX', 180);
 
     $blocks = [[
+        'platform' => 'twitch',
+        'live_check_enabled' => false,
         'settings' => [
-            'platform' => 'twitch',
             'handle' => 'shroud',
-            'live_check_enabled' => false,
         ],
     ]];
 
@@ -68,10 +71,10 @@ it('does not add is_live to non-streaming platform blocks', function () {
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
 
     $blocks = [[
+        'platform' => 'instagram',
+        'live_check_enabled' => true,
         'settings' => [
-            'platform' => 'instagram',
             'handle' => 'someone',
-            'live_check_enabled' => true,
         ],
     ]];
 
@@ -98,10 +101,10 @@ it('injects is_live into both links and blocks in the full payload', function ()
 
     $block = [
         'block_group' => 'links',
+        'platform' => 'twitch',
+        'live_check_enabled' => true,
         'settings' => [
-            'platform' => 'twitch',
             'handle' => 'shroud',
-            'live_check_enabled' => true,
         ],
     ];
 

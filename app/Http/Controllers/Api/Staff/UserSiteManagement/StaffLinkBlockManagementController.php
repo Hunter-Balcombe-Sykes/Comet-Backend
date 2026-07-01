@@ -53,10 +53,9 @@ class StaffLinkBlockManagementController extends ApiController
                 'icon_key' => $data['icon_key'] ?? null,
                 'sort_order' => $maxSort + 1,
                 'is_active' => $data['is_active'] ?? true,
-                // Phase 1 dual-write: populate promoted columns from top-level data or
-                // settings fallback. Staff creates custom links only (no social normalizer).
-                'category' => $data['category'] ?? ($data['settings']['category'] ?? null),
-                'live_check_enabled' => (bool) ($data['settings']['live_check_enabled'] ?? false),
+                // Phase 2: category + live_check_enabled are columns; read top-level only.
+                'category' => $data['category'] ?? null,
+                'live_check_enabled' => (bool) ($data['live_check_enabled'] ?? false),
                 'settings' => $data['settings'] ?? [],
             ]);
             $block->user_id = $professional->id;
@@ -80,30 +79,9 @@ class StaffLinkBlockManagementController extends ApiController
             abort(404);
         }
 
-        $data = $request->validated();
-
-        // Phase 1 dual-write: mirror category in both directions so column and
-        // settings agree regardless of which key the staff request sends.
-        // (A) top-level category → settings['category']: preserves existing settings
-        //     on a category-only edit, mirroring the user controller's approach.
-        if (array_key_exists('category', $data)) {
-            $existingSettings = is_array($linkBlock->settings) ? $linkBlock->settings : [];
-            $existingSettings['category'] = $data['category'];
-            $data['settings'] = array_merge($existingSettings, $data['settings'] ?? []);
-        }
-        // (B) settings.category → category column: covers the case where staff sends
-        //     only settings (no top-level category key).
-        if (! array_key_exists('category', $data) && isset($data['settings']['category'])) {
-            $data['category'] = $data['settings']['category'];
-        }
-
-        // Phase 1 dual-write: live_check_enabled arrives nested in settings (staff
-        // request contract); hoist it onto the column so the streaming job sees it.
-        if (isset($data['settings']) && is_array($data['settings'])
-            && array_key_exists('live_check_enabled', $data['settings'])) {
-            $data['live_check_enabled'] = (bool) $data['settings']['live_check_enabled'];
-        }
-        $linkBlock->fill($data);
+        // Phase 2: category + live_check_enabled are top-level columns; fill() maps
+        // them directly from the validated request. No settings-mirroring needed.
+        $linkBlock->fill($request->validated());
         $linkBlock->save();
 
         return $this->success(['block' => new LinkBlockResource($linkBlock->fresh())]);

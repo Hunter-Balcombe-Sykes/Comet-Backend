@@ -60,9 +60,10 @@ class StaffSiteResource extends ApiResource
      * @return array<string, mixed>
      */
     private const BLOCK_ALLOWLIST = [
-        'id', 'site_id', 'professional_id', 'block_type', 'block_group',
+        'id', 'site_id', 'user_id', 'block_type', 'block_group',
         'title', 'url', 'icon_key', 'sort_order', 'is_active',
-        'settings', 'created_at', 'updated_at',
+        'settings', 'platform', 'category', 'live_check_enabled',
+        'created_at', 'updated_at',
     ];
 
     private function mapBlock(array $block): array

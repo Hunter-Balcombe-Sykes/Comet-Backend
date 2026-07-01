@@ -10,6 +10,9 @@ use Illuminate\Support\Str;
  * for Professional/Site — the backfill only cares about site.blocks rows; the
  * parent rows exist solely to satisfy FK constraints (SQLite doesn't enforce
  * them, but the helper keeps the test data coherent).
+ *
+ * Phase 2: the command writes to promoted columns (platform, category) instead
+ * of settings JSONB. Idempotency is checked against the column values.
  */
 beforeEach(function () {
     setupUsersTable();
@@ -39,7 +42,7 @@ function createBackfillFixtureIds(): array
     return [$userId, $siteId];
 }
 
-it('backfills settings.category=social for pre-existing instagram links', function () {
+it('backfills platform + category columns for pre-existing instagram links', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
     $block = Block::create([
@@ -58,11 +61,12 @@ it('backfills settings.category=social for pre-existing instagram links', functi
     Artisan::call('partna:backfill-social-links');
 
     $block->refresh();
-    expect($block->settings['platform'] ?? null)->toBe('instagram');
-    expect($block->settings['category'] ?? null)->toBe('social');
+    // Phase 2: reads promoted columns.
+    expect($block->platform)->toBe('instagram');
+    expect($block->category)->toBe('social');
 });
 
-it('backfills settings.category=other for custom (icon_key=link) blocks', function () {
+it('backfills category=other column for custom (icon_key=link) blocks', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
     $block = Block::create([
@@ -81,12 +85,15 @@ it('backfills settings.category=other for custom (icon_key=link) blocks', functi
     Artisan::call('partna:backfill-social-links');
 
     $block->refresh();
-    expect($block->settings['category'] ?? null)->toBe('other');
+    // Phase 2: category column set; no platform (custom link).
+    expect($block->category)->toBe('other');
+    expect($block->platform)->toBeNull();
 });
 
-it('is idempotent — existing category is preserved on re-run', function () {
+it('is idempotent — existing column values are preserved on re-run', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
+    // Pre-set both columns (the idempotency gate reads columns in Phase 2).
     $block = Block::create([
         'user_id' => $proId,
         'site_id' => $siteId,
@@ -97,11 +104,15 @@ it('is idempotent — existing category is preserved on re-run', function () {
         'icon_key' => 'instagram',
         'sort_order' => 0,
         'is_active' => true,
-        'settings' => ['platform' => 'instagram', 'category' => 'events'], // manually overridden
+        'platform' => 'instagram',
+        'category' => 'events', // manually overridden
+        'settings' => [],
     ]);
 
     Artisan::call('partna:backfill-social-links');
 
     $block->refresh();
-    expect($block->settings['category'] ?? null)->toBe('events'); // preserved
+    // Phase 2: column preserved (not overwritten on re-run).
+    expect($block->category)->toBe('events');
+    expect($block->platform)->toBe('instagram');
 });

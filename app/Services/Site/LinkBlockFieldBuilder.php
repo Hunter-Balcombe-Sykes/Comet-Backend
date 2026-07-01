@@ -14,28 +14,26 @@ use InvalidArgumentException;
  *   - url                = canonical https URL from the normalizer
  *   - icon_key           = registry icon_key for the platform
  *   - title              = user-supplied OR the platform's display_name
- *   - platform           = promoted column (Phase 1 dual-write)
- *   - category           = promoted column (Phase 1 dual-write)
- *   - live_check_enabled = promoted column (Phase 1 dual-write)
- *   - settings           = user settings + {platform, handle, category} mirror tags
- *                          (mirror stays until Phase 2 strips the JSONB keys)
+ *   - platform           = promoted column (column only — not in settings)
+ *   - category           = promoted column (column only — not in settings)
+ *   - live_check_enabled = promoted column (read from top-level request field)
+ *   - settings           = user settings + {handle} JSONB tag only
  *
  * Custom mode produces:
  *   - url                = as supplied
  *   - icon_key           = as supplied
  *   - title              = as supplied
- *   - category           = promoted column (Phase 1 dual-write)
- *   - live_check_enabled = promoted column (Phase 1 dual-write)
- *   - settings           = user settings + {category} mirror (Phase 1 only)
+ *   - category           = promoted column (column only)
+ *   - live_check_enabled = promoted column (read from top-level request field)
+ *   - settings           = user settings (no platform/category/live_check_enabled keys)
  *
  * Category resolution order:
  *   1. Request-provided `category` wins (validated against the enum in the Form Request).
  *   2. Else the platform's default_category (platform-link case).
  *   3. Else throws (custom-link case — validation layer should catch this earlier).
  *
- * Phase 1 dual-write: all three promoted keys are returned as top-level fields
- * (Block column writes) AND kept in settings so the unchanged views, injector,
- * and resource continue reading settings JSONB. Phase 2 drops the settings mirror.
+ * Phase 2 (current): platform/category/live_check_enabled are columns only.
+ * The settings JSONB no longer carries these keys (stripped by migration 20260701180000).
  */
 class LinkBlockFieldBuilder
 {
@@ -54,11 +52,9 @@ class LinkBlockFieldBuilder
     {
         $platform = $data['platform'] ?? null;
         $requestedCategory = $data['category'] ?? null;
-
-        // Phase 1: live_check_enabled still arrives nested at settings.live_check_enabled
-        // (the request contract changes to top-level in Phase 2). Read it here so both
-        // write modes populate the new column.
-        $liveCheckEnabled = (bool) ($data['settings']['live_check_enabled'] ?? false);
+        // Phase 2: live_check_enabled arrives at the top level of the request
+        // (the request contract moved from settings.live_check_enabled in Phase 1).
+        $liveCheckEnabled = (bool) ($data['live_check_enabled'] ?? false);
 
         if ($platform !== null && $platform !== '') {
             $normalized = $this->normalizer->normalize(
@@ -67,25 +63,22 @@ class LinkBlockFieldBuilder
                 $data['url'] ?? null
             );
 
-            // settings keeps handle + the Phase-1 platform/category mirror so the
-            // unchanged views, injector, and resource keep emitting these values.
             $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
-            $settings['platform'] = $normalized['platform_key'];
+            // platform/category/live_check_enabled are columns now — never in settings.
+            unset($settings['platform'], $settings['category'], $settings['live_check_enabled']);
             if ($normalized['handle'] !== null) {
                 $settings['handle'] = $normalized['handle'];
             }
 
             // Category: explicit override wins, else platform default.
             $registry = config("partna.social_platforms.{$normalized['platform_key']}", []);
-            $resolvedCategory = $requestedCategory ?: ($registry['default_category'] ?? 'other');
-            $settings['category'] = $resolvedCategory;
 
             return [
                 'title' => ($data['title'] ?? '') !== '' ? $data['title'] : $normalized['display_name'],
                 'url' => $normalized['url'],
                 'icon_key' => $normalized['icon_key'],
                 'platform' => $normalized['platform_key'],
-                'category' => $resolvedCategory,
+                'category' => $requestedCategory ?: ($registry['default_category'] ?? 'other'),
                 'live_check_enabled' => $liveCheckEnabled,
                 'settings' => $settings,
             ];
@@ -95,11 +88,11 @@ class LinkBlockFieldBuilder
         // default here in case a future code path calls build() directly
         // with incomplete data.
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+        // Strip promoted keys from settings in case they arrived via old clients.
+        unset($settings['platform'], $settings['category'], $settings['live_check_enabled']);
         if ($requestedCategory === null || $requestedCategory === '') {
             throw new InvalidArgumentException('A category is required for custom links.');
         }
-        // Mirror category into settings (Phase 1 dual-write).
-        $settings['category'] = $requestedCategory;
 
         return [
             'title' => $data['title'] ?? null,

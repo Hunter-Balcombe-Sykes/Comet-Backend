@@ -291,12 +291,12 @@ it('still rejects unknown settings keys', function () {
     expect($result['errors'])->toHaveKey('settings');
 });
 
-it('accepts the new platform/handle keys in settings allowlist', function () {
-    // platform and handle are added to link_block_settings_keys so the
-    // controller can write them to settings without tripping the existing allowlist.
+it('keeps handle in the settings allowlist; platform is a column now', function () {
+    // Phase 2: platform is a promoted column on site.blocks and is no longer accepted
+    // as a settings sub-key. handle stays in settings JSONB and remains in the allowlist.
     $allowed = config('partna.link_block_settings_keys');
-    expect($allowed)->toContain('platform');
     expect($allowed)->toContain('handle');
+    expect($allowed)->not->toContain('platform');
 });
 
 // --- Cross-check: normalizer integration is callable from the request layer ---

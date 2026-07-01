@@ -13,7 +13,10 @@ function buildLinkBlockFields(array $data): array
     return (new LinkBlockFieldBuilder(new SocialLinkNormalizer))->build($data);
 }
 
-it('writes settings.category=other for a custom link with explicit category', function () {
+// Phase 2: platform/category/live_check_enabled are promoted columns only.
+// The settings bag no longer carries these keys (stripped by migration 20260701180000).
+
+it('writes category=other column for a custom link with explicit category', function () {
     $fields = buildLinkBlockFields([
         'title' => 'My link',
         'url' => 'https://example.com',
@@ -21,26 +24,24 @@ it('writes settings.category=other for a custom link with explicit category', fu
         'category' => 'other',
     ]);
 
-    // Phase 1 dual-write: settings mirror kept for unchanged views/resource/injector.
-    expect($fields['settings']['category'])->toBe('other');
-    // Promoted column also populated.
+    // Promoted column populated; settings does NOT carry category.
     expect($fields['category'])->toBe('other');
     expect($fields['live_check_enabled'])->toBeFalse();
+    expect($fields['settings'])->not->toHaveKey('category');
 });
 
-it('writes settings.category=booking from platform default (calendly)', function () {
+it('writes category=booking column from platform default (calendly)', function () {
     $fields = buildLinkBlockFields([
         'platform' => 'calendly',
         'handle' => 'joshhunter',
     ]);
 
-    // Phase 1 dual-write: settings mirror kept.
-    expect($fields['settings']['category'])->toBe('booking');
-    expect($fields['settings']['platform'])->toBe('calendly');
-    // Promoted columns also populated.
+    // Promoted columns populated; settings does NOT carry category or platform.
     expect($fields['category'])->toBe('booking');
     expect($fields['platform'])->toBe('calendly');
     expect($fields['live_check_enabled'])->toBeFalse();
+    expect($fields['settings'])->not->toHaveKey('category');
+    expect($fields['settings'])->not->toHaveKey('platform');
 });
 
 it('respects an explicit category override on a platform link', function () {
@@ -50,25 +51,24 @@ it('respects an explicit category override on a platform link', function () {
         'category' => 'events',
     ]);
 
-    // Phase 1 dual-write: settings mirror kept.
-    expect($fields['settings']['category'])->toBe('events');
-    expect($fields['settings']['platform'])->toBe('instagram');
-    // Promoted columns also populated.
+    // Promoted columns populated; settings does NOT carry category or platform.
     expect($fields['category'])->toBe('events');
     expect($fields['platform'])->toBe('instagram');
     expect($fields['live_check_enabled'])->toBeFalse();
+    expect($fields['settings'])->not->toHaveKey('category');
+    expect($fields['settings'])->not->toHaveKey('platform');
 });
 
-it('populates live_check_enabled column from nested settings input', function () {
+it('populates live_check_enabled column from top-level input (Phase 2)', function () {
     $fields = buildLinkBlockFields([
         'platform' => 'twitch',
         'handle' => 'streamer',
-        'settings' => ['live_check_enabled' => true],
+        'live_check_enabled' => true,
     ]);
 
+    // Column set from top-level input; settings does NOT carry live_check_enabled.
     expect($fields['live_check_enabled'])->toBeTrue();
-    // Settings mirror still has the key so unchanged views keep working.
-    expect($fields['settings']['live_check_enabled'] ?? null)->toBeTrue();
+    expect($fields['settings'])->not->toHaveKey('live_check_enabled');
 });
 
 it('throws when a custom link omits category (defensive guard)', function () {
