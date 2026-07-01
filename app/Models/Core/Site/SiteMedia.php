@@ -4,6 +4,7 @@ namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
 use App\Models\Core\MediaVariant;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -44,35 +45,36 @@ class SiteMedia extends BaseModel
 
     public const PURPOSE_PLACEHOLDER = 'placeholder';
 
-    // Per-integration cover images — one design-pool singleton per platform.
-    public const PURPOSE_COVER_SHOPIFY = 'cover_shopify';
-
-    public const PURPOSE_COVER_YOUTUBE = 'cover_youtube';
-
-    public const PURPOSE_COVER_APPLE_MUSIC = 'cover_apple_music';
-
-    public const PURPOSE_COVER_APPLE_PODCAST = 'cover_apple_podcast';
-
-    public const PURPOSE_COVER_EVENTBRITE = 'cover_eventbrite';
-
     /**
-     * Design-pool singleton purposes — one row per (site, purpose): the two
-     * brand logos plus one cover image per integration. Enforced by partial
-     * unique indexes (baseline + 20260604000001 + 20260604000002) and the app-side replace in
-     * MediaUploadService::uploadSingleton. UploadDesignMediaRequest validates
-     * the incoming purpose against this allowlist.
+     * Design-pool singleton purposes — one row per (site, purpose): the two brand
+     * logos plus one cover image per cover-capable platform. The cover slots are
+     * DERIVED from the platform registry (PlatformDescriptor::isCoverable) so adding
+     * a cover for a new platform is a one-line descriptor flag, not a new const +
+     * list entry + migration.
      *
-     * @var list<string>
+     * Registry keys are hyphenated (`apple-music`) but media purposes are underscored
+     * (`cover_apple_music`): IndividualProfilePayloadBuilder derives the camelCase
+     * `siteImages` wire key by treating `_` as the word boundary, so a hyphen would
+     * leak through (`coverApple-music`) and break the partna-pages contract. Hence the
+     * convention is `cover_` + the registry key with hyphens normalized to underscores.
+     *
+     * A const can't call the runtime registry — this is a method by necessity.
+     * Enforced at the DB by the composite partial unique index
+     * site_media_design_singleton_purpose_uq and the app-side replace in
+     * MediaUploadService::uploadSingleton. UploadDesignMediaRequest validates the
+     * incoming purpose against this allowlist.
+     *
+     * @return list<string>
      */
-    public const DESIGN_SINGLETON_PURPOSES = [
-        self::PURPOSE_LOGO_FULL,
-        self::PURPOSE_LOGO_SQUARE,
-        self::PURPOSE_COVER_SHOPIFY,
-        self::PURPOSE_COVER_YOUTUBE,
-        self::PURPOSE_COVER_APPLE_MUSIC,
-        self::PURPOSE_COVER_APPLE_PODCAST,
-        self::PURPOSE_COVER_EVENTBRITE,
-    ];
+    public static function designSingletonPurposes(): array
+    {
+        $covers = array_map(
+            static fn (string $key): string => 'cover_'.str_replace('-', '_', $key),
+            array_keys(app(PlatformRegistry::class)->coverable()),
+        );
+
+        return array_merge([self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE], array_values($covers));
+    }
 
     /**
      * Pool values accepted as a gallery-list filter on GET /api/images, and the

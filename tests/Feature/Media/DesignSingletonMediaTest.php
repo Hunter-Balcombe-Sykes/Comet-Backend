@@ -75,7 +75,7 @@ it('accepts a logo upload with a valid purpose + image', function () {
 });
 
 it('accepts every integration cover purpose', function () {
-    foreach (['cover_shopify', 'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite'] as $purpose) {
+    foreach (['cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite'] as $purpose) {
         $result = validateDesignMediaRequest(
             ['purpose' => $purpose],
             ['image' => UploadedFile::fake()->image('cover.png', 400, 200)],
@@ -83,6 +83,30 @@ it('accepts every integration cover purpose', function () {
 
         expect($result['errors'] ?? [])->not->toHaveKey('purpose');
     }
+});
+
+it('rejects the retired cover_shopify slot', function () {
+    $result = validateDesignMediaRequest(
+        ['purpose' => 'cover_shopify'],
+        ['image' => UploadedFile::fake()->image('x.png')],
+    );
+
+    expect($result['valid'])->toBeFalse();
+    expect($result['errors'])->toHaveKey('purpose');
+});
+
+it('derives the design singleton purposes from the registry (2 logos + 4 covers, no dead shopify)', function () {
+    $purposes = SiteMedia::designSingletonPurposes();
+    sort($purposes);
+
+    $expected = [
+        'logo_full', 'logo_square',
+        'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite',
+    ];
+    sort($expected);
+
+    expect($purposes)->toBe($expected);
+    expect($purposes)->not->toContain('cover_shopify'); // retired dead slot — no shopify platform exists
 });
 
 it('rejects an unknown purpose', function () {
@@ -173,7 +197,8 @@ it('reads back current design singletons by purpose (null for empty slots)', fun
     expect($data['images']['logo_full']['url'])->toBe('https://cdn.example.com/img/logo.webp');
     expect($data['images']['cover_youtube']['url'])->toBe('https://cdn.example.com/img/yt.webp');
     expect($data['images']['logo_square'])->toBeNull();
-    expect($data['images']['cover_shopify'])->toBeNull();
+    expect($data['images']['cover_eventbrite'])->toBeNull(); // a still-live cover slot, empty
+    expect($data['images'])->not->toHaveKey('cover_shopify'); // retired — not enumerated anymore
 });
 
 // ── Public payload exposure ─────────────────────────────────────────────────

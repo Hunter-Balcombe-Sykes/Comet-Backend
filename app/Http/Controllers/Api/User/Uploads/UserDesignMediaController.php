@@ -14,10 +14,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Design-layer singleton images: the two brand logos (logo_full, logo_square)
-// edited in /account/design, and one cover image per integration (cover_shopify,
-// cover_youtube, cover_apple_music, cover_apple_podcast, cover_eventbrite). One
-// row per (site, purpose); re-uploading replaces. Free ratio — the pipeline
-// resizes preserving aspect, the display frame is the frontend's concern.
+// edited in /account/design, and one cover image per cover-capable platform
+// (cover_youtube, cover_apple_music, cover_apple_podcast, cover_eventbrite —
+// registry-derived, see SiteMedia::designSingletonPurposes()). One row per
+// (site, purpose); re-uploading replaces. Free ratio — the pipeline resizes
+// preserving aspect, the display frame is the frontend's concern.
 // Reuses the gallery image pipeline (MediaUploadService::uploadSingleton → WebP
 // variants); the public sitepage reads these via the profile payload's
 // siteImages map.
@@ -41,14 +42,14 @@ class UserDesignMediaController extends ApiController
         $rows = SiteMedia::query()
             ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
-            ->whereIn('purpose', SiteMedia::DESIGN_SINGLETON_PURPOSES)
+            ->whereIn('purpose', SiteMedia::designSingletonPurposes())
             ->where('is_active', true)
             ->with('mediaVariants')
             ->get()
             ->keyBy('purpose');
 
         $images = [];
-        foreach (SiteMedia::DESIGN_SINGLETON_PURPOSES as $purpose) {
+        foreach (SiteMedia::designSingletonPurposes() as $purpose) {
             $media = $rows->get($purpose);
             $images[$purpose] = $media instanceof SiteMedia ? (new DesignMediaResource($media))->toArray(request()) : null;
         }

@@ -134,7 +134,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             ));
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
-            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()
+            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
             $r->get('youtube')->fetch(new YoutubeFetch(
@@ -170,13 +170,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('bandcamp')->fetch(new BandcampFetch(
                 $this->app->make(BandcampScraper::class),
             ));
-            $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()
+            $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
             $r->get('apple-music')->fetch(new AppleMusicFetch(
                 $this->app->make(AppleSearch::class),
             ));
-            $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()
+            $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
             $r->get('apple-podcast')->fetch(new ApplePodcastFetch(
@@ -191,7 +191,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
-            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
+            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->coverable()->payload(EventsAccountPayload::class));
             $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
             // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
             $r->get('eventbrite')->fetch(new EventbriteFetch($this->app->make(EventbriteScraper::class)));
