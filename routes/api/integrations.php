@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\BandcampController;
 use App\Http\Controllers\Api\Platforms\BookingController;
 use App\Http\Controllers\Api\Platforms\CustomLinksController;
-use App\Http\Controllers\Api\Platforms\DeezerController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\EventsController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
@@ -13,24 +12,18 @@ use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\MenuController;
-use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
-use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
-use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
-use App\Http\Controllers\Api\Platforms\SkoolController;
-use App\Http\Controllers\Api\Platforms\SoundcloudController;
-use App\Http\Controllers\Api\Platforms\SpotifyController;
 use App\Http\Controllers\Api\Platforms\SquareController;
-use App\Http\Controllers\Api\Platforms\StravaController;
-use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
 use App\Http\Controllers\Api\Platforms\YoutubeController;
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
+use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Registry\PlatformRouteShape;
 use Illuminate\Support\Facades\Route;
 
 // Per-user integration endpoints. Each controller is a per-platform adapter
@@ -265,82 +258,49 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/refresh', [MenuController::class, 'refresh']);
         });
 
-    // Everything else is the uniform connect / selection / forget shape —
-    // one stored selection per user, no picker step. Probe-verified keyless
-    // platforms only (see the integrations v3 migration header).
-    $singleSelection = [
-        'skool' => SkoolController::class,
-        'strava' => StravaController::class,
-        'google-business' => GoogleBusinessController::class,
-    ];
-    // Watch/listen platforms in the uniform shape that also take multiple
-    // accounts (the controller's supportsMultipleAccounts flag is the
-    // source of truth; this list only gates the extra routes).
-    // Twitch moved to $migratedReads (multi=true) below; this array is now empty.
-    $multiAccount = [];
-    foreach ($singleSelection as $slug => $controller) {
-        Route::prefix("{$base}/{$slug}")
-            ->middleware($middleware)
-            ->group(function () use ($controller, $slug, $multiAccount) {
-                Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug);
-                Route::get('/selection', [$controller, 'selection']);
-                Route::delete('/', [$controller, 'forget']);
-                if (in_array($slug, $multiAccount, true)) {
-                    Route::get('/accounts', [$controller, 'accounts']);
-                    Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
-                }
-            });
-    }
+    // ── Registry-driven simple-archetype routes (FOUND-21) ───────────────────
+    // One loop replaces the former $singleSelection, $migratedReads, and link-only
+    // social loops. Each descriptor declares its routeShape (in
+    // PlatformRegistryServiceProvider); this loop emits the matching
+    // connect / selection / forget (/accounts) endpoints with byte-identical wiring.
+    // Bespoke platforms keep their standalone groups above. Adding a simple platform
+    // = one ->routes(...) descriptor line, no edit here.
+    foreach (app(PlatformRegistry::class)->all() as $slug => $descriptor) {
+        $shape = $descriptor->routeShape();
+        if ($shape === PlatformRouteShape::Bespoke) {
+            continue;
+        }
 
-    // Migrated embed/feed read paths. connect() stays on the thin controller; the
-    // read paths are served by the registry-driven GenericPlatformController via the
-    // platform route default. `multi` gates the extra /accounts routes — single
-    // platforms must NOT gain them (keeps the net-completeness count at 52).
-    $migratedReads = [
-        'spotify' => ['controller' => SpotifyController::class, 'multi' => true],
-        'soundcloud' => ['controller' => SoundcloudController::class, 'multi' => true],
-        'deezer' => ['controller' => DeezerController::class, 'multi' => true],
-        'twitch' => ['controller' => TwitchController::class, 'multi' => true],
-        // Pinterest is single-account (no /accounts). multi=false keeps the net
-        // route count at 52 — it registers only /connect + /selection + DELETE /.
-        'pinterest' => ['controller' => PinterestController::class, 'multi' => false],
-        // Keyless reservation widgets — connect() (URL validation + widget-embed
-        // building + the google-seeded `source` un-tag) stays bespoke on the thin
-        // controller; /selection + DELETE / are served by the registry-driven
-        // GenericPlatformController via SelectionPayload. Single-slot (multi=false):
-        // no /accounts routes, so the net-completeness count stays 52.
-        'opentable' => ['controller' => OpenTableController::class, 'multi' => false],
-        'resdiary' => ['controller' => ResDiaryController::class, 'multi' => false],
-        'nowbookit' => ['controller' => NowBookitController::class, 'multi' => false],
-    ];
-    foreach ($migratedReads as $slug => $cfg) {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
-            ->group(function () use ($cfg, $slug) {
-                Route::post('/connect', [$cfg['controller'], 'connect'])->defaults('platform', $slug);
+            ->group(function () use ($descriptor, $slug, $shape) {
+                // connect: link-only via the generic controller; everything else via
+                // the platform's own controller (carrying the platform default for the
+                // shared PlatformConnectRequest).
+                $connectController = $shape === PlatformRouteShape::LinkOnly
+                    ? GenericPlatformController::class
+                    : $descriptor->connectController();
+                Route::post('/connect', [$connectController, 'connect'])->defaults('platform', $slug);
+
+                if ($shape === PlatformRouteShape::SingleSelection) {
+                    // selection + DELETE stay on the bespoke controller.
+                    $controller = $descriptor->connectController();
+                    Route::get('/selection', [$controller, 'selection']);
+                    Route::delete('/', [$controller, 'forget']);
+
+                    return;
+                }
+
+                // LinkOnly + MultiAccount: reads served by the registry-driven
+                // GenericPlatformController via the platform route default.
                 Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
                 Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
-                if ($cfg['multi']) {
+
+                if ($descriptor->multiAccount()) {
                     Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $slug);
                     Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                         ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $slug);
                 }
-            });
-    }
-
-    // Link-only socials migrated to the registry-driven GenericPlatformController.
-    // Each route carries its platform slug as a route DEFAULT (not a URI segment),
-    // so the controller resolves its descriptor via request()->route('platform')
-    // while the URIs stay per-platform (api/platforms/x/connect …). That keeps the
-    // route table — and the golden-master net-completeness count — byte-identical
-    // to the per-controller version these replace. Slugs are appended as they migrate.
-    foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $slug) {
-        Route::prefix("{$base}/{$slug}")
-            ->middleware($middleware)
-            ->group(function () use ($slug) {
-                Route::post('/connect', [GenericPlatformController::class, 'connect'])->defaults('platform', $slug);
-                Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
-                Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
             });
     }
 

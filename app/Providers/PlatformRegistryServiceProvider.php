@@ -2,6 +2,17 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\Api\Platforms\DeezerController;
+use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
+use App\Http\Controllers\Api\Platforms\NowBookitController;
+use App\Http\Controllers\Api\Platforms\OpenTableController;
+use App\Http\Controllers\Api\Platforms\PinterestController;
+use App\Http\Controllers\Api\Platforms\ResDiaryController;
+use App\Http\Controllers\Api\Platforms\SkoolController;
+use App\Http\Controllers\Api\Platforms\SoundcloudController;
+use App\Http\Controllers\Api\Platforms\SpotifyController;
+use App\Http\Controllers\Api\Platforms\StravaController;
+use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
@@ -51,6 +62,7 @@ use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
@@ -109,7 +121,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
             $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
             // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('strava')->fetch(new StravaFetch($this->app->make(StravaClubScraper::class)));
+            $r->get('strava')->fetch(fn () => new StravaFetch(app(StravaClubScraper::class)));
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud', 'deezer' => 'Deezer'] as $key => $label) {
@@ -120,73 +132,73 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::oEmbed('tidal', 'Tidal', MusicEmbedConnectionResource::class)->refreshable(false));
 
             // Attach the live fetch strategies (Plan 3a). Consumed by Plan 6's
-            // registry-driven refresher; built eagerly here like the link-only
-            // UrlConnect strategies above.
-            $oembed = $this->app->make(OEmbedService::class);
-            $r->get('spotify')->fetch(new OEmbedFetch(
-                $oembed, fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify',
+            // registry-driven refresher. Each is a lazy factory: the scraper/API
+            // client resolves at fetch-time, not when the registry is built (the
+            // registry is built at boot to emit routes — see PlatformDescriptor::fetch).
+            $r->get('spotify')->fetch(fn () => new OEmbedFetch(
+                app(OEmbedService::class), fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify',
             ));
-            $r->get('soundcloud')->fetch(new OEmbedFetch(
-                $oembed, fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
+            $r->get('soundcloud')->fetch(fn () => new OEmbedFetch(
+                app(OEmbedService::class), fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
             ));
-            $r->get('deezer')->fetch(new DeezerFetch(
-                $this->app->make(DeezerApi::class),
+            $r->get('deezer')->fetch(fn () => new DeezerFetch(
+                app(DeezerApi::class),
             ));
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
             $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('youtube')->fetch(new YoutubeFetch(
-                $this->app->make(YoutubeScraper::class),
+            $r->get('youtube')->fetch(fn () => new YoutubeFetch(
+                app(YoutubeScraper::class),
             ));
             $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('youtube-music')->fetch(new YoutubeMusicFetch(
-                $this->app->make(YoutubeScraper::class),
+            $r->get('youtube-music')->fetch(fn () => new YoutubeMusicFetch(
+                app(YoutubeScraper::class),
             ));
             $r->register(PD::make('vimeo')->label('Vimeo')->category(Cat::Content)->resource(VimeoConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('vimeo')->fetch(new VimeoFetch(
-                $this->app->make(VimeoApi::class),
+            $r->get('vimeo')->fetch(fn () => new VimeoFetch(
+                app(VimeoApi::class),
             ));
             $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 6). Consumed by Plan 6's registry-driven refresher.
-            $r->get('twitch')->fetch(new TwitchFetch(
-                $this->app->make(TwitchScraper::class),
+            $r->get('twitch')->fetch(fn () => new TwitchFetch(
+                app(TwitchScraper::class),
             ));
             $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 7). Consumed by Plan 6's registry-driven refresher.
-            $r->get('pinterest')->fetch(new PinterestFetch(
-                $this->app->make(PinterestScraper::class),
+            $r->get('pinterest')->fetch(fn () => new PinterestFetch(
+                app(PinterestScraper::class),
             ));
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('bandcamp')->fetch(new BandcampFetch(
-                $this->app->make(BandcampScraper::class),
+            $r->get('bandcamp')->fetch(fn () => new BandcampFetch(
+                app(BandcampScraper::class),
             ));
             $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
-            $r->get('apple-music')->fetch(new AppleMusicFetch(
-                $this->app->make(AppleSearch::class),
+            $r->get('apple-music')->fetch(fn () => new AppleMusicFetch(
+                app(AppleSearch::class),
             ));
             $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
-            $r->get('apple-podcast')->fetch(new ApplePodcastFetch(
-                $this->app->make(AppleSearch::class),
+            $r->get('apple-podcast')->fetch(fn () => new ApplePodcastFetch(
+                app(AppleSearch::class),
             ));
             $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
             // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
             // (variable key set via array_intersect_key) — read paths migrated in Plan 5.
-            $r->get('google-business')->fetch(new GoogleBusinessFetch(
-                $this->app->make(GoogleBusinessService::class),
+            $r->get('google-business')->fetch(fn () => new GoogleBusinessFetch(
+                app(GoogleBusinessService::class),
             ));
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
@@ -194,8 +206,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->coverable()->payload(EventsAccountPayload::class));
             $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
             // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('eventbrite')->fetch(new EventbriteFetch($this->app->make(EventbriteScraper::class)));
-            $r->get('humanitix')->fetch(new HumanitixFetch($this->app->make(HumanitixScraper::class)));
+            $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
+            $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
@@ -260,6 +272,30 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $social) {
                 $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
             }
+
+            // ── Route archetypes (FOUND-21) ─────────────────────────────────────
+            // Drives the single registry loop in routes/api/integrations.php. Bespoke
+            // platforms (the default) keep their standalone groups and are skipped.
+
+            // Link-only socials: connect/selection/forget all via GenericPlatformController.
+            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $social) {
+                $r->get($social)->routes(PlatformRouteShape::LinkOnly);
+            }
+
+            // Single-selection (connect/selection/forget all on the bespoke controller).
+            $r->get('skool')->routes(PlatformRouteShape::SingleSelection, SkoolController::class);
+            $r->get('strava')->routes(PlatformRouteShape::SingleSelection, StravaController::class);
+            $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
+
+            // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
+            $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, SpotifyController::class, true);
+            $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, SoundcloudController::class, true);
+            $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, DeezerController::class, true);
+            $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, TwitchController::class, true);
+            $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, PinterestController::class, false);
+            $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, OpenTableController::class, false);
+            $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, ResDiaryController::class, false);
+            $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, NowBookitController::class, false);
 
             return $r;
         });
