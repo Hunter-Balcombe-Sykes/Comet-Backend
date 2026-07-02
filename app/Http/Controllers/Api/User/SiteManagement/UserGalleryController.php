@@ -10,11 +10,11 @@ use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
 use App\Http\Resources\GalleryImageResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
+use App\Services\Site\ReorderService;
 use App\Services\User\ConfirmationPreferenceService;
 use App\Support\Concerns\NormalisesOptionalString;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 // V2: Gallery image management — listing, reordering, and deletion with variant cleanup.
 class UserGalleryController extends ApiController
@@ -25,6 +25,7 @@ class UserGalleryController extends ApiController
 
     public function __construct(
         private readonly ImageVariantService $mediaService,
+        private readonly ReorderService $reorderService,
     ) {}
 
     /**
@@ -61,42 +62,18 @@ class UserGalleryController extends ApiController
         $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
         $this->authorizeForUser($pro, 'update', $skeleton);
 
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
-
-        DB::transaction(function () use ($site, $ids) {
-            $allIds = SiteMedia::query()
+        // Mass `update()` bypasses Eloquent events, so SiteMediaObserver never
+        // touches the site. Touch explicitly in afterCommit to fire SiteObserver —
+        // Redis invalidation + Cloudflare edge purge + cache warm.
+        $this->reorderService->reorder(
+            $request->input('ids', []),
+            SiteMedia::query()
                 ->where('site_id', $site->id)
                 ->where('pool', SiteMedia::POOL_GALLERY)
-                ->where('is_active', true)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more gallery images are invalid.');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-
-            foreach ($newOrder as $i => $id) {
-                SiteMedia::query()
-                    ->where('site_id', $site->id)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
-
-        // Mass `update()` above bypasses Eloquent events, so SiteMediaObserver
-        // never touches the site. Touch explicitly to fire SiteObserver — Redis
-        // invalidation + Cloudflare edge purge + cache warm — matching the
-        // image-reorder path (UserUploadController::reorder).
-        $site->touch();
+                ->where('is_active', true),
+            "site-images:{$site->id}",
+            fn () => $site->touch(),
+        );
 
         return $this->success(['ok' => true]);
     }

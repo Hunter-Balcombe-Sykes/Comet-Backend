@@ -9,6 +9,7 @@ use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
+use App\Services\Site\ReorderService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class UserSectionBlockController extends ApiController
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
+        private readonly ReorderService $reorderService,
     ) {}
 
     public function index(Request $request)
@@ -239,61 +241,19 @@ class UserSectionBlockController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
-
-        DB::transaction(function () use ($pro, $site, $ids) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$site->id}"]);
-
-            $allIds = Block::query()
-                ->where('user_id', $pro->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_SECTIONS)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more sections are invalid');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-            $offset = (int) Block::query()
-                ->where('user_id', $pro->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_SECTIONS)
-                ->max('sort_order') + 1000;
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $pro->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_SECTIONS)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $offset + $i]);
-            }
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $pro->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_SECTIONS)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
-
         // Mass-update via the query builder bypasses BlockObserver. Explicit
-        // Site touch fires SiteObserver::saved → CloudflareCachePurgeJob +
-        // §28.8 cache key rotation. Without this, sort_order changes don't
+        // Site touch in afterCommit fires SiteObserver::saved → CloudflareCachePurgeJob
+        // + §28.8 cache key rotation. Without this, sort_order changes don't
         // reflect at <handle>.partna.au for up to 5 min.
-        $site->touch();
+        $this->reorderService->reorder(
+            $request->input('ids', []),
+            Block::query()
+                ->where('user_id', $pro->id)
+                ->where('site_id', $site->id)
+                ->where('block_group', Block::GROUP_SECTIONS),
+            "blocks-sections:{$site->id}",
+            fn () => $site->touch(),
+        );
 
         return $this->success(['ok' => true]);
     }

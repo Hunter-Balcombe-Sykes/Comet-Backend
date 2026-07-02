@@ -10,6 +10,7 @@ use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
 use App\Models\Core\User\User;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -105,56 +106,16 @@ class StaffSectionManagementController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManageBlock', $professional);
 
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
         $site = $this->currentSite($professional);
 
-        DB::transaction(function () use ($professional, $site, $ids) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$site->id}"]);
-
-            $allIds = Block::query()
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_SECTIONS)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more sections are invalid');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-            $offset = (int) Block::query()
-                ->where('user_id', $professional->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_SECTIONS)
-                ->max('sort_order') + 1000;
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $professional->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_SECTIONS)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $offset + $i]);
-            }
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $professional->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_SECTIONS)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+                ->where('block_group', Block::GROUP_SECTIONS),
+            "blocks-sections:{$site->id}",
+        );
 
         return $this->success(['ok' => true]);
     }

@@ -25,6 +25,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupMediaTables();
+    shimPgAdvisoryLockForSqlite();
 
     $cache = Mockery::mock(SiteCacheService::class);
     $cache->shouldReceive('invalidateSite')->andReturnNull();
