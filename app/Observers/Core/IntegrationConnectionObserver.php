@@ -3,11 +3,13 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Design\AnalyzeConnectionWebsitesJob;
 use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\DesignFactorRegistry;
+use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Support\Facades\Log;
 
@@ -126,12 +128,25 @@ class IntegrationConnectionObserver
     private function resolveDesignPresets(IntegrationConnection $connection): void
     {
         try {
-            // Only a platform that actually sources a design factor can move the
-            // preset layer — skip the rebuild for every other integration.
-            if (! $connection->user_id
-                || app(DesignFactorRegistry::class)->factorsFor((string) $connection->platform) === []) {
+            $platform = (string) $connection->platform;
+
+            // Only platforms that feed the preset layer trigger work: ones with
+            // a registered connection factor, plus the outside-website sources
+            // (custom links / shop brands) feeding the aggregate site factor.
+            $hasFactor = app(DesignFactorRegistry::class)->factorsFor($platform) !== [];
+            $isWebsiteSource = in_array($platform, OutsideWebsitesFactor::SOURCE_PLATFORMS, true);
+            if (! $connection->user_id || (! $hasFactor && ! $isWebsiteSource)) {
                 return;
             }
+
+            // Outside websites lacking a style analysis get one queued; the
+            // analyses job's payload writes re-enter this observer with
+            // analyses present, so this converges (no dispatch loop).
+            if ($isWebsiteSource && ! $connection->trashed()
+                && AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($connection)) {
+                AnalyzeConnectionWebsitesJob::dispatch((string) $connection->user_id);
+            }
+
             ResolveDesignPresetsJob::dispatch((string) $connection->user_id);
         } catch (\Throwable $e) {
             report($e);

@@ -127,11 +127,38 @@ class DesignPresetResolver
                     $siteId,
                     $source,
                     (string) $connection->platform,
-                    $factor,
+                    $factor->priority(),
+                    $factor->mode()->value,
                     $values,
                     $existing->get($source),
                 ) || $changed;
             }
+        }
+
+        // Site-level factors (previous-website analysis, cross-connection
+        // aggregates) re-detect on EVERY resolve — their "frozenness" lives in
+        // the stored analyses, not in contribution rows. A factor that throws
+        // degrades to an empty detection (its rows sweep), never a failed job.
+        foreach ($this->registry->siteFactors() as $siteFactor) {
+            $source = $siteFactor->key();
+            $desiredSources[] = $source;
+
+            $values = [];
+            try {
+                $values = PresetTargetableColumns::filter($siteFactor->detect($user, $site));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            $changed = $this->syncSource(
+                $siteId,
+                $source,
+                $siteFactor->integrationLabel(),
+                $siteFactor->priority(),
+                FactorMode::Auto->value,
+                $values,
+                $existing->get($source),
+            ) || $changed;
         }
 
         // Sweep contributions whose source no longer belongs to any active factor
@@ -159,8 +186,9 @@ class DesignPresetResolver
     private function syncSource(
         string $siteId,
         string $source,
-        string $platform,
-        DesignFactor $factor,
+        string $integration,
+        int $priority,
+        string $mode,
         array $values,
         ?Collection $existingRows,
     ): bool {
@@ -174,14 +202,14 @@ class DesignPresetResolver
 
             if ($row !== null) {
                 if ((string) $row->value !== $value
-                    || (int) $row->priority !== $factor->priority()
-                    || (string) $row->mode !== $factor->mode()->value
-                    || (string) $row->integration !== $platform) {
+                    || (int) $row->priority !== $priority
+                    || (string) $row->mode !== $mode
+                    || (string) $row->integration !== $integration) {
                     $row->update([
                         'value' => $value,
-                        'priority' => $factor->priority(),
-                        'mode' => $factor->mode()->value,
-                        'integration' => $platform,
+                        'priority' => $priority,
+                        'mode' => $mode,
+                        'integration' => $integration,
                     ]);
                     $changed = true;
                 }
@@ -189,9 +217,9 @@ class DesignPresetResolver
                 DesignKitContribution::query()->create([
                     'site_id' => $siteId,
                     'source' => $source,
-                    'integration' => $platform,
-                    'priority' => $factor->priority(),
-                    'mode' => $factor->mode()->value,
+                    'integration' => $integration,
+                    'priority' => $priority,
+                    'mode' => $mode,
                     'target_var' => $var,
                     'value' => $value,
                 ]);
