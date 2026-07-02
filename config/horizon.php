@@ -229,6 +229,24 @@ return [
             'timeout' => 180,
             'nice' => 10,
         ],
+        // Platform refresh fan-out (RefreshConnectionJob). Isolated so a refresh burst
+        // can't starve user-facing queues. I/O-bound (external APIs), and per-provider
+        // outbound pressure is capped by the 'platform-refresh' RateLimiter — NOT by
+        // worker count — so process count can be generous. timeout 150 > the job's
+        // $timeout=120 and < the redis connection's retry_after=360 (no mid-run re-queue).
+        'supervisor-platform-refresh' => [
+            'connection' => 'redis',
+            'queue' => ['platform_refresh'],
+            'balance' => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 5,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,       // retries governed by the job's own $tries/$backoff
+            'timeout' => 150,
+            'nice' => 10,
+        ],
         // Must use the redis_gdpr connection (retry_after=660), NOT the default redis
         // connection (retry_after=360). RedactShopJob has $timeout=600; with the default
         // connection the job would be re-queued mid-run, causing concurrent duplicate
@@ -274,6 +292,7 @@ return [
             'supervisor-streaming' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-images' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-scraping' => ['minProcesses' => 1, 'maxProcesses' => 2],
+            'supervisor-platform-refresh' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-gdpr' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 2],
         ],
@@ -281,7 +300,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping', 'platform_refresh'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -310,7 +329,7 @@ return [
             // redis_gdpr connection (see supervisor-gdpr note above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping', 'platform_refresh'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
