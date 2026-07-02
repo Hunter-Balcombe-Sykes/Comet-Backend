@@ -142,6 +142,12 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 $this->storeSvgVariant($disk, $diskName, (string) $result->svg, $result->meta);
             }
 
+            // 4) Square logos also emit a 192px icon PNG — the sitepage favicon
+            //    feed (resolver exposes it as url_icon).
+            if ($siteMedia->purpose === SiteMedia::PURPOSE_LOGO_SQUARE) {
+                $this->storeIconVariant($disk, $diskName, $result->pngTransparent);
+            }
+
             SiteMedia::query()
                 ->where('id', $this->imageId)
                 ->whereNull('deleted_at')
@@ -224,6 +230,84 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 'content_hash' => $hash,
             ],
         );
+    }
+
+    /**
+     * 192×192 contain-fit transparent PNG from the processed logo — the
+     * favicon/apple-touch source for sitepages. Best-effort: an icon failure
+     * never fails the pipeline (the logo itself is already READY-bound).
+     */
+    private function storeIconVariant(Filesystem $disk, string $diskName, string $pngTransparent): void
+    {
+        try {
+            $src = @imagecreatefromstring($pngTransparent);
+            if ($src === false) {
+                return;
+            }
+
+            $size = 192;
+            $icon = imagecreatetruecolor($size, $size);
+            imagealphablending($icon, false);
+            imagesavealpha($icon, true);
+            imagefill($icon, 0, 0, imagecolorallocatealpha($icon, 0, 0, 0, 127));
+
+            $w = imagesx($src);
+            $h = imagesy($src);
+            $scale = min($size / max(1, $w), $size / max(1, $h), 1);
+            $dw = max(1, (int) round($w * $scale));
+            $dh = max(1, (int) round($h * $scale));
+            imagealphablending($icon, true);
+            imagecopyresampled($icon, $src, intdiv($size - $dw, 2), intdiv($size - $dh, 2), 0, 0, $dw, $dh, $w, $h);
+            imagealphablending($icon, false);
+
+            ob_start();
+            imagepng($icon);
+            $bytes = (string) ob_get_clean();
+            imagedestroy($icon);
+            imagedestroy($src);
+            if ($bytes === '') {
+                return;
+            }
+
+            $hash = substr(hash('sha256', $bytes), 0, 16);
+            $path = "{$this->basePath}/icon_{$hash}.png";
+
+            $existingPath = MediaVariant::where([
+                'media_id' => $this->imageId,
+                'variant_key' => 'icon',
+                'artifact_type' => 'png',
+            ])->value('path');
+
+            $disk->put($path, $bytes, 'public');
+
+            if ($existingPath && $existingPath !== $path) {
+                try {
+                    $disk->delete($existingPath);
+                } catch (Throwable $e) {
+                    Log::warning('ProcessLogoVariantsJob: failed to delete orphaned icon.', [
+                        'image_id' => $this->imageId, 'old_path' => $existingPath, 'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            MediaVariant::updateOrCreate(
+                ['media_id' => $this->imageId, 'variant_key' => 'icon', 'artifact_type' => 'png'],
+                [
+                    'disk' => $diskName,
+                    'path' => $path,
+                    'mime' => 'image/png',
+                    'width' => $size,
+                    'height' => $size,
+                    'file_size_bytes' => strlen($bytes),
+                    'content_hash' => $hash,
+                ],
+            );
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('ProcessLogoVariantsJob: icon variant generation failed.', [
+                'image_id' => $this->imageId, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function purgeEdgeCache(SiteMedia $siteMedia): void

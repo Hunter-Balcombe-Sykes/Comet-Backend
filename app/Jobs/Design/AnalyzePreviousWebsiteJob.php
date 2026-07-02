@@ -82,13 +82,21 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
             'signals' => array_map(fn (array $s) => $s['tier'], $analysis['signals'] ?? []),
         ]);
 
-        // Logo auto-grab — fills EMPTY slots only; never blocks the styling path.
+        // Logo auto-grab — fills EMPTY slots only; never blocks the styling
+        // path. Decisions are merged back onto the stored analysis so every
+        // grab (or rejection) is auditable. The extra save is loop-safe: the
+        // observer's in-sync check (url + version match) short-circuits.
         if ($analysis['ok']) {
             try {
                 $site = Site::query()->find($this->siteId);
                 $pro = $site?->user_id ? User::query()->find($site->user_id) : null;
                 if ($site !== null && $pro !== null) {
-                    $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logo']['candidates'] ?? []));
+                    $decisions = $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logo']['candidates'] ?? []));
+                    if ($decisions !== []) {
+                        $analysis['logo']['grab'] = $decisions;
+                        $workplace->previous_website_analysis = $analysis;
+                        $workplace->save();
+                    }
                 }
             } catch (Throwable $e) {
                 report($e);
