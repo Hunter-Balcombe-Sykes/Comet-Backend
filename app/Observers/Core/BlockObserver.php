@@ -44,9 +44,9 @@ class BlockObserver
      */
     private function onBlockMutated(Block $block, string $action): void
     {
-        $this->invalidator->touchSite($block->site, $action, [
+        $this->invalidator->touchSite(fn () => $block->site, $action, [
             'block_id' => $block->id,
-            'site_id' => $block->site?->id,
+            'site_id' => $block->site_id,
         ]);
     }
 }

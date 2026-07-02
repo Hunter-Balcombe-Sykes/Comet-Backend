@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Models\Core\User\User;
+use App\Services\Site\ReorderService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Config;
@@ -74,7 +75,7 @@ function seedSectionBlockForUpsertTest(User $pro, string $blockType, int $sortOr
  */
 function makeSynclessController(): UserSectionBlockController
 {
-    return new class(app(SectionVisibilityService::class)) extends UserSectionBlockController
+    return new class(app(SectionVisibilityService::class), app(ReorderService::class)) extends UserSectionBlockController
     {
         protected function syncAllowedSections(string $userId, string $siteId, array $allowedSections): Collection
         {

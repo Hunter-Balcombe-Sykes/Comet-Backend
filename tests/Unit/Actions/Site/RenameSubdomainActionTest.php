@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\RenameSubdomainAction;
 use Illuminate\Support\Facades\DB;
@@ -16,11 +17,17 @@ beforeEach(function () {
     setupHandleAliasesTable();
     setupHandleChangeLogTable();
 
-    // Stub the cache service — tests here don't need Redis (the site is not
-    // saved by the action itself, but observers may fire on the user save).
+    // Stub cache services — tests verify the action's own writes, not observer side-effects.
+    // SiteCacheInvalidator is mocked to prevent UserObserver (afterCommit = true) from
+    // calling $site->touch() after the transaction commits, which would persist the staged
+    // subdomain before the caller's explicit save — the exact scenario these tests rule out.
     $cache = Mockery::mock(SiteCacheService::class);
     $cache->shouldReceive('forgetBrandDesign')->andReturnNull()->byDefault();
     app()->instance(SiteCacheService::class, $cache);
+
+    $invalidator = Mockery::mock(SiteCacheInvalidator::class);
+    $invalidator->shouldReceive('touchSite')->andReturnNull()->byDefault();
+    app()->instance(SiteCacheInvalidator::class, $invalidator);
 });
 
 /**

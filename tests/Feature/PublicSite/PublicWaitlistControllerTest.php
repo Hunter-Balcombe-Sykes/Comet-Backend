@@ -12,7 +12,7 @@ beforeEach(function () {
 })->group('public-waitlist');
 
 it('accepts an email-only waitlist submission (coming-soon landing)', function () {
-    $response = $this->postJson('/api/public/waitlist', ['email' => 'emailonly@example.com']);
+    $response = $this->postJson('/api/public/waitlist', ['email' => 'emailonly@example.com', 'form_started_at_ms' => time() * 1000 - 5000]);
 
     $response->assertCreated()->assertJson(['ok' => true]);
 
@@ -34,6 +34,7 @@ it('stores a waitlist submission with normalized fields', function () {
         'type' => 'profesisonal',
         'industry' => 'mens grooming',
         'pilot_program_opt_in' => 'true',
+        'form_started_at_ms' => time() * 1000 - 5000,
     ];
 
     $response = $this->postJson('/api/public/waitlist', $payload);
@@ -58,6 +59,7 @@ it('upserts waitlist submissions by normalized email', function () {
         'industry' => 'beauty_products',
         'pilot_program_opt_in' => false,
         'number_of_team_members' => 5,
+        'form_started_at_ms' => time() * 1000 - 5000,
     ];
 
     $second = [
@@ -68,6 +70,7 @@ it('upserts waitlist submissions by normalized email', function () {
         'industry' => 'services_and_software',
         'pilot_program_opt_in' => true,
         'number_of_team_members' => 7,
+        'form_started_at_ms' => time() * 1000 - 5000,
     ];
 
     $this->postJson('/api/public/waitlist', $first)->assertCreated();

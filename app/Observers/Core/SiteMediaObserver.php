@@ -83,7 +83,7 @@ class SiteMediaObserver
      */
     private function touchParentSite(SiteMedia $media, string $action): void
     {
-        $this->invalidator->touchSite($media->site, $action, [
+        $this->invalidator->touchSite(fn () => $media->site, $action, [
             'site_media_id' => $media->id,
             'site_id' => $media->site_id,
             'pool' => $media->pool,

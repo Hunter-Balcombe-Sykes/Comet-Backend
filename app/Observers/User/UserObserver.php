@@ -126,7 +126,7 @@ class UserObserver
             return;
         }
 
-        $this->invalidator->touchSite($professional->site, 'user public-field change', [
+        $this->invalidator->touchSite(fn () => $professional->site, 'user public-field change', [
             'user_id' => $professional->id,
         ]);
     }

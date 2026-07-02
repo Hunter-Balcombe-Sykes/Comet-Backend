@@ -116,7 +116,7 @@ class ServiceObserver
      */
     private function touchParentSite(Service $service, ?User $pro): void
     {
-        $this->invalidator->touchSite($pro?->site, 'service mutation', [
+        $this->invalidator->touchSite(fn () => $pro?->site, 'service mutation', [
             'service_id' => $service->id,
             'user_id' => $service->user_id,
         ]);

@@ -42,7 +42,7 @@ it('dispatches the confirmation on a brand-new subscribe', function () {
     seedPublishedSubscribeSite();
     Bus::fake();
 
-    $this->postJson('/api/public/subscribe', ['email' => 'new@example.com'], [
+    $this->postJson('/api/public/subscribe', ['email' => 'new@example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
         'X-Site-Subdomain' => 'subpro',
     ])->assertOk();
 
@@ -65,7 +65,7 @@ it('does NOT dispatch on a redundant re-submit of an already-subscribed address'
     ]);
     Bus::fake();
 
-    $this->postJson('/api/public/subscribe', ['email' => 'already@example.com'], [
+    $this->postJson('/api/public/subscribe', ['email' => 'already@example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
         'X-Site-Subdomain' => 'subpro',
     ])->assertOk();
 
@@ -88,7 +88,7 @@ it('dispatches again when a previously-unsubscribed address re-subscribes', func
     ]);
     Bus::fake();
 
-    $this->postJson('/api/public/subscribe', ['email' => 'back@example.com'], [
+    $this->postJson('/api/public/subscribe', ['email' => 'back@example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
         'X-Site-Subdomain' => 'subpro',
     ])->assertOk();
 

@@ -20,21 +20,23 @@ use Illuminate\Support\Facades\Log;
 class SiteCacheInvalidator
 {
     /**
+     * @param  \Closure|Site|null  $site  Pass a Closure (() => ?Site) for lazy resolution —
+     *   the Closure is evaluated inside the try/catch, so relation-load errors (e.g. missing
+     *   table in tests) are swallowed just like touch() failures.
      * @param  string  $reason   Mutation verb for the log (e.g. 'create', 'update', 'delete').
      * @param  array<string, mixed>  $context  Callsite fields for the log (model id, tenant id).
      */
-    public function touchSite(?Site $site, string $reason, array $context = []): void
+    public function touchSite(\Closure|Site|null $site, string $reason, array $context = []): void
     {
-        if ($site === null) {
-            return;
-        }
-
         try {
-            $site->touch();
+            $resolved = $site instanceof \Closure ? $site() : $site;
+            if ($resolved === null) {
+                return;
+            }
+            $resolved->touch();
         } catch (\Throwable $e) {
             Log::warning('Site cache propagation via touch() failed — Redis invalidation + CF purge skipped', array_merge([
                 'reason' => $reason,
-                'site_id' => $site->id,
             ], $context, ['message' => $e->getMessage()]));
         }
     }
