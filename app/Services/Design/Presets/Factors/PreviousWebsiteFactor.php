@@ -7,6 +7,8 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\SiteDesignFactor;
 use App\Services\Design\Presets\StyleTiers;
+use App\Services\Design\Scan\EvidenceConclusions;
+use App\Services\Design\WebsiteStyleAnalyzer;
 
 // Top-of-hierarchy factor: the user's PREVIOUS WEBSITE (site.workplaces.
 // previous_website — written manually in settings or auto-filled by Google
@@ -43,20 +45,47 @@ class PreviousWebsiteFactor implements SiteDesignFactor
         $url = trim((string) ($workplace?->previous_website ?? ''));
         $analysis = $workplace?->previous_website_analysis;
 
+        // v2 docs only — pre-rebuild (v1) analyses were exactly the unreliable
+        // reads this scanner replaced; they contribute nothing until re-scanned.
         if ($url === ''
             || ! is_array($analysis)
             || ($analysis['url'] ?? null) !== $url
+            || ($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION
             || ($analysis['ok'] ?? false) !== true) {
             return [];
         }
 
-        $out = StyleTiers::columnsFromTiers(is_array($analysis['tiers'] ?? null) ? $analysis['tiers'] : []);
+        $out = StyleTiers::columnsFromTiers(self::confidentTiers($analysis));
 
         $accent = $analysis['accent'] ?? null;
-        if (is_string($accent) && preg_match('/^#[0-9a-f]{6}$/i', $accent)) {
-            $out['color_accent'] = strtolower($accent);
+        $hex = is_array($accent) ? ($accent['hex'] ?? null) : null;
+        if (is_string($hex)
+            && preg_match('/^#[0-9a-f]{6}$/i', $hex)
+            && (float) ($accent['confidence'] ?? 0) >= EvidenceConclusions::MIN_CONFIDENCE) {
+            $out['color_accent'] = strtolower($hex);
         }
 
         return $out;
+    }
+
+    /**
+     * Signal tiers meeting the confidence bar, from a v2 analysis document.
+     * Shared by OutsideWebsitesFactor so both factors read one contract.
+     *
+     * @param  array<string, mixed>  $analysis
+     * @return array<string, string>
+     */
+    public static function confidentTiers(array $analysis): array
+    {
+        $tiers = [];
+        foreach (is_array($analysis['signals'] ?? null) ? $analysis['signals'] : [] as $signal => $data) {
+            if (is_array($data)
+                && is_string($data['tier'] ?? null)
+                && (float) ($data['confidence'] ?? 0) >= EvidenceConclusions::MIN_CONFIDENCE) {
+                $tiers[$signal] = $data['tier'];
+            }
+        }
+
+        return $tiers;
     }
 }

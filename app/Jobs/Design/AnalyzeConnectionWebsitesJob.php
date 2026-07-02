@@ -78,7 +78,11 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUnique, ShouldQueue
         }
         $analysis = $entry['styleAnalysis'] ?? null;
 
-        return ! is_array($analysis) || ($analysis['url'] ?? null) !== $url;
+        // URL mismatch OR analyzer-version mismatch → stale. The version
+        // clause makes a VERSION bump re-sweep every stored analysis.
+        return ! is_array($analysis)
+            || ($analysis['url'] ?? null) !== $url
+            || ($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION;
     }
 
     public function handle(WebsiteStyleAnalyzer $analyzer): void

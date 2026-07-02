@@ -60,10 +60,12 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Reconciliation idempotence: an analysis for this exact URL already
-        // exists (success OR recorded failure) — nothing to do.
+        // Reconciliation idempotence: a CURRENT-version analysis for this exact
+        // URL already exists (success OR recorded failure) — nothing to do.
         $current = $workplace->previous_website_analysis;
-        if (is_array($current) && ($current['url'] ?? null) === $url) {
+        if (is_array($current)
+            && ($current['url'] ?? null) === $url
+            && ($current['v'] ?? null) === WebsiteStyleAnalyzer::VERSION) {
             return;
         }
 
@@ -74,8 +76,10 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
         Log::info('AnalyzePreviousWebsiteJob: analyzed.', [
             'site_id' => $this->siteId,
             'ok' => $analysis['ok'],
-            'accent' => $analysis['accent'] ?? null,
-            'tiers' => array_filter($analysis['tiers'] ?? []),
+            'mode' => $analysis['mode'] ?? null,
+            'failure' => $analysis['failure'] ?? null,
+            'accent' => $analysis['accent']['hex'] ?? null,
+            'signals' => array_map(fn (array $s) => $s['tier'], $analysis['signals'] ?? []),
         ]);
 
         // Logo auto-grab — fills EMPTY slots only; never blocks the styling path.
@@ -84,7 +88,7 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
                 $site = Site::query()->find($this->siteId);
                 $pro = $site?->user_id ? User::query()->find($site->user_id) : null;
                 if ($site !== null && $pro !== null) {
-                    $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logoCandidates'] ?? []));
+                    $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logo']['candidates'] ?? []));
                 }
             } catch (Throwable $e) {
                 report($e);
