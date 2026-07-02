@@ -10,6 +10,8 @@ use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Services\Site\InsertWithSortOrder;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -47,25 +49,18 @@ class StaffServiceCategoryManagementController extends ApiController
         $this->authorizeForUser($professional, 'create', new ServiceCategory(['user_id' => $professional->id]));
         $data = $request->validated();
 
-        $category = DB::transaction(function () use ($professional, $data) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-categories:{$professional->id}"]);
-
-            if (! array_key_exists('sort_order', $data) || $data['sort_order'] === null) {
-                $max = ServiceCategory::query()
-                    ->where('user_id', $professional->id)
-                    ->max('sort_order');
-
-                $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
-            }
-
-            $category = ServiceCategory::query()->create([
-                'user_id' => $professional->id,
-                'title' => $data['title'],
-                'sort_order' => $data['sort_order'],
-            ]);
-
-            return $category->fresh();
-        });
+        $category = InsertWithSortOrder::run(
+            ServiceCategory::query()->where('user_id', $professional->id),
+            "service-categories:{$professional->id}",
+            function (int $next) use ($professional, $data) {
+                $category = ServiceCategory::query()->create([
+                    'user_id' => $professional->id,
+                    'title' => $data['title'],
+                    'sort_order' => $data['sort_order'] ?? $next,
+                ]);
+                return $category->fresh();
+            },
+        );
 
         return $this->success(['category' => new ServiceCategoryResource($category)], 201);
     }
@@ -141,36 +136,11 @@ class StaffServiceCategoryManagementController extends ApiController
 
     public function reorder(StaffReorderServiceCategoryRequest $request, User $professional): JsonResponse
     {
-        $ids = array_values(array_unique($request->validated()['ids']));
-
-        DB::transaction(function () use ($professional, $ids) {
-
-            $allIds = ServiceCategory::query()
-                ->where('user_id', $professional->id)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more category IDs are invalid.');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-
-            foreach ($newOrder as $i => $id) {
-                ServiceCategory::query()
-                    ->where('user_id', $professional->id)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            ServiceCategory::query()->where('user_id', $professional->id),
+            "service-categories:{$professional->id}",
+        );
 
         return $this->success(['ok' => true]);
     }

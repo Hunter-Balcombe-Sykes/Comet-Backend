@@ -14,8 +14,9 @@ use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Site\Block;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
+use App\Services\Site\InsertWithSortOrder;
 use App\Services\Site\LinkBlockFieldBuilder;
-use Illuminate\Support\Facades\DB;
+use App\Services\Site\ReorderService;
 use InvalidArgumentException;
 
 /**
@@ -38,7 +39,8 @@ class UserLinkBlockController extends ApiController
     use ResolveCurrentUser;
 
     public function __construct(
-        private readonly LinkBlockFieldBuilder $fieldBuilder
+        private readonly LinkBlockFieldBuilder $fieldBuilder,
+        private readonly ReorderService $reorderService,
     ) {}
 
     public function index(IndexLinkBlockRequest $request)
@@ -80,29 +82,24 @@ class UserLinkBlockController extends ApiController
             return $this->error($e->getMessage(), 422);
         }
 
-        $linkBlock = DB::transaction(function () use ($pro, $site, $blockFields, $data) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
-
-            $maxSort = Block::query()
+        $linkBlock = InsertWithSortOrder::run(
+            Block::query()
                 ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_LINKS)
-                ->max('sort_order');
-
-            $maxSort = is_null($maxSort) ? -1 : (int) $maxSort;
-
-            $linkBlock = new Block(array_merge($blockFields, [
-                'block_group' => Block::GROUP_LINKS,
-                'block_type' => Block::TYPE_LINK,
-                'sort_order' => $maxSort + 1,
-                'is_active' => $data['is_active'] ?? true,
-            ]));
-
-            $linkBlock->user_id = $pro->id;
-            $linkBlock->site_id = $site->id;
-            $linkBlock->save();
-
-            return $linkBlock->fresh();
-        });
+                ->where('block_group', Block::GROUP_LINKS),
+            "blocks-links:{$site->id}",
+            function (int $next) use ($pro, $site, $blockFields, $data) {
+                $linkBlock = new Block(array_merge($blockFields, [
+                    'block_group' => Block::GROUP_LINKS,
+                    'block_type' => Block::TYPE_LINK,
+                    'sort_order' => $next,
+                    'is_active' => $data['is_active'] ?? true,
+                ]));
+                $linkBlock->user_id = $pro->id;
+                $linkBlock->site_id = $site->id;
+                $linkBlock->save();
+                return $linkBlock->fresh();
+            },
+        );
 
         return $this->success(['block' => new LinkBlockResource($linkBlock)], 201);
     }
@@ -171,65 +168,21 @@ class UserLinkBlockController extends ApiController
         $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
         $this->authorizeForUser($pro, 'create', $skeleton);
 
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
-
-        DB::transaction(function () use ($pro, $site, $ids) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
-
-            $allIds = Block::query()
-                ->where('user_id', $pro->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_LINKS)
-                ->where('block_type', Block::TYPE_LINK)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more blocks are invalid');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-            $offset = (int) Block::query()
-                ->where('user_id', $pro->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_LINKS)
-                ->max('sort_order') + 1000;
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $pro->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_LINKS)
-                    ->where('block_type', Block::TYPE_LINK)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $offset + $i]);
-            }
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $pro->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_LINKS)
-                    ->where('block_type', Block::TYPE_LINK)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
-
         // Mass-update via the query builder bypasses Eloquent's `updated`
         // event on Block — so BlockObserver's touch-the-Site chain never
         // fires, and the §28.8 backend cache key (`public.profile:{handle}:
         // {site.updated_at}`) wouldn't rotate, and CloudflareCachePurgeJob
-        // wouldn't dispatch. Explicit Site touch closes the gap.
-        $site->touch();
+        // wouldn't dispatch. Explicit Site touch in afterCommit closes the gap.
+        $this->reorderService->reorder(
+            $request->input('ids', []),
+            Block::query()
+                ->where('user_id', $pro->id)
+                ->where('site_id', $site->id)
+                ->where('block_group', Block::GROUP_LINKS)
+                ->where('block_type', Block::TYPE_LINK),
+            "blocks-links:{$site->id}",
+            fn () => $site->touch(),
+        );
 
         return $this->success(['ok' => true]);
     }

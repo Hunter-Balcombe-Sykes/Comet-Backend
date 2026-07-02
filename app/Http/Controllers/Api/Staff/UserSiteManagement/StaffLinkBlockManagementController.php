@@ -10,9 +10,10 @@ use App\Http\Requests\Api\Staff\UserSite\Links\StaffUpdateLinkRequest;
 use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Site\Block;
 use App\Models\Core\User\User;
+use App\Services\Site\InsertWithSortOrder;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 // V2: Staff manages a professional's custom link blocks (CRUD + reorder).
 class StaffLinkBlockManagementController extends ApiController
@@ -35,35 +36,31 @@ class StaffLinkBlockManagementController extends ApiController
 
         $data = $request->validated();
 
-        $block = DB::transaction(function () use ($professional, $site, $data) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
-
-            $maxSort = Block::query()
+        $block = InsertWithSortOrder::run(
+            Block::query()
                 ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_LINKS)
-                ->max('sort_order');
-
-            $maxSort = is_null($maxSort) ? -1 : (int) $maxSort;
-
-            $block = new Block([
-                'block_group' => Block::GROUP_LINKS,
-                'block_type' => Block::TYPE_LINK,
-                'title' => $data['title'],
-                'url' => $data['url'],
-                'icon_key' => $data['icon_key'] ?? null,
-                'sort_order' => $maxSort + 1,
-                'is_active' => $data['is_active'] ?? true,
-                // Phase 2: category + live_check_enabled are columns; read top-level only.
-                'category' => $data['category'] ?? null,
-                'live_check_enabled' => (bool) ($data['live_check_enabled'] ?? false),
-                'settings' => $data['settings'] ?? [],
-            ]);
-            $block->user_id = $professional->id;
-            $block->site_id = $site->id;
-            $block->save();
-
-            return $block->fresh();
-        });
+                ->where('block_group', Block::GROUP_LINKS),
+            "blocks-links:{$site->id}",
+            function (int $next) use ($professional, $site, $data) {
+                $block = new Block([
+                    'block_group' => Block::GROUP_LINKS,
+                    'block_type' => Block::TYPE_LINK,
+                    'title' => $data['title'],
+                    'url' => $data['url'],
+                    'icon_key' => $data['icon_key'] ?? null,
+                    'sort_order' => $next,
+                    'is_active' => $data['is_active'] ?? true,
+                    // Phase 2: category + live_check_enabled are columns; read top-level only.
+                    'category' => $data['category'] ?? null,
+                    'live_check_enabled' => (bool) ($data['live_check_enabled'] ?? false),
+                    'settings' => $data['settings'] ?? [],
+                ]);
+                $block->user_id = $professional->id;
+                $block->site_id = $site->id;
+                $block->save();
+                return $block->fresh();
+            },
+        );
 
         return $this->success(['block' => new LinkBlockResource($block)], 201);
     }
@@ -105,59 +102,17 @@ class StaffLinkBlockManagementController extends ApiController
 
     public function reorder(StaffReorderLinkRequest $request, User $professional): JsonResponse
     {
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
         $site = $this->currentSite($professional);
 
-        DB::transaction(function () use ($professional, $site, $ids) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-links:{$site->id}"]);
-
-            $allIds = Block::query()
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            Block::query()
                 ->where('user_id', $professional->id)
                 ->where('site_id', $site->id)
                 ->where('block_group', Block::GROUP_LINKS)
-                ->where('block_type', Block::TYPE_LINK)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more blocks are invalid');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-            $offset = (int) Block::query()
-                ->where('user_id', $professional->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_LINKS)
-                ->max('sort_order') + 1000;
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $professional->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_LINKS)
-                    ->where('block_type', Block::TYPE_LINK)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $offset + $i]);
-            }
-
-            foreach ($newOrder as $i => $id) {
-                Block::query()
-                    ->where('user_id', $professional->id)
-                    ->where('site_id', $site->id)
-                    ->where('block_group', Block::GROUP_LINKS)
-                    ->where('block_type', Block::TYPE_LINK)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+                ->where('block_type', Block::TYPE_LINK),
+            "blocks-links:{$site->id}",
+        );
 
         return $this->success(['ok' => true]);
     }
