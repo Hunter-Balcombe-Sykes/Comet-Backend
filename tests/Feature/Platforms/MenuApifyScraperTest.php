@@ -215,3 +215,30 @@ it('scrapes both platforms concurrently and returns a fused menu per platform', 
     expect($menus['uber-eats']['categories'][0]['items'][0]['deliveryPrice'])->toBe(17.0);
     expect($menus['doordash']['categories'][0]['items'][0]['pickupPrice'])->toBe(8.0);   // price_cents / 100
 });
+
+// ── ApifyBudget gate (SCALE-2) ──────────────────────────────────────────────
+
+it('fetch() skips and sends no HTTP when the menu budget is exhausted', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 0);
+    Http::fake();
+
+    $result = app(MenuApifyScraper::class)->fetch('https://ubereats.com/store/x', 'uber-eats', 'user-1');
+
+    expect($result)->toBeNull();
+    Http::assertNothingSent();
+});
+
+it('fetchStores() scrapes no target when the menu budget is exhausted', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 0);
+    Http::fake();
+
+    $result = app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => 'https://ubereats.com/store/x', 'deliveryUrl' => null, 'storeUrl' => null, 'modes' => ['pickup']]],
+        'user-1',
+    );
+
+    expect($result)->toBe([]);
+    Http::assertNothingSent();
+});

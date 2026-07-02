@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\ApifyBudget;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -78,6 +79,12 @@ class MenuApifyScraper
             return null;
         }
 
+        // SCALE-2: one budget slot per store-scrape (retries below are reliability
+        // for THIS store, not extra spend). Null = existing skip contract.
+        if (! app(ApifyBudget::class)->tryClaim('menu')) {
+            return null;
+        }
+
         // Retry empty / transient misses (the actor is flaky and returns []
         // on a fraction of runs even for a valid store). Stop early on a mapped
         // menu (success) or a non-retryable hard error (4xx).
@@ -142,6 +149,16 @@ class MenuApifyScraper
                 $targets[$platform.'|delivery'] = ['platform' => $platform, 'url' => $deliveryUrl];
             }
         }
+        if ($targets === []) {
+            return [];
+        }
+
+        // SCALE-2: claim one budget slot per target before firing the pool; drop
+        // targets with no budget so the metered pool never exceeds the daily cap.
+        $budget = app(ApifyBudget::class);
+        $targets = array_filter($targets, function () use ($budget) {
+            return $budget->tryClaim('menu');
+        });
         if ($targets === []) {
             return [];
         }
@@ -416,15 +433,15 @@ class MenuApifyScraper
     {
         $this->drivers ??= [
             'uber-eats' => [
-                'actor'      => self::ACTORS['uber-eats'],
+                'actor' => self::ACTORS['uber-eats'],
                 'buildInput' => fn (string $url, ?string $address): array => ['startUrls' => [['url' => $url]]],
-                'mapItems'   => fn (array $items): array => $this->mapUberEats($items),
+                'mapItems' => fn (array $items): array => $this->mapUberEats($items),
             ],
             'doordash' => [
-                'actor'      => self::ACTORS['doordash'],
+                'actor' => self::ACTORS['doordash'],
                 'buildInput' => fn (string $url, ?string $address): array => [
-                    'startUrls'    => [['url' => $url]],
-                    'address'      => $this->cleanString($address) ?? self::DOORDASH_FALLBACK_ADDRESS,
+                    'startUrls' => [['url' => $url]],
+                    'address' => $this->cleanString($address) ?? self::DOORDASH_FALLBACK_ADDRESS,
                     'fetchReviews' => false,
                 ],
                 'mapItems' => fn (array $items): array => $this->mapDoorDash($items),
