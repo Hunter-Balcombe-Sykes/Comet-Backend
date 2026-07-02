@@ -96,4 +96,21 @@ class IntegrationConnection extends BaseModel
     {
         return $query->where('is_active', true);
     }
+
+    /**
+     * Connections DUE for a refresh: active, refreshed longer ago than $cutoff (or
+     * never), and below the consecutive-failure circuit breaker. $cutoff is computed
+     * in PHP (per-platform TTL) and bound as a param so the query is identical on
+     * Postgres and the SQLite test DB. Soft-deleted rows are already excluded by the
+     * model's SoftDeletes global scope.
+     */
+    public function scopeDueForRefresh($query, \DateTimeInterface $cutoff, int $maxFailures)
+    {
+        return $query->active()
+            ->where('consecutive_failures', '<', $maxFailures)
+            ->where(function ($q) use ($cutoff) {
+                $q->whereNull('last_refreshed_at')
+                    ->orWhere('last_refreshed_at', '<', $cutoff);
+            });
+    }
 }

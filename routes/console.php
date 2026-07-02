@@ -61,16 +61,23 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('purge-raw-events'));
 
-// Pilot platform refresh — re-fetch the auto-content platforms (YouTube latest,
-// Eventbrite events, Apple latest release) daily so sitepages show fresh data
-// without the user re-connecting. Static links + costly/multi-step platforms are
-// excluded by the command (see PlatformRefresher).
+// Dispatcher: fan out a queued RefreshConnectionJob per due connection. Hourly so
+// connections are picked up close to their TTL (the heavy work is on the queue, not
+// here). Lock < cadence so a slow run can't overlap the next tick.
 Schedule::command('integrations:refresh')
-    ->dailyAt('03:40')
+    ->hourly()
     ->runInBackground()
     ->onOneServer()
-    ->withoutOverlapping(60)
+    ->withoutOverlapping(50)
     ->onFailure($reportScheduledFailure('integrations:refresh'));
+
+// Staleness alarm: page when too many connections fall overdue (SCALE-1).
+Schedule::command('integrations:refresh-backlog')
+    ->hourly()
+    ->runInBackground()
+    ->onOneServer()
+    ->withoutOverlapping(50)
+    ->onFailure($reportScheduledFailure('integrations:refresh-backlog'));
 
 Schedule::command('queue:prune-failed --hours=72')
     ->daily()

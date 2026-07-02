@@ -35,6 +35,7 @@ use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
+use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\DeezerApi;
@@ -85,6 +86,8 @@ use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 // Binds the PlatformRegistry singleton and registers every platform the app
@@ -298,6 +301,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, NowBookitController::class, false);
 
             return $r;
+        });
+    }
+
+    public function boot(): void
+    {
+        // Per-provider outbound rate limit for the refresh queue. Cache-backed →
+        // Redis in prod → shared across ALL workers, so the cap is global, not
+        // per-process. Keyed by platform so one provider can't starve the others.
+        RateLimiter::for('platform-refresh', function (RefreshConnectionJob $job) {
+            $perMinute = (int) config(
+                "partna.refresh.rate_limits.{$job->platform}",
+                config('partna.refresh.rate_limits.default')
+            );
+
+            return Limit::perMinute($perMinute)->by('platform-refresh:'.$job->platform);
         });
     }
 }

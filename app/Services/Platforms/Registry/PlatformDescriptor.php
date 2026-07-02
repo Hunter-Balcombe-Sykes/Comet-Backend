@@ -28,6 +28,9 @@ class PlatformDescriptor
 
     private bool $refreshable = false;
 
+    /** Per-platform refresh cadence in seconds; null = fall back to config('partna.refresh.default_ttl_seconds'). */
+    private ?int $refreshInterval = null;
+
     private bool $coverable = false;
 
     private ?Detection $detection = null;
@@ -160,6 +163,19 @@ class PlatformDescriptor
     public function isRefreshable(): bool
     {
         return $this->refreshable;
+    }
+
+    /** Override how often this platform is re-fetched (seconds). Null (default) uses the global config TTL. */
+    public function refreshEvery(int $seconds): self
+    {
+        $this->refreshInterval = $seconds;
+
+        return $this;
+    }
+
+    public function refreshInterval(): ?int
+    {
+        return $this->refreshInterval;
     }
 
     public function isCoverable(): bool

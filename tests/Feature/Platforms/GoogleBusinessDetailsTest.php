@@ -193,7 +193,7 @@ it('refreshes a stale google business connection via place details', function ()
         'last_refreshed_at' => now()->subWeek(),
     ]);
 
-    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+    $this->artisan('integrations:refresh')->assertSuccessful();
 
     $conn->refresh();
     expect($conn->last_refresh_status)->toBe('ok');
@@ -220,7 +220,7 @@ it('skips the google api while the snapshot is fresh', function () {
         'last_refreshed_at' => now()->subWeek(),
     ]);
 
-    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+    $this->artisan('integrations:refresh')->assertSuccessful();
 
     $conn->refresh();
     expect($conn->last_refresh_status)->toBe('ok');
@@ -240,7 +240,7 @@ it('records legacy link connections without a placeId as unavailable, quietly', 
         'last_refreshed_at' => now()->subWeek(),
     ]);
 
-    $this->artisan('integrations:refresh', ['--throttle-ms' => 0])->assertSuccessful();
+    $this->artisan('integrations:refresh')->assertSuccessful();
 
     $conn->refresh();
     expect($conn->last_refresh_status)->toBe('unavailable');
