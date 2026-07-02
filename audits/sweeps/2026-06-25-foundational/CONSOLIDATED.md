@@ -72,7 +72,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 14 of 15 complete
+- P2 Medium: 15 of 15 complete
 - P3 Low: 4 of 11 complete
 
 ---
@@ -303,7 +303,7 @@
             $other       = $contentSource === 'uber-eats' ? $ddMenu : $ueMenu;
         ```
 
-- [ ] **#FOUND-8** · P2 — Adding a third events/ticketing platform requires 5 coordinated edits across `EventsCatalog`, `ProviderDetector`, and an `adapter()` cheat-sheet — no shared interface
+- [x] **#FOUND-8** · P2 — Adding a third events/ticketing platform requires 5 coordinated edits across `EventsCatalog`, `ProviderDetector`, and an `adapter()` cheat-sheet — no shared interface
     - **Where:** `app/Services/Platforms/EventsCatalog.php` (`EVENT_PLATFORMS` line 29, `adapter()` lines 260–278); `app/Services/Platforms/ProviderDetector.php` (`CATEGORY_PROVIDERS['events']` line 19, `matches()` arms)
     - **Affects:** Any future events/ticketing platform (Ticketmaster, Moshtix, Ticketek); drift between the two `EVENT_PLATFORMS`/`CATEGORY_PROVIDERS` lists is already a single-addition-away
     - **Effort:** M (~2–4h)
