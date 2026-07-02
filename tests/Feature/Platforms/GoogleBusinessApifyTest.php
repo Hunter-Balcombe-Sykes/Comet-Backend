@@ -590,3 +590,14 @@ it('Change-to re-runs the Instagram scrape when swapping an existing Instagram',
     actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'instagram'])->assertOk();
     Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
 });
+
+it('skips the scrape and sends no HTTP when the apify budget is exhausted', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.google-business', 0); // no budget
+    Http::fake();
+
+    $result = app(GoogleBusinessApifyScraper::class)->fetch('ChIJtest', 'user-1');
+
+    expect($result)->toBeNull();
+    Http::assertNothingSent();
+});

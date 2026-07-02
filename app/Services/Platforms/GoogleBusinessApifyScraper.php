@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\ApifyBudget;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -38,6 +39,14 @@ class GoogleBusinessApifyScraper extends PlatformScraper
     {
         $token = config('services.apify.token');
         if (! $token) {
+            return null;
+        }
+
+        // SCALE-2: claim a slot from the shared Apify budget before spending. Null
+        // here = same skip contract as a failed scrape (caller keeps prior payload).
+        if (! app(ApifyBudget::class)->tryClaim('google-business')) {
+            Log::warning('google_business.apify.budget_exhausted', ['place_id' => $placeId, 'user_id' => $userId]);
+
             return null;
         }
 
