@@ -1080,6 +1080,40 @@ return [
         'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
         // Platform scraping jobs (InstagramConnectJob etc).
         'scraping' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
+        // Platform refresh fan-out (RefreshConnectionJob, dispatched by integrations:refresh).
+        'platform_refresh' => env('PARTNA_QUEUE_PLATFORM_REFRESH', 'platform_refresh'),
+    ],
+
+    // Platform connection refresh (SCALE-1). The dispatcher (integrations:refresh)
+    // selects connections due per default_ttl_seconds (or the descriptor override)
+    // and fans out RefreshConnectionJob; per-provider rate_limits cap outbound
+    // pressure; the backlog command alarms when too many fall overdue.
+    'refresh' => [
+        // Default re-fetch cadence when a platform declares no descriptor override.
+        // 86400 preserves the previous daily cadence.
+        'default_ttl_seconds' => (int) env('PARTNA_REFRESH_DEFAULT_TTL', 86400),
+
+        // Circuit breaker: skip connections at/above this many consecutive failures
+        // (a dead account stops consuming refresh capacity). Reset to 0 on any
+        // successful refresh by ScheduledRefresh::run().
+        'max_consecutive_failures' => (int) env('PARTNA_REFRESH_MAX_FAILURES', 10),
+
+        // Per-provider outbound rate limit (requests/minute) for the refresh queue,
+        // keyed by platform key; falls back to 'default'. Enforced by the
+        // 'platform-refresh' RateLimiter (cache-backed → Redis in prod → shared
+        // across ALL workers, so the cap is global, not per-process).
+        'rate_limits' => [
+            'default' => (int) env('PARTNA_REFRESH_RATE_DEFAULT', 60),
+            // e.g. 'google-business' => 30,
+        ],
+
+        // Staleness alarm thresholds (integrations:refresh-backlog).
+        'backlog' => [
+            // Overdue = not refreshed within (ttl × grace_multiplier).
+            'grace_multiplier' => (float) env('PARTNA_REFRESH_BACKLOG_GRACE', 2),
+            // Report to Nightwatch when the overdue count exceeds this.
+            'alert_threshold' => (int) env('PARTNA_REFRESH_BACKLOG_THRESHOLD', 500),
+        ],
     ],
 
     'video_variants' => [
