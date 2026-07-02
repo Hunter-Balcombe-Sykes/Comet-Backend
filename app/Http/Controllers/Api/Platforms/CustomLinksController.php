@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddCustomLinkRequest;
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
@@ -40,8 +41,9 @@ class CustomLinksController extends ApiController
         return $this->success(['links' => $this->linksData($this->currentUser($request))]);
     }
 
-    // POST /api/platforms/custom/links — attach a URL. Fetches the page once
-    // and snapshots favicon / logo / name / description from its metadata.
+    // POST /api/platforms/custom/links — attach a URL. Returns 202 immediately
+    // with a minimal card derived from the URL; EnrichLinkCardJob upgrades
+    // name/logo/description off-thread once the HTTP fetch completes (JOB-1).
     public function addLink(AddCustomLinkRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -51,23 +53,34 @@ class CustomLinksController extends ApiController
             return $this->error('Enter a valid link (https://...).', 422);
         }
 
-        // Fetch + parse outside the lock (slow external HTTP); falls back to a
-        // minimal card when the page can't be fetched, so any link can be added.
-        $meta = $this->scraper->snapshotOrMinimal($url);
-
-        $payload = ['kind' => 'link', ...$meta];
+        $payload = ['kind' => 'link', ...$this->scraper->minimalCard($url)];
         $rid = 'link-'.substr(sha1(strtolower($url)), 0, 16);
 
-        return $this->withConnectionLock($user, function () use ($user, $payload, $rid) {
+        return $this->withConnectionLock($user, function () use ($user, $payload, $rid, $url) {
             $existing = $this->linkRows($user)->firstWhere('resource_id', $rid);
             if (! $existing && $this->linkRows($user)->count() >= self::MAX_LINKS) {
                 return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
             }
 
-            $this->writeConnection($user, $payload, $rid);
+            $this->writePendingLinkCard($user, $payload, $rid);
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
 
-            return $this->success(['links' => $this->linksData($user)]);
+            return $this->success([
+                'status' => 'pending',
+                'link' => $this->cardData($rid, $payload),
+                'statusUrl' => url("/api/integrations/custom/links/{$rid}/status"),
+            ], 202);
         });
+    }
+
+    // GET /api/platforms/custom/links/{id}/status — poll link-card enrichment.
+    public function linkStatus(Request $request, string $id): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        return $this->linkCardStatusResponse($user, $id, fn () => [
+            'links' => $this->linksData($user),
+        ]);
     }
 
     // DELETE /api/platforms/custom/links/{id} — remove one link.
@@ -91,6 +104,26 @@ class CustomLinksController extends ApiController
     }
 
     // ── internals ────────────────────────────────────────────────
+
+    /**
+     * Single-card response shape for the 202 body — mirrors one entry of
+     * linksData() so the dashboard can render the placeholder immediately.
+     *
+     * @return array<string,mixed>
+     */
+    private function cardData(string $rid, array $payload): array
+    {
+        $card = CardPayload::fromArray($payload);
+
+        return [
+            'id' => $rid,
+            'url' => $card->url(),
+            'name' => $card->name(),
+            'description' => $card->description(),
+            'favicon' => $card->favicon(),
+            'logo' => $card->logo(),
+        ];
+    }
 
     /**
      * Link rows ('link-*'), ordered.

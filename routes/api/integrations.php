@@ -206,6 +206,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::get('/links', [CustomLinksController::class, 'links']);
             Route::post('/links', [CustomLinksController::class, 'addLink']);
+            Route::get('/links/{id}/status', [CustomLinksController::class, 'linkStatus'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/links/{id}', [CustomLinksController::class, 'removeLink'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [CustomLinksController::class, 'forget']);
         });
