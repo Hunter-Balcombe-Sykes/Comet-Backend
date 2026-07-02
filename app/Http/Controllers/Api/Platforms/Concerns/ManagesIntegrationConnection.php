@@ -248,6 +248,20 @@ trait ManagesIntegrationConnection
         return $this->writeConnection($user, $payload, $existing?->resource_id ?? $rid);
     }
 
+    /**
+     * Return the highlights array preserved from an existing account row, or [] when
+     * there is no matching row or no saved highlights yet. Used by connect() actions to
+     * carry highlights across a same-account re-add without resetting curation choices.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function preserveHighlights(User $user, string $identityField, mixed $identityValue): array
+    {
+        $existing = $this->matchAccountRow($user, $identityField, $identityValue)?->payload;
+
+        return data_get($existing, 'highlights', []);
+    }
+
     /** First account row whose payload $field equals $value (account dedupe / lookups). */
     protected function matchAccountRow(User $user, string $field, mixed $value): ?IntegrationConnection
     {

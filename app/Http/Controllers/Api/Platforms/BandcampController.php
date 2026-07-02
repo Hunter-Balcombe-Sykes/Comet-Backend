@@ -63,8 +63,7 @@ class BandcampController extends SingleSelectionPlatformController
         $latest = $this->scraper->enrichPrices([$profile['items'][0]])[0];
 
         // Re-adding an already-connected page keeps that account's highlights.
-        $existing = $this->matchAccountRow($user, 'url', $origin)?->payload;
-        $kept = data_get($existing, 'highlights', []);
+        $kept = $this->preserveHighlights($user, 'url', $origin);
 
         $selection = [
             'url' => $origin,
