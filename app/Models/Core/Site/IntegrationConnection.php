@@ -2,6 +2,7 @@
 
 namespace App\Models\Core\Site;
 
+use App\Exceptions\Platforms\TenantAnchorImmutableException;
 use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
@@ -74,6 +75,21 @@ class IntegrationConnection extends BaseModel
     protected static function booted(): void
     {
         static::saving(function (self $connection) {
+            // Tenant-anchor immutability guard (SEC-1): once a row is persisted,
+            // its user_id must never change. On create, $exists is false so
+            // mass-assigning user_id (the normal create/updateOrCreate path) is
+            // unaffected. A RuntimeException subclass is NOT in Laravel's
+            // $internalDontReport, so it surfaces to Nightwatch automatically on
+            // throw — no explicit report() needed here (contrast with the
+            // ValidationException path below that does need one).
+            if ($connection->exists && $connection->isDirty('user_id')) {
+                throw new TenantAnchorImmutableException(
+                    connectionId: $connection->id,
+                    originalUserId: $connection->getOriginal('user_id'),
+                    attemptedUserId: $connection->user_id,
+                );
+            }
+
             if (! $connection->isDirty('platform')) {
                 return;
             }

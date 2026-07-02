@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Platforms\TenantAnchorImmutableException;
 use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -125,4 +126,70 @@ it('does not report UnregisteredPlatformException when a valid platform is saved
     );
 
     Exceptions::assertNotReported(UnregisteredPlatformException::class);
+});
+
+// SEC-1: tenant-anchor immutability guard — user_id must never change once a row
+// is persisted. The guard fires before the platform guard so it catches changes
+// even on rows where platform is unchanged.
+
+it('throws TenantAnchorImmutableException when user_id is changed on a persisted row', function () {
+    $owner = makeGuardTestUser('anchor-user-1');
+    $intruder = makeGuardTestUser('anchor-intruder-1');
+
+    // Create a valid connection owned by $owner — bind the scraper mock first
+    // because the saving guard resolves PlatformRegistry on first save.
+    $conn = IntegrationConnection::create([
+        'user_id' => $owner->id,
+        'platform' => 'instagram',
+        'resource_id' => 'ig-sec1-a',
+        'payload' => [],
+    ]);
+
+    // Attempt to re-assign the tenant anchor on the already-persisted row.
+    expect(fn () => $conn->update(['user_id' => $intruder->id]))
+        ->toThrow(TenantAnchorImmutableException::class);
+});
+
+it('does not throw when create() assigns user_id on a new row', function () {
+    $user = makeGuardTestUser('anchor-user-2');
+
+    // user_id is in $fillable; setting it on create is the normal path — must not throw.
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'ig-sec1-b',
+        'payload' => [],
+    ]);
+
+    expect($conn->exists)->toBeTrue();
+    expect($conn->user_id)->toBe($user->id);
+});
+
+it('does not throw when updateOrCreate() creates a new row with user_id', function () {
+    $user = makeGuardTestUser('anchor-user-3');
+
+    // The upsert idiom — user_id is a lookup key on the create path; must not throw.
+    $conn = IntegrationConnection::updateOrCreate(
+        ['user_id' => $user->id, 'platform' => 'google-business'],
+        ['resource_id' => 'gb-sec1-c', 'payload' => ['name' => 'Test']]
+    );
+
+    expect($conn->exists)->toBeTrue();
+    expect($conn->user_id)->toBe($user->id);
+});
+
+it('does not throw when a non-anchor field is updated on a persisted row', function () {
+    $user = makeGuardTestUser('anchor-user-4');
+
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'ig-sec1-d',
+        'payload' => [],
+    ]);
+
+    // Status-only update — neither user_id nor platform is dirty; neither guard fires.
+    $conn->update(['last_refresh_status' => 'ok', 'payload' => ['items' => []]]);
+
+    expect($conn->fresh()->last_refresh_status)->toBe('ok');
 });

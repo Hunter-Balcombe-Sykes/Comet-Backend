@@ -36,7 +36,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
 - P2 Medium: 5 of 5 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -189,7 +189,7 @@
 
 ## P3 — Nice to have (defense-in-depth)
 
-- [ ] **#SEC-1** · P3 — `IntegrationConnection` declares tenant anchor `user_id` in `$fillable` with no post-create immutability guard
+- [x] **#SEC-1** · P3 — `IntegrationConnection` declares tenant anchor `user_id` in `$fillable` with no post-create immutability guard
     - **Where:** app/Models/Core/Site/IntegrationConnection.php:36-48
     - **Affects:** Any future code path that hydrates this model from unvalidated input — not exploitable today.
     - **Effort:** S (~0.5–1h)
