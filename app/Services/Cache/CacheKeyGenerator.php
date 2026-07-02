@@ -260,4 +260,12 @@ class CacheKeyGenerator
     {
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
+
+    /**
+     * @deprecated Use apifyActorDailyLimit('instagram', $date) — removed in Task 2 migration.
+     */
+    public static function instagramDailyLimit(string $date): string
+    {
+        return static::apifyActorDailyLimit('instagram', $date);
+    }
 }
