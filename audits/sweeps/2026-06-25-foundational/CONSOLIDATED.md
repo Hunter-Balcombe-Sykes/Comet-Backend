@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
 - P2 Medium: 15 of 15 complete
-- P3 Low: 4 of 11 complete
+- P3 Low: 8 of 11 complete
 
 ---
 
@@ -704,7 +704,7 @@
         foreach ($singleSelection as $slug => $controller) { ... }
         ```
 
-- [ ] **#FOUND-22** · P3 — `GoogleBusinessAutoSync` scatters reservation and booking platform lists across 7 private locations; adding a new booking/reservation provider is 7 edits
+- [x] **#FOUND-22** · P3 — `GoogleBusinessAutoSync` scatters reservation and booking platform lists across 7 private locations; adding a new booking/reservation provider is 7 edits
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php` (`hasAnyReservation()` line 193, `seedBooking()` line 218, `resolveReservationWrite()` multiple arms, `resolveBookingWrite()`, `applyFinding()` conflict remove arrays)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Define `RESERVATION_PLATFORMS` and `BOOKING_PLATFORMS` class constants; replace all seven inline arrays with references. In `resolveReservationWrite()`, extract a `UrlMatcherRegistry` (one entry per provider with its `isXxxUrl()` check) instead of a procedural if-ladder.
@@ -761,7 +761,7 @@
         };
         ```
 
-- [ ] **#FOUND-25** · P3 — "Preserve existing highlights on reconnect" pattern copy-pasted across 5 platform controllers
+- [x] **#FOUND-25** · P3 — "Preserve existing highlights on reconnect" pattern copy-pasted across 5 platform controllers
     - **Where:** `YoutubeController.php` (connect ~lines 58–62), `VimeoController.php` (~67–70), `BandcampController.php` (~62–65), `AppleController.php` (keptHighlights), `YoutubeMusicController.php` (~61–65)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add a `preserveHighlights(User $user, string $platform, string $identityField, mixed $identityValue): array` method to the `ManagesIntegrationConnection` trait; replace the 5 inline `matchAccountRow` + `data_get` patterns with a single call.
@@ -867,7 +867,7 @@
         }
         ```
 
-- [ ] **#FOUND-30** · P3 — `HasActionLogLifecycle` trait has no default `failed()` method; 7 moderation jobs each implement the identical failure-handling body independently
+- [x] **#FOUND-30** · P3 — `HasActionLogLifecycle` trait has no default `failed()` method; 7 moderation jobs each implement the identical failure-handling body independently
     - **Where:** `app/Jobs/Moderation/Concerns/HasActionLogLifecycle.php` (no `failed()` method — confirmed by grep); `SuspendSiteJob`, `SuspendUserJob`, `QuarantineMediaJob`, `PurgeModerationCacheJob`, `NotifyOnCallStaffJob`, `NotifyReportedUserJob`, `NotifyReporterJob` (all implement `failed()` with identical `report() + update(['status' => 'failed', 'failed_at' => now()]) + Log::error()`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add a `failed(Throwable $e): void` default to `HasActionLogLifecycle` that calls `report($e)`, updates `ActionLogEntry` status to `'failed'` with `failed_at`, and logs a standard error. Concrete jobs may call `parent::failed($e)` and add context, or rely on the default.
@@ -891,7 +891,7 @@
         // HasActionLogLifecycle.php — no failed() method (confirmed by grep: no matches)
         ```
 
-- [ ] **#FOUND-31** · P3 — Bot-protection rules (honeypot + timing) are copy-pasted across 4 public Form Requests with existing drift (`required` vs `nullable` on `form_started_at_ms`)
+- [x] **#FOUND-31** · P3 — Bot-protection rules (honeypot + timing) are copy-pasted across 4 public Form Requests with existing drift (`required` vs `nullable` on `form_started_at_ms`)
     - **Where:** `app/Http/Requests/Api/PublicSite/PublicCustomerLeadRequest.php`, `PublicEmailSubscribeRequest.php`, `PublicEnquiryRequest.php`, `PublicWaitlistSignupRequest.php`
     - **Effort:** S (~0.5–1h)
     - **What to do:** Extract a `WithBotProtection` trait (or a `PublicFormRequest` base class) that declares the `website` honeypot and `form_started_at_ms` timing rules plus the `prepareForValidation()` trim. New public forms get bot protection by `use WithBotProtection`. The `required` vs `nullable` drift is resolved by a single documented rule.
