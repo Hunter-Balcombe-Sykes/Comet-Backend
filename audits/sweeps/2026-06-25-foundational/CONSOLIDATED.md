@@ -653,7 +653,7 @@
         public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
         ```
 
-- [ ] **#FOUND-20** · P2 — Subdomain validation closure (~60 lines, 4 rule checks) is copy-pasted between `UpdateSiteRequest` and `StaffUpdateSiteRequest`; drift will produce inconsistent validation
+- [x] **#FOUND-20** · P2 — Subdomain validation closure (~60 lines, 4 rule checks) is copy-pasted between `UpdateSiteRequest` and `StaffUpdateSiteRequest`; drift will produce inconsistent validation
     - **Where:** `app/Http/Requests/Api/User/Site/UpdateSiteRequest.php` (subdomain closure ~lines 80–145); `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php` (near-identical closure)
     - **Affects:** Subdomain change validation: reserved words, uniqueness, alias conflict, handle-alias conflict — any new check must be added in two places
     - **Effort:** S (~0.5–1h)
