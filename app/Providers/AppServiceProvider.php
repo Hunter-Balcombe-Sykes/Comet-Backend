@@ -382,6 +382,24 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Live subdomain availability checks (authenticated URL-change flow).
+        // Keyed per user (supabase_uid) so one user's typing can't starve
+        // others behind a shared IP; IP fallback covers edge cases where the
+        // attribute isn't resolved yet.
+        RateLimiter::for('subdomain-availability', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $key = (string) ($request->attributes->get('supabase_uid')
+                ?? $request->header('CF-Connecting-IP')
+                ?? $request->ip());
+
+            return Limit::perMinute(config('partna.throttle.subdomain_availability_authed_per_minute', 30))
+                ->by('subdomain-availability:'.$key)
+                ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
+        });
+
         // Login resolve-identifier endpoint (P2-44). Dedicated bucket — tighter than
         // public-site (60/min), mirrors expected mistyped-handle retries (20/min).
         // Uses CF-Connecting-IP for the same reason as signup-availability.

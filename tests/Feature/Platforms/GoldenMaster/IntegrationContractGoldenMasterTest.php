@@ -579,7 +579,7 @@ it('covers every integration GET read-route in the golden master', function () {
     // TEST-6: Pin route IDENTITY, not just count.
     // Sorted URI snapshot — catches add/remove AND one-for-one swaps.
     // Count guard kept too for fast failure messaging.
-    expect($readRoutes->count())->toBe(52);
+    expect($readRoutes->count())->toBe(53);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/selection',
@@ -604,6 +604,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/linkedin/selection',
         'api/platforms/menu',
         'api/platforms/menu/status',
+        'api/platforms/meta',
         'api/platforms/nowbookit/selection',
         'api/platforms/online-ordering/entries',
         'api/platforms/opentable/selection',
