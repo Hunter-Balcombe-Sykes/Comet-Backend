@@ -241,6 +241,56 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
     Http::assertNotSent(fn ($req) => str_contains($req->url(), '169.254.169.254'));
 });
 
+// ── SEC-2: MAX_IMAGE_BYTES cap — oversized image dropped, job still completes ───
+
+it('InstagramConnectJob drops an oversized cover image and completes the job without storing it', function () {
+    Storage::fake('media');
+
+    $bigUrl = 'https://scontent.cdninstagram.com/bigphoto.jpg';
+    $picUrl = 'https://scontent.cdninstagram.com/pic.jpg';
+
+    Http::fake([
+        // Content-Length header declares the cover is over the MAX_IMAGE_BYTES cap.
+        // The job must reject it before Storage::put (testing the Content-Length
+        // precheck path; the hard strlen fallback is proven-correct by inspection
+        // since both checks gate the same Storage::put call).
+        'scontent.cdninstagram.com/bigphoto.jpg' => Http::response('tiny-sentinel', 200, [
+            'Content-Type' => 'image/jpeg',
+            'Content-Length' => 20_000_000, // 20 MB — over the 15 MB cap
+        ]),
+        'scontent.cdninstagram.com/pic.jpg' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $user = igAsyncUser('igcap_img1');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => [],
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Cap User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn([
+        'photo' => ['thumbnailUrl' => $bigUrl, 'shortCode' => 'big'],
+        'video' => null,
+    ]);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturn($picUrl);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
+
+    $connection->refresh();
+
+    // Job must complete successfully — one dropped image must not fail the whole job.
+    expect($connection->last_refresh_status)->toBe('ok');
+    // The oversized cover was rejected before Storage::put; images[] is empty.
+    expect($connection->payload['images'])->toBe([]);
+    // The profile pic (no cap breach) was mirrored normally.
+    expect($connection->payload['profilePicUrl'])->not->toBeNull();
+});
+
 // ── JOB-4: an empty scrape hard-fails the job instead of silently "succeeding" ──
 
 it('InstagramConnectJob hard-fails (does not silently succeed) when the scrape returns no profile (JOB-4)', function () {

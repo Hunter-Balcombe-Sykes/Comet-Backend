@@ -35,7 +35,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 4 of 5 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -155,7 +155,7 @@
         });
         ```
 
-- [ ] **#SEC-2** · P2 — Instagram media mirror uses a host-string allowlist, not `SafeUrlFetcher` IP-resolution
+- [x] **#SEC-2** · P2 — Instagram media mirror uses a host-string allowlist, not `SafeUrlFetcher` IP-resolution
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:196-227 (`mirrorOne`), 229-286 (`mirrorVideo`), 288-302 (`isAllowedHost`)
     - **Affects:** The Instagram auto-connect pipeline — media fetched from a scraper-supplied CDN URL and `Storage::put()` to R2. Risk class: SSRF (the exact area that was previously a CRITICAL SSRF in the old `InstagramController::mirror()`).
     - **Effort:** S (~0.5–1h)
