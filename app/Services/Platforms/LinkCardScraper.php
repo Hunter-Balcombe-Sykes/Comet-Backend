@@ -82,17 +82,18 @@ class LinkCardScraper
      */
     public function snapshotOrMinimal(string $url): array
     {
-        return $this->snapshot($url) ?? $this->minimal($url);
+        return $this->snapshot($url) ?? $this->minimalCard($url);
     }
 
     /**
      * A best-effort card from the URL alone — the host as the name and a
      * conventional /favicon.ico guess (the dashboard shows a placeholder if it
-     * doesn't load).
+     * doesn't load). Public so the async connect flow can call it directly to
+     * return an immediate placeholder card before the snapshot job runs.
      *
      * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
      */
-    private function minimal(string $url): array
+    public function minimalCard(string $url): array
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $domain = (string) preg_replace('~^www\.~', '', $host);
