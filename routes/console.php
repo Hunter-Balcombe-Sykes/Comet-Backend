@@ -266,6 +266,8 @@ Schedule::command('moderation:sla-scan')
 // whose Uber Eats / DoorDash scrape came back 'unavailable' (flaky bot-block),
 // bounded to a recent window so a dead store isn't retried forever. Every 15 min
 // gives a transient block several chances to clear within the window.
+// SCALE-4: budget-paced (stops when ApifyBudget::remaining('menu') = 0) and
+// staggered (6s/job) to avoid bursting the Apify queue; default limit is 50.
 Schedule::command('menu:retry-unavailable')
     ->everyFifteenMinutes()
     ->onOneServer()

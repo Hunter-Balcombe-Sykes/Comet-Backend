@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
+use App\Services\Cache\ApifyBudget;
 use Illuminate\Console\Command;
 
 // Self-heal transient menu scrapes. The Uber Eats / DoorDash Apify actors are
@@ -14,16 +15,21 @@ use Illuminate\Console\Command;
 // window so a genuinely dead store isn't retried forever. Once the platform
 // scrapes 'ok' the row drops out of the selection; after the window it ages out
 // (a manual "Refresh menu" still works thereafter). Scheduled every 15 min.
+//
+// SCALE-4: jobs are budget-paced (stops when ApifyBudget::remaining('menu') hits
+// 0) and staggered across the scraping queue to avoid a burst hitting Apify all
+// at once. Default limit reduced 200→50 to match realistic per-run headroom.
 class RetryUnavailableMenusCommand extends Command
 {
-    protected $signature = 'menu:retry-unavailable {--limit=200 : Max menus to retry this run} {--hours=6 : Only retry menus fetched within this many hours}';
+    protected $signature = 'menu:retry-unavailable {--limit=50 : Max menus to retry this run} {--hours=6 : Only retry menus fetched within this many hours} {--stagger-seconds=6 : Delay spacing between dispatches}';
 
     protected $description = 'Re-scrape menus whose Uber Eats / DoorDash scrape came back unavailable (transient bot-block recovery).';
 
-    public function handle(): int
+    public function handle(ApifyBudget $budget): int
     {
         $limit = (int) $this->option('limit');
         $hours = (int) $this->option('hours');
+        $stagger = (int) $this->option('stagger-seconds');
         $since = now()->subHours($hours);
 
         $menus = Menu::query()
@@ -36,11 +42,22 @@ class RetryUnavailableMenusCommand extends Command
             ->limit($limit)
             ->get();
 
-        foreach ($menus as $menu) {
-            MenuFetchJob::dispatch((string) $menu->user_id, true);
+        $dispatched = 0;
+        foreach ($menus as $i => $menu) {
+            // SCALE-4: stop as soon as the shared menu budget is spent — don't
+            // enqueue jobs that would only no-op at the scraper's budget gate.
+            if ($budget->remaining('menu') <= 0) {
+                break;
+            }
+
+            // Stagger so a full run doesn't hit the scraping queue / Apify all at
+            // once — spread across the window instead of a single burst.
+            MenuFetchJob::dispatch((string) $menu->user_id, true)
+                ->delay(now()->addSeconds($i * $stagger));
+            $dispatched++;
         }
 
-        $this->info("Menu retries dispatched: {$menus->count()} (connected platform unavailable, fetched within {$hours}h).");
+        $this->info("Menu retries dispatched: {$dispatched} of {$menus->count()} candidate(s) (budget-paced).");
 
         return self::SUCCESS;
     }
