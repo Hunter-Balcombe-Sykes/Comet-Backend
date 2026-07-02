@@ -2,13 +2,10 @@
 
 namespace App\Services\Site;
 
-use App\Models\Core\HandleChangeLog;
 use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\User\User;
+use App\Services\Site\RenameSubdomainAction;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -17,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 // vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
+    public function __construct(private readonly RenameSubdomainAction $renameSubdomain) {}
+
     /**
      * Updates the given professional's site.
      *
@@ -36,7 +35,6 @@ class UpdateSiteAction
 
         $allowForcePublish = (bool) ($options['allow_force_publish'] ?? false);
         $forcePublish = (bool) ($data['force_publish'] ?? false);
-        $allowSubdomainOverride = (bool) ($options['allow_subdomain_override'] ?? false);
 
         // IMPORTANT: never pass non-column fields into fill()
         unset($data['force_publish']);
@@ -102,143 +100,10 @@ class UpdateSiteAction
             }
         }
 
-        return DB::connection('pgsql')->transaction(function () use ($professional, $site, $data, $options, $allowSubdomainOverride): Site {
+        return DB::connection('pgsql')->transaction(function () use ($professional, $site, $data, $options): Site {
             if (array_key_exists('subdomain', $data)) {
-                $incoming = strtolower($data['subdomain']);
-                $current = strtolower((string) $site->subdomain);
-
-                if ($incoming === $current) {
-                    unset($data['subdomain']);
-                } else {
-                    // LIFE-5: re-read subdomain_changed_at under a row lock INSIDE the tx. Reading the
-                    // pre-transaction snapshot let two concurrent renames both pass the 30-day cooldown;
-                    // the FOR UPDATE makes the second rename block until the first commits, then see the
-                    // updated timestamp. (lockForUpdate is a no-op on SQLite — fine for the test suite.)
-                    $lockedChangedAt = DB::table('site.sites')
-                        ->where('id', $site->id)
-                        ->lockForUpdate()
-                        ->value('subdomain_changed_at');
-                    $site->subdomain_changed_at = $lockedChangedAt !== null ? Carbon::parse($lockedChangedAt) : null;
-
-                    if (! $allowSubdomainOverride && $site->subdomain_changed_at) {
-                        // Days between allowed subdomain changes; mirrored in UserSelfController::show.
-                        $cooldownDays = (int) config('partna.handle.subdomain_cooldown_days', 30);
-                        $nextAllowed = $site->subdomain_changed_at->copy()->addDays($cooldownDays);
-
-                        if (Carbon::now()->lt($nextAllowed)) {
-                            throw ValidationException::withMessages([
-                                'subdomain' => ['You can change your subdomain again on '.$nextAllowed->toDateString().'.'],
-                            ]);
-                        }
-                    }
-
-                    $conflictInSites = DB::table('site.sites')
-                        ->whereRaw('lower(subdomain) = ?', [$incoming])
-                        ->where('id', '!=', $site->id)
-                        ->exists();
-
-                    if ($conflictInSites) {
-                        throw ValidationException::withMessages([
-                            'subdomain' => ['This subdomain is already taken.'],
-                        ]);
-                    }
-
-                    // Exclude the current site's own aliases — renaming back to a
-                    // previously held subdomain is allowed (the alias will be collapsed below).
-                    // Only ACTIVE aliases block: an expired-but-unpruned alias has released
-                    // the subdomain back to the pool, so it must not lock anyone out.
-                    $conflictInAliases = DB::table('site.site_subdomain_aliases')
-                        ->whereRaw('lower(subdomain) = ?', [$incoming])
-                        ->where('site_id', '!=', $site->id)
-                        ->where(function ($q) {
-                            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                        })
-                        ->exists();
-
-                    if ($conflictInAliases) {
-                        throw ValidationException::withMessages([
-                            'subdomain' => ['This subdomain is already taken.'],
-                        ]);
-                    }
-
-                    $reclaimDays = (int) config('partna.handle.reclaim_days', 14);
-                    $redirectDays = (int) config('partna.handle.redirect_days', 90);
-
-                    if (! empty($site->subdomain)) {
-                        try {
-                            SiteSubdomainAlias::query()->create([
-                                'site_id' => $site->id,
-                                'subdomain' => $site->subdomain,
-                                'reclaim_until' => now()->addDays($reclaimDays),
-                                'expires_at' => now()->addDays($redirectDays),
-                                'created_at' => now(),
-                            ]);
-                        } catch (UniqueConstraintViolationException $e) {
-                            // Alias row already exists — refresh lifecycle timestamps in case
-                            // it was stale (e.g. a previous alias that expired and wasn't pruned yet).
-                            // LIFE-1: typed catch handles only 23505 by construction — no SQLSTATE
-                            // string-compare (Postgres-specific; getCode() is '23000' under SQLite).
-                            SiteSubdomainAlias::query()
-                                ->where('site_id', $site->id)
-                                ->whereRaw('lower(subdomain) = ?', [strtolower((string) $site->subdomain)])
-                                ->update([
-                                    'reclaim_until' => now()->addDays($reclaimDays),
-                                    'expires_at' => now()->addDays($redirectDays),
-                                ]);
-                        }
-                    }
-
-                    // Keep the canonical handle on the professional in sync with the subdomain.
-                    // HydrogenAffiliateController + public site resolver both look up by handle_lc,
-                    // so a desync means the affiliate URL breaks immediately after a rename.
-                    // The DB trigger (trg_professional_handle_change) records the old handle into
-                    // user_handle_aliases automatically on this save. We also write it
-                    // from PHP (belt-and-suspenders) so tests without the trigger stay green.
-                    $oldHandle = $professional->handle;
-                    if (! empty($oldHandle) && strtolower($oldHandle) !== $incoming) {
-                        try {
-                            UserHandleAlias::query()->create([
-                                'user_id' => $professional->id,
-                                'handle' => $oldHandle,
-                                'reclaim_until' => now()->addDays($reclaimDays),
-                                'expires_at' => now()->addDays($redirectDays),
-                                'created_at' => now(),
-                                'updated_at' => now(),
-                            ]);
-                        } catch (UniqueConstraintViolationException $e) {
-                            // Old handle is already aliased for this user — nothing to do.
-                        }
-
-                        $professional->forceFill([
-                            'handle' => $incoming,
-                            'handle_lc' => $incoming,
-                        ])->save();
-                    }
-
-                    // Collapse: if the user is renaming back to a subdomain they hold as an
-                    // alias, drop that alias — they own it again, nothing to redirect from it.
-                    SiteSubdomainAlias::query()
-                        ->where('site_id', $site->id)
-                        ->whereRaw('lower(subdomain) = ?', [$incoming])
-                        ->delete();
-
-                    // Audit log — record who changed what and from where. $current holds
-                    // the old subdomain; $incoming is the new one. actor_id falls back to
-                    // the professional themselves (self-serve rename).
-                    HandleChangeLog::create([
-                        'user_id' => (string) $professional->id,
-                        'old_handle' => $current,
-                        'new_handle' => $incoming,
-                        'reason' => (string) ($options['reason'] ?? HandleChangeLog::REASON_RENAME),
-                        'actor_id' => (string) ($options['actor_id'] ?? $professional->id),
-                        'ip_address' => $options['ip'] ?? null,
-                        'user_agent' => $options['user_agent'] ?? null,
-                        'changed_at' => now(),
-                    ]);
-
-                    $data['subdomain'] = $incoming;
-                    $site->subdomain_changed_at = now();
-                }
+                $this->renameSubdomain->execute($site, $data['subdomain'], $professional, $options);
+                unset($data['subdomain']); // staged onto $site by the rename action
             }
 
             // Future: staff-only overrides could go here (options['allow_force_publish'] etc.)
