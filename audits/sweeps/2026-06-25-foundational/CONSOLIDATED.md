@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
 - P2 Medium: 15 of 15 complete
-- P3 Low: 8 of 11 complete
+- P3 Low: 9 of 11 complete
 
 ---
 
@@ -801,7 +801,7 @@
         ```
     - **Resolution (2026-07-02) — already fixed by prior work; no code change:** PlatformRefresher was completely rewritten in the Platform Registry Redesign (Plan 6, 2026-06-29). All `*Payload` private methods were deleted; per-platform refresh logic now lives in strategy classes called via `$descriptor->refreshStrategy()->run($connection)`. The "spread existing + overwrite fresh" merge is handled inside each strategy, co-located with the fetch logic.
 
-- [ ] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
+- [x] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`groupKitColumns` — `$twoTokenPrefixes`, `$singleTokenPrefixes`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Move both prefix maps to `config/partna.php` (e.g. `design_kit_column_groups`). `groupKitColumns` reads from config — new columns added by migration are automatically projected to the wire format by registering their prefix in config at the same time.
