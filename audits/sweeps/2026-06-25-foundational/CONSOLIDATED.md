@@ -72,8 +72,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 9 of 15 complete
-- P3 Low: 1 of 11 complete
+- P2 Medium: 11 of 15 complete
+- P3 Low: 2 of 11 complete
 
 ---
 
@@ -343,7 +343,7 @@
         ];
         ```
 
-- [ ] **#FOUND-9** · P2 — `PlatformRefresher` has a 15-arm match statement plus a parallel `REFRESHABLE` constant; adding a refreshable platform requires 3 edits in one file
+- [x] **#FOUND-9** · P2 — `PlatformRefresher` has a 15-arm match statement plus a parallel `REFRESHABLE` constant; adding a refreshable platform requires 3 edits in one file
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`REFRESHABLE` lines 24–28, `match` lines 53–69, and one new `*Payload` private method per platform)
     - **Affects:** Every new auto-refresh platform; the `REFRESHABLE` constant duplicates the match set
     - **Effort:** M (~2–4h)
@@ -372,6 +372,7 @@
             default            => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** PlatformRefresher was completely rewritten in the Platform Registry Redesign (Plan 6, commit `0acb58d0` 2026-06-29). It now delegates to `$descriptor->refreshStrategy()` via the injected `PlatformRegistry`. No match statement, no `REFRESHABLE` constant. `PlatformRegistry::refreshable()` serves as the authoritative refreshable-platform list. `RegistryCoverageTest` guards the invariant.
 
 - [x] **#FOUND-10** · P2 — `SectionVisibilityService` has 3 separate match arms + a boolean-flag block per section type; adding a new section requires 4 coordinated edits in one file
     - **Where:** `app/Services/User/SectionVisibilityService.php` (`checkVisibilityRequirements` match, `loadVisibilityContext` boolean-flags block, `resolveFromContext` match, plus a private `check*Requirements` method)
@@ -561,7 +562,7 @@
         'settings.manual_booking_url'        => ['sometimes', 'nullable', 'url', 'max:2048'],
         ```
 
-- [ ] **#FOUND-17** · P2 — `SmartLinkTypeRegistry` has two match arms for the same platform set, and `SmartLinkValidator` has a third; adding a content platform requires 3 separate edits that will drift
+- [x] **#FOUND-17** · P2 — `SmartLinkTypeRegistry` has two match arms for the same platform set, and `SmartLinkValidator` has a third; adding a content platform requires 3 separate edits that will drift
     - **Where:** `app/Services/SmartLinks/SmartLinkTypeRegistry.php` (`CONTENT_PLATFORMS` line 21, `resolveType()` match lines 41–51, `extractorChain()` match lines 62–70); `app/Services/SmartLinks/SmartLinkValidator.php` (third match ~lines 30–59)
     - **Affects:** Any new content platform (SoundCloud being already wired into `PlatformRefresher` but not `CONTENT_PLATFORMS`); drift between the three dispatch tables is already possible
     - **Effort:** M (~2–4h)
@@ -596,6 +597,7 @@
             default => [],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** The entire SmartLinks feature was deleted (commit `2f3bd47e` 2026-06-30). `app/Services/SmartLinks/` no longer exists — no `SmartLinkTypeRegistry.php`, no `SmartLinkValidator.php`, no SmartLink references in the codebase. The triple-dispatch problem is moot.
 
 - [x] **#FOUND-18** · P2 — `IntegrationConnection` payload carries a hidden async state machine (`apifyStatus`, `placeId`) that code reads to drive cross-job coordination
     - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php` (payload writes lines 149–156, `connection()` filter on `placeId` lines 185–188); Google Business enrichment flow
@@ -820,7 +822,7 @@
         ];
         ```
 
-- [ ] **#FOUND-28** · P3 — SmartLink type-to-wire-fields mapping is a `match()` in the payload builder; adding a new type requires this file AND the registry (FOUND-17)
+- [x] **#FOUND-28** · P3 — SmartLink type-to-wire-fields mapping is a `match()` in the payload builder; adding a new type requires this file AND the registry (FOUND-17)
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`shapeSmartLink` — match on `$l->type`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Move the type-to-metadata-fields map to `config/partna.php` (`smart_link_type_fields`). `shapeSmartLink` iterates the config entry for the link's type rather than a match arm. Combine with FOUND-17's registry so the field shape is co-located with the extractor chain.
@@ -839,6 +841,7 @@
             default                   => $base + ['artist' => $meta['artist'] ?? null, 'album' => $meta['album'] ?? null],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** SmartLinks were deleted entirely (same commit as FOUND-17: `2f3bd47e` 2026-06-30). `IndividualProfilePayloadBuilder` no longer has a `shapeSmartLink` method or any SmartLink handling.
 
 - [ ] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
     - **Where:** `app/Services/User/UpdateSiteAction.php` (inline subdomain rename block after `if (array_key_exists('subdomain', $data))`)
