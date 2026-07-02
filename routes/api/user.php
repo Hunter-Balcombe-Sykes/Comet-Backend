@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
+use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
 use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
@@ -82,6 +83,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
 
         // View Site Details
         Route::get('/site', [UserSiteController::class, 'show']);
+        // Live availability check for the URL-change flow — same code path as
+        // the PATCH /site subdomain validation. Dedicated limiter (typing-speed
+        // debounced client-side, but still per-user capped).
+        Route::get('/site/subdomain-availability', SubdomainAvailabilityController::class)
+            ->middleware('throttle:subdomain-availability')
+            ->name('professional.site.subdomain-availability');
         Route::get('/site/workplace', [UserWorkplaceController::class, 'show']);
         Route::get('/site/workplace/previous-website', [UserWorkplaceController::class, 'showPreviousWebsite']);
 

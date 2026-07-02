@@ -9,15 +9,18 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
+use App\Services\Design\WebsiteStyleAnalyzer;
 use Illuminate\Console\Command;
 
-// One-shot backfill for data that predates the website brand-signal factors:
-// queues previous-website analyses (workplaces with a URL but no matching
-// analysis) and outside-website analyses (users with custom links / shop
-// brands). New writes self-trigger via the observers; this covers history.
+// Backfill/re-sweep for stored brand-signal analyses: queues previous-website
+// analyses (URL/version/success mismatch) and outside-website analyses (users
+// with custom links / shop brands). New writes self-trigger via the observers;
+// this covers history and analyzer VERSION bumps. --retry-failures also strips
+// failed connection analyses (e.g. scans stored while the scanner was
+// unconfigured) so they re-run.
 class BackfillWebsiteAnalysesCommand extends Command
 {
-    protected $signature = 'design:backfill-website-analyses {--user= : Limit to one user by handle}';
+    protected $signature = 'design:backfill-website-analyses {--user= : Limit to one user by handle} {--retry-failures : Also re-run connection analyses that previously failed}';
 
     protected $description = 'Queue brand-signal analyses for pre-existing previous-website URLs and outside-connected websites';
 
@@ -47,7 +50,11 @@ class BackfillWebsiteAnalysesCommand extends Command
                 foreach ($workplaces as $workplace) {
                     $url = trim((string) $workplace->previous_website);
                     $analysis = $workplace->previous_website_analysis;
-                    if ($url !== '' && (! is_array($analysis) || ($analysis['url'] ?? null) !== $url)) {
+                    $stale = ! is_array($analysis)
+                        || ($analysis['url'] ?? null) !== $url
+                        || ($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION
+                        || ($analysis['ok'] ?? false) !== true;
+                    if ($url !== '' && $stale) {
                         AnalyzePreviousWebsiteJob::dispatch((string) $workplace->site_id);
                         $previous++;
                     }
@@ -55,12 +62,38 @@ class BackfillWebsiteAnalysesCommand extends Command
             });
 
         // Outside websites: one coalescing job per user with any source connection.
-        $outsideUserIds = IntegrationConnection::query()
+        $connections = IntegrationConnection::query()
             ->active()
             ->whereIn('platform', OutsideWebsitesFactor::SOURCE_PLATFORMS)
             ->when($userIds, fn ($q) => $q->whereIn('user_id', $userIds))
-            ->distinct()
-            ->pluck('user_id');
+            ->get();
+
+        // A current-version FAILED analysis converges (needs-analysis is false),
+        // so it never retries organically. On demand, strip such entries —
+        // quietly, so the observer doesn't double-dispatch; the explicit job
+        // below re-analyzes.
+        if ($this->option('retry-failures')) {
+            foreach ($connections as $connection) {
+                $payload = is_array($connection->payload) ? $connection->payload : [];
+                $changed = false;
+                if ($connection->platform === 'custom') {
+                    if ($this->stripFailedAnalysis($payload)) {
+                        $changed = true;
+                    }
+                } else {
+                    foreach ($payload as $key => $brand) {
+                        if (is_array($brand) && $this->stripFailedAnalysis($payload[$key])) {
+                            $changed = true;
+                        }
+                    }
+                }
+                if ($changed) {
+                    IntegrationConnection::withoutEvents(fn () => $connection->update(['payload' => $payload]));
+                }
+            }
+        }
+
+        $outsideUserIds = $connections->pluck('user_id')->unique()->values();
         foreach ($outsideUserIds as $userId) {
             AnalyzeConnectionWebsitesJob::dispatch((string) $userId);
         }
@@ -68,5 +101,20 @@ class BackfillWebsiteAnalysesCommand extends Command
         $this->info("Queued {$previous} previous-website analyses and {$outsideUserIds->count()} outside-website jobs.");
 
         return self::SUCCESS;
+    }
+
+    /** @param array<string, mixed> $entry Unsets a current-version failed styleAnalysis; true when changed. */
+    private function stripFailedAnalysis(array &$entry): bool
+    {
+        $analysis = $entry['styleAnalysis'] ?? null;
+        if (is_array($analysis)
+            && ($analysis['v'] ?? null) === WebsiteStyleAnalyzer::VERSION
+            && ($analysis['ok'] ?? false) !== true) {
+            unset($entry['styleAnalysis']);
+
+            return true;
+        }
+
+        return false;
     }
 }

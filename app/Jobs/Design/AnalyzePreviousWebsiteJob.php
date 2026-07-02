@@ -60,10 +60,16 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Reconciliation idempotence: an analysis for this exact URL already
-        // exists (success OR recorded failure) — nothing to do.
+        // Reconciliation idempotence: a SUCCESSFUL current-version analysis for
+        // this exact URL exists — nothing to do. Failed docs are retried when
+        // the job is explicitly dispatched (backfill) — loop-safe because the
+        // observer's in-sync check treats a failed current doc as in-sync and
+        // never re-dispatches it on saves.
         $current = $workplace->previous_website_analysis;
-        if (is_array($current) && ($current['url'] ?? null) === $url) {
+        if (is_array($current)
+            && ($current['url'] ?? null) === $url
+            && ($current['v'] ?? null) === WebsiteStyleAnalyzer::VERSION
+            && ($current['ok'] ?? false) === true) {
             return;
         }
 
@@ -74,17 +80,27 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
         Log::info('AnalyzePreviousWebsiteJob: analyzed.', [
             'site_id' => $this->siteId,
             'ok' => $analysis['ok'],
-            'accent' => $analysis['accent'] ?? null,
-            'tiers' => array_filter($analysis['tiers'] ?? []),
+            'mode' => $analysis['mode'] ?? null,
+            'failure' => $analysis['failure'] ?? null,
+            'accent' => $analysis['accent']['hex'] ?? null,
+            'signals' => array_map(fn (array $s) => $s['tier'], $analysis['signals'] ?? []),
         ]);
 
-        // Logo auto-grab — fills EMPTY slots only; never blocks the styling path.
+        // Logo auto-grab — fills EMPTY slots only; never blocks the styling
+        // path. Decisions are merged back onto the stored analysis so every
+        // grab (or rejection) is auditable. The extra save is loop-safe: the
+        // observer's in-sync check (url + version match) short-circuits.
         if ($analysis['ok']) {
             try {
                 $site = Site::query()->find($this->siteId);
                 $pro = $site?->user_id ? User::query()->find($site->user_id) : null;
                 if ($site !== null && $pro !== null) {
-                    $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logoCandidates'] ?? []));
+                    $decisions = $grabber->grabIfEmpty($pro, $site, (array) ($analysis['logo']['candidates'] ?? []));
+                    if ($decisions !== []) {
+                        $analysis['logo']['grab'] = $decisions;
+                        $workplace->previous_website_analysis = $analysis;
+                        $workplace->save();
+                    }
                 }
             } catch (Throwable $e) {
                 report($e);

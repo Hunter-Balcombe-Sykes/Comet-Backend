@@ -2,18 +2,14 @@
 
 namespace App\Rules;
 
-use App\Models\Core\Site\Site;
+use App\Services\Site\SubdomainAvailabilityService;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 // Validates subdomain uniqueness for both user-facing and staff site update
-// requests. Accepts the current site ID (to exclude self from the uniqueness
-// check) and the professional model (to exclude their own handle aliases).
-// Enforces 4 checks: reserved words, case-insensitive uniqueness on site.sites,
-// active subdomain alias, and active handle alias.
+// requests. Delegates to SubdomainAvailabilityService — the single source of
+// truth shared with the live availability endpoint — so the save path and the
+// real-time typing check can never disagree.
 class SubdomainValidationRule implements ValidationRule
 {
     public function __construct(
@@ -23,68 +19,20 @@ class SubdomainValidationRule implements ValidationRule
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        // Check reserved words
-        $reserved = array_map('strtolower', config('partna.reserved_subdomains', []));
-        if (in_array(strtolower($value), $reserved, true)) {
-            $fail('The subdomain "'.$value.'" is reserved and cannot be used.');
+        $check = app(SubdomainAvailabilityService::class)->check(
+            (string) $value,
+            $this->currentSiteId,
+            $this->professional?->id,
+        );
 
+        if ($check['available']) {
             return;
         }
 
-        // Check case-insensitive uniqueness
-        $exists = Site::whereRaw('lower(subdomain) = ?', [strtolower($value)])
-            ->when($this->currentSiteId, function ($query) {
-                $query->where('id', '!=', $this->currentSiteId);
-            })
-            ->exists();
-
-        if ($exists) {
-            $fail('This subdomain is already taken.');
-
-            return;
-        }
-
-        // Only ACTIVE aliases reserve a subdomain — an expired alias has
-        // released the name back to the pool and must not block a new claim.
-        $aliasExists = DB::table('site.site_subdomain_aliases')
-            ->whereRaw('lower(subdomain) = ?', [strtolower($value)])
-            ->where(function ($q) {
-                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->exists();
-
-        if ($aliasExists) {
-            $fail('This subdomain is already taken.');
-
-            return;
-        }
-
-        // Also block handles claimed by another professional's old handle alias.
-        // These are preserved for redirect/SEO purposes and must not be re-used.
-        // (Active aliases only — expired ones have lapsed back to the pool.)
-        $currentUserId = $this->professional?->id;
-
-        try {
-            $existsInUserAliases = DB::connection('pgsql')
-                ->table('core.user_handle_aliases')
-                ->whereRaw('LOWER(handle) = LOWER(?)', [$value])
-                ->where('user_id', '!=', $currentUserId)
-                ->where(function ($q) {
-                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                })
-                ->exists();
-        } catch (QueryException $e) {
-            report($e);
-            Log::warning('Professional alias check failed in SubdomainValidationRule', [
-                'error' => $e->getMessage(),
-                'professional_id' => $this->professional?->id,
-                'operation' => 'subdomain_alias_check',
-            ]);
-            $existsInUserAliases = false;
-        }
-
-        if ($existsInUserAliases) {
-            $fail('This subdomain is already taken.');
-        }
+        match ($check['reason']) {
+            SubdomainAvailabilityService::REASON_INVALID => null,
+            SubdomainAvailabilityService::REASON_RESERVED => $fail('The subdomain "'.$value.'" is reserved and cannot be used.'),
+            default => $fail('This subdomain is already taken.'),
+        };
     }
 }

@@ -4,6 +4,7 @@ namespace App\Observers\Core;
 
 use App\Jobs\Design\AnalyzePreviousWebsiteJob;
 use App\Models\Core\Site\Workplace;
+use App\Services\Design\WebsiteStyleAnalyzer;
 use Illuminate\Support\Facades\Log;
 
 // Keeps the previous-website brand analysis in step with the stored URL via
@@ -34,9 +35,13 @@ class WorkplaceObserver
         $url = trim((string) $workplace->previous_website);
         $analysis = $workplace->previous_website_analysis;
         $analyzedUrl = is_array($analysis) ? ($analysis['url'] ?? null) : null;
+        $analyzedVersion = is_array($analysis) ? ($analysis['v'] ?? null) : null;
 
-        // In-sync states: no URL + no analysis, or analysis matches the URL.
-        if (($url === '' && $analysis === null) || ($url !== '' && $analyzedUrl === $url)) {
+        // In-sync states: no URL + no analysis, or a CURRENT-version analysis
+        // matching the URL. A version bump makes every stored analysis stale,
+        // so re-scans roll out organically (and via the backfill command).
+        if (($url === '' && $analysis === null)
+            || ($url !== '' && $analyzedUrl === $url && $analyzedVersion === WebsiteStyleAnalyzer::VERSION)) {
             return;
         }
 

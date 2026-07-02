@@ -5,7 +5,7 @@ namespace App\Http\Requests\Api\User\Site;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Models\Core\Site\Site;
-use App\Rules\SubdomainValidationRule;
+use App\Services\Site\SubdomainAvailabilityService;
 use Illuminate\Validation\Rule;
 
 // Validates site updates — settings (non-design only), subdomain uniqueness,
@@ -79,7 +79,30 @@ class UpdateSiteRequest extends BaseFormRequest
                 'min:3',
                 'max:63',
                 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/',
-                new SubdomainValidationRule($currentSiteId, $professional),
+                function ($attribute, $value, $fail) use ($currentSiteId, $professional) {
+                    // Single source of truth shared with the live availability
+                    // endpoint (SubdomainAvailabilityService) — the check while
+                    // typing and the check on save can never disagree.
+                    $check = app(SubdomainAvailabilityService::class)->check(
+                        (string) $value,
+                        $currentSiteId,
+                        $professional?->id,
+                    );
+
+                    if ($check['available']) {
+                        return;
+                    }
+
+                    match ($check['reason']) {
+                        // Length/format already fail via the min/max/regex rules above.
+                        SubdomainAvailabilityService::REASON_INVALID => null,
+                        SubdomainAvailabilityService::REASON_RESERVED => $fail('The subdomain "'.$value.'" is reserved and cannot be used.'),
+                        // held / taken / own-alias variants all keep the original
+                        // user-facing message. (own_current can't occur here — no
+                        // currentSubdomain is passed on the write path.)
+                        default => $fail('This subdomain is already taken.'),
+                    };
+                },
             ],
 
             // Skeleton — one of skeleton-1..4. Replaces theme_id.

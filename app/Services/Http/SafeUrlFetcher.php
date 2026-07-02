@@ -197,6 +197,18 @@ class SafeUrlFetcher
         return $results;
     }
 
+    /**
+     * Public SSRF policy check without fetching — for callers that hand the
+     * URL to another system (e.g. the brand-scan Worker) but must still
+     * enforce our public-address policy first.
+     *
+     * @throws SafeUrlException
+     */
+    public function assertPublicUrl(string $url): void
+    {
+        $this->assertSafe($url);
+    }
+
     /** Resolve a (possibly relative) redirect Location against the current URL. */
     private function resolveRedirect(string $base, string $location): string
     {

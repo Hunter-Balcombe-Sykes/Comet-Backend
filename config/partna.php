@@ -1028,6 +1028,24 @@ return [
 
     /*
     |----------------------------------------------------------------------
+    | Brand scanner (website style analysis, self-hosted)
+    |----------------------------------------------------------------------
+    | WebsiteStyleAnalyzer v2 renders target sites in real Chrome via the
+    | partna-brand-scan Worker (Cloudflare Browser Run) with an injected
+    | evidence collector. Enabled defaults true but the client fails closed
+    | (analysis ok:false → design presets abstain) until URL + token are set,
+    | so this is safe to ship unconfigured. Timeout is the HTTP budget; the
+    | in-page navigation budget is capped separately by the client.
+    */
+    'brand_scan' => [
+        'enabled' => (bool) env('PARTNA_BRAND_SCAN_ENABLED', true),
+        'url' => env('PARTNA_BRAND_SCAN_URL', ''),
+        'token' => env('PARTNA_BRAND_SCAN_TOKEN', ''),
+        'timeout' => (int) env('PARTNA_BRAND_SCAN_TIMEOUT', 40),
+    ],
+
+    /*
+    |----------------------------------------------------------------------
     | Video uploads – feature flag + processing config
     |----------------------------------------------------------------------
     | Set PARTNA_VIDEO_UPLOADS_ENABLED=true only after dedicated video

@@ -27,6 +27,12 @@ class TokenRevocationService
 
     private const SESSION_META_PREFIX = 'auth:session-meta:';
 
+    private const SESSION_TOUCH_PREFIX = 'auth:session-touch:';
+
+    // Rolling last-activity resolution. One Redis SET NX per request in the
+    // common case; the meta hash is only written when the interval elapses.
+    private const TOUCH_INTERVAL_SECONDS = 600;
+
     // Refresh tokens last ~30 days in Supabase; outlast access tokens but not
     // refresh tokens, so a revoked session is invalidated for its full life.
     private const MAX_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
@@ -97,6 +103,31 @@ class TokenRevocationService
                 Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
             }
         }
+
+        // Rolling "last active" marker for the Active Sessions UI — separate
+        // from the write-once first-seen metadata above.
+        $this->touchLastSeen($sessionId);
+    }
+
+    /**
+     * Record a rolling last-activity timestamp for a session, at most once per
+     * TOUCH_INTERVAL_SECONDS. SET NX EX on a marker key is the throttle:
+     * winning the race (marker absent) writes the timestamp; losing skips.
+     */
+    private function touchLastSeen(string $sessionId): void
+    {
+        if ($sessionId === '') {
+            return;
+        }
+
+        $won = (bool) Redis::set(self::SESSION_TOUCH_PREFIX.$sessionId, '1', 'EX', self::TOUCH_INTERVAL_SECONDS, 'NX');
+        if (! $won) {
+            return;
+        }
+
+        $metaKey = self::SESSION_META_PREFIX.$sessionId;
+        Redis::hset($metaKey, 'last_seen_at', (string) time());
+        Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
     }
 
     /**
@@ -154,7 +185,7 @@ class TokenRevocationService
      * and legacy entries written before SEC-3 (raw ip / user_agent fields).
      * Sessions persist up to 30 days so legacy rows may exist in production.
      *
-     * @return list<array{session_id:string,created_at:int,ip_prefix:string,browser_family:string,platform:string}>
+     * @return list<array{session_id:string,created_at:int,last_seen_at:?int,ip_prefix:string,browser_family:string,platform:string}>
      */
     public function listSessionsForUser(string $userId): array
     {
@@ -188,6 +219,9 @@ class TokenRevocationService
             $sessions[] = [
                 'session_id' => $sid,
                 'created_at' => (int) ($meta['created_at'] ?? 0),
+                // Rolling activity marker. Null on rows written before the
+                // touch existed — the UI omits the "Active …" line for those.
+                'last_seen_at' => isset($meta['last_seen_at']) ? (int) $meta['last_seen_at'] : null,
                 'ip_prefix' => $ipPrefix,
                 'browser_family' => $browserFamily,
                 'platform' => $platform,

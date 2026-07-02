@@ -15,11 +15,14 @@ use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\Design\Presets\StyleTiers;
+use App\Services\Design\Scan\BrandScanClient;
+use App\Services\Design\Scan\EvidenceConclusions;
+use App\Services\Design\Scan\ScreenshotSampler;
 use App\Services\Design\WebsiteStyleAnalyzer;
-use App\Services\Http\MetadataParser;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\MediaUploadService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -29,14 +32,22 @@ beforeEach(function () {
     setupDesignKitsTable();
     setupDesignKitContributionsTable();
     setupWorkplacesTable();
+
+    config()->set('partna.brand_scan', [
+        'enabled' => true, 'url' => 'https://scan.test', 'token' => 'test-secret', 'timeout' => 5,
+    ]);
 });
 
-/** Fetcher stub: URL → canned response array (no network, no DNS). */
-function wbsFetcher(array $map): SafeUrlFetcher
+// ── Harness ────────────────────────────────────────────────────────────────
+
+/** Fetcher stub: URL → canned response array; SSRF check no-ops (no DNS in tests). */
+function wbsFetcher(array $map = []): SafeUrlFetcher
 {
     return new class($map) extends SafeUrlFetcher
     {
         public function __construct(private readonly array $map) {}
+
+        public function assertPublicUrl(string $url): void {}
 
         public function fetch(string $url, array $headers = []): array
         {
@@ -63,6 +74,52 @@ function wbsFetcher(array $map): SafeUrlFetcher
 function wbsResponse(string $body, string $url, string $type = 'text/html'): array
 {
     return ['status' => 200, 'body' => $body, 'finalUrl' => $url, 'contentType' => $type];
+}
+
+/** Production-wired analyzer with a stubbed (network-free) SSRF fetcher. */
+function wbsAnalyzer(): WebsiteStyleAnalyzer
+{
+    return new WebsiteStyleAnalyzer(new BrandScanClient, new ScreenshotSampler, new EvidenceConclusions, wbsFetcher());
+}
+
+/** Collector evidence with sane light-page defaults; top-level keys REPLACE. */
+function wbsEvidence(array $overrides = []): array
+{
+    return array_merge([
+        'v' => 1,
+        'ok' => true,
+        'url' => 'https://example.test/',
+        'page' => [
+            'bodyBg' => 'rgb(255, 255, 255)', 'bodyBgImage' => false, 'deepBg' => null, 'mainBg' => null,
+            'bodyColor' => 'rgb(20, 20, 20)', 'bodyFont' => 'Poppins, sans-serif',
+            'bodyFontSize' => 17, 'bodyFontWeight' => '300',
+        ],
+        'header' => null,
+        'copy' => array_fill(0, 3, ['size' => 17, 'weight' => '300', 'family' => 'Poppins, sans-serif', 'color' => 'rgb(20,20,20)']),
+        'headings' => [],
+        'buttons' => array_fill(0, 3, ['bg' => 'rgba(0, 0, 0, 0)', 'color' => 'rgb(20,20,20)', 'radius' => 14, 'height' => 44, 'transition' => 150, 'cls' => 'btn']),
+        'links' => [],
+        'sections' => [],
+        'rootVars' => [],
+        'meta' => ['themeColor' => null, 'manifest' => null, 'icons' => [], 'ogImage' => null, 'twitterImage' => null],
+        'logos' => [],
+        'errors' => [],
+    ], $overrides);
+}
+
+/** Fake the brand-scan Worker: stash the evidence into snapshot content. */
+function wbsFakeWorker(?array $evidence, ?string $png = null): void
+{
+    $content = $evidence === null
+        ? '<html><body>no collector</body></html>'
+        : '<html data-partna-scan="'.htmlspecialchars(json_encode($evidence), ENT_QUOTES).'"><body></body></html>';
+
+    Http::fake([
+        'scan.test/*' => Http::response([
+            'success' => true,
+            'result' => ['content' => $content, 'screenshot' => $png === null ? '' : base64_encode($png)],
+        ]),
+    ]);
 }
 
 /** Resolver wired exactly like production (both factor lists). */
@@ -98,89 +155,152 @@ function wbsSeedWorkplace(string $siteId, ?string $url, ?array $analysis): void
     ]);
 }
 
-function wbsAnalysis(string $url, ?string $accent, array $tiers, bool $ok = true): array
+/** v2 analysis document; $tiers become confident signals. */
+function wbsAnalysis(string $url, ?string $accent, array $tiers, bool $ok = true, int $v = WebsiteStyleAnalyzer::VERSION): array
 {
+    $signals = [];
+    foreach ($tiers as $signal => $tier) {
+        $signals[$signal] = ['tier' => $tier, 'confidence' => 0.8, 'evidence' => ['seeded']];
+    }
+
     return [
-        'v' => 1, 'url' => $url, 'ok' => $ok,
+        'v' => $v, 'url' => $url, 'finalUrl' => $url, 'ok' => $ok, 'mode' => 'rendered', 'failure' => null,
         'analyzedAt' => now()->toIso8601String(),
-        'accent' => $accent, 'tiers' => $tiers, 'logoCandidates' => [],
+        'accent' => $accent === null ? null : ['hex' => $accent, 'confidence' => 0.9, 'evidence' => ['seeded']],
+        'signals' => $signals,
+        'logo' => ['candidates' => []],
+        'notes' => [],
     ];
 }
 
-// ── WebsiteStyleAnalyzer ───────────────────────────────────────────────────
+/** Minimal in-memory solid PNG (GD). */
+function wbsPngBytes(int $w, int $h, int $r = 200, int $g = 60, int $b = 30): string
+{
+    $img = imagecreatetruecolor($w, $h);
+    imagefill($img, 0, 0, imagecolorallocate($img, $r, $g, $b));
+    ob_start();
+    imagepng($img);
 
-it('analyzes a site: theme-color accent + tiers from inline and linked CSS', function () {
-    $html = <<<'HTML'
-    <html><head>
-      <meta name="theme-color" content="#e0491f">
-      <link rel="stylesheet" href="/app.css">
-      <style>body { background-color: #faf5ec; font-size: 17px; }</style>
-    </head><body></body></html>
-    HTML;
-    $css = <<<'CSS'
-    body { font-family: "Poppins", sans-serif; font-weight: 300; }
-    .card { border-radius: 16px; }
-    .btn { border-radius: 14px; transition: all 150ms ease; }
-    CSS;
+    return (string) ob_get_clean();
+}
 
-    $analyzer = new WebsiteStyleAnalyzer(wbsFetcher([
-        'https://example.test' => wbsResponse($html, 'https://example.test'),
-        'https://example.test/app.css' => wbsResponse($css, 'https://example.test/app.css', 'text/css'),
-    ]), new MetadataParser);
+// ── WebsiteStyleAnalyzer v2 (rendered evidence) ────────────────────────────
 
-    $a = $analyzer->analyze('https://example.test');
+it('concludes signals from rendered evidence with pixel corroboration', function () {
+    wbsFakeWorker(wbsEvidence(), wbsPngBytes(400, 400, 255, 255, 255));
+
+    $a = wbsAnalyzer()->analyze('https://example.test/');
 
     expect($a['ok'])->toBeTrue()
-        ->and($a['accent'])->toBe('#e0491f')
-        ->and($a['tiers']['bg'])->toBe('warm_light')
-        ->and($a['tiers']['font'])->toBe('forma-djr')
-        ->and($a['tiers']['weight'])->toBe('light')
-        ->and($a['tiers']['text'])->toBe('regular')
-        ->and($a['tiers']['radius'])->toBe('rounded')
-        ->and($a['tiers']['motion'])->toBe('fast');
+        ->and($a['v'])->toBe(2)
+        ->and($a['mode'])->toBe('rendered')
+        ->and($a['signals']['bg']['tier'])->toBe('light')
+        ->and($a['signals']['bg']['confidence'])->toBe(0.95)   // computed + pixels agree
+        ->and($a['signals']['font']['tier'])->toBe('forma-djr') // Poppins → warm sans
+        ->and($a['signals']['weight']['tier'])->toBe('light')
+        ->and($a['signals']['text']['tier'])->toBe('regular')
+        ->and($a['signals']['radius']['tier'])->toBe('rounded')
+        ->and($a['signals']['motion']['tier'])->toBe('fast')
+        ->and($a['accent'])->toBeNull(); // transparent buttons, no vars → monochrome
 });
 
-it('falls back to brand-named custom properties for accent when theme-color is absent', function () {
-    $html = '<html><head><style>:root { --brand-color: rgb(43, 108, 176); } body { background: #10141c; }</style></head><body></body></html>';
+it('brotherwolf regression: light bg, no accent, sharp radius, fast motion', function () {
+    // Real rendered evidence captured from brotherwolf.com.au — the site v1
+    // read as dark #151515 with a Shopify app widget's #4caf50 as "brand".
+    $evidence = json_decode((string) file_get_contents(base_path('tests/fixtures/design-scan/brotherwolf-evidence.json')), true);
+    wbsFakeWorker($evidence);
 
-    $analyzer = new WebsiteStyleAnalyzer(wbsFetcher([
-        'https://dark.test' => wbsResponse($html, 'https://dark.test'),
-    ]), new MetadataParser);
+    $a = wbsAnalyzer()->analyze('https://brotherwolf.com.au/');
 
-    $a = $analyzer->analyze('https://dark.test');
-
-    expect($a['accent'])->toBe('#2b6cb0')
-        ->and($a['tiers']['bg'])->toBe('dark');
+    expect($a['ok'])->toBeTrue()
+        ->and($a['signals']['bg']['tier'])->toBe('light')
+        ->and($a['signals']['bg']['tier'])->not->toBe('dark')
+        ->and($a['accent'])->toBeNull()
+        ->and($a['signals']['radius']['tier'])->toBe('sharp')
+        ->and($a['signals']['motion']['tier'])->toBe('fast')
+        ->and($a['signals']['font']['tier'])->toBe('helvetica-neue')
+        ->and(collect($a['logo']['candidates'])->pluck('kind'))->toContain('header-img');
 });
 
-it('returns ok:false when the page cannot be fetched', function () {
-    $analyzer = new WebsiteStyleAnalyzer(wbsFetcher([]), new MetadataParser);
+it('finds an accent via CTA quorum and rejects one indistinguishable from the background', function () {
+    // Http::fake stubs are first-match-wins, so one closure serves all three
+    // scenarios keyed by the scanned target URL.
+    $red = ['bg' => 'rgb(188, 23, 28)', 'color' => '#fff', 'radius' => 8, 'height' => 44, 'transition' => 150, 'cls' => 'cta'];
+    $byTarget = [
+        'https://quorum.test/' => wbsEvidence(['buttons' => array_fill(0, 4, $red)]),
+        'https://twosource.test/' => wbsEvidence([
+            'buttons' => array_fill(0, 2, $red),
+            'rootVars' => ['--color-accent' => 'rgb(188 23 28 / 1.0)'],
+        ]),
+        'https://bgmatch.test/' => wbsEvidence([
+            'page' => ['bodyBg' => 'rgb(224, 73, 31)', 'bodyBgImage' => false, 'bodyColor' => '#111', 'bodyFont' => 'Arial', 'bodyFontSize' => 16, 'bodyFontWeight' => '400'],
+            'buttons' => array_fill(0, 3, ['bg' => 'rgb(224, 73, 31)', 'color' => '#fff', 'radius' => 8, 'height' => 44, 'transition' => 150, 'cls' => 'cta']),
+        ]),
+    ];
+    Http::fake(function ($request) use ($byTarget) {
+        $evidence = $byTarget[(string) ($request->data()['url'] ?? '')] ?? wbsEvidence();
+        $content = '<html data-partna-scan="'.htmlspecialchars(json_encode($evidence), ENT_QUOTES).'"></html>';
 
-    $a = $analyzer->analyze('https://unreachable.test');
+        return Http::response(['success' => true, 'result' => ['content' => $content, 'screenshot' => '']]);
+    });
 
-    expect($a['ok'])->toBeFalse()->and($a['url'])->toBe('https://unreachable.test');
+    // Four agreeing saturated CTAs → single-source multi-vote confidence.
+    $a = wbsAnalyzer()->analyze('https://quorum.test/');
+    expect($a['accent']['hex'])->toBe('#bc171c')
+        ->and($a['accent']['confidence'])->toBe(0.7);
+
+    // Same color also declared as a brand var → two distinct sources → 0.9.
+    $a = wbsAnalyzer()->analyze('https://twosource.test/');
+    expect($a['accent']['confidence'])->toBe(0.9);
+
+    // A saturated "accent" equal to the page bg is a mis-read → null.
+    expect(wbsAnalyzer()->analyze('https://bgmatch.test/')['accent'])->toBeNull();
 });
 
-it('draws no bg conclusion from a neutral background and no accent from neutrals', function () {
-    $html = '<html><head><style>body { background: #f9f9f9; color: #333; }</style></head><body></body></html>';
+it('abstains on computed-vs-pixel background disagreement', function () {
+    // Evidence says white, screenshot is solid near-black → conf 0.25 → omitted.
+    wbsFakeWorker(wbsEvidence(), wbsPngBytes(400, 400, 12, 12, 12));
 
-    $analyzer = new WebsiteStyleAnalyzer(wbsFetcher([
-        'https://plain.test' => wbsResponse($html, 'https://plain.test'),
-    ]), new MetadataParser);
+    $a = wbsAnalyzer()->analyze('https://example.test/');
 
-    $a = $analyzer->analyze('https://plain.test');
-
-    expect($a['tiers']['bg'])->toBeNull()->and($a['accent'])->toBeNull();
+    expect($a['signals'])->not->toHaveKey('bg')
+        ->and($a['signals']['font']['tier'])->toBe('forma-djr'); // other signals unaffected
 });
 
-it('drops unknown tiers instead of emitting bad values', function () {
+it('degrades to pixels-only mode when the collector stash is missing (CSP)', function () {
+    wbsFakeWorker(null, wbsPngBytes(400, 400, 21, 21, 21));
+
+    $a = wbsAnalyzer()->analyze('https://csp.test/');
+
+    expect($a['ok'])->toBeTrue()
+        ->and($a['mode'])->toBe('pixels-only')
+        ->and($a['failure'])->toBe('csp')
+        ->and($a['signals']['bg']['tier'])->toBe('dark')
+        ->and($a['signals']['bg']['confidence'])->toBe(0.55)
+        ->and($a['signals'])->not->toHaveKey('font')
+        ->and($a['accent'])->toBeNull();
+});
+
+it('stores the failure kind when the worker errors, and when unconfigured', function () {
+    Http::fake(['scan.test/*' => Http::response('boom', 500)]);
+    $a = wbsAnalyzer()->analyze('https://down.test/');
+    expect($a['ok'])->toBeFalse()->and($a['failure'])->toBe('fetch')->and($a['signals'])->toBe([]);
+
+    config()->set('partna.brand_scan.url', '');
+    $a = wbsAnalyzer()->analyze('https://any.test/');
+    expect($a['ok'])->toBeFalse()->and($a['failure'])->toBe('disabled');
+});
+
+it('maps tiers to columns, drops unknown tiers, and knows the new light tier', function () {
     expect(StyleTiers::columnsFromTiers(['bg' => 'made-up', 'radius' => 'sharp', 'nonsense' => 'x']))
-        ->toBe(['border_radius' => '0.25rem']);
+        ->toBe(['border_radius' => '0.25rem'])
+        ->and(StyleTiers::columnsFromTiers(['bg' => 'light']))
+        ->toBe(['color_bg' => '#fafafa']);
 });
 
 // ── PreviousWebsiteFactor (priority 100) ───────────────────────────────────
 
-it('contributes raw accent + snapped tiers from a stored previous-website analysis, beating Google', function () {
+it('contributes raw accent + snapped tiers from a stored analysis, beating Google', function () {
     $user = createTenant('pw-wins');
     // Google restaurant would set color_bg #f7f4ee at priority 50…
     wbsSeedConnection($user, ['category' => 'Restaurant'], 'google-business');
@@ -196,6 +316,33 @@ it('contributes raw accent + snapped tiers from a stored previous-website analys
         ->and($layer['color_accent'])->toBe('#123abc') // raw accent passes through
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('forma-djr'); // Google still wins uncontested columns
+});
+
+it('ignores below-threshold signals and low-confidence accents', function () {
+    $user = createTenant('pw-lowconf');
+    $analysis = wbsAnalysis('https://old.example', null, ['bg' => 'dark', 'radius' => 'sharp']);
+    $analysis['signals']['bg']['confidence'] = 0.25;                       // disagreement-grade
+    $analysis['accent'] = ['hex' => '#4caf50', 'confidence' => 0.35, 'evidence' => ['theme-color']];
+    wbsSeedWorkplace($user->site->id, 'https://old.example', $analysis);
+
+    wbsResolver()->resolveForUser($user);
+    $layer = wbsResolver()->presetLayer($user->site->id);
+
+    expect($layer)->not->toHaveKey('color_bg')
+        ->and($layer)->not->toHaveKey('color_accent')
+        ->and($layer['border_radius'])->toBe('0.25rem');
+});
+
+it('contributes nothing from a v1 (pre-rebuild) analysis document', function () {
+    $user = createTenant('pw-v1doc');
+    wbsSeedWorkplace($user->site->id, 'https://old.example', [
+        'v' => 1, 'url' => 'https://old.example', 'ok' => true,
+        'accent' => '#4caf50', 'tiers' => ['bg' => 'dark'], 'logoCandidates' => [],
+    ]);
+
+    wbsResolver()->resolveForUser($user);
+
+    expect(wbsResolver()->presetLayer($user->site->id))->toBe([]);
 });
 
 it('contributes nothing when the stored analysis is stale (URL changed since)', function () {
@@ -280,7 +427,7 @@ it('loses every contested column to Instagram (30 beats 10)', function () {
     expect(wbsResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
 });
 
-it('ignores failed and missing analyses in the vote', function () {
+it('ignores failed, missing, and v1 analyses in the vote', function () {
     $user = createTenant('outside-failed');
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://ok.test',
@@ -290,6 +437,10 @@ it('ignores failed and missing analyses in the vote', function () {
         'kind' => 'link', 'url' => 'https://broken.test',
         'styleAnalysis' => wbsAnalysis('https://broken.test', null, [], ok: false),
     ], 'custom');
+    wbsSeedConnection($user, [
+        'kind' => 'link', 'url' => 'https://legacy.test',
+        'styleAnalysis' => wbsAnalysis('https://legacy.test', null, ['bg' => 'dark'], v: 1),
+    ], 'custom');
     wbsSeedConnection($user, ['kind' => 'link', 'url' => 'https://new.test'], 'custom');
 
     wbsResolver()->resolveForUser($user);
@@ -297,7 +448,7 @@ it('ignores failed and missing analyses in the vote', function () {
     expect(wbsResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f8fa');
 });
 
-// ── Observer wiring ────────────────────────────────────────────────────────
+// ── Observer + reconciliation wiring ───────────────────────────────────────
 
 it('dispatches the analyze job when a workplace URL and its analysis disagree', function () {
     Queue::fake();
@@ -308,7 +459,7 @@ it('dispatches the analyze job when a workplace URL and its analysis disagree', 
     Queue::assertPushed(AnalyzePreviousWebsiteJob::class, 1);
 });
 
-it('does not dispatch when the analysis already matches the URL', function () {
+it('does not dispatch when a current-version analysis matches the URL', function () {
     $user = createTenant('observer-quiet');
     Queue::fake();
 
@@ -319,6 +470,19 @@ it('does not dispatch when the analysis already matches the URL', function () {
     ]);
 
     Queue::assertNotPushed(AnalyzePreviousWebsiteJob::class);
+});
+
+it('re-dispatches when the stored analysis is from an older analyzer version', function () {
+    $user = createTenant('observer-version');
+    Queue::fake();
+
+    Workplace::query()->create([
+        'site_id' => $user->site->id,
+        'previous_website' => 'https://old.example',
+        'previous_website_analysis' => wbsAnalysis('https://old.example', null, [], v: 1),
+    ]);
+
+    Queue::assertPushed(AnalyzePreviousWebsiteJob::class, 1);
 });
 
 it('queues analyses + a resolve when an outside-website connection is created', function () {
@@ -342,34 +506,54 @@ it('fills missing styleAnalysis for custom links and shop brands, then converges
         'b1' => ['id' => 'b1', 'url' => 'https://store.test'],
     ], 'shop');
 
-    $analyzer = new WebsiteStyleAnalyzer(wbsFetcher([
-        'https://site1.test' => wbsResponse('<html><head><style>body{background:#111}</style></head></html>', 'https://site1.test'),
-        'https://store.test' => wbsResponse('<html><head><style>body{background:#f8f4ec}</style></head></html>', 'https://store.test'),
-    ]), new MetadataParser);
+    // Worker fake keyed on the scanned target inside the request body.
+    Http::fake(function ($request) {
+        $target = (string) ($request->data()['url'] ?? '');
+        $evidence = str_contains($target, 'site1')
+            ? wbsEvidence(['url' => $target, 'page' => ['bodyBg' => 'rgb(17,17,17)', 'bodyBgImage' => false, 'bodyColor' => '#eee', 'bodyFont' => 'Arial', 'bodyFontSize' => 16, 'bodyFontWeight' => '400']])
+            : wbsEvidence(['url' => $target, 'page' => ['bodyBg' => 'rgb(248, 244, 236)', 'bodyBgImage' => false, 'bodyColor' => '#111', 'bodyFont' => 'Arial', 'bodyFontSize' => 16, 'bodyFontWeight' => '400']]);
+        $content = '<html data-partna-scan="'.htmlspecialchars(json_encode($evidence), ENT_QUOTES).'"></html>';
 
-    (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
+        return Http::response(['success' => true, 'result' => ['content' => $content, 'screenshot' => '']]);
+    });
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle(wbsAnalyzer());
 
     $link = IntegrationConnection::query()->find($linkId);
     $shop = IntegrationConnection::query()->find($shopId);
-    expect($link->payload['styleAnalysis']['tiers']['bg'])->toBe('dark')
-        ->and($shop->payload['b1']['styleAnalysis']['tiers']['bg'])->toBe('warm_light')
+    expect($link->payload['styleAnalysis']['signals']['bg']['tier'])->toBe('dark')
+        ->and($shop->payload['b1']['styleAnalysis']['signals']['bg']['tier'])->toBe('warm_light')
         ->and(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($link->fresh()))->toBeFalse()
         ->and(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($shop->fresh()))->toBeFalse();
 });
 
-// ── AnalyzePreviousWebsiteJob + logo grab ──────────────────────────────────
+it('treats a v1 styleAnalysis as needing re-analysis', function () {
+    $user = createTenant('needs-v1');
+    $id = wbsSeedConnection($user, [
+        'kind' => 'link', 'url' => 'https://old.test',
+        'styleAnalysis' => wbsAnalysis('https://old.test', null, ['bg' => 'dark'], v: 1),
+    ], 'custom');
 
-it('stores the analysis and auto-populates the empty square logo slot from a qualifying favicon', function () {
+    expect(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses(IntegrationConnection::query()->find($id)))->toBeTrue();
+});
+
+// ── AnalyzePreviousWebsiteJob + logo grab v2 ───────────────────────────────
+
+it('stores the analysis, grabs the best square candidate, and records decisions', function () {
     Queue::fake();
     setupMediaTables();
     $user = createTenant('pw-job');
     wbsSeedWorkplace($user->site->id, 'https://old.example', null);
 
-    $png = wbsPngBytes(200, 200);
-    $html = '<html><head><link rel="apple-touch-icon" sizes="200x200" href="/icon.png"><style>body{background:#0e0e0e}</style></head></html>';
+    wbsFakeWorker(wbsEvidence([
+        'url' => 'https://old.example',
+        'meta' => ['themeColor' => null, 'manifest' => null, 'ogImage' => null, 'twitterImage' => null, 'icons' => [
+            ['rel' => 'apple-touch-icon', 'href' => 'https://old.example/icon.png', 'sizes' => '200x200', 'type' => 'image/png'],
+        ]],
+    ]));
+
     $fetcher = wbsFetcher([
-        'https://old.example' => wbsResponse($html, 'https://old.example'),
-        'https://old.example/icon.png' => wbsResponse($png, 'https://old.example/icon.png', 'image/png'),
+        'https://old.example/icon.png' => wbsResponse(wbsPngBytes(200, 200), 'https://old.example/icon.png', 'image/png'),
     ]);
 
     $uploads = Mockery::mock(MediaUploadService::class);
@@ -378,39 +562,83 @@ it('stores the analysis and auto-populates the empty square logo slot from a qua
     )->andReturn(new SiteMedia);
 
     (new AnalyzePreviousWebsiteJob($user->site->id))->handle(
-        new WebsiteStyleAnalyzer($fetcher, new MetadataParser),
+        new WebsiteStyleAnalyzer(new BrandScanClient, new ScreenshotSampler, new EvidenceConclusions, $fetcher),
         new LogoAutoGrabber($fetcher, $uploads),
     );
 
     $analysis = Workplace::query()->find($user->site->id)->previous_website_analysis;
-    expect($analysis['ok'])->toBeTrue()->and($analysis['tiers']['bg'])->toBe('dark');
+    $uploaded = collect($analysis['logo']['grab'])->first(fn ($d) => str_starts_with($d['outcome'], 'uploaded'));
+    expect($analysis['ok'])->toBeTrue()
+        ->and($analysis['v'])->toBe(2)
+        ->and($uploaded)->not->toBeNull()
+        ->and($uploaded['slot'])->toBe(SiteMedia::PURPOSE_LOGO_SQUARE);
     Queue::assertPushed(ResolveDesignPresetsJob::class);
 });
 
-it('rejects a small favicon and a social-card-ratio og:image', function () {
-    Queue::fake();
+it('prefers the rendered header logo over og:image for the full slot', function () {
     setupMediaTables();
-    $user = createTenant('logo-gates');
-    wbsSeedWorkplace($user->site->id, 'https://gate.example', null);
+    $user = createTenant('logo-rank');
 
-    $tiny = wbsPngBytes(32, 32);
-    $card = wbsPngBytes(1200, 630); // 1.90 ratio, no alpha → share card, not a logo
-    $html = '<html><head><link rel="icon" sizes="32x32" href="/f.png"><meta property="og:image" content="/og.png"></head></html>';
     $fetcher = wbsFetcher([
-        'https://gate.example' => wbsResponse($html, 'https://gate.example'),
-        'https://gate.example/f.png' => wbsResponse($tiny, 'https://gate.example/f.png', 'image/png'),
-        'https://gate.example/og.png' => wbsResponse($card, 'https://gate.example/og.png', 'image/png'),
+        'https://rank.test/header-logo.png' => wbsResponse(wbsPngBytes(600, 160), 'https://rank.test/header-logo.png', 'image/png'),
+        'https://rank.test/og.png' => wbsResponse(wbsPngBytes(900, 300), 'https://rank.test/og.png', 'image/png'),
+    ]);
+    $uploads = Mockery::mock(MediaUploadService::class);
+    $uploads->shouldReceive('uploadSingleton')->once()->andReturn(new SiteMedia);
+
+    $decisions = (new LogoAutoGrabber($fetcher, $uploads))->grabIfEmpty($user, $user->site, [
+        ['kind' => 'og-image', 'url' => 'https://rank.test/og.png'],
+        ['kind' => 'header-img', 'url' => 'https://rank.test/header-logo.png', 'natW' => 600, 'natH' => 160, 'hint' => true, 'inHeader' => true],
     ]);
 
+    $uploaded = collect($decisions)->first(fn ($d) => str_starts_with($d['outcome'], 'uploaded'));
+    expect($uploaded['kind'])->toBe('header-img')->and($uploaded['slot'])->toBe(SiteMedia::PURPOSE_LOGO_FULL);
+});
+
+it('rejects a small favicon, a share-card og:image, and disabled-pipeline svg', function () {
+    setupMediaTables();
+    config()->set('partna.logo_removal.enabled', false);
+    $user = createTenant('logo-gates');
+
+    $fetcher = wbsFetcher([
+        'https://gate.test/f.png' => wbsResponse(wbsPngBytes(32, 32), 'https://gate.test/f.png', 'image/png'),
+        'https://gate.test/og.png' => wbsResponse(wbsPngBytes(1200, 630), 'https://gate.test/og.png', 'image/png'),
+    ]);
     $uploads = Mockery::mock(MediaUploadService::class);
     $uploads->shouldNotReceive('uploadSingleton');
 
-    (new AnalyzePreviousWebsiteJob($user->site->id))->handle(
-        new WebsiteStyleAnalyzer($fetcher, new MetadataParser),
-        new LogoAutoGrabber($fetcher, $uploads),
-    );
+    $decisions = (new LogoAutoGrabber($fetcher, $uploads))->grabIfEmpty($user, $user->site, [
+        ['kind' => 'icon', 'url' => 'https://gate.test/f.png', 'sizes' => '32x32'],
+        ['kind' => 'og-image', 'url' => 'https://gate.test/og.png'],
+        ['kind' => 'inline-svg', 'svg' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#f00"/></svg>', 'w' => 100, 'h' => 100],
+    ]);
 
-    expect(Workplace::query()->find($user->site->id)->previous_website_analysis['ok'])->toBeTrue();
+    $outcomes = collect($decisions)->pluck('outcome')->implode(' | ');
+    expect($outcomes)->toContain('too-small')
+        ->and($outcomes)->toContain('share-card')
+        ->and($outcomes)->toContain('svg-pipeline-disabled');
+});
+
+it('upgrades known-CDN icon URLs before download', function () {
+    setupMediaTables();
+    $user = createTenant('logo-upsize');
+
+    // Only the UPSIZED variant is fixtured big enough — passing proves the rewrite ran.
+    $fetcher = wbsFetcher([
+        'https://cdn.shopify.com/shop/files/favicon.png?width=1024&v=1' => wbsResponse(wbsPngBytes(512, 512), 'https://cdn.shopify.com/shop/files/favicon.png?width=1024&v=1', 'image/png'),
+        'https://cdn.shopify.com/shop/files/favicon.png?width=32&v=1' => wbsResponse(wbsPngBytes(32, 32), 'https://cdn.shopify.com/shop/files/favicon.png?width=32&v=1', 'image/png'),
+    ]);
+    $uploads = Mockery::mock(MediaUploadService::class);
+    $uploads->shouldReceive('uploadSingleton')->once()->withArgs(
+        fn ($pro, $site, $file, $purpose) => $purpose === SiteMedia::PURPOSE_LOGO_SQUARE,
+    )->andReturn(new SiteMedia);
+
+    $decisions = (new LogoAutoGrabber($fetcher, $uploads))->grabIfEmpty($user, $user->site, [
+        ['kind' => 'icon', 'url' => 'https://cdn.shopify.com/shop/files/favicon.png?width=32&v=1', 'sizes' => '32x32'],
+    ]);
+
+    // 512x512 only exists at the upsized URL — an upload proves the rewrite ran.
+    expect(collect($decisions)->pluck('outcome')->implode(' | '))->toContain('uploaded (512x512)');
 });
 
 it('extracts the largest PNG frame from an .ico container', function () {
@@ -426,14 +654,3 @@ it('extracts the largest PNG frame from an .ico container', function () {
     expect(LogoAutoGrabber::icoLargestPngFrame($ico))->toBe($large)
         ->and(LogoAutoGrabber::icoLargestPngFrame('garbage'))->toBeNull();
 });
-
-/** Minimal in-memory PNG of the given dimensions (GD). */
-function wbsPngBytes(int $w, int $h): string
-{
-    $img = imagecreatetruecolor($w, $h);
-    imagefill($img, 0, 0, imagecolorallocate($img, 200, 60, 30));
-    ob_start();
-    imagepng($img);
-
-    return (string) ob_get_clean();
-}

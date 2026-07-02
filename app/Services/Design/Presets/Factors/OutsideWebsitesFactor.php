@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\SiteDesignFactor;
 use App\Services\Design\Presets\StyleTiers;
+use App\Services\Design\WebsiteStyleAnalyzer;
 
 // Bottom-of-hierarchy factor: the "outside connected websites" — every shop
 // brand's store URL + every custom link the user attached, each analyzed once
@@ -48,13 +49,16 @@ class OutsideWebsitesFactor implements SiteDesignFactor
             return [];
         }
 
+        // Confidence-gated tiers per analysis (v2 documents only), then the
+        // per-signal mode across sites.
+        $tierSets = array_map(PreviousWebsiteFactor::confidentTiers(...), $analyses);
+
         $winners = [];
         foreach (array_keys(StyleTiers::SIGNAL_COLUMNS) as $signal) {
             $votes = [];
-            foreach ($analyses as $analysis) {
-                $tier = $analysis['tiers'][$signal] ?? null;
-                if (is_string($tier) && $tier !== '') {
-                    $votes[] = $tier;
+            foreach ($tierSets as $tiers) {
+                if (isset($tiers[$signal])) {
+                    $votes[] = $tiers[$signal];
                 }
             }
             $mode = $this->strictMode($votes);
@@ -86,7 +90,7 @@ class OutsideWebsitesFactor implements SiteDesignFactor
 
             if ($connection->platform === 'custom') {
                 $analysis = $payload['styleAnalysis'] ?? null;
-                if (is_array($analysis) && ($analysis['ok'] ?? false) === true) {
+                if ($this->usable($analysis)) {
                     $analyses[] = $analysis;
                 }
 
@@ -97,13 +101,21 @@ class OutsideWebsitesFactor implements SiteDesignFactor
             // its own styleAnalysis.
             foreach ($payload as $brand) {
                 $analysis = is_array($brand) ? ($brand['styleAnalysis'] ?? null) : null;
-                if (is_array($analysis) && ($analysis['ok'] ?? false) === true) {
+                if ($this->usable($analysis)) {
                     $analyses[] = $analysis;
                 }
             }
         }
 
         return $analyses;
+    }
+
+    /** Successful CURRENT-version analysis? (v1 reads contribute nothing.) */
+    private function usable(mixed $analysis): bool
+    {
+        return is_array($analysis)
+            && ($analysis['ok'] ?? false) === true
+            && ($analysis['v'] ?? null) === WebsiteStyleAnalyzer::VERSION;
     }
 
     /** Most frequent value, or null on empty input / a tie for first place. */
