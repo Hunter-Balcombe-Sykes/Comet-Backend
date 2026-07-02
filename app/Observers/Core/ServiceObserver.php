@@ -4,6 +4,7 @@ namespace App\Observers\Core;
 
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +17,7 @@ class ServiceObserver
     public function __construct(
         private readonly UserCacheService $userCache,
         private readonly SectionVisibilityService $visibilityService,
+        private readonly SiteCacheInvalidator $invalidator,
     ) {}
 
     private function bust(Service $service): ?User
@@ -114,15 +116,10 @@ class ServiceObserver
      */
     private function touchParentSite(Service $service, ?User $pro): void
     {
-        try {
-            $pro?->site?->touch();
-        } catch (\Throwable $e) {
-            Log::warning('Parent site touch() failed on service mutation', [
-                'service_id' => $service->id,
-                'user_id' => $service->user_id,
-                'message' => $e->getMessage(),
-            ]);
-        }
+        $this->invalidator->touchSite($pro?->site, 'service mutation', [
+            'service_id' => $service->id,
+            'user_id' => $service->user_id,
+        ]);
     }
 
     private function reevaluateBooking(Service $service, ?User $pro): void

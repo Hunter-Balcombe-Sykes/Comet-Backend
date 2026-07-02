@@ -3,15 +3,16 @@
 namespace App\Observers\Core;
 
 use App\Models\Core\Site\Block;
-use App\Observers\Concerns\LogsWithRequestContext;
-use Illuminate\Support\Facades\Log;
+use App\Services\Cache\SiteCacheInvalidator;
 
 // V2: Invalidates site cache when any block (link, section) is created, updated, or deleted.
 class BlockObserver
 {
-    use LogsWithRequestContext;
-
     public bool $afterCommit = true;
+
+    public function __construct(
+        private readonly SiteCacheInvalidator $invalidator,
+    ) {}
 
     public function created(Block $block): void
     {
@@ -43,21 +44,9 @@ class BlockObserver
      */
     private function onBlockMutated(Block $block, string $action): void
     {
-        if (! $block->site) {
-            return;
-        }
-
-        try {
-            $block->site->touch();
-        } catch (\Throwable $e) {
-            // touch() failure means Redis invalidation AND Cloudflare purge are both
-            // skipped (they run via SiteObserver::saved). Log with full context so a
-            // single entry is enough to diagnose the paired failure.
-            Log::warning('Block observer: site touch() failed — Redis + CF purge skipped on block '.$action, $this->logContext(__METHOD__, [
-                'block_id' => $block->id,
-                'site_id' => $block->site->id,
-                'message' => $e->getMessage(),
-            ]));
-        }
+        $this->invalidator->touchSite($block->site, $action, [
+            'block_id' => $block->id,
+            'site_id' => $block->site?->id,
+        ]);
     }
 }

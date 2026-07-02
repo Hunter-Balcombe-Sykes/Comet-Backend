@@ -4,6 +4,7 @@ namespace App\Observers\Core;
 
 use App\Models\Core\Site\SiteMedia;
 use App\Observers\Concerns\LogsWithRequestContext;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
 
@@ -18,6 +19,7 @@ class SiteMediaObserver
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
+        private readonly SiteCacheInvalidator $invalidator,
     ) {}
 
     /**
@@ -81,20 +83,11 @@ class SiteMediaObserver
      */
     private function touchParentSite(SiteMedia $media, string $action): void
     {
-        try {
-            $site = $media->site;
-            if (! $site) {
-                return;
-            }
-            $site->touch();
-        } catch (\Throwable $e) {
-            Log::warning('Parent site touch() failed on SiteMedia '.$action, $this->logContext(__METHOD__, [
-                'site_media_id' => $media->id,
-                'site_id' => $media->site_id,
-                'pool' => $media->pool,
-                'message' => $e->getMessage(),
-            ]));
-        }
+        $this->invalidator->touchSite($media->site, $action, [
+            'site_media_id' => $media->id,
+            'site_id' => $media->site_id,
+            'pool' => $media->pool,
+        ]);
     }
 
     private function reevaluateIfRelevant(SiteMedia $media): void
