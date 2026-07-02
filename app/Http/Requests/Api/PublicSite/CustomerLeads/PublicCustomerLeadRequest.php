@@ -3,10 +3,13 @@
 namespace App\Http\Requests\Api\PublicSite\CustomerLeads;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\WithBotProtection;
 
 // V2: Validates public customer lead submissions — requires name, email, and phone with honeypot and timing-based bot protection.
 class PublicCustomerLeadRequest extends BaseFormRequest
 {
+    use WithBotProtection;
+
     protected function prepareForValidation(): void
     {
         $optIn = $this->input('marketing_opt_in');
@@ -19,9 +22,7 @@ class PublicCustomerLeadRequest extends BaseFormRequest
             'phone' => is_string($this->phone) ? trim($this->phone) : $this->phone,
             'notes' => is_string($this->notes) ? trim($this->notes) : $this->notes,
             'marketing_opt_in' => $parsed ?? false,
-
-            // honeypot
-            'website' => is_string($this->website) ? trim($this->website) : $this->website,
+            ...$this->botProtectionPrepare(),
         ]);
     }
 
@@ -36,8 +37,7 @@ class PublicCustomerLeadRequest extends BaseFormRequest
             'marketing_opt_in' => ['boolean'],
 
             // bot protection
-            'website' => ['nullable', 'string', 'max:255'],          // honeypot
-            'form_started_at_ms' => ['required', 'integer', 'min:0'], // timing check (epoch ms)
+            ...$this->botProtectionRules(),
         ];
     }
 }
