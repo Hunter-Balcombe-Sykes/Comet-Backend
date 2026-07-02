@@ -60,12 +60,16 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Reconciliation idempotence: a CURRENT-version analysis for this exact
-        // URL already exists (success OR recorded failure) — nothing to do.
+        // Reconciliation idempotence: a SUCCESSFUL current-version analysis for
+        // this exact URL exists — nothing to do. Failed docs are retried when
+        // the job is explicitly dispatched (backfill) — loop-safe because the
+        // observer's in-sync check treats a failed current doc as in-sync and
+        // never re-dispatches it on saves.
         $current = $workplace->previous_website_analysis;
         if (is_array($current)
             && ($current['url'] ?? null) === $url
-            && ($current['v'] ?? null) === WebsiteStyleAnalyzer::VERSION) {
+            && ($current['v'] ?? null) === WebsiteStyleAnalyzer::VERSION
+            && ($current['ok'] ?? false) === true) {
             return;
         }
 
