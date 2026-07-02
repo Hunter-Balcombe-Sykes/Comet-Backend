@@ -87,7 +87,8 @@ it('429s once the global daily Apify cap is exceeded', function () {
     Queue::fake();
     config([
         'services.apify.token' => 'test-token',
-        'partna.limits.platforms.instagram.apify_daily_cap' => 1,
+        'partna.limits.apify.actors.instagram' => 1,
+        'partna.limits.apify.global_daily_cap' => 1,
     ]);
 
     // First connect consumes the single daily slot.

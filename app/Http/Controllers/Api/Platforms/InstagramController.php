@@ -8,7 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Services\Cache\InstagramApifyBudget;
+use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
 use Illuminate\Http\JsonResponse;
@@ -145,12 +145,12 @@ class InstagramController extends ApiController
 
     // Pilot cost guard: 429 only when the GLOBAL daily Apify cap is hit — a hard
     // ceiling on paid scrapes across the whole platform, shared with the Google
-    // Business auto-sync via the InstagramApifyBudget cache service. There is
+    // Business auto-sync via the ApifyBudget cache service. There is
     // intentionally NO per-user cooldown: connecting (or re-connecting /
     // switching) must be friction-free, so the daily cap alone bounds cost.
     private function guardApifyBudget(): ?JsonResponse
     {
-        if (! app(InstagramApifyBudget::class)->tryClaim()) {
+        if (! app(ApifyBudget::class)->tryClaim('instagram')) {
             return $this->error('Instagram is busy right now — please try again later.', 429);
         }
 

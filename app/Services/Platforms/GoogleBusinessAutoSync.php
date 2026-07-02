@@ -9,7 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Cache\InstagramApifyBudget;
+use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Payloads\CardPayload;
 use Throwable;
 
@@ -41,7 +41,7 @@ class GoogleBusinessAutoSync
         private readonly ResDiaryService $resDiary,
         private readonly NowBookitService $nowBookit,
         private readonly ProviderDetector $detector,
-        private readonly InstagramApifyBudget $instagramBudget,
+        private readonly ApifyBudget $apifyBudget,
     ) {}
 
     /**
@@ -553,7 +553,7 @@ class GoogleBusinessAutoSync
      */
     private function dispatchInstagram(string $userId, string $username): bool
     {
-        if (! config('services.apify.token') || ! $this->instagramBudget->tryClaim()) {
+        if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {
             return false;
         }
 
