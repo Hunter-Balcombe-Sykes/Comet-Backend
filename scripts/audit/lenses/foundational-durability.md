@@ -19,7 +19,7 @@ Bias toward findings on code touched in the **last ~4 weeks** — the new platfo
 - **Platform integration subsystem (newest, largest, most duplicated):** `app/Http/Controllers/Api/Platforms/` (~38 controllers) and `app/Services/Platforms/` (~36 services — `*Scraper.php`, `*Service.php`, `PlatformScraper.php`, `PlatformRefresher.php`, `ProviderDetector.php`, `PlatformInput.php`, the `Concerns/ManagesIntegrationConnection.php` trait). Central question: is there ONE canonical "add a platform" path, or does each platform fan out across a controller + scraper + resource + job + enum case + route? Where is the shared contract, and what concerns are NOT yet shared (rate-limiting, capability gating, validation, connection persistence, refresh scheduling, error shaping)?
 - **Connection / integration storage:** `app/Models/Core/Site/IntegrationConnection.php` and its migration — what is in `payload` / `metadata` JSON vs real columns, and is any of it queried/filtered/validated/constrained? `platforms jsonb` column. Refresh status / scheduling fields.
 - **Menu & catalog storage (new scraping output):** `app/Models/Core/Site/MenuItem.php` (`modifiers`, `badges` jsonb), `MenuMerger`, `MenuSource`, `EventsCatalog`/`EventsPayload`. Scraped data normalised into queryable rows, or dumped into JSON?
-- **Site configuration JSON:** `app/Models/Core/Site/Site.php` `settings` JSONB and `app/Models/Core/Site/Block.php` / `SmartLink.php` casts — which sub-keys does the app read/write/validate by name (those are columns-in-waiting), vs genuinely freeform.
+- **Site configuration JSON:** `app/Models/Core/Site/Site.php` `settings` JSONB and `app/Models/Core/Site/Block.php` casts — which sub-keys does the app read/write/validate by name (those are columns-in-waiting), vs genuinely freeform.
 - **Cross-cutting "add one thing" paths:** notification dispatch wiring, block/link type registration, design-kit var addition, `AccountCapabilities` gates — does adding one require edits in 1 place or many?
 - **Config home:** `config/partna.php` — per-variant behaviour that should be a single registry/config entry vs hardcoded across files.
 
@@ -76,7 +76,7 @@ The full `app` + `routes` + `supabase/migrations` + `config/partna.php` scope is
 - `platforms-services` — `app/Services/Platforms`
 - `schema-migrations` — `supabase/migrations`
 - `models-config` — `app/Models config/partna.php` (model casts beside the config registry, for denormalization findings)
-- `integration-cross-cutting` — `app/Jobs/Platforms app/Services/SmartLinks app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags` (the "add one thing" registration paths)
+- `integration-cross-cutting` — `app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags` (the "add one thing" registration paths)
 - `controllers-user`, `controllers-staff-public` — remaining API controllers + shared base controllers/Concerns
 - `services-core`, `services-vendor` — remaining services
 - `requests-resources` — `app/Http/Requests app/Http/Resources` (Form Requests that enumerate JSON sub-keys; per-platform resource shapes)

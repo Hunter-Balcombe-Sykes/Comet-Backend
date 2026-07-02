@@ -10,7 +10,7 @@ There is no single "reference file" for this pattern — the gold standard is a 
 
 Every `DB::transaction(...)` / `DB::beginTransaction()` block must satisfy **all** of:
 
-1. **No external network I/O inside the transaction.** No `Http::` facade calls to arbitrary hosts, no `CloudflareKvService` writes, no `TwitchApiClient` / `KickApiClient` calls, no platform-scraper fetches, no Resend/Postmark mail sends, no SmartLink URL fetches. These hold a Postgres connection open for the duration of the I/O — under load, this exhausts the connection pool.
+1. **No external network I/O inside the transaction.** No `Http::` facade calls to arbitrary hosts, no `CloudflareKvService` writes, no `TwitchApiClient` / `KickApiClient` calls, no platform-scraper fetches, no `SafeUrlFetcher` calls, no Resend/Postmark mail sends. These hold a Postgres connection open for the duration of the I/O — under load, this exhausts the connection pool.
 2. **No queue dispatches inside the transaction.** `dispatch(...)` writes to Redis. If the transaction rolls back, the job still runs against state that no longer exists. Use `DB::afterCommit(fn() => dispatch(...))` or move the dispatch after the `DB::transaction` block returns.
 3. **No cache writes inside the transaction.** `Cache::put`, `Cache::remember` (the write path), `Cache::forget`, `Cache::flush`, version-token bumps. On rollback, the cache shows state that doesn't exist in the database. Use `DB::afterCommit(fn() => $cache->forget($key))`.
 4. **No event dispatches with side-effecting listeners inside the transaction.** Laravel events fire synchronously unless `ShouldQueue`. A listener that itself writes to cache, dispatches a job, or hits an external service inherits all of the above failure modes. `Event::dispatch` / `event(...)` inside a transaction is a flag.
@@ -34,7 +34,7 @@ Number them `TXN-1`, `TXN-2`, … sequentially across the whole audit, regardles
 - `Http::post(...)`, `Http::get(...)`, any `Http::` facade call inside a `DB::transaction` closure or between `DB::beginTransaction` / `DB::commit`.
 - `CloudflareKvService` write calls inside transactions — KV writes go over the Cloudflare API; any latency or error holds the Postgres connection open.
 - `TwitchApiClient` / `KickApiClient` calls inside transactions — streaming API latency is unpredictable.
-- `SafeUrlFetcher` calls (SmartLinks, platform connectors) inside transactions.
+- `SafeUrlFetcher` calls (`app/Services/Http`, platform connectors) inside transactions.
 - Resend/Postmark mail sends (`Mail::send`, `Mail::queue`, Notification sends) inside transactions — even queued mail sends write to Redis, inheriting the dispatch problem.
 - Direct `curl_exec` / `file_get_contents('http://...')` inside transactions.
 - Canonical fix: fetch external data BEFORE the transaction, pass the result into the closure; perform external state changes AFTER the transaction commits, with compensating logic if they fail.
@@ -59,7 +59,7 @@ Number them `TXN-1`, `TXN-2`, … sequentially across the whole audit, regardles
 ### (4) Observers running side effects on intra-transaction saves
 
 - Observers on `creating` / `updating` / `saving` events that do anything other than mutate the model's attributes.
-- Observers on `created` / `updated` / `saved` events (`BlockObserver`, `CustomerObserver`, `IntegrationConnectionObserver`, `ServiceCategoryObserver`, `ServiceObserver`, `SiteMediaObserver`, `SiteObserver`, `SmartLinkObserver`, `UserObserver`) that dispatch jobs, write cache, or send notifications WITHOUT `DB::afterCommit`.
+- Observers on `created` / `updated` / `saved` events (`BlockObserver`, `CustomerObserver`, `IntegrationConnectionObserver`, `ServiceCategoryObserver`, `ServiceObserver`, `SiteMediaObserver`, `SiteObserver`, `UserObserver`) that dispatch jobs, write cache, or send notifications WITHOUT `DB::afterCommit`.
 - Observers that call services with their own transactions (nested transaction risk — see category 8).
 - Observers that hit external APIs (any `CloudflareKvService`, `Http::` call from an observer) — these execute synchronously inside whatever transaction the saver is in.
 - Canonical fix: move side effects to `*ed` hooks AND wrap in `DB::afterCommit`. If the side effect must happen before save (validation, uniqueness guard), reframe as a Form Request rule or service-layer guard, not an observer.
@@ -137,7 +137,7 @@ For every finding:
 ```
 --scope app/Services/Cloudflare
 --scope app/Services/Streaming
---scope app/Services/SmartLinks
+--scope app/Services/Http
 --scope app/Services/Platforms
 --scope app/Jobs/Cloudflare
 --scope app/Jobs/Streaming

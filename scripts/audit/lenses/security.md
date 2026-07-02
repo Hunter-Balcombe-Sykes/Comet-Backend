@@ -82,11 +82,11 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 
 ### (7) SSRF / URL fetching
 
-**All outbound fetches of user-supplied or third-party-supplied URLs must route through `SafeUrlFetcher` (`app/Services/SmartLinks/SafeUrlFetcher.php`).** `SafeUrlFetcher` enforces: scheme ∈ {http, https}; host resolves to public IPs only (rejects RFC1918, loopback, link-local, cloud-metadata 169.254.169.254); redirects followed manually with per-hop re-validation (max 5 hops).
+**All outbound fetches of user-supplied or third-party-supplied URLs must route through `SafeUrlFetcher` (`app/Services/Http/SafeUrlFetcher.php`).** `SafeUrlFetcher` enforces: scheme ∈ {http, https}; host resolves to public IPs only (rejects RFC1918, loopback, link-local, cloud-metadata 169.254.169.254); redirects followed manually with per-hop re-validation (max 5 hops).
 
 - Any `Http::get($url)` / `Http::post($url)` / `Guzzle->get($url)` / `file_get_contents($url)` where `$url` is sourced from user input, a stored user record, or an unsanitised third-party API response — and does NOT go through `SafeUrlFetcher` — is a P1.
 - Platform connectors (`app/Services/Platforms/`): each scraper that accepts a URL from user-controlled data (stored platform connection URL, a URL submitted at integration-creation time). Confirm every such fetch goes through `SafeUrlFetcher`. The Instagram SSRF fixed 2026-06-03 is the cautionary tale — re-check `InstagramScraper` to confirm the fix held and no similar pattern exists in `BandcampScraper`, `EventbriteScraper`, `GenericShopScraper`, `HumanitixScraper`, `ShopifyScraper`, `SkoolScraper`, `WooCommerceScraper`.
-- SmartLinks extractors (`app/Services/SmartLinks/Extractors/`): each extractor that makes a secondary HTTP request based on a parsed URL or an API response field (e.g., `OEmbedExtractor` following an oEmbed endpoint URL).
+- Outbound-fetch subsystem (`app/Services/Http/`): `SafeUrlFetcher` + `MetadataParser` are the shared path for pulling metadata off a parsed URL. Confirm callers pass through `SafeUrlFetcher` rather than re-implementing the fetch. Design auto-grabbers (`app/Services/Design/LogoAutoGrabber`, `WebsiteStyleAnalyzer`) fetch user-supplied website URLs — verify they route through it too.
 - Streaming API clients (`TwitchApiClient`, `KickApiClient` in `app/Services/Streaming/`): confirm they use hardcoded API base URLs (not user-supplied), and that any user-controlled channel/username is sent as a path segment or query param — not interpolated into a base URL that could be overridden.
 - Cloudflare Worker (`cloudflare-worker/src/index.js`): confirm subdomain/handle values from KV are used only as routing keys, not as URL prefixes for backend fetches — a poisoned KV entry must not redirect requests to an arbitrary origin.
 - Open-redirect risk: any endpoint that returns a `Location` header or `redirect_to` value derived from user input without an allow-list of target domains.
@@ -155,6 +155,7 @@ For every finding:
 --scope app/Policies
 --scope app/Providers/AppServiceProvider.php
 --scope app/Http/Controllers/Concerns
+--scope app/Http/Controllers/Api/ApiController.php
 ```
 
 ### Group B — Inbound callbacks + internal endpoints
@@ -172,14 +173,16 @@ For every finding:
 ### Group D — Public site surface (enumeration / PII / bot protection)
 ```
 --scope app/Http/Controllers/Api/PublicSite
+--scope app/Http/Controllers/Api/HealthController.php
 --scope app/Http/Resources
 ```
 
 ### Group E — Vendor I/O (SSRF / outbound URL fetches)
 ```
---scope app/Services/SmartLinks
+--scope app/Services/Http
 --scope app/Services/Platforms
 --scope app/Services/Streaming
+--scope app/Services/Design
 ```
 
 ### Group F — Cloudflare Worker (origin trust + KV poisoning)

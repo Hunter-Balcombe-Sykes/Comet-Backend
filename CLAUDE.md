@@ -268,6 +268,24 @@ historical example). Per finding: top-level `- [ ]` checkbox + `**#ID**` + tier 
 (verbatim code). Bundles under `## Suggested Bundled Sessions`; standalone items under
 `## Standalone — do NOT bundle`.
 
+### Keeping the audit pipeline honest (scope + freshness)
+
+The pipeline can silently audit the wrong thing two ways. Both are guarded by
+`tests/Feature/Architecture/AuditPipelineIntegrityTest.php` (runs in `composer test` / CI):
+
+- **Scope coverage.** `--codebase` sweeps only scan what `codebase_chunks()` in `scripts/audit/audit.sh`
+  lists. The scanner recurses a mapped dir, so a **new file in an existing dir is covered automatically** —
+  but a **new top-level namespace is not**. When you add a new dir under `app/Services/`,
+  `app/Http/Controllers/Api/`, `app/Jobs/`, or `tests/Feature/`, wire it into the right chunk in
+  `codebase_chunks()` **and** the lens's `.md` scope-group. The guard fails CI if you forget (or add a
+  justified `$coverageExempt` entry). Also remember the file-type glob in `audit-scan.sh` — a scope path
+  whose extension isn't in it (`.php .blade.php .sql .js .ts .yml .yaml .sh`) is read as nothing.
+- **Lens freshness.** Lenses + `system-prompt.md` + `adjudicate-prompt.md` encode the architecture as-written;
+  after a shift they audit code that no longer exists. On any architectural change (renamed/removed class,
+  dir, DB concept), refresh `system-prompt.md` + `adjudicate-prompt.md` **first**, then grep `lenses/` for the
+  changed term. The guard auto-catches dead **file-path** references in that prose, but it can NOT catch stale
+  **concepts** (a renamed DB column, a class whose behaviour changed) — that judgement is still yours.
+
 ## Workflow
 
 ### Plan First

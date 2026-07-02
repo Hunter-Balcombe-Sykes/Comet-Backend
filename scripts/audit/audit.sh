@@ -191,21 +191,32 @@ write_consolidated() {
 # Each line is "chunk-name|space-separated relative paths". Chunks are sized
 # so a single scan stays under ~350KB of source (scan recall degrades on
 # oversized payloads — see the warning in audit-scan.sh). Paths verified to
-# exist as of 2026-06-11; when the tree moves, update here AND in the lens's
+# exist as of 2026-07-02; when the tree moves, update here AND in the lens's
 # own "Suggested per-domain scope groups" section.
+#
+# test-coverage covers the FULL tests/ tree — new tests/ subdirs must be added
+# to a chunk here or they get zero coverage. Two chunks (feature-platforms,
+# unit-suite) are single dirs that exceed the ceiling on their own; they trip
+# the soft-size warning in audit-scan.sh by design (can't be split by directory
+# — loose top-level files recurse — and partial coverage beats none).
+#
+# GUARDED: tests/Feature/Architecture/AuditPipelineIntegrityTest.php fails CI if a
+# path here is dead, if a new namespace under app/Services|app/Http/Controllers/Api|
+# app/Jobs|tests/Feature isn't covered, or if lens prose references a dead file path.
 codebase_chunks() {
     case "$1" in
         security) cat <<'EOF'
-auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Exceptions app/Rules config
+auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules config
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
-public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/Webhooks app/Http/Resources
-outbound-services|app/Services/SmartLinks app/Services/Platforms app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media cloudflare-worker/src
+public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php app/Http/Resources
+outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Design cloudflare-worker/src
+outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
 account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
 moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
-connectors|app/Services/Platforms app/Services/SmartLinks app/Jobs/Platforms
+connectors|app/Services/Platforms app/Jobs/Platforms
 EOF
         ;;
         scaling-antipatterns) cat <<'EOF'
@@ -227,7 +238,8 @@ write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Services/Analyt
 EOF
         ;;
         caching-coverage-gaps) cat <<'EOF'
-hot-reads|app/Services/Site app/Services/PublicSite app/Services/Accounts app/Http/Middleware app/Http/Controllers/Api/PublicSite app/Services/Streaming app/Services/Platforms
+hot-reads-app|app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/Cache app/Http/Middleware app/Http/Controllers/Api/PublicSite app/Services/Streaming
+hot-reads-platforms|app/Services/Platforms
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
@@ -236,7 +248,7 @@ EOF
         ;;
         transaction-boundaries) cat <<'EOF'
 domain-services|app/Services/User app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Observers
-vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/SmartLinks app/Services/Platforms app/Jobs app/Listeners
+vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Platforms app/Services/Http app/Jobs app/Listeners
 EOF
         ;;
         migration-safety) cat <<'EOF'
@@ -249,13 +261,19 @@ other-api|app/Http/Resources app/Http/Controllers/Api/PublicSite app/Http/Contro
 EOF
         ;;
         configuration-hygiene) cat <<'EOF'
-config-files|config .env.example routes
+config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
 consumers|app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Email app/Services/Media app/Services/FeatureFlags app/Services/Diagnostics app/Jobs app/Console app/Http/Middleware
 EOF
         ;;
         test-coverage) cat <<'EOF'
-sweep-tests|app/Policies tests/Pest.php tests/Feature/Security tests/Feature/Queue
-domain-tests|app/Jobs tests/Feature/Jobs app/Services/PublicSite app/Http/Controllers/Api/PublicSite
+sweep-conventions|tests/Pest.php tests/Feature/Security app/Policies
+feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
+feature-site-staff|tests/Feature/Site tests/Feature/Staff tests/Feature/Notifications tests/Feature/Moderation
+feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
+feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Countdown tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware
+feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/Accounts tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
+feature-platforms|tests/Feature/Platforms
+unit-suite|tests/Unit
 EOF
         ;;
         data-integrity) cat <<'EOF'
@@ -269,7 +287,7 @@ EOF
         ;;
         observability) cat <<'EOF'
 jobs-hooks|app/Jobs app/Console app/Listeners app/Exceptions app/Services/Webhooks app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php config/queue.php config/horizon.php
-vendor-services|app/Services/Cloudflare app/Services/Streaming app/Services/SmartLinks app/Services/Platforms app/Services/Media app/Services/Moderation app/Services/Audit
+vendor-services|app/Services/Cloudflare app/Services/Streaming app/Services/Platforms app/Services/Media app/Services/Moderation app/Services/Audit
 EOF
         ;;
         edge-worker) cat <<'EOF'
@@ -283,7 +301,7 @@ schema-pii|supabase/migrations
 EOF
         ;;
         code-quality-slop) cat <<'EOF'
-services|app/Services/User app/Services/Media app/Services/SmartLinks app/Services/Platforms app/Services/Feedback app/Services/Diagnostics app/Mail
+services|app/Services/User app/Services/Media app/Services/Platforms app/Services/Feedback app/Services/Diagnostics app/Mail
 http-jobs|app/Http/Controllers/Api/User app/Http/Resources app/Jobs app/Console app/Notifications app/Observers
 EOF
         ;;
@@ -297,7 +315,7 @@ platforms-controllers|app/Http/Controllers/Api/Platforms
 platforms-services|app/Services/Platforms
 schema-migrations|supabase/migrations
 models-config|app/Models config/partna.php
-integration-cross-cutting|app/Jobs/Platforms app/Services/SmartLinks app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
+integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Auth app/Services/Cache

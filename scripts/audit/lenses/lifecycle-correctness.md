@@ -85,7 +85,7 @@ These patterns are the standard that every finding must cite. When a finding vio
 - Vendor exception handling that catches a broad base class and continues silently — every catch must re-throw, `$this->fail()` with full context, or be a typed expected-failure.
 - Synchronous vendor calls (`Http::` facade, `CloudflareKvService`, `TwitchApiClient`) in observers, Resource classes, or controllers in the request cycle — any vendor latency propagates to user-facing p99.
 - `SafeUrlFetcher` bypass — any outbound `Http::get($url)` on a user-supplied URL that does not go through `SafeUrlFetcher` is an SSRF risk and a finding (canonical fix: route through `SafeUrlFetcher`).
-- Platform connector scrapers (`PlatformRefresher`, `SmartLinkRefresher`) without explicit `$tries` and `$backoff` — vendor outage produces an uncontrolled retry storm.
+- Platform connector scrapers (`PlatformRefresher`) without explicit `$tries` and `$backoff` — vendor outage produces an uncontrolled retry storm.
 - Retry loops that do not cap `$backoff` at a sane ceiling — unbounded exponential backoff can exceed Horizon's `retry_after`, causing the job to be treated as a lost job and re-queued from the beginning.
 
 ### (7) Authorization & validation hygiene
@@ -191,13 +191,12 @@ Run the lens against one group at a time. Each group is sized so the DeepSeek sc
 --scope app/Http/Controllers/Api/User/Notifications
 ```
 
-### Group E — Streaming token lifecycle + platform/SmartLink refreshers
+### Group E — Streaming token lifecycle + platform refreshers
 ```
 --scope app/Services/Streaming
 --scope app/Jobs/Streaming
 --scope app/Services/Platforms
 --scope app/Jobs/Platforms
---scope app/Services/SmartLinks
 ```
 
 ### Group F — Observers + cache write-path invalidation

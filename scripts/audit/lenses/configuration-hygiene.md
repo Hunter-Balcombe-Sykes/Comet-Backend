@@ -40,7 +40,7 @@ Number them `CFG-1`, `CFG-2`, … sequentially. **P1 for `env()` in non-config f
 - API version strings hardcoded in multiple service classes — should be a single config value so version bumps are one-line changes.
 - Cloudflare KV namespace IDs or zone IDs hardcoded in service code instead of `config('services.cloudflare.*')`.
 - Twitch/Kick client credentials hardcoded in `app/Services/Streaming/` classes instead of `config('services.twitch.*')` / `config('services.kick.*')`.
-- Outbound fetch timeouts or per-host request limits hardcoded in `app/Services/Platforms/` scrapers or `app/Services/SmartLinks/SafeUrlFetcher` instead of `config('partna.limits.*')`.
+- Outbound fetch timeouts or per-host request limits hardcoded in `app/Services/Platforms/` scrapers or `app/Services/Http/SafeUrlFetcher` instead of `config('partna.limits.*')`.
 
 ### (5) Config file correctness
 
@@ -89,6 +89,14 @@ For every finding:
 ### Group D — env.example (reference)
 ```
 --scope .env.example
+```
+
+### Group E — App bootstrap + CI + deploy
+```
+--scope bootstrap/app.php
+--scope bootstrap/providers.php
+--scope .github/workflows
+--scope deploy
 ```
 
 ## Exhaustiveness directive

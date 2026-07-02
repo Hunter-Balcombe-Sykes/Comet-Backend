@@ -26,7 +26,8 @@ is not a finding — drop it.
 2. **Expensive** — the read does real work each call: a multi-table join, an
    aggregate (`SUM`/`COUNT`/`GROUP BY`), a JSONB scan, an unindexed `WHERE`, a
    fan-out of N queries, or a synchronous vendor API call (Twitch/Kick live-status
-   API, Cloudflare, SmartLinks metadata fetch, platform connector outbound read).
+   API, Cloudflare, URL metadata fetch via `app/Services/Http`, platform connector
+   outbound read).
    A single indexed primary-key lookup is **not** expensive — do not flag it.
 3. **Multi-caller / repeated** — the same logical value is recomputed across many
    requests or many callers within a TTL window, with no per-request reason for
@@ -64,7 +65,7 @@ delegates to) before flagging any adjacent resolution step.
 ### (3) Uncached synchronous vendor read
 
 A read path that calls a vendor API (Twitch/Kick live-status, Cloudflare KV/DNS
-state, SmartLinks metadata, platform connector scrape) synchronously on a hot
+state, URL metadata fetch, platform connector scrape) synchronously on a hot
 request, with no cache. Vendor calls are both slow and rate-limited — uncached
 vendor reads on a hot path are the most expensive gap class. Canonical fix: cache
 the vendor response with a bounded TTL + push-invalidate on the relevant webhook
@@ -126,6 +127,7 @@ For every finding:
 --scope app/Services/PublicSite
 --scope app/Services/Accounts
 --scope app/Services/Site
+--scope app/Services/Cache
 --scope app/Http/Middleware
 ```
 
@@ -141,7 +143,7 @@ For every finding:
 ### Group C — Synchronous vendor reads
 ```
 --scope app/Services/Streaming
---scope app/Services/SmartLinks
+--scope app/Services/Http
 --scope app/Services/Platforms
 --scope app/Services/Cloudflare
 ```

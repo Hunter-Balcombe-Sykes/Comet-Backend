@@ -48,14 +48,13 @@ Number them `SCALE-1`, `SCALE-2`, … sequentially across the whole audit.
 - **Cloudflare API** (`app/Services/Cloudflare/`, `app/Jobs/Cloudflare/`): KV write calls and cache-purge calls in tight loops without rate-limit awareness — Cloudflare KV has per-account write limits; `CloudflareCachePurgeJob` bulk-purge vs individual URL comparison.
 - **Twitch / Kick** (`app/Services/Streaming/TwitchApiClient`, `KickApiClient`, `StreamingTokenManager`): token-refresh bursts and live-status poll requests — `CheckStreamingLiveStatusJob` runs every two minutes; verify each poll respects per-token rate limits and that token refresh is cached, not re-fetched per-user-per-tick.
 - **Platform connectors** (`app/Services/Platforms/`): per-host politeness on outbound scrapes (Bandcamp, Eventbrite, HumanitixScraper, etc.) and `PlatformRefresher` daily batch — quantify per-host request rate at scale; missing per-host delay is a finding. All fetches must go through `SafeUrlFetcher` — raw `Http::get($userUrl)` on user-supplied URLs is a separate security finding (flag here too as a scale + safety concern).
-- **SmartLinks** (`app/Services/SmartLinks/SmartLinkRefresher`): `smartlinks:refresh` runs every 6 hours; if it picks rows without a per-host or per-domain cap, a single popular merchant's domain can receive a burst of requests per run.
 - **Email** (Resend/Postmark via `app/Jobs/Notifications/`): fan-out notification jobs dispatched without per-user sending-rate awareness — at scale, a single broadcast to all users may exceed provider per-second limits.
 
 ### (6) Scheduler stampede
 
 - `routes/console.php` jobs are well-structured (all have `->onOneServer()` and `->withoutOverlapping(N)` per the file's documented conventions) — flag only cases where the `withoutOverlapping` TTL is shorter than or equal to the cadence (same-tick race), or where a high-frequency job (e.g. `everyMinute`) spawns unbounded fan-out.
 - `CheckStreamingLiveStatusJob` (`everyTwoMinutes`, `withoutOverlapping(5)`) — verify the job itself does not dispatch one sub-job per active streaming user without a per-user stagger; at thousands of users this is a thundering herd on the `streaming` queue.
-- `smartlinks:refresh` and `integrations:refresh` daily commands — verify they process rows in bounded batches (`--limit` flag) rather than loading all stale rows in one pass.
+- `integrations:refresh` scheduled command — verify it processes rows in bounded batches (it exposes `--limit` and `--throttle-ms`) rather than loading all stale rows in one pass.
 
 ### (7) Per-user noisy-neighbour risk
 
@@ -130,7 +129,6 @@ For every finding:
 ```
 --scope app/Services/Cloudflare
 --scope app/Services/Streaming
---scope app/Services/SmartLinks
 --scope app/Services/Platforms
 --scope app/Services/Media
 ```

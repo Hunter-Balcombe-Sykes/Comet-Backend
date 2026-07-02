@@ -148,6 +148,27 @@ For every finding:
 --scope database/factories
 ```
 
+### Group F — Platform integration tests (largest surface, heaviest mocking)
+```
+--scope tests/Feature/Platforms
+--scope app/Services/Platforms
+--scope app/Http/Controllers/Api/Platforms
+```
+
+### Group G — Unit suite (mock-vs-integration discipline)
+```
+--scope tests/Unit
+```
+
+### Group H — Domain feature tests (site / staff / moderation / notifications)
+```
+--scope tests/Feature/Site
+--scope tests/Feature/Staff
+--scope tests/Feature/Moderation
+--scope tests/Feature/Notifications
+--scope tests/Feature/User
+```
+
 ## Exhaustiveness directive
 
 Walk every production file in scope and check for a corresponding test. Walk every test file and check it asserts what it claims. Emit a finding for every distinct quotable gap. **A coverage audit that under-reports gives false confidence — exactly the failure mode you're auditing against.**

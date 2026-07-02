@@ -90,8 +90,11 @@ SYS_MSG="$TMP/system.md"
 
     for path in "${SCOPE_PATHS[@]}"; do
         if [[ -d "$path" ]]; then
-            # .js/.ts cover the Cloudflare Worker; everything else is PHP/SQL.
-            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" -o -name "*.js" -o -name "*.ts" \) ! -path "*/node_modules/*" | sort)
+            # .js/.ts cover the Cloudflare Worker; .yml/.yaml cover CI workflows
+            # (.github/workflows); .sh covers deploy scripts (deploy/); everything
+            # else is PHP/SQL. .venv excluded so a scoped tools/ dir doesn't drag
+            # in a Python virtualenv's bundled YAML.
+            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" -o -name "*.js" -o -name "*.ts" -o -name "*.yml" -o -name "*.yaml" -o -name "*.sh" \) ! -path "*/node_modules/*" ! -path "*/.venv/*" | sort)
         elif [[ -f "$path" ]]; then
             files="$path"
         else

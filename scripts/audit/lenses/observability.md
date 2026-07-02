@@ -112,7 +112,6 @@ For every finding:
 ```
 --scope app/Services/Cloudflare
 --scope app/Services/Streaming
---scope app/Services/SmartLinks
 --scope app/Services/Platforms
 --scope app/Services/Media
 ```
