@@ -60,6 +60,9 @@ class MenuApifyScraper
     // URL still resolves and its menu returns regardless of delivery range.
     private const DOORDASH_FALLBACK_ADDRESS = 'Melbourne VIC, Australia';
 
+    /** Lazily-built per-platform driver map — populated once on first use. */
+    private ?array $drivers = null;
+
     /**
      * Scrape one store URL on the given platform and map it to the normalized
      * menu shape. Null on missing token / failure / empty result — the caller
@@ -215,7 +218,7 @@ class MenuApifyScraper
 
             return null;
         }
-        $menu = $platform === 'uber-eats' ? $this->mapUberEats($items) : $this->mapDoorDash($items);
+        $menu = ($this->driver($platform)['mapItems'])($items);
 
         return $menu['categories'] === [] ? null : $menu;
     }
@@ -399,13 +402,36 @@ class MenuApifyScraper
             'first_keys' => is_array($items[0] ?? null) ? array_keys($items[0]) : gettype($items[0] ?? null),
         ]);
 
-        $menu = $platform === 'uber-eats' ? $this->mapUberEats($items) : $this->mapDoorDash($items);
+        $menu = ($this->driver($platform)['mapItems'])($items);
 
         // Mapped to nothing (unexpected shape / all-empty rows) — treat as a
         // retryable miss rather than a real menu.
         return $menu['categories'] === []
             ? ['menu' => null, 'retryable' => true]
             : ['menu' => $menu, 'retryable' => false];
+    }
+
+    /** Per-platform scrape driver. Adding platform #3 = one entry here. */
+    private function driver(string $platform): ?array
+    {
+        $this->drivers ??= [
+            'uber-eats' => [
+                'actor'      => self::ACTORS['uber-eats'],
+                'buildInput' => fn (string $url, ?string $address): array => ['startUrls' => [['url' => $url]]],
+                'mapItems'   => fn (array $items): array => $this->mapUberEats($items),
+            ],
+            'doordash' => [
+                'actor'      => self::ACTORS['doordash'],
+                'buildInput' => fn (string $url, ?string $address): array => [
+                    'startUrls'    => [['url' => $url]],
+                    'address'      => $this->cleanString($address) ?? self::DOORDASH_FALLBACK_ADDRESS,
+                    'fetchReviews' => false,
+                ],
+                'mapItems' => fn (array $items): array => $this->mapDoorDash($items),
+            ],
+        ];
+
+        return $this->drivers[$platform] ?? null;
     }
 
     /**
@@ -417,17 +443,9 @@ class MenuApifyScraper
      */
     private function input(string $storeUrl, string $platform, ?string $address): array
     {
-        return match ($platform) {
-            'uber-eats' => [
-                'startUrls' => [['url' => $storeUrl]],
-            ],
-            'doordash' => [
-                'startUrls' => [['url' => $storeUrl]],
-                'address' => $this->cleanString($address) ?? self::DOORDASH_FALLBACK_ADDRESS,
-                'fetchReviews' => false,
-            ],
-            default => [],
-        };
+        $d = $this->driver($platform);
+
+        return $d === null ? [] : ($d['buildInput'])($storeUrl, $address);
     }
 
     /**
