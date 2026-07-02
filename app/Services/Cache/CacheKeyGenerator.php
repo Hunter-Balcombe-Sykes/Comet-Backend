@@ -249,8 +249,15 @@ class CacheKeyGenerator
         return "yt_thumb:{$videoId}";
     }
 
-    public static function instagramDailyLimit(string $date): string
+    /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */
+    public static function apifyGlobalDailyLimit(string $date): string
     {
-        return 'platforms:instagram:apify-daily:'.$date;
+        return 'platforms:apify:global:daily:'.$date;
+    }
+
+    /** Per-actor daily Apify claim counter (actor = instagram|menu|google-business). */
+    public static function apifyActorDailyLimit(string $actor, string $date): string
+    {
+        return 'platforms:apify:'.$actor.':daily:'.$date;
     }
 }

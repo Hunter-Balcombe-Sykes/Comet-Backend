@@ -269,6 +269,20 @@ return [
                 'apify_daily_cap' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
             ],
         ],
+
+        // Shared Apify cost ceiling (SCALE-2). Every paid actor (instagram, menu,
+        // google-business) claims a slot from ApifyBudget before spending: a
+        // per-actor daily cap PLUS a global daily cap so one integration's runaway
+        // can't exhaust the account and starve the others.
+        'apify' => [
+            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 1000),
+            'actors' => [
+                // Instagram reuses its existing tuned env var (behaviour preserved).
+                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
+                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
+                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
+            ],
+        ],
     ],
 
     /*
@@ -901,25 +915,25 @@ return [
     'design_kit' => [
         'column_groups' => [
             'two_token_prefixes' => [
-                'space_desktop'      => 'spaceDesktop',
-                'text_desktop'       => 'textDesktop',
-                'sizing_desktop'     => 'sizingDesktop',
+                'space_desktop' => 'spaceDesktop',
+                'text_desktop' => 'textDesktop',
+                'sizing_desktop' => 'sizingDesktop',
                 'typography_desktop' => 'typographyDesktop',
             ],
             'single_token_prefixes' => [
-                'color'      => 'colors',
+                'color' => 'colors',
                 'typography' => 'typography',
-                'text'       => 'text',      // text scale (text_xs, text_sm, ...)
-                'weight'     => 'weight',    // weight scale (weight_regular, weight_medium, ...)
-                'border'     => 'borders',
-                'space'      => 'space',
-                'motion'     => 'motion',
-                'icon'       => 'icons',     // singular prefix: icon_size, icon_color (reserved)
-                'icons'      => 'icons',     // plural prefix:   icons_xl_size, icons_stroke_width, etc.
-                'effect'     => 'effects',
-                'theme'      => 'theme',     // theme_mode
-                'sizing'     => 'sizing',    // legacy (columns dropped — kept for safety)
-                'button'     => 'buttons',   // legacy (columns dropped — kept for safety)
+                'text' => 'text',      // text scale (text_xs, text_sm, ...)
+                'weight' => 'weight',    // weight scale (weight_regular, weight_medium, ...)
+                'border' => 'borders',
+                'space' => 'space',
+                'motion' => 'motion',
+                'icon' => 'icons',     // singular prefix: icon_size, icon_color (reserved)
+                'icons' => 'icons',     // plural prefix:   icons_xl_size, icons_stroke_width, etc.
+                'effect' => 'effects',
+                'theme' => 'theme',     // theme_mode
+                'sizing' => 'sizing',    // legacy (columns dropped — kept for safety)
+                'button' => 'buttons',   // legacy (columns dropped — kept for safety)
             ],
         ],
     ],
