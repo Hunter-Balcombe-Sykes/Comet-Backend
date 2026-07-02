@@ -72,8 +72,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 11 of 15 complete
-- P3 Low: 3 of 11 complete
+- P2 Medium: 12 of 15 complete
+- P3 Low: 4 of 11 complete
 
 ---
 
@@ -281,7 +281,7 @@
         protected $casts    = [ 'platforms' => 'array', ... ];
         ```
 
-- [ ] **#FOUND-7** · P2 — `MenuMerger::merge()` hardcodes exactly two delivery platforms; adding a third requires a breaking signature change plus cascade edits through the merger
+- [x] **#FOUND-7** · P2 — `MenuMerger::merge()` hardcodes exactly two delivery platforms; adding a third requires a breaking signature change plus cascade edits through the merger
     - **Where:** `app/Services/Platforms/MenuMerger.php` (signature line 53, `$canonical`/`$other` assignments lines 55–57, `fuse()` dual assignments throughout)
     - **Affects:** Any third delivery platform (Menulog, Deliveroo); `MenuFetchJob` callers
     - **Effort:** M (~2–4h)
@@ -743,7 +743,7 @@
         $pro->site?->touch();
         ```
 
-- [ ] **#FOUND-24** · P3 — `MenuApifyScraper` dispatches platform-specific logic at 4 locations via string comparison; adding a delivery platform requires 4 file edits
+- [x] **#FOUND-24** · P3 — `MenuApifyScraper` dispatches platform-specific logic at 4 locations via string comparison; adding a delivery platform requires 4 file edits
     - **Where:** `app/Services/Platforms/MenuApifyScraper.php` (`ACTORS` constant, `mapResponse()` ternary, `input()` match, `fetchStores()` target building)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Define a `MenuPlatformDriver` contract: `actorId(): string`, `mapItems(array $items): array`, `buildInput(string $url, ?string $address): array`. Register implementations per platform in config. `mapResponse()` and `input()` become `$this->drivers[$platform]->mapItems()` / `buildInput()` calls.
