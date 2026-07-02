@@ -1,0 +1,314 @@
+{
+ "v": 1,
+ "ok": true,
+ "url": "https://brotherwolf.com.au/",
+ "title": "Born in Melbourne, Brotherwolf the home of new vintage and designer st",
+ "viewport": {
+  "w": 1440,
+  "h": 1200
+ },
+ "page": {
+  "htmlBg": "rgba(0, 0, 0, 0)",
+  "bodyBg": "rgb(255, 255, 255)",
+  "bodyBgImage": false,
+  "mainBg": "rgb(255, 255, 255)",
+  "bodyColor": "rgba(3, 3, 2, 0.76)",
+  "bodyFont": "system_ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", \"Liberation Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+  "bodyFontSize": 12,
+  "bodyFontWeight": "400",
+  "lineHeight": "19.2px"
+ },
+ "header": {
+  "bg": "rgb(255, 255, 255)",
+  "top": 56,
+  "height": 28
+ },
+ "copy": [
+  {
+   "size": 12,
+   "weight": "400",
+   "family": "system_ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", \"Liberation Sans\", Arial, sans-serif, \"Appl",
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "size": 12,
+   "weight": "400",
+   "family": "system_ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", \"Liberation Sans\", Arial, sans-serif, \"Appl",
+   "color": "rgb(255, 255, 255)"
+  }
+ ],
+ "headings": [
+  {
+   "tag": "h1",
+   "family": "\"Crimson Text\", serif",
+   "weight": "400",
+   "size": 72
+  }
+ ],
+ "buttons": [
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(3, 3, 2)",
+   "radius": 0,
+   "height": 32,
+   "transition": 125,
+   "cls": "skip-to-content-link button-secondary"
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 44,
+   "transition": 125,
+   "cls": "\n    slideshow-control slideshow-control--previous\n    \n    "
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 44,
+   "transition": 125,
+   "cls": "\n    slideshow-control slideshow-control--next\n    \n    \n   "
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 46,
+   "transition": 125,
+   "cls": "button dropdown-localization__button localization-selector l"
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 44,
+   "transition": 125,
+   "cls": "button button-unstyled search-modal__button header-actions__"
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 44,
+   "transition": 125,
+   "cls": "account-button header-actions__action"
+  },
+  {
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(255, 255, 255)",
+   "radius": 0,
+   "height": 44,
+   "transition": 125,
+   "cls": "button header-actions__action button-unstyled"
+  },
+  {
+   "bg": "rgb(255, 255, 255)",
+   "color": "rgb(0, 0, 0)",
+   "radius": 0,
+   "height": 51,
+   "transition": 125,
+   "cls": "\n    size-style\n    button\n    button--AMGNBaHBJdER6UVlwd__b"
+  },
+  {
+   "bg": "rgb(255, 255, 255)",
+   "color": "rgb(0, 0, 0)",
+   "radius": 0,
+   "height": 51,
+   "transition": 125,
+   "cls": "\n    size-style\n    button\n    button--AWmt4bTZtVk1pZ2x5K__b"
+  }
+ ],
+ "links": [
+  {
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "color": "rgb(255, 255, 255)"
+  },
+  {
+   "color": "rgb(255, 255, 255)"
+  }
+ ],
+ "sections": [
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 125
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 100,
+   "padB": 40,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": 24,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 29,
+   "padB": 30,
+   "padL": 0,
+   "padR": 0,
+   "gap": 30,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  },
+  {
+   "padT": 0,
+   "padB": 0,
+   "padL": 0,
+   "padR": 0,
+   "gap": null,
+   "radius": 0,
+   "transition": 0
+  }
+ ],
+ "rootVars": {
+  "--color-background": "rgb(255 255 255 / 1.0)",
+  "--color-foreground": "rgb(3 3 2 / 0.76)",
+  "--color-primary": "rgb(3 3 2 / 1.0)"
+ },
+ "meta": {
+  "themeColor": "rgba(0, 0, 0, 0)",
+  "colorScheme": null,
+  "manifest": null,
+  "icons": [
+   {
+    "rel": "icon",
+    "href": "https://brotherwolf.com.au/cdn/shop/files/favicon1.png?crop=center&height=32&v=1755139770&width=32",
+    "sizes": null,
+    "type": "image/png"
+   }
+  ],
+  "ogImage": "http://brotherwolf.com.au/cdn/shop/files/logo-black_83b976fb-3597-4897-88f9-4ad2076531a6.png?v=1751600315",
+  "twitterImage": null
+ },
+ "logos": [
+  {
+   "kind": "img",
+   "src": "https://brotherwolf.com.au/cdn/shop/files/logo-white.png?height=20&v=1750650561",
+   "natW": 157,
+   "natH": 20,
+   "w": 158,
+   "h": 20,
+   "top": 60,
+   "alt": "",
+   "hint": true,
+   "inHeader": false
+  }
+ ],
+ "errors": []
+}
