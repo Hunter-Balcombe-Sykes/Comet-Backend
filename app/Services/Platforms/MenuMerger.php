@@ -45,21 +45,25 @@ class MenuMerger
     private const PLATFORMS = ['uber-eats', 'doordash'];
 
     /**
-     * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null  $ueMenu
-     * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null  $ddMenu
+     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $platformMenus  slug-keyed menus
+     * @param  string  $contentSource  platform whose category structure is canonical
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $storeLinks
      * @return array{store:array<string,mixed>, categories:list<array{name:string, sourcePlatform:string, items:list<array<string,mixed>>}>}
      */
-    public function merge(?array $ueMenu, ?array $ddMenu, string $contentSource, array $storeLinks = []): array
+    public function merge(array $platformMenus, string $contentSource, array $storeLinks = []): array
     {
-        $canonical = ($contentSource === 'uber-eats' ? $ueMenu : $ddMenu) ?? ['store' => [], 'categories' => []];
-        $otherSource = $contentSource === 'uber-eats' ? 'doordash' : 'uber-eats';
-        $other = $contentSource === 'uber-eats' ? $ddMenu : $ueMenu;
+        // Normalize to a full PLATFORMS-keyed map; absent keys become null.
+        $menus = [];
+        foreach (self::PLATFORMS as $p) {
+            $menus[$p] = $platformMenus[$p] ?? null;
+        }
+
+        $canonical = $menus[$contentSource] ?? ['store' => [], 'categories' => []];
+        $otherPlatforms = array_values(array_filter(self::PLATFORMS, fn ($p) => $p !== $contentSource));
 
         // Ghost platforms: connected (store link present) but this run's scrape
         // returned nothing. They're attached to every dish so the platform never
         // vanishes on a flaky scrape (see class doc, LINK-DRIVEN AVAILABILITY).
-        $menus = ['uber-eats' => $ueMenu, 'doordash' => $ddMenu];
         $ghostPlatforms = [];
         foreach (self::PLATFORMS as $platform) {
             if ($menus[$platform] === null && isset($storeLinks[$platform])) {
@@ -67,21 +71,31 @@ class MenuMerger
             }
         }
 
-        $index = $this->index($other['categories'] ?? []);
+        // One name-index + matched-key tracker per other platform.
+        $indexes = [];
+        $matched = [];
+        foreach ($otherPlatforms as $p) {
+            if ($menus[$p] !== null) {
+                $indexes[$p] = $this->index($menus[$p]['categories'] ?? []);
+                $matched[$p] = [];
+            }
+        }
 
-        // Track which other-platform items got matched into a canonical dish, so
-        // the leftovers (other-platform-only dishes) can be appended afterwards.
-        $matchedOther = [];
-
+        // Canonical spine pass: walk the content-source's categories; for each
+        // item, cross-match against every other platform and fuse all versions.
         $categories = [];
         foreach ($canonical['categories'] as $category) {
             $items = [];
             foreach ((array) ($category['items'] ?? []) as $item) {
-                $matched = $this->match((string) ($item['name'] ?? ''), $index);
-                if ($matched !== null) {
-                    $matchedOther[$matched['key']] = true;
+                $versions = [$contentSource => $item];
+                foreach ($indexes as $p => $index) {
+                    $m = $this->match((string) ($item['name'] ?? ''), $index);
+                    if ($m !== null) {
+                        $matched[$p][$m['key']] = true;
+                        $versions[$p] = $m['item'];
+                    }
                 }
-                $items[] = $this->fuse($item, $matched['item'] ?? null, $contentSource, $storeLinks, $ghostPlatforms);
+                $items[] = $this->fuse($versions, $storeLinks, $ghostPlatforms);
             }
             if ($items !== []) {
                 $categories[] = [
@@ -92,56 +106,62 @@ class MenuMerger
             }
         }
 
-        // Append the other platform's UNMATCHED items — every dish from every
-        // platform must appear. They keep their own category (named from the
-        // other platform), tagged with the other platform as the source.
-        foreach ($this->leftovers($other['categories'] ?? [], $matchedOther) as $category) {
-            $items = [];
-            foreach ($category['items'] as $item) {
-                $items[] = $this->fuse($item, null, $otherSource, $storeLinks, $ghostPlatforms);
+        // Leftover append pass: for each other platform, append its unmatched
+        // dishes. Cross-match against later other platforms so items shared between
+        // two non-canonical platforms still get fused rather than duplicated.
+        foreach ($otherPlatforms as $i => $p) {
+            if ($menus[$p] === null) {
+                continue;
             }
-            if ($items !== []) {
-                $categories[] = [
-                    'name' => (string) ($category['name'] ?? 'Menu'),
-                    'sourcePlatform' => $otherSource,
-                    'items' => $items,
-                ];
+            foreach ($this->leftovers($menus[$p]['categories'] ?? [], $matched[$p]) as $category) {
+                $items = [];
+                foreach ($category['items'] as $item) {
+                    $versions = [$p => $item];
+                    foreach (array_slice($otherPlatforms, $i + 1) as $later) {
+                        if (! isset($indexes[$later])) {
+                            continue;
+                        }
+                        $m = $this->match((string) ($item['name'] ?? ''), $indexes[$later]);
+                        if ($m !== null && ! isset($matched[$later][$m['key']])) {
+                            $matched[$later][$m['key']] = true;
+                            $versions[$later] = $m['item'];
+                        }
+                    }
+                    $items[] = $this->fuse($versions, $storeLinks, $ghostPlatforms);
+                }
+                if ($items !== []) {
+                    $categories[] = [
+                        'name' => (string) ($category['name'] ?? 'Menu'),
+                        'sourcePlatform' => $p,
+                        'items' => $items,
+                    ];
+                }
             }
         }
 
         return [
-            'store' => $this->mergeStore($canonical['store'] ?? [], $other['store'] ?? [], $contentSource),
+            'store' => $this->mergeStore($menus, $contentSource),
             'categories' => $categories,
         ];
     }
 
     /**
-     * Resolve one dish (the canonical or other-platform-only item) + its optional
-     * cross-platform match into the persisted item shape — gap-filled display
-     * fields, a platforms[] availability list, and the aggregate prices.
+     * Resolve a set of platform versions of one dish into the persisted item shape —
+     * gap-filled display fields, a platforms[] availability list, and aggregate prices.
      *
-     * $primarySource is the platform that supplied $item; $matched (when present)
-     * is the SAME dish on the opposite platform.
-     *
-     * @param  array<string,mixed>  $item
-     * @param  array<string,mixed>|null  $matched
+     * @param  array<string, array<string,mixed>>  $versions  platform => dish data on that platform
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $storeLinks
      * @return array<string,mixed>
      */
-    private function fuse(array $item, ?array $matched, string $primarySource, array $storeLinks, array $ghostPlatforms = []): array
+    private function fuse(array $versions, array $storeLinks, array $ghostPlatforms = []): array
     {
-        // The Uber Eats-sourced + DoorDash-sourced versions of this dish — one is
-        // the primary item, the other is the match (or null when unmatched).
-        $ue = $primarySource === 'uber-eats' ? $item : $matched;
-        $dd = $primarySource === 'doordash' ? $item : $matched;
-
-        // platforms[] — one entry per platform this dish is on, in content-priority
-        // order (Uber Eats first). A platform appears when either its scrape
-        // carried this dish, OR it's a connected-but-unscraped ghost (attached to
-        // every dish with null prices so it never disappears on a flaky scrape).
+        // platforms[] — one entry per platform this dish is on, in PLATFORMS order
+        // (Uber Eats first). A platform appears when either its scrape carried this
+        // dish, OR it's a connected-but-unscraped ghost (null prices, urls still
+        // route) so it never disappears on a flaky scrape.
         $platforms = [];
         foreach (self::PLATFORMS as $platform) {
-            $source = $platform === 'uber-eats' ? $ue : $dd;
+            $source = $versions[$platform] ?? null;
             if (is_array($source)) {
                 $platforms[] = $this->platformEntry($platform, $source, $storeLinks[$platform] ?? null);
             } elseif (isset($ghostPlatforms[$platform])) {
@@ -151,26 +171,49 @@ class MenuMerger
 
         $aggregates = $this->aggregates($platforms);
 
-        // Display fields gap-fill: Uber Eats value where present, else DoorDash.
-        $ueName = $this->str($ue['name'] ?? null);
-        $ddName = $this->str($dd['name'] ?? null);
-
+        // Display fields use PLATFORMS order (UE wins ties) regardless of which
+        // platform is the content source. Only mergeStore() uses canonical-first
+        // order. These two priority orders intentionally differ.
         return [
-            'name' => $ueName ?? $ddName ?? (string) ($item['name'] ?? ''),
-            'description' => ($this->str($ue['description'] ?? null)) ?? ($this->str($dd['description'] ?? null)),
-            // Uber Eats image preferred; DoorDash fills the gap when UE has none.
-            'imageUrl' => ($ue['image'] ?? null) ?? ($dd['image'] ?? null),
-            'rating' => $dd['rating'] ?? null,                       // DoorDash only
-            'ratingCount' => $dd['ratingCount'] ?? null,
-            'badges' => $dd['badges'] ?? null,
+            'name' => $this->pick($versions, 'name') ?? '',
+            'description' => $this->pick($versions, 'description'),
+            'imageUrl' => $this->pickRaw($versions, 'image'),
+            'rating' => $this->pickRaw($versions, 'rating'),         // DoorDash only (UE items carry null)
+            'ratingCount' => $this->pickRaw($versions, 'ratingCount'),
+            'badges' => $this->pickRaw($versions, 'badges'),
             'basePrice' => $aggregates['basePrice'],
             'pickupPrice' => $aggregates['pickupPrice'],
             'pickupSource' => $aggregates['pickupSource'],
             'deliveryPrice' => $aggregates['deliveryPrice'],
             'deliverySource' => $aggregates['deliverySource'],
             'platforms' => $platforms,
-            'ddExternalId' => $dd['externalId'] ?? null,
+            'ddExternalId' => $versions['doordash']['externalId'] ?? null,
         ];
+    }
+
+    /** First non-empty string value across PLATFORMS order. */
+    private function pick(array $versions, string $field): ?string
+    {
+        foreach (self::PLATFORMS as $p) {
+            $val = $this->str($versions[$p][$field] ?? null);
+            if ($val !== null) {
+                return $val;
+            }
+        }
+
+        return null;
+    }
+
+    /** First non-null raw value across PLATFORMS order. */
+    private function pickRaw(array $versions, string $field): mixed
+    {
+        foreach (self::PLATFORMS as $p) {
+            if (isset($versions[$p]) && array_key_exists($field, $versions[$p]) && $versions[$p][$field] !== null) {
+                return $versions[$p][$field];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -263,23 +306,41 @@ class MenuMerger
     }
 
     /**
-     * Store-level fields: canonical platform first, other platform as fallback so
-     * a missing rating/logo on one side is filled by the other.
+     * Store-level fields: canonical platform first, other platforms as fallback
+     * so a missing rating/logo fills from wherever it exists.
      *
-     * @param  array<string,mixed>  $canonical
-     * @param  array<string,mixed>  $other
+     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $menus
      * @return array<string,mixed>
      */
-    private function mergeStore(array $canonical, array $other, string $contentSource): array
+    private function mergeStore(array $menus, string $contentSource): array
     {
+        $name = $rating = $reviewCount = $currency = $logo = null;
+        foreach ($this->priorityOrder($contentSource) as $p) {
+            $store = $menus[$p]['store'] ?? null;
+            if ($store === null) {
+                continue;
+            }
+            $name ??= $store['name'] ?? null;
+            $rating ??= $store['rating'] ?? null;
+            $reviewCount ??= $store['reviewCount'] ?? null;
+            $currency ??= $store['currency'] ?? null;
+            $logo ??= $store['logo'] ?? null;
+        }
+
         return [
-            'name' => $canonical['name'] ?? $other['name'] ?? null,
-            'rating' => $canonical['rating'] ?? $other['rating'] ?? null,
-            'reviewCount' => $canonical['reviewCount'] ?? $other['reviewCount'] ?? null,
-            'currency' => $canonical['currency'] ?? $other['currency'] ?? 'AUD',
-            'logo' => $canonical['logo'] ?? $other['logo'] ?? null,
+            'name' => $name,
+            'rating' => $rating,
+            'reviewCount' => $reviewCount,
+            'currency' => $currency ?? 'AUD',
+            'logo' => $logo,
             'contentSource' => $contentSource,
         ];
+    }
+
+    /** Canonical platform first, then the remaining PLATFORMS in their defined order. */
+    private function priorityOrder(string $contentSource): array
+    {
+        return array_values(array_unique([$contentSource, ...self::PLATFORMS]));
     }
 
     /**

@@ -65,7 +65,7 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
     ])]);
 
     $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
-    $item = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['basePrice'])->toBe(15.5);              // min across platforms
     expect($item['pickupPrice'])->toBe(15.5);            // DoorDash offers pickup
@@ -84,7 +84,7 @@ it('builds a platforms array of length 2 with per-mode prices and urls for a dis
     $dd = platformMenu([normItem(['name' => 'Chicken Burrito', 'deliveryPrice' => 15.5])]);
 
     $links = storeLinks(['uber-eats' => ['pickup', 'delivery'], 'doordash' => ['delivery']]);
-    $item = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['platforms'])->toHaveCount(2);
     // Content-priority order: Uber Eats first.
@@ -112,7 +112,7 @@ it('includes a DoorDash-only item in the union (not dropped)', function () {
     ];
 
     $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
-    $merged = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
 
     // The UE spine category, plus the DoorDash-only Desserts category appended.
     $names = collect($merged['categories'])->flatMap(fn ($c) => collect($c['items'])->pluck('name'))->all();
@@ -136,7 +136,7 @@ it('gap-fills the image from Uber Eats and the description from DoorDash on a ma
     $dd = platformMenu([normItem(['name' => 'Plain Rice', 'pickupPrice' => 3.5, 'image' => null, 'description' => 'Steamed jasmine rice.'])]);
 
     $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
-    $item = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['imageUrl'])->toBe('https://ue/rice.jpg');       // UE image
     expect($item['description'])->toBe('Steamed jasmine rice.');  // DoorDash fills the gap
@@ -147,7 +147,7 @@ it('fills a missing Uber Eats image from the matched DoorDash item', function ()
     $dd = platformMenu([normItem(['name' => 'Plain Rice', 'pickupPrice' => 3.5, 'image' => 'https://dd/rice.jpg'])]);
 
     $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
-    $item = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
     expect($item['imageUrl'])->toBe('https://dd/rice.jpg');
 });
 
@@ -157,7 +157,7 @@ it('aggregates pickupPrice and deliveryPrice as the min among capable platforms'
     $dd = platformMenu([normItem(['name' => 'Combo', 'pickupPrice' => 19.5, 'deliveryPrice' => 19.5])]);
 
     $links = storeLinks(['uber-eats' => ['pickup', 'delivery'], 'doordash' => ['pickup', 'delivery']]);
-    $item = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['basePrice'])->toBe(19.5);     // min across
     expect($item['pickupPrice'])->toBe(19.5);   // DoorDash cheaper, offers pickup
@@ -171,7 +171,7 @@ it('leaves a mode price null when no platform offers that mode', function () {
     $ue = platformMenu([normItem(['name' => 'Chicken Burrito', 'deliveryPrice' => 17.0])]);
 
     $links = storeLinks(['uber-eats' => ['delivery']]);
-    $item = (new MenuMerger)->merge($ue, null, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['deliveryPrice'])->toBe(17.0);
     expect($item['deliverySource'])->toBe('uber-eats');
@@ -190,7 +190,7 @@ it('matches a trailing-qualifier variant but not a similar different dish', func
     // "Margherita" ⊂ "Margherita Pizza" → matched (one merged item, 2 platforms).
     $ue = platformMenu([normItem(['name' => 'Margherita', 'deliveryPrice' => 20.0])]);
     $dd = platformMenu([normItem(['name' => 'Margherita Pizza', 'pickupPrice' => 18.0])]);
-    $merged = (new MenuMerger)->merge($ue, $dd, 'uber-eats', $links);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
     $items = collect($merged['categories'])->flatMap(fn ($c) => $c['items']);
     expect($items)->toHaveCount(1);
     expect($items[0]['pickupPrice'])->toBe(18.0);
@@ -200,7 +200,7 @@ it('matches a trailing-qualifier variant but not a similar different dish', func
     // appear (union), each single-platform.
     $ue2 = platformMenu([normItem(['name' => 'Beef Burrito', 'deliveryPrice' => 16.0])]);
     $dd2 = platformMenu([normItem(['name' => 'Bean Burrito', 'pickupPrice' => 14.0])]);
-    $merged2 = (new MenuMerger)->merge($ue2, $dd2, 'uber-eats', $links);
+    $merged2 = (new MenuMerger)->merge(['uber-eats' => $ue2, 'doordash' => $dd2], 'uber-eats', $links);
     $items2 = collect($merged2['categories'])->flatMap(fn ($c) => $c['items']);
     expect($items2)->toHaveCount(2);
     expect($items2->pluck('name')->all())->toContain('Beef Burrito');
@@ -214,7 +214,7 @@ it('uses DoorDash as the canonical source when no Uber Eats menu exists', functi
     );
 
     $links = storeLinks(['doordash' => ['pickup']]);
-    $merged = (new MenuMerger)->merge(null, $dd, 'doordash', $links);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
     $item = $merged['categories'][0]['items'][0];
 
     expect($merged['store']['rating'])->toBe(3.7);
@@ -231,7 +231,7 @@ it('offers both modes at one price when a platform store link is untyped', funct
     $ue = platformMenu([normItem(['name' => 'Combo', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0])]);
 
     $links = ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://ue/store', 'modes' => ['pickup', 'delivery']]];
-    $item = (new MenuMerger)->merge($ue, null, 'uber-eats', $links)['categories'][0]['items'][0];
+    $item = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['platforms'][0]['pickupPrice'])->toBe(12.0);
     expect($item['platforms'][0]['pickupUrl'])->toBe('https://ue/store');
@@ -251,7 +251,7 @@ it('attaches a connected-but-unscraped platform to every dish as a priceless gho
     ]);
 
     $links = storeLinks(['uber-eats' => ['pickup', 'delivery'], 'doordash' => ['pickup', 'delivery']]);
-    $merged = (new MenuMerger)->merge(null, $dd, 'doordash', $links);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
     $items = collect($merged['categories'])->flatMap(fn ($c) => $c['items']);
 
     foreach ($items as $item) {
@@ -269,4 +269,16 @@ it('attaches a connected-but-unscraped platform to every dish as a priceless gho
     expect($margherita['pickupPrice'])->toBe(18.0);
     expect($margherita['pickupSource'])->toBe('doordash');
     expect($margherita['basePrice'])->toBe(18.0);
+});
+
+it('preserves PLATFORMS priority order regardless of map insertion order', function () {
+    $ue = platformMenu([normItem(['name' => 'Burger'])]);
+    $dd = platformMenu([normItem(['name' => 'Burger'])]);
+    $merged = app(MenuMerger::class)->merge(
+        ['doordash' => $dd, 'uber-eats' => $ue],  // reversed insertion order
+        'uber-eats',
+        [],
+    );
+    expect($merged['categories'][0]['items'][0]['platforms'][0]['platform'])->toBe('uber-eats')
+        ->and($merged['categories'][0]['items'][0]['platforms'][1]['platform'])->toBe('doordash');
 });
