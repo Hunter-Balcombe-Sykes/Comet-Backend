@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
 - P2 Medium: 15 of 15 complete
-- P3 Low: 9 of 11 complete
+- P3 Low: 10 of 11 complete
 
 ---
 
@@ -844,7 +844,7 @@
         ```
     - **Resolution (2026-07-02) — already fixed by prior work; no code change:** SmartLinks were deleted entirely (same commit as FOUND-17: `2f3bd47e` 2026-06-30). `IndividualProfilePayloadBuilder` no longer has a `shapeSmartLink` method or any SmartLink handling.
 
-- [ ] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
+- [x] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
     - **Where:** `app/Services/User/UpdateSiteAction.php` (inline subdomain rename block after `if (array_key_exists('subdomain', $data))`)
     - **Effort:** M (~2–4h)
     - **What to do:** Extract a `RenameSubdomainAction` with `execute(Site $site, string $newSubdomain, User $professional): void`. `UpdateSiteAction` calls it on subdomain change detection. `ReclaimHandleAction` (which already delegates renames to `UpdateSiteAction`) would benefit from calling `RenameSubdomainAction` directly.
