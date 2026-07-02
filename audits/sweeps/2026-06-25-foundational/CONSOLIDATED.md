@@ -72,7 +72,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 12 of 15 complete
+- P2 Medium: 14 of 15 complete
 - P3 Low: 4 of 11 complete
 
 ---
@@ -413,7 +413,7 @@
         $needsWorkplace   = in_array('workplace', $presentTypes, true);
         ```
 
-- [ ] **#FOUND-11** · P2 — Reorder logic (advisory lock + lockForUpdate + two-pass offset + site touch) is copy-pasted across 11 controllers with inconsistent locking strategies
+- [x] **#FOUND-11** · P2 — Reorder logic (advisory lock + lockForUpdate + two-pass offset + site touch) is copy-pasted across 11 controllers with inconsistent locking strategies
     - **Where:** User-side: `UserLinkBlockController.php`, `UserSectionBlockController.php`, `UserSmartLinkController.php`, `UserUploadController.php`, `UserGalleryController.php`, `UserServiceController.php` (×2), `UserServiceCategoryController.php`; Staff-side: `StaffLinkBlockManagementController.php`, `StaffSectionManagementController.php`, `StaffServiceManagementController.php`
     - **Affects:** Any change to the reorder contract (new locking strategy, audit log, sort-order uniqueness fix) must be applied to 11 independent implementations; current drift is already visible
     - **Effort:** M (~2–4h)
@@ -469,7 +469,7 @@
         }
         ```
 
-- [ ] **#FOUND-13** · P2 — Advisory-lock + `max(sort_order)` + insert boilerplate duplicated across 5 store/upsert controllers with subtle scope variations
+- [x] **#FOUND-13** · P2 — Advisory-lock + `max(sort_order)` + insert boilerplate duplicated across 5 store/upsert controllers with subtle scope variations
     - **Where:** `UserLinkBlockController.php:store()`, `UserSectionBlockController.php:syncAllowedSections()`, `UserSmartLinkController.php:store()`, `UserServiceController.php:store()`, `UserServiceCategoryController.php:store()`
     - **Affects:** Any change to concurrent-insert strategy (new lock-key format, Redis-based locking, gap-safe `max`); different controllers already use slightly different `max` scopes
     - **Effort:** M (~2–4h)
