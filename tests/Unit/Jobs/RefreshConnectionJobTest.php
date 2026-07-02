@@ -5,6 +5,9 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\YoutubeScraper;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Queue\Middleware\RateLimited;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -92,4 +95,21 @@ it('no-ops when the connection is missing or inactive', function () {
 
     $conn->refresh();
     expect($conn->last_refresh_status)->toBeNull();
+});
+
+it('applies the platform-refresh RateLimited middleware', function () {
+    $mw = (new RefreshConnectionJob('id', 'youtube'))->middleware();
+    expect($mw)->toHaveCount(1)->and($mw[0])->toBeInstanceOf(RateLimited::class);
+});
+
+it('registers a per-provider platform-refresh limiter keyed by platform', function () {
+    $callback = RateLimiter::limiter('platform-refresh');
+    expect($callback)->not->toBeNull();
+
+    $limit = $callback(new RefreshConnectionJob('id', 'youtube'));
+    $limit = is_array($limit) ? $limit[0] : $limit;
+
+    expect($limit)->toBeInstanceOf(Limit::class)
+        ->and($limit->key)->toBe('platform-refresh:youtube')
+        ->and($limit->maxAttempts)->toBe(60); // config default
 });
