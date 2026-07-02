@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
 - P2 Medium: 15 of 15 complete
-- P3 Low: 10 of 11 complete
+- P3 Low: 11 of 11 complete
 
 ---
 
@@ -725,7 +725,7 @@
         if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
         ```
 
-- [ ] **#FOUND-23** · P3 — Cache-invalidation pattern (touch site + dispatch Cloudflare purge) is reimplemented independently across 6 observer classes
+- [x] **#FOUND-23** · P3 — Cache-invalidation pattern (touch site + dispatch Cloudflare purge) is reimplemented independently across 6 observer classes
     - **Where:** `app/Observers/Core/BlockObserver.php`, `ServiceObserver.php`, `SiteMediaObserver.php`, `UserObserver.php`, `SmartLinkObserver.php`, `IntegrationConnectionObserver.php`
     - **Effort:** M (~2–4h)
     - **What to do:** Extract a `SiteCacheInvalidator` class with `invalidate(Site $site, string $reason): void` that owns the `afterCommit` semantics, `$site->touch()`, and `CloudflareCachePurgeJob::dispatch()` dispatch — optionally with structured logging. Each observer calls the service instead of reimplementing the sequence.
