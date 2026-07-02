@@ -96,7 +96,7 @@ class StaffServiceManagementController extends ApiController
         $service = InsertWithSortOrder::run(
             Service::query()
                 ->where('user_id', $professional->id)
-                ->where('category_id', $data['category_id'] ?? null),
+                ->whereNull('deleted_at'),
             "services:{$professional->id}",
             function (int $next) use ($professional, $data) {
                 $service = Service::query()->create([
