@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Platforms\GenericPlatformController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
+use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;
 use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
@@ -39,6 +40,15 @@ $registerIntegrationRoutes = function (string $base): void {
     // EnforcePendingDeletionReadOnly inspects its status. The IntegrationConnectionPolicy
     // gate stays as defense-in-depth for non-HTTP and future by-UUID paths.
     $middleware = ['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'];
+
+    // Cross-platform sync metadata — one call for the whole integrations index
+    // ("Synced 2h ago" lines + sync-error badges) instead of touching every
+    // per-platform endpoint.
+    Route::prefix($base)
+        ->middleware($middleware)
+        ->group(function () {
+            Route::get('/meta', IntegrationsMetaController::class);
+        });
 
     Route::prefix("{$base}/fresha")
         ->middleware($middleware)

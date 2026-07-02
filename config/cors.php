@@ -35,7 +35,9 @@ return [
     // browser's wildcard+credentials restriction does not apply. If supports_credentials
     // is ever set to true, this MUST be locked to an explicit list.
     'allowed_headers' => ['*'],
-    'exposed_headers' => [],
+    // Let the browser read rate-limit hints — the dashboard renders countdown
+    // copy ("Try again in 4:32") from Retry-After on 429 responses.
+    'exposed_headers' => ['Retry-After'],
     // Cache CORS preflight responses for 24h. Browsers floor this to their own
     // caps (Chromium 2h, Safari 10min, Firefox 24h). Without this, every fetch
     // pays a fresh OPTIONS round-trip — observed as ~140 redundant preflights
