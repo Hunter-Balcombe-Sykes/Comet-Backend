@@ -29,6 +29,7 @@ final class StyleTiers
     /** @var array<string, array<string, string>> signal => tier => literal */
     private const TIERS = [
         'bg' => [
+            'light' => '#fafafa', // neutral white-ish (v2: rendered-confident white sites SET this instead of abstaining)
             'warm_light' => '#f7f4ee',
             'cool_light' => '#f7f8fa',
             'dark' => '#151515',

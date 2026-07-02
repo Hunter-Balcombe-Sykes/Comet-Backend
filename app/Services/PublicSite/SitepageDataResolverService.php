@@ -243,7 +243,7 @@ class SitepageDataResolverService
      * reads the logos for the profile and the covers per integration. Rendering
      * is the theme's concern — this only makes the URLs available.
      *
-     * @return array<string, array{url: string, url_hd: string|null, url_svg: string|null}>
+     * @return array<string, array{url: string, url_hd: string|null, url_svg: string|null, url_icon: string|null}>
      */
     public function getDesignSingletons(?Site $site): array
     {
@@ -270,6 +270,8 @@ class SitepageDataResolverService
                     'url' => $url,
                     'url_hd' => $urls['maximized'] ?? null,
                     'url_svg' => $media->svgVariantUrl(),
+                    // 192px PNG (square logos) — the sitepage favicon source.
+                    'url_icon' => $media->iconVariantUrl(),
                 ]];
             })
             ->all();

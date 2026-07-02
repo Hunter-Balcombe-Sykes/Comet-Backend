@@ -241,4 +241,17 @@ class SiteMedia extends BaseModel
             ->firstWhere('artifact_type', 'svg')
             ?->url;
     }
+
+    /**
+     * Public URL of the 192px icon PNG artifact (square logos only) — the
+     * sitepage favicon/apple-touch source. Null when not generated.
+     */
+    public function iconVariantUrl(): ?string
+    {
+        $this->loadMissing('mediaVariants');
+
+        return $this->mediaVariants
+            ->firstWhere('variant_key', 'icon')
+            ?->url;
+    }
 }
