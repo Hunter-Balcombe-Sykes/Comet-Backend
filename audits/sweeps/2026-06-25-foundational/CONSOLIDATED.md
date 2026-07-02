@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
 - P2 Medium: 11 of 15 complete
-- P3 Low: 2 of 11 complete
+- P3 Low: 3 of 11 complete
 
 ---
 
@@ -778,7 +778,7 @@
         $highlights = data_get($existing, 'highlights', []);
         ```
 
-- [ ] **#FOUND-26** · P3 — `PlatformRefresher` has ~10 near-identical `*Payload` methods; a bug in the "spread existing + overwrite fresh" merge logic must be fixed in 10 places
+- [x] **#FOUND-26** · P3 — `PlatformRefresher` has ~10 near-identical `*Payload` methods; a bug in the "spread existing + overwrite fresh" merge logic must be fixed in 10 places
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`youtubePayload`, `bandcampPayload`, `appleMusicPayload`, `applePodcastPayload`, `deezerPayload`, `youtubeMusicPayload`, `vimeoPayload`, `twitchPayload`, `pinterestPayload`, `scrapedCardPayload`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Extract a `preservePayload(array $existing, array $fresh, array $overwriteKeys): array` helper. Each `*Payload` method scrapes, then calls `preservePayload($payload, $fresh, ['latest', 'name', 'thumbnail', ...])`. The "which keys survive from existing vs. come from fresh" policy is explicit once rather than inferred from 10 spread operations.
@@ -799,6 +799,7 @@
             'thumbnail' => $latest['thumbnail'] ?? $profile['thumbnail'], 'link' => $latest['link'],
         ], 'error' => null, 'status' => 'ok'];
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** PlatformRefresher was completely rewritten in the Platform Registry Redesign (Plan 6, 2026-06-29). All `*Payload` private methods were deleted; per-platform refresh logic now lives in strategy classes called via `$descriptor->refreshStrategy()->run($connection)`. The "spread existing + overwrite fresh" merge is handled inside each strategy, co-located with the fetch logic.
 
 - [ ] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`groupKitColumns` — `$twoTokenPrefixes`, `$singleTokenPrefixes`)
