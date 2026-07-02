@@ -2,69 +2,44 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
-// Pilot daily refresh of the auto-content platform connections (YouTube latest,
-// Eventbrite events, Apple latest release), stalest rows first. Other platforms
-// are intentionally NOT queried — see PlatformRefresher for why (static links
-// have nothing to refresh; Instagram/Fresha/Shopify are deferred).
+// Dispatcher (not a worker): selects connections DUE for refresh per the platform's
+// TTL and fans out one RefreshConnectionJob each onto the platform_refresh queue.
+// Replaces the old serial foreach + 300/run cap (SCALE-1). Cheap and frequent — the
+// heavy fetching happens on the queue, paced per-provider by the RateLimiter. Due-ness
+// is per-connection (last_refreshed_at + per-provider TTL), so capacity scales with the
+// fleet instead of a fixed daily cap.
 class RefreshIntegrationConnectionsCommand extends Command
 {
-    protected $signature = 'integrations:refresh {--limit=300 : Max connections to refresh this run} {--throttle-ms=200 : Politeness delay between fetches}';
+    protected $signature = 'integrations:refresh';
 
-    protected $description = 'Re-fetch stale auto-content platform connections (pilot).';
+    protected $description = 'Dispatch a refresh job for every platform connection due per its TTL.';
 
-    public function handle(PlatformRefresher $refresher, PlatformRegistry $registry): int
+    public function handle(PlatformRegistry $registry): int
     {
-        $limit = (int) $this->option('limit');
-        $throttleMs = (int) $this->option('throttle-ms');
+        $defaultTtl = (int) config('partna.refresh.default_ttl_seconds');
+        $maxFailures = (int) config('partna.refresh.max_consecutive_failures');
+        $dispatched = 0;
 
-        $connections = IntegrationConnection::query()
-            ->active()
-            ->whereIn('platform', array_keys($registry->refreshable()))
-            ->orderByRaw('last_refreshed_at ASC NULLS FIRST')
-            ->limit($limit)
-            ->get();
+        foreach ($registry->refreshable() as $platform => $descriptor) {
+            $ttl = $descriptor->refreshInterval() ?? $defaultTtl;
+            $cutoff = now()->subSeconds($ttl);
 
-        $ok = 0;
-        $updated = 0;
-        $failed = 0;
-        foreach ($connections as $connection) {
-            try {
-                $refreshed = $refresher->refresh($connection);
-                if ($refreshed->last_refresh_status === 'ok') {
-                    $ok++;
-                    // wasChanged('payload') separates a genuine content update from a
-                    // no-op refresh — refresh() only dirties payload when the fetched
-                    // content actually differs, so ops can see if the cron did useful work.
-                    if ($refreshed->wasChanged('payload')) {
-                        $updated++;
-                    }
-                } else {
-                    $failed++;
-                }
-            } catch (\Throwable $e) {
-                // Surface to Nightwatch — the continue-on-error loop otherwise turns
-                // a systemic failure (broken scraper, schema drift) into N silent
-                // warnings + a healthy-looking summary, with zero exception events.
-                report($e);
-                $failed++;
-                Log::warning('integrations:refresh failed for a connection', [
-                    'platform_connection_id' => $connection->id,
-                    'platform' => $connection->platform,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-            if ($throttleMs > 0) {
-                usleep($throttleMs * 1000);
-            }
+            IntegrationConnection::query()
+                ->where('platform', $platform)
+                ->dueForRefresh($cutoff, $maxFailures)
+                ->lazyById()
+                ->each(function (IntegrationConnection $connection) use (&$dispatched) {
+                    RefreshConnectionJob::dispatch($connection->id, $connection->platform);
+                    $dispatched++;
+                });
         }
 
-        $this->info("Platform connections refreshed: {$ok} ok ({$updated} with new content), {$failed} failed (of {$connections->count()} stale).");
+        $this->info("Platform refresh: dispatched {$dispatched} due connection job(s).");
 
         return self::SUCCESS;
     }
