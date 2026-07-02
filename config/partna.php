@@ -879,6 +879,51 @@ return [
     // cache:clear`. (LIFE-2)
     'design_kit_columns_version' => (int) env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', 1),
 
+    /*
+    |----------------------------------------------------------------------
+    | Design-kit column group prefix maps
+    |----------------------------------------------------------------------
+    | IndividualProfilePayloadBuilder::groupKitColumns() uses these to
+    | project flat snake_case DB column names (e.g. color_accent,
+    | typography_font_heading) into the nested camelCase wire shape
+    | (e.g. colors.accent, typography.fontHeading).
+    |
+    | two_token_prefixes — matched FIRST (longer prefix wins). Covers
+    |   responsive companion groups (e.g. space_desktop_regular →
+    |   spaceDesktop.regular).
+    |
+    | single_token_prefixes — fallback after two-token check. Pluralisation
+    |   is NOT mechanical, so the map is explicit. Adding a new design-kit
+    |   column family whose prefix isn't listed here means that group is
+    |   silently dropped from the API response — add the entry here at the
+    |   same time you add the Supabase migration column.
+    */
+    'design_kit' => [
+        'column_groups' => [
+            'two_token_prefixes' => [
+                'space_desktop'      => 'spaceDesktop',
+                'text_desktop'       => 'textDesktop',
+                'sizing_desktop'     => 'sizingDesktop',
+                'typography_desktop' => 'typographyDesktop',
+            ],
+            'single_token_prefixes' => [
+                'color'      => 'colors',
+                'typography' => 'typography',
+                'text'       => 'text',      // text scale (text_xs, text_sm, ...)
+                'weight'     => 'weight',    // weight scale (weight_regular, weight_medium, ...)
+                'border'     => 'borders',
+                'space'      => 'space',
+                'motion'     => 'motion',
+                'icon'       => 'icons',     // singular prefix: icon_size, icon_color (reserved)
+                'icons'      => 'icons',     // plural prefix:   icons_xl_size, icons_stroke_width, etc.
+                'effect'     => 'effects',
+                'theme'      => 'theme',     // theme_mode
+                'sizing'     => 'sizing',    // legacy (columns dropped — kept for safety)
+                'button'     => 'buttons',   // legacy (columns dropped — kept for safety)
+            ],
+        ],
+    ],
+
     'media_disk' => env('PARTNA_MEDIA_DISK', env('SIDEST_MEDIA_DISK', 'media')),
 
     /*

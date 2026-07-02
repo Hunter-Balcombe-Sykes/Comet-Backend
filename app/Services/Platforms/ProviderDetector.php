@@ -37,4 +37,29 @@ class ProviderDetector
 
         return null;
     }
+
+    /**
+     * The detectable provider slugs for a category in registration order.
+     * Detection-presence is the discriminator: fallback pseudo-platforms (e.g.
+     * events-custom) have no Detection strategy and are intentionally excluded —
+     * they are catch-alls that should never appear in scraper dispatch maps.
+     *
+     * @return list<string>
+     */
+    public function providersFor(string $category): array
+    {
+        $cat = PlatformCategory::tryFrom($category);
+        if ($cat === null) {
+            return [];
+        }
+
+        $slugs = [];
+        foreach ($this->registry->all() as $descriptor) {
+            if ($descriptor->detection() !== null && $descriptor->getCategory() === $cat) {
+                $slugs[] = $descriptor->key();
+            }
+        }
+
+        return $slugs;
+    }
 }

@@ -487,33 +487,18 @@ class IndividualProfilePayloadBuilder
      */
     private function groupKitColumns(array $cols): array
     {
+        // Prefix maps live in config/partna.php under design_kit.column_groups.
+        // Adding a new column family = one entry in that config key (+ the
+        // matching Supabase migration) — no code change here.
+
         // Responsive companion groups use a two-token prefix (e.g.
         // `space_desktop_regular` → spaceDesktop.regular). Match these
         // BEFORE the single-token prefixes so the longer match wins.
-        $twoTokenPrefixes = [
-            'space_desktop' => 'spaceDesktop',
-            'text_desktop' => 'textDesktop',
-            'sizing_desktop' => 'sizingDesktop',
-            'typography_desktop' => 'typographyDesktop',
-        ];
+        $twoTokenPrefixes = config('partna.design_kit.column_groups.two_token_prefixes', []);
 
         // Single-token prefix → wire group key. Pluralisation isn't
         // mechanical (typography stays singular), so the map is explicit.
-        $singleTokenPrefixes = [
-            'color' => 'colors',
-            'typography' => 'typography',
-            'text' => 'text',       // text scale (text_xs, text_sm, ...)
-            'weight' => 'weight',   // weight scale (weight_regular, weight_medium, ...)
-            'border' => 'borders',
-            'space' => 'space',
-            'motion' => 'motion',
-            'icon' => 'icons',   // singular prefix: icon_size, icon_color (reserved)
-            'icons' => 'icons',  // plural prefix:   icons_xl_size, icons_stroke_width, etc.
-            'effect' => 'effects',
-            'theme' => 'theme',  // theme_mode
-            'sizing' => 'sizing',   // legacy (columns dropped — kept for safety)
-            'button' => 'buttons',  // legacy (columns dropped — kept for safety)
-        ];
+        $singleTokenPrefixes = config('partna.design_kit.column_groups.single_token_prefixes', []);
 
         $out = [];
         foreach ($cols as $column => $value) {

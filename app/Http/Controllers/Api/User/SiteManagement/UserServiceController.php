@@ -13,6 +13,8 @@ use App\Http\Resources\ServiceResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\UserCacheService;
+use App\Services\Site\InsertWithSortOrder;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -113,41 +115,31 @@ class UserServiceController extends ApiController
         $this->assertCategoryBelongsToProfessional($pro->id, $data['category_id'] ?? null);
 
         try {
-            $service = DB::transaction(function () use ($pro, $data) {
-                DB::select('select pg_advisory_xact_lock(hashtext(?))', ["services:{$pro->id}"]);
-
-                if (! array_key_exists('sort_order', $data) || $data['sort_order'] === null) {
-                    // The unique constraint
-                    //   services_professional_sort_order_uq
-                    //   ON (user_id, sort_order) WHERE deleted_at IS NULL
-                    // is global per professional — it does NOT include
-                    // category_id. So the max-lookup must consider EVERY live
-                    // service for this professional regardless of category,
-                    // otherwise a new service in a different category (or with
-                    // null category) would compute sort_order=0 and collide
-                    // with an existing live row at sort_order=0.
-                    $max = Service::query()
-                        ->where('user_id', $pro->id)
-                        ->whereNull('deleted_at')
-                        ->max('sort_order');
-
-                    $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
-                }
-
-                $service = Service::query()->create([
-                    'user_id' => $pro->id,
-                    'category_id' => $data['category_id'] ?? null,
-                    'title' => $data['title'],
-                    'description' => $data['description'] ?? null,
-                    'price_cents' => $data['price_cents'],
-                    'currency_code' => $data['currency_code'] ?? 'AUD',
-                    'duration_minutes' => $data['duration_minutes'] ?? null,
-                    'is_active' => $data['is_active'] ?? true,
-                    'sort_order' => $data['sort_order'],
-                ]);
-
-                return $service->fresh();
-            });
+            // The unique constraint services_professional_sort_order_uq ON
+            // (user_id, sort_order) WHERE deleted_at IS NULL is global per
+            // professional — the max-lookup considers EVERY live service
+            // regardless of category so a new service never collides with an
+            // existing row at sort_order=0.
+            $service = InsertWithSortOrder::run(
+                Service::query()
+                    ->where('user_id', $pro->id)
+                    ->whereNull('deleted_at'),
+                "services:{$pro->id}",
+                function (int $next) use ($pro, $data) {
+                    $service = Service::query()->create([
+                        'user_id' => $pro->id,
+                        'category_id' => $data['category_id'] ?? null,
+                        'title' => $data['title'],
+                        'description' => $data['description'] ?? null,
+                        'price_cents' => $data['price_cents'],
+                        'currency_code' => $data['currency_code'] ?? 'AUD',
+                        'duration_minutes' => $data['duration_minutes'] ?? null,
+                        'is_active' => $data['is_active'] ?? true,
+                        'sort_order' => $data['sort_order'] ?? $next,
+                    ]);
+                    return $service->fresh();
+                },
+            );
         } catch (\Throwable $e) {
             // Log the actual cause so the user sees the real error in server
             // logs instead of the generic "An error occurred" wrapper from
@@ -207,35 +199,11 @@ class UserServiceController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $ids = array_values(array_unique($request->validated()['ids']));
-
-        DB::transaction(function () use ($pro, $ids) {
-
-            $allIds = Service::query()
-                ->where('user_id', $pro->id)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more service IDs are invalid.');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-
-            foreach ($newOrder as $i => $id) {
-                Service::query()
-                    ->where('user_id', $pro->id)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            Service::query()->where('user_id', $pro->id),
+            "services:{$pro->id}",
+        );
 
         return $this->success(['ok' => true]);
     }

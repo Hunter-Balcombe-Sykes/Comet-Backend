@@ -12,6 +12,8 @@ use App\Http\Resources\ServiceResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Services\Site\InsertWithSortOrder;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -91,32 +93,26 @@ class StaffServiceManagementController extends ApiController
 
         $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id'] ?? null);
 
-        $service = DB::transaction(function () use ($professional, $data) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["services:{$professional->id}"]);
-
-            if (! array_key_exists('sort_order', $data) || $data['sort_order'] === null) {
-                $max = Service::query()
-                    ->where('user_id', $professional->id)
-                    ->where('category_id', $data['category_id'] ?? null)
-                    ->max('sort_order');
-
-                $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
-            }
-
-            $service = Service::query()->create([
-                'user_id' => $professional->id,
-                'category_id' => $data['category_id'] ?? null,
-                'title' => $data['title'],
-                'description' => $data['description'] ?? null,
-                'price_cents' => $data['price_cents'],
-                'currency_code' => $data['currency_code'] ?? 'AUD',
-                'duration_minutes' => $data['duration_minutes'] ?? null,
-                'is_active' => $data['is_active'] ?? true,
-                'sort_order' => $data['sort_order'],
-            ]);
-
-            return $service->fresh();
-        });
+        $service = InsertWithSortOrder::run(
+            Service::query()
+                ->where('user_id', $professional->id)
+                ->whereNull('deleted_at'),
+            "services:{$professional->id}",
+            function (int $next) use ($professional, $data) {
+                $service = Service::query()->create([
+                    'user_id' => $professional->id,
+                    'category_id' => $data['category_id'] ?? null,
+                    'title' => $data['title'],
+                    'description' => $data['description'] ?? null,
+                    'price_cents' => $data['price_cents'],
+                    'currency_code' => $data['currency_code'] ?? 'AUD',
+                    'duration_minutes' => $data['duration_minutes'] ?? null,
+                    'is_active' => $data['is_active'] ?? true,
+                    'sort_order' => $data['sort_order'] ?? $next,
+                ]);
+                return $service->fresh();
+            },
+        );
 
         return $this->success(['service' => new ServiceResource($service)], 201);
     }
@@ -176,36 +172,11 @@ class StaffServiceManagementController extends ApiController
 
     public function reorder(StaffReorderServiceRequest $request, User $professional): JsonResponse
     {
-        $ids = array_values(array_unique($request->validated()['ids'] ?? []));
-
-        DB::transaction(function () use ($professional, $ids) {
-
-            $allIds = Service::query()
-                ->where('user_id', $professional->id)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more service IDs are invalid.');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-
-            foreach ($newOrder as $i => $id) {
-                Service::query()
-                    ->where('user_id', $professional->id)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            Service::query()->where('user_id', $professional->id),
+            "services:{$professional->id}",
+        );
 
         return $this->success(['ok' => true]);
     }

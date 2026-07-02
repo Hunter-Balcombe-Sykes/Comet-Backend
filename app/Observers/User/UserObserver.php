@@ -5,6 +5,7 @@ namespace App\Observers\User;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Observers\Concerns\LogsWithRequestContext;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
@@ -45,6 +46,7 @@ class UserObserver
     public function __construct(
         private UserCacheService $userCache,
         private SectionVisibilityService $visibilityService,
+        private readonly SiteCacheInvalidator $invalidator,
     ) {}
 
     public function updated(User $professional): void
@@ -124,14 +126,9 @@ class UserObserver
             return;
         }
 
-        try {
-            $professional->site?->touch();
-        } catch (\Throwable $e) {
-            Log::warning('UserObserver: parent site touch() failed on public-field change', $this->logContext(__METHOD__, [
-                'user_id' => $professional->id,
-                'message' => $e->getMessage(),
-            ]));
-        }
+        $this->invalidator->touchSite(fn () => $professional->site, 'user public-field change', [
+            'user_id' => $professional->id,
+        ]);
     }
 
     public function deleted(User $professional): void

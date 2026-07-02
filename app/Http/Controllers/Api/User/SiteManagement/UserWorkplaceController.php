@@ -85,7 +85,10 @@ class UserWorkplaceController extends ApiController
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
 
-        Workplace::query()->where('site_id', (string) $site->id)->delete();
+        // Instance delete (not a bulk query delete) so model events fire —
+        // WorkplaceObserver::deleted sweeps the previous-website design-preset
+        // contributions when the card (and its archived URL) goes away.
+        Workplace::query()->where('site_id', (string) $site->id)->first()?->delete();
 
         // The workplace row is gone — re-eval flips is_enabled back to false
         // so the dashboard's Live toggle locks and the public render path stops

@@ -3,16 +3,18 @@
 namespace App\Http\Requests\Api\PublicSite;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\WithBotProtection;
 use Illuminate\Validation\Rule;
 
 // V2: Validates waitlist signup. Only email is required — all other fields are optional
 // so the public coming-soon landing can submit an email-only row, while the full
 // multi-step form (when reintroduced) can submit the complete payload.
-// Honeypot + optional timing bot protection mirrors PublicCustomerLeadRequest;
-// form_started_at_ms is nullable (non-breaking) until the frontend sends it — tighten
-// to required once it does.
+// Honeypot + timing bot protection via WithBotProtection (shared with the other public
+// submission requests).
 class PublicWaitlistSignupRequest extends BaseFormRequest
 {
+    use WithBotProtection;
+
     protected function prepareForValidation(): void
     {
         $this->merge([
@@ -25,8 +27,7 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'industry_other_text' => $this->normalizeOptionalString($this->input('industry_other_text')),
             'pilot_program_opt_in' => $this->normalizeBoolean($this->input('pilot_program_opt_in')),
             'number_of_team_members' => $this->normalizeInteger($this->input('number_of_team_members')),
-            // honeypot — trim so an accidental space doesn't bypass the non-empty check
-            'website' => is_string($this->website) ? trim($this->website) : $this->website,
+            ...$this->botProtectionPrepare(),
         ]);
     }
 
@@ -43,9 +44,8 @@ class PublicWaitlistSignupRequest extends BaseFormRequest
             'pilot_program_opt_in' => ['nullable', 'boolean'],
             'number_of_team_members' => ['nullable', 'integer', 'min:0', 'max:1000000'],
 
-            // Bot protection (same field names as PublicCustomerLeadRequest).
-            'website' => ['nullable', 'string', 'max:255'],          // honeypot
-            'form_started_at_ms' => ['nullable', 'integer', 'min:0'], // timing (nullable until frontend sends it)
+            // Bot protection (honeypot + timing) — canonical rules in WithBotProtection.
+            ...$this->botProtectionRules(),
         ];
     }
 

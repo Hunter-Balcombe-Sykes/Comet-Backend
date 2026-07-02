@@ -19,6 +19,7 @@ beforeEach(function () {
     setupSitesTable();
     setupSubdomainAliasesTable(); // invalidateSite() queries site.site_subdomain_aliases
     setupMediaTables();
+    shimPgAdvisoryLockForSqlite();
 });
 
 function seedGalleryReorderFixture(): array

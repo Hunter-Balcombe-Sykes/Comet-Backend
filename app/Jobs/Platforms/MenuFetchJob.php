@@ -168,7 +168,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
         // platform's items either way; a connected platform that returned nothing
         // is still attached to every dish as a ghost (see MenuMerger).
         $contentSource = $ueMenu !== null ? 'uber-eats' : 'doordash';
-        $merged = $merger->merge($ueMenu, $ddMenu, $contentSource, $storeLinks);
+        $merged = $merger->merge(
+            ['uber-eats' => $ueMenu, 'doordash' => $ddMenu],
+            $contentSource,
+            $storeLinks,
+        );
 
         $this->persist($menu, $contentSource, $merged, $now);
     }

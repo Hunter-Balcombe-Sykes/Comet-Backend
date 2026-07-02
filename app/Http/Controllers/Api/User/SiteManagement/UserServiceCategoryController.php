@@ -10,6 +10,8 @@ use App\Http\Requests\Api\User\Services\UpdateServiceCategoryRequest;
 use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Services\Site\InsertWithSortOrder;
+use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -53,25 +55,18 @@ class UserServiceCategoryController extends ApiController
         $this->authorizeForUser($pro, 'create', new ServiceCategory(['user_id' => $pro->id]));
         $data = $request->validated();
 
-        $category = DB::transaction(function () use ($pro, $data) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-categories:{$pro->id}"]);
-
-            if (! array_key_exists('sort_order', $data) || $data['sort_order'] === null) {
-                $max = ServiceCategory::query()
-                    ->where('user_id', $pro->id)
-                    ->max('sort_order');
-
-                $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
-            }
-
-            $category = ServiceCategory::query()->create([
-                'user_id' => $pro->id,
-                'title' => $data['title'],
-                'sort_order' => $data['sort_order'],
-            ]);
-
-            return $category->fresh();
-        });
+        $category = InsertWithSortOrder::run(
+            ServiceCategory::query()->where('user_id', $pro->id),
+            "service-categories:{$pro->id}",
+            function (int $next) use ($pro, $data) {
+                $category = ServiceCategory::query()->create([
+                    'user_id' => $pro->id,
+                    'title' => $data['title'],
+                    'sort_order' => $data['sort_order'] ?? $next,
+                ]);
+                return $category->fresh();
+            },
+        );
 
         return $this->success(['category' => new ServiceCategoryResource($category)], 201);
     }
@@ -155,36 +150,12 @@ class UserServiceCategoryController extends ApiController
     public function reorder(ReorderServiceCategoryRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
-        $ids = array_values(array_unique($request->validated()['ids']));
 
-        DB::transaction(function () use ($pro, $ids) {
-
-            $allIds = ServiceCategory::query()
-                ->where('user_id', $pro->id)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            $allSet = array_flip($allIds);
-
-            foreach ($ids as $id) {
-                if (! isset($allSet[$id])) {
-                    abort(422, 'One or more category IDs are invalid.');
-                }
-            }
-
-            $remaining = array_values(array_diff($allIds, $ids));
-            $newOrder = array_merge($ids, $remaining);
-
-            foreach ($newOrder as $i => $id) {
-                ServiceCategory::query()
-                    ->where('user_id', $pro->id)
-                    ->where('id', $id)
-                    ->update(['sort_order' => $i]);
-            }
-        });
+        app(ReorderService::class)->reorder(
+            $request->input('ids', []),
+            ServiceCategory::query()->where('user_id', $pro->id),
+            "service-categories:{$pro->id}",
+        );
 
         return $this->success(['ok' => true]);
     }

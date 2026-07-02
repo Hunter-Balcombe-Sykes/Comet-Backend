@@ -71,15 +71,15 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 5 complete
-- P2 Medium: 0 of 15 complete
-- P3 Low: 0 of 11 complete
+- P1 High: 5 of 5 complete
+- P2 Medium: 15 of 15 complete
+- P3 Low: 11 of 11 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#FOUND-1** · P1 — Platform enum stored as a CHECK constraint forces an ALTER TABLE migration on every new platform
+- [x] **#FOUND-1** · P1 — Platform enum stored as a CHECK constraint forces an ALTER TABLE migration on every new platform
     - **Where:** `supabase/migrations/20260617140000_add_resdiary_nowbookit_platforms.sql` (representative); `site.platform_connections.platform` column; migrations `20260602150238` through `20260622120000`
     - **Affects:** Every developer adding a platform integration; the deploy pipeline (DDL lock on `platform_connections`); four weeks of migrations each acquiring `ACCESS EXCLUSIVE` on a live table
     - **Effort:** M (~2–4h)
@@ -103,8 +103,9 @@
                 'resdiary', 'nowbookit'
             ));
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** The scan ran 2026-06-25; the pain it describes was removed 4 days later by the Platform Registry Redesign (Plan 6). Verified against live dev Postgres (`glncumufgaqcmqhzwrxm`): `platform_connections_platform_check` no longer exists, and migration `20260629120000_drop_platform_connections_check` is recorded as applied. The finding's own escape hatch ("unconstrained TEXT if validation is done app-side") is the path taken — `PlatformRegistry` + `PlatformRegistryServiceProvider` are the single source of truth, `GenericPlatformController::descriptor()` 404s unknown platforms, and `tests/Feature/Platforms/Registry/RegistryCoverageTest.php` asserts registry-keys == stored platforms (the job the CHECK used to do). Adding platform #37 is one descriptor, zero DDL. **A `site.platforms` lookup table was deliberately NOT built** — it would re-create a second source of truth competing with the registry spine. The secondary ask (convert `last_refresh_status` / `apify_status` CHECKs) was **deliberately declined**: these are bounded lifecycle-state enums (4 and 3 values, changed once), not open-ended registries — the churn argument doesn't apply and the CHECK is cheap insurance against bad job-derived writes (per CLAUDE.md, "three similar lines > a premature abstraction").
 
-- [ ] **#FOUND-2** · P1 — `site.menus` hardcodes one column-triple per delivery platform; adding a third platform requires a migration AND edits across 5 code locations
+- [x] **#FOUND-2** · P1 — `site.menus` hardcodes one column-triple per delivery platform; adding a third platform requires a migration AND edits across 5 code locations
     - **Where:** `app/Models/Core/Site/Menu.php` (`$fillable`, `$casts`); `app/Jobs/Platforms/MenuFetchJob.php` (skip logic lines 83–92, status writes lines 107–124, persistence lines 134–155)
     - **Affects:** Menu subsystem; any addition of a third food-delivery platform (Menulog, Deliveroo)
     - **Effort:** L (~1–2d)
@@ -137,7 +138,7 @@
         && $existing->doordash_store_url === $plan['ddUrl']
         ```
 
-- [ ] **#FOUND-3** · P1 — `SiteMedia` requires a new PHP constant + list entry + migration for every new platform cover image
+- [x] **#FOUND-3** · P1 — `SiteMedia` requires a new PHP constant + list entry + migration for every new platform cover image
     - **Where:** `app/Models/Core/Site/SiteMedia.php` (`PURPOSE_COVER_*` constants, `DESIGN_SINGLETON_PURPOSES` array, migration comment citing `20260604000001` + `20260604000002`)
     - **Affects:** Every future platform integration that needs a cover image; currently YouTube, Apple Music, Apple Podcast, Eventbrite (4 active; Shopify slot remains in the list)
     - **Effort:** M (~2–4h)
@@ -170,7 +171,7 @@
         // and the app-side replace in MediaUploadService::uploadSingleton.
         ```
 
-- [ ] **#FOUND-4** · P1 — Workplace card (~15 named fields) stored in `site.sites.settings` JSONB; visibility checks scan the JSON blob on every public page render
+- [x] **#FOUND-4** · P1 — Workplace card (~15 named fields) stored in `site.sites.settings` JSONB; visibility checks scan the JSON blob on every public page render
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php` (upsert/show/destroy); `app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php` (normalizeProfile); `app/Services/User/SectionVisibilityService.php` (loadVisibilityContext ~line 229); `app/Services/PublicSite/SitepageDataResolverService.php` (getWorkplace)
     - **Affects:** Every public sitepage render that includes a workplace section; dashboard save latency; `SectionVisibilityService::batchCheck()` on every page load
     - **Effort:** L (~1–2d)
@@ -216,7 +217,7 @@
             ->getQuery();
         ```
 
-- [ ] **#FOUND-5** · P1 — Credentials and experience stored as JSON arrays in `core.users.about`; visibility checks use `jsonb_array_elements` in a WHERE clause with no index support
+- [x] **#FOUND-5** · P1 — Credentials and experience stored as JSON arrays in `core.users.about`; visibility checks use `jsonb_array_elements` in a WHERE clause with no index support
     - **Where:** `app/Services/User/SectionVisibilityService.php` (loadVisibilityContext lines 185–208); `app/Services/PublicSite/SitepageDataResolverService.php` (normaliseCredential, normaliseExperience)
     - **Affects:** Public sitepage render for any professional with credentials or experience sections; SectionVisibilityService batch check on every page load; any future "search professionals by credential type" feature
     - **Effort:** L (~1–2d)
@@ -256,7 +257,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#FOUND-6** · P2 — `menu_items.platforms` JSONB array has a known, documented element schema that belongs in a child table
+- [x] **#FOUND-6** · P2 — `menu_items.platforms` JSONB array has a known, documented element schema that belongs in a child table
     - **Where:** `app/Models/Core/Site/MenuItem.php` (`platforms` array cast); `supabase/migrations/20260623120000_add_menu_item_platforms.sql`
     - **Affects:** Menu item read path (dashboard + future public sitepage); any query filtering items by platform availability or price
     - **Effort:** M (~2–4h)
@@ -280,7 +281,7 @@
         protected $casts    = [ 'platforms' => 'array', ... ];
         ```
 
-- [ ] **#FOUND-7** · P2 — `MenuMerger::merge()` hardcodes exactly two delivery platforms; adding a third requires a breaking signature change plus cascade edits through the merger
+- [x] **#FOUND-7** · P2 — `MenuMerger::merge()` hardcodes exactly two delivery platforms; adding a third requires a breaking signature change plus cascade edits through the merger
     - **Where:** `app/Services/Platforms/MenuMerger.php` (signature line 53, `$canonical`/`$other` assignments lines 55–57, `fuse()` dual assignments throughout)
     - **Affects:** Any third delivery platform (Menulog, Deliveroo); `MenuFetchJob` callers
     - **Effort:** M (~2–4h)
@@ -302,7 +303,7 @@
             $other       = $contentSource === 'uber-eats' ? $ddMenu : $ueMenu;
         ```
 
-- [ ] **#FOUND-8** · P2 — Adding a third events/ticketing platform requires 5 coordinated edits across `EventsCatalog`, `ProviderDetector`, and an `adapter()` cheat-sheet — no shared interface
+- [x] **#FOUND-8** · P2 — Adding a third events/ticketing platform requires 5 coordinated edits across `EventsCatalog`, `ProviderDetector`, and an `adapter()` cheat-sheet — no shared interface
     - **Where:** `app/Services/Platforms/EventsCatalog.php` (`EVENT_PLATFORMS` line 29, `adapter()` lines 260–278); `app/Services/Platforms/ProviderDetector.php` (`CATEGORY_PROVIDERS['events']` line 19, `matches()` arms)
     - **Affects:** Any future events/ticketing platform (Ticketmaster, Moshtix, Ticketek); drift between the two `EVENT_PLATFORMS`/`CATEGORY_PROVIDERS` lists is already a single-addition-away
     - **Effort:** M (~2–4h)
@@ -342,7 +343,7 @@
         ];
         ```
 
-- [ ] **#FOUND-9** · P2 — `PlatformRefresher` has a 15-arm match statement plus a parallel `REFRESHABLE` constant; adding a refreshable platform requires 3 edits in one file
+- [x] **#FOUND-9** · P2 — `PlatformRefresher` has a 15-arm match statement plus a parallel `REFRESHABLE` constant; adding a refreshable platform requires 3 edits in one file
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`REFRESHABLE` lines 24–28, `match` lines 53–69, and one new `*Payload` private method per platform)
     - **Affects:** Every new auto-refresh platform; the `REFRESHABLE` constant duplicates the match set
     - **Effort:** M (~2–4h)
@@ -371,8 +372,9 @@
             default            => ['payload' => null, 'error' => 'unsupported_platform', 'status' => 'error'],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** PlatformRefresher was completely rewritten in the Platform Registry Redesign (Plan 6, commit `0acb58d0` 2026-06-29). It now delegates to `$descriptor->refreshStrategy()` via the injected `PlatformRegistry`. No match statement, no `REFRESHABLE` constant. `PlatformRegistry::refreshable()` serves as the authoritative refreshable-platform list. `RegistryCoverageTest` guards the invariant.
 
-- [ ] **#FOUND-10** · P2 — `SectionVisibilityService` has 3 separate match arms + a boolean-flag block per section type; adding a new section requires 4 coordinated edits in one file
+- [x] **#FOUND-10** · P2 — `SectionVisibilityService` has 3 separate match arms + a boolean-flag block per section type; adding a new section requires 4 coordinated edits in one file
     - **Where:** `app/Services/User/SectionVisibilityService.php` (`checkVisibilityRequirements` match, `loadVisibilityContext` boolean-flags block, `resolveFromContext` match, plus a private `check*Requirements` method)
     - **Affects:** Every new section block type; the current 10-type count will grow as the platform adds sections
     - **Effort:** M (~2–4h)
@@ -411,7 +413,7 @@
         $needsWorkplace   = in_array('workplace', $presentTypes, true);
         ```
 
-- [ ] **#FOUND-11** · P2 — Reorder logic (advisory lock + lockForUpdate + two-pass offset + site touch) is copy-pasted across 11 controllers with inconsistent locking strategies
+- [x] **#FOUND-11** · P2 — Reorder logic (advisory lock + lockForUpdate + two-pass offset + site touch) is copy-pasted across 11 controllers with inconsistent locking strategies
     - **Where:** User-side: `UserLinkBlockController.php`, `UserSectionBlockController.php`, `UserSmartLinkController.php`, `UserUploadController.php`, `UserGalleryController.php`, `UserServiceController.php` (×2), `UserServiceCategoryController.php`; Staff-side: `StaffLinkBlockManagementController.php`, `StaffSectionManagementController.php`, `StaffServiceManagementController.php`
     - **Affects:** Any change to the reorder contract (new locking strategy, audit log, sort-order uniqueness fix) must be applied to 11 independent implementations; current drift is already visible
     - **Effort:** M (~2–4h)
@@ -440,7 +442,7 @@
             ->lockForUpdate()->orderBy('sort_order')->orderBy('created_at')->pluck('id')->all();
         ```
 
-- [ ] **#FOUND-12** · P2 — `requiresFreshAal2` security logic is copy-pasted from `BasePolicy` into `MfaController`; the controller copy will drift when Supabase adds a new MFA method
+- [x] **#FOUND-12** · P2 — `requiresFreshAal2` security logic is copy-pasted from `BasePolicy` into `MfaController`; the controller copy will drift when Supabase adds a new MFA method
     - **Where:** `app/Http/Controllers/Api/User/Account/MfaController.php` (lines 78–100, `private function requiresFreshAal2`); `app/Policies/BasePolicy.php` (canonical version)
     - **Affects:** The MFA unenroll endpoint; any new MFA method Supabase adds (e.g. `passkey`) — `BasePolicy` gets the update, the controller does not
     - **Effort:** S (~0.5–1h)
@@ -467,7 +469,7 @@
         }
         ```
 
-- [ ] **#FOUND-13** · P2 — Advisory-lock + `max(sort_order)` + insert boilerplate duplicated across 5 store/upsert controllers with subtle scope variations
+- [x] **#FOUND-13** · P2 — Advisory-lock + `max(sort_order)` + insert boilerplate duplicated across 5 store/upsert controllers with subtle scope variations
     - **Where:** `UserLinkBlockController.php:store()`, `UserSectionBlockController.php:syncAllowedSections()`, `UserSmartLinkController.php:store()`, `UserServiceController.php:store()`, `UserServiceCategoryController.php:store()`
     - **Affects:** Any change to concurrent-insert strategy (new lock-key format, Redis-based locking, gap-safe `max`); different controllers already use slightly different `max` scopes
     - **Effort:** M (~2–4h)
@@ -491,7 +493,7 @@
         $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
         ```
 
-- [ ] **#FOUND-14** · P2 — `block_group` / `block_type` are unvalidated magic strings; a typo creates invisible blocks with no DB-layer detection
+- [x] **#FOUND-14** · P2 — `block_group` / `block_type` are unvalidated magic strings; a typo creates invisible blocks with no DB-layer detection
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php` (hardcodes `'links'`/`'link'`); `UserSectionBlockController.php` (hardcodes `'sections'`); underlying `site.blocks` table (no CHECK constraint on either column)
     - **Affects:** Any future block variant; today a migration that inserts `block_group = 'link'` (singular typo) creates rows that are invisible to every list endpoint — no error, no log
     - **Effort:** M (~2–4h)
@@ -509,7 +511,7 @@
         abort_unless($linkBlock->block_group === 'links' && $linkBlock->block_type === 'link', 404);
         ```
 
-- [ ] **#FOUND-15** · P2 — `Block.settings` sub-keys `category`, `platform`, and `live_check_enabled` are enumerated in config and filtered in queries, but stored in JSONB without column-level type or index support
+- [x] **#FOUND-15** · P2 — `Block.settings` sub-keys `category`, `platform`, and `live_check_enabled` are enumerated in config and filtered in queries, but stored in JSONB without column-level type or index support
     - **Where:** `config/partna.php` (`link_block_settings_keys` line 181, `live_check_enabled` line 197); `app/Models/Core/Site/Block.php` (`settings => 'array'`); `supabase/migrations/20260526000000_baseline_standalone_user.sql` (expression index on `(settings->>'live_check_enabled')`)
     - **Affects:** Live-check cap enforcement (JSON scan to count enabled blocks); platform live-status polling (JSON scan to collect handles); future analytics filtering by category
     - **Effort:** M (~2–4h)
@@ -534,7 +536,7 @@
             WHERE block_group = 'links' AND deleted_at IS NULL AND is_active = true;
         ```
 
-- [ ] **#FOUND-16** · P2 — `site.sites.settings` JSONB stores 10 named, individually-validated sub-keys that are read and written by name in PHP but invisible to the query planner
+- [x] **#FOUND-16** · P2 — `site.sites.settings` JSONB stores 10 named, individually-validated sub-keys that are read and written by name in PHP but invisible to the query planner
     - **Where:** `app/Http/Requests/Api/User/Site/UpdateSiteRequest.php` (lines 59–70, `settings.*` rules); `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php` (mirror rules)
     - **Affects:** Future staff filtering or admin reporting on `booking_mode`, `show_branding`, etc.; CHECK-constraint enforcement on enum fields; `SectionVisibilityService` booking checks
     - **Effort:** L (~1–2d)
@@ -560,7 +562,7 @@
         'settings.manual_booking_url'        => ['sometimes', 'nullable', 'url', 'max:2048'],
         ```
 
-- [ ] **#FOUND-17** · P2 — `SmartLinkTypeRegistry` has two match arms for the same platform set, and `SmartLinkValidator` has a third; adding a content platform requires 3 separate edits that will drift
+- [x] **#FOUND-17** · P2 — `SmartLinkTypeRegistry` has two match arms for the same platform set, and `SmartLinkValidator` has a third; adding a content platform requires 3 separate edits that will drift
     - **Where:** `app/Services/SmartLinks/SmartLinkTypeRegistry.php` (`CONTENT_PLATFORMS` line 21, `resolveType()` match lines 41–51, `extractorChain()` match lines 62–70); `app/Services/SmartLinks/SmartLinkValidator.php` (third match ~lines 30–59)
     - **Affects:** Any new content platform (SoundCloud being already wired into `PlatformRefresher` but not `CONTENT_PLATFORMS`); drift between the three dispatch tables is already possible
     - **Effort:** M (~2–4h)
@@ -595,8 +597,9 @@
             default => [],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** The entire SmartLinks feature was deleted (commit `2f3bd47e` 2026-06-30). `app/Services/SmartLinks/` no longer exists — no `SmartLinkTypeRegistry.php`, no `SmartLinkValidator.php`, no SmartLink references in the codebase. The triple-dispatch problem is moot.
 
-- [ ] **#FOUND-18** · P2 — `IntegrationConnection` payload carries a hidden async state machine (`apifyStatus`, `placeId`) that code reads to drive cross-job coordination
+- [x] **#FOUND-18** · P2 — `IntegrationConnection` payload carries a hidden async state machine (`apifyStatus`, `placeId`) that code reads to drive cross-job coordination
     - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php` (payload writes lines 149–156, `connection()` filter on `placeId` lines 185–188); Google Business enrichment flow
     - **Affects:** The Google Business async enrichment pipeline; any operator or developer trying to understand "which connections are pending enrichment" must know the secret JSON keys
     - **Effort:** M (~2–4h)
@@ -624,7 +627,7 @@
         return data_get($connection->payload, 'placeId') === $this->placeId ? $connection : null;
         ```
 
-- [ ] **#FOUND-19** · P2 — ~24 platform connect Form Requests are near-identical one-field wrappers; each new platform requires a new file with the same `authorize: true` + single-rule boilerplate
+- [x] **#FOUND-19** · P2 — ~24 platform connect Form Requests are near-identical one-field wrappers; each new platform requires a new file with the same `authorize: true` + single-rule boilerplate
     - **Where:** `app/Http/Requests/Platforms/` (ConnectBandcampRequest, ConnectEventbriteRequest, ConnectHumanitixRequest, ConnectSpotifyRequest, ConnectSoundcloudRequest, ConnectSkoolRequest, ConnectDeezerRequest, ConnectVimeoRequest, ConnectPinterestRequest, ConnectStravaRequest, ConnectTwitchRequest, ConnectYoutubeMusicRequest, ConnectResDiaryRequest, ConnectNowBookitRequest, ConnectOpenTableRequest, ConnectFacebookRequest, ConnectTiktokRequest, ConnectSquareRequest, ConnectFreshaRequest, ConnectGoogleBusinessRequest, ConnectAppleMusicRequest, ConnectApplePodcastRequest, ConnectYoutubeRequest, ConnectSocialLinkRequest — 24 classes confirmed by Glob)
     - **Affects:** Developer velocity when adding a platform; existing drift already visible (`max:500` on some, different patterns on others)
     - **Effort:** M (~2–4h)
@@ -650,7 +653,7 @@
         public function rules(): array { return ['url' => ['required', 'string', 'max:500']]; }
         ```
 
-- [ ] **#FOUND-20** · P2 — Subdomain validation closure (~60 lines, 4 rule checks) is copy-pasted between `UpdateSiteRequest` and `StaffUpdateSiteRequest`; drift will produce inconsistent validation
+- [x] **#FOUND-20** · P2 — Subdomain validation closure (~60 lines, 4 rule checks) is copy-pasted between `UpdateSiteRequest` and `StaffUpdateSiteRequest`; drift will produce inconsistent validation
     - **Where:** `app/Http/Requests/Api/User/Site/UpdateSiteRequest.php` (subdomain closure ~lines 80–145); `app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php` (near-identical closure)
     - **Affects:** Subdomain change validation: reserved words, uniqueness, alias conflict, handle-alias conflict — any new check must be added in two places
     - **Effort:** S (~0.5–1h)
@@ -681,7 +684,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#FOUND-21** · P3 — Adding a platform integration requires 5 edit sites in `routes/api/integrations.php`; no single registration entry
+- [x] **#FOUND-21** · P3 — Adding a platform integration requires 5 edit sites in `routes/api/integrations.php`; no single registration entry
     - **Where:** `routes/api/integrations.php` (imports block, per-platform route group or `$singleSelection` entry, middleware application)
     - **Effort:** L (~1–2d) — must coordinate with the controller/scraper factory pattern
     - **What to do:** Move platform route-group definitions to a data-driven loop over `config('partna.platforms')` (the same registry proposed in FOUND-1/FOUND-9). Simple single-action platforms (Spotify, SoundCloud) collapse to one config entry. Complex platforms (YouTube, Fresha) keep standalone groups but their imports become derived from the registry. This is the capstone of the platform-registry pattern; tackle after FOUND-1 and FOUND-9.
@@ -701,7 +704,7 @@
         foreach ($singleSelection as $slug => $controller) { ... }
         ```
 
-- [ ] **#FOUND-22** · P3 — `GoogleBusinessAutoSync` scatters reservation and booking platform lists across 7 private locations; adding a new booking/reservation provider is 7 edits
+- [x] **#FOUND-22** · P3 — `GoogleBusinessAutoSync` scatters reservation and booking platform lists across 7 private locations; adding a new booking/reservation provider is 7 edits
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php` (`hasAnyReservation()` line 193, `seedBooking()` line 218, `resolveReservationWrite()` multiple arms, `resolveBookingWrite()`, `applyFinding()` conflict remove arrays)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Define `RESERVATION_PLATFORMS` and `BOOKING_PLATFORMS` class constants; replace all seven inline arrays with references. In `resolveReservationWrite()`, extract a `UrlMatcherRegistry` (one entry per provider with its `isXxxUrl()` check) instead of a procedural if-ladder.
@@ -722,7 +725,7 @@
         if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
         ```
 
-- [ ] **#FOUND-23** · P3 — Cache-invalidation pattern (touch site + dispatch Cloudflare purge) is reimplemented independently across 6 observer classes
+- [x] **#FOUND-23** · P3 — Cache-invalidation pattern (touch site + dispatch Cloudflare purge) is reimplemented independently across 6 observer classes
     - **Where:** `app/Observers/Core/BlockObserver.php`, `ServiceObserver.php`, `SiteMediaObserver.php`, `UserObserver.php`, `SmartLinkObserver.php`, `IntegrationConnectionObserver.php`
     - **Effort:** M (~2–4h)
     - **What to do:** Extract a `SiteCacheInvalidator` class with `invalidate(Site $site, string $reason): void` that owns the `afterCommit` semantics, `$site->touch()`, and `CloudflareCachePurgeJob::dispatch()` dispatch — optionally with structured logging. Each observer calls the service instead of reimplementing the sequence.
@@ -740,7 +743,7 @@
         $pro->site?->touch();
         ```
 
-- [ ] **#FOUND-24** · P3 — `MenuApifyScraper` dispatches platform-specific logic at 4 locations via string comparison; adding a delivery platform requires 4 file edits
+- [x] **#FOUND-24** · P3 — `MenuApifyScraper` dispatches platform-specific logic at 4 locations via string comparison; adding a delivery platform requires 4 file edits
     - **Where:** `app/Services/Platforms/MenuApifyScraper.php` (`ACTORS` constant, `mapResponse()` ternary, `input()` match, `fetchStores()` target building)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Define a `MenuPlatformDriver` contract: `actorId(): string`, `mapItems(array $items): array`, `buildInput(string $url, ?string $address): array`. Register implementations per platform in config. `mapResponse()` and `input()` become `$this->drivers[$platform]->mapItems()` / `buildInput()` calls.
@@ -758,7 +761,7 @@
         };
         ```
 
-- [ ] **#FOUND-25** · P3 — "Preserve existing highlights on reconnect" pattern copy-pasted across 5 platform controllers
+- [x] **#FOUND-25** · P3 — "Preserve existing highlights on reconnect" pattern copy-pasted across 5 platform controllers
     - **Where:** `YoutubeController.php` (connect ~lines 58–62), `VimeoController.php` (~67–70), `BandcampController.php` (~62–65), `AppleController.php` (keptHighlights), `YoutubeMusicController.php` (~61–65)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add a `preserveHighlights(User $user, string $platform, string $identityField, mixed $identityValue): array` method to the `ManagesIntegrationConnection` trait; replace the 5 inline `matchAccountRow` + `data_get` patterns with a single call.
@@ -775,7 +778,7 @@
         $highlights = data_get($existing, 'highlights', []);
         ```
 
-- [ ] **#FOUND-26** · P3 — `PlatformRefresher` has ~10 near-identical `*Payload` methods; a bug in the "spread existing + overwrite fresh" merge logic must be fixed in 10 places
+- [x] **#FOUND-26** · P3 — `PlatformRefresher` has ~10 near-identical `*Payload` methods; a bug in the "spread existing + overwrite fresh" merge logic must be fixed in 10 places
     - **Where:** `app/Services/Platforms/PlatformRefresher.php` (`youtubePayload`, `bandcampPayload`, `appleMusicPayload`, `applePodcastPayload`, `deezerPayload`, `youtubeMusicPayload`, `vimeoPayload`, `twitchPayload`, `pinterestPayload`, `scrapedCardPayload`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Extract a `preservePayload(array $existing, array $fresh, array $overwriteKeys): array` helper. Each `*Payload` method scrapes, then calls `preservePayload($payload, $fresh, ['latest', 'name', 'thumbnail', ...])`. The "which keys survive from existing vs. come from fresh" policy is explicit once rather than inferred from 10 spread operations.
@@ -796,8 +799,9 @@
             'thumbnail' => $latest['thumbnail'] ?? $profile['thumbnail'], 'link' => $latest['link'],
         ], 'error' => null, 'status' => 'ok'];
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** PlatformRefresher was completely rewritten in the Platform Registry Redesign (Plan 6, 2026-06-29). All `*Payload` private methods were deleted; per-platform refresh logic now lives in strategy classes called via `$descriptor->refreshStrategy()->run($connection)`. The "spread existing + overwrite fresh" merge is handled inside each strategy, co-located with the fetch logic.
 
-- [ ] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
+- [x] **#FOUND-27** · P3 — Design-kit column-group prefix map is hardcoded in `IndividualProfilePayloadBuilder`; new design-kit variables with unknown prefixes are silently dropped from the public profile
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`groupKitColumns` — `$twoTokenPrefixes`, `$singleTokenPrefixes`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Move both prefix maps to `config/partna.php` (e.g. `design_kit_column_groups`). `groupKitColumns` reads from config — new columns added by migration are automatically projected to the wire format by registering their prefix in config at the same time.
@@ -819,7 +823,7 @@
         ];
         ```
 
-- [ ] **#FOUND-28** · P3 — SmartLink type-to-wire-fields mapping is a `match()` in the payload builder; adding a new type requires this file AND the registry (FOUND-17)
+- [x] **#FOUND-28** · P3 — SmartLink type-to-wire-fields mapping is a `match()` in the payload builder; adding a new type requires this file AND the registry (FOUND-17)
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`shapeSmartLink` — match on `$l->type`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Move the type-to-metadata-fields map to `config/partna.php` (`smart_link_type_fields`). `shapeSmartLink` iterates the config entry for the link's type rather than a match arm. Combine with FOUND-17's registry so the field shape is co-located with the extractor chain.
@@ -838,8 +842,9 @@
             default                   => $base + ['artist' => $meta['artist'] ?? null, 'album' => $meta['album'] ?? null],
         };
         ```
+    - **Resolution (2026-07-02) — already fixed by prior work; no code change:** SmartLinks were deleted entirely (same commit as FOUND-17: `2f3bd47e` 2026-06-30). `IndividualProfilePayloadBuilder` no longer has a `shapeSmartLink` method or any SmartLink handling.
 
-- [ ] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
+- [x] **#FOUND-29** · P3 — Subdomain rename logic (~60 lines) is inlined inside `UpdateSiteAction::execute()` rather than extracted to a reusable action
     - **Where:** `app/Services/User/UpdateSiteAction.php` (inline subdomain rename block after `if (array_key_exists('subdomain', $data))`)
     - **Effort:** M (~2–4h)
     - **What to do:** Extract a `RenameSubdomainAction` with `execute(Site $site, string $newSubdomain, User $professional): void`. `UpdateSiteAction` calls it on subdomain change detection. `ReclaimHandleAction` (which already delegates renames to `UpdateSiteAction`) would benefit from calling `RenameSubdomainAction` directly.
@@ -862,7 +867,7 @@
         }
         ```
 
-- [ ] **#FOUND-30** · P3 — `HasActionLogLifecycle` trait has no default `failed()` method; 7 moderation jobs each implement the identical failure-handling body independently
+- [x] **#FOUND-30** · P3 — `HasActionLogLifecycle` trait has no default `failed()` method; 7 moderation jobs each implement the identical failure-handling body independently
     - **Where:** `app/Jobs/Moderation/Concerns/HasActionLogLifecycle.php` (no `failed()` method — confirmed by grep); `SuspendSiteJob`, `SuspendUserJob`, `QuarantineMediaJob`, `PurgeModerationCacheJob`, `NotifyOnCallStaffJob`, `NotifyReportedUserJob`, `NotifyReporterJob` (all implement `failed()` with identical `report() + update(['status' => 'failed', 'failed_at' => now()]) + Log::error()`)
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add a `failed(Throwable $e): void` default to `HasActionLogLifecycle` that calls `report($e)`, updates `ActionLogEntry` status to `'failed'` with `failed_at`, and logs a standard error. Concrete jobs may call `parent::failed($e)` and add context, or rely on the default.
@@ -886,7 +891,7 @@
         // HasActionLogLifecycle.php — no failed() method (confirmed by grep: no matches)
         ```
 
-- [ ] **#FOUND-31** · P3 — Bot-protection rules (honeypot + timing) are copy-pasted across 4 public Form Requests with existing drift (`required` vs `nullable` on `form_started_at_ms`)
+- [x] **#FOUND-31** · P3 — Bot-protection rules (honeypot + timing) are copy-pasted across 4 public Form Requests with existing drift (`required` vs `nullable` on `form_started_at_ms`)
     - **Where:** `app/Http/Requests/Api/PublicSite/PublicCustomerLeadRequest.php`, `PublicEmailSubscribeRequest.php`, `PublicEnquiryRequest.php`, `PublicWaitlistSignupRequest.php`
     - **Effort:** S (~0.5–1h)
     - **What to do:** Extract a `WithBotProtection` trait (or a `PublicFormRequest` base class) that declares the `website` honeypot and `form_started_at_ms` timing rules plus the `prepareForValidation()` trim. New public forms get bot protection by `use WithBotProtection`. The `required` vs `nullable` drift is resolved by a single documented rule.
@@ -913,8 +918,8 @@
 
 ## Suggested Bundled Sessions
 
-- **Bundle 1 — Platform registry (extensibility backbone):** #FOUND-1, #FOUND-9, #FOUND-17, #FOUND-19, #FOUND-21
-    - **Why grouped:** All require a `config/partna.php` platform registry as the single registration point; FOUND-1 (lookup table) is the DB side, FOUND-9 (PlatformRefresher) and FOUND-17 (SmartLink registry) are the PHP dispatch side, FOUND-19 (Form Requests) and FOUND-21 (routes) are the HTTP layer. Build the registry once, collapse five surfaces.
+- **Bundle 1 — Platform registry PHP dispatch:** #FOUND-9, #FOUND-17, #FOUND-28
+    - **Why grouped:** All three are PHP-side registry dispatch: FOUND-9 replaces the `PlatformRefresher` 15-arm match with a registered handler map; FOUND-17 unifies the three `SmartLinkTypeRegistry` dispatch tables into a config registry; FOUND-28 moves the payload builder's `match($l->type)` alongside FOUND-17's extractor chain. One session, one registry pattern, three files cleaned up. (Note: FOUND-1 (DB lookup table) is a standalone DB blocker — execute separately with sign-off. FOUND-19 + FOUND-21 shipped in wave-2.)
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
 - **Bundle 2 — Menu schema restructure:** #FOUND-7, #FOUND-24
@@ -922,10 +927,10 @@
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
 - **Bundle 3 — Events platform interface:** #FOUND-8
-    - **Why grouped:** Standalone because it touches both EventsCatalog and ProviderDetector and their shared protocol; do after FOUND-9's registry exists so events can register in it.
+    - **Why grouped:** Standalone because it touches both EventsCatalog and ProviderDetector and their shared protocol; do after Bundle 1 (FOUND-9) so the platform registry exists for events to register in.
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
-- **Bundle 4 — Section visibility registry:** #FOUND-10, #FOUND-14
+- **Bundle 4 — Section visibility registry:** #FOUND-10, #FOUND-14 ✅ SHIPPED (wave-2 PR4)
     - **Why grouped:** Adding a section type requires both a `SectionVisibilityContract` implementation (FOUND-10) and a matching `block_type` CHECK constraint (FOUND-14); the two must ship together or new section types can be created without a visibility handler.
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
@@ -933,15 +938,13 @@
     - **Why grouped:** Same advisory-lock + sort-order pattern; extracting a `ReorderService` and `InsertWithSortOrder` helper touches the same 11 controllers and should be done in one session to avoid half-extracted logic.
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
-- **Bundle 6 — Block.settings column promotions:** #FOUND-15, #FOUND-16
+- **Bundle 6 — Block.settings column promotions:** #FOUND-15, #FOUND-16 ✅ SHIPPED (wave-2 PR5a/5b + PR6a/6b)
     - **Why grouped:** Both require a `site.sites` / `site.blocks` migration + Eloquent model update + Form Request update; the column-promotion migration pattern is the same; review together to avoid inconsistency between the two tables.
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
-- **Bundle 7 — SmartLink type registry:** #FOUND-17, #FOUND-28
-    - **Why grouped:** FOUND-17 (SmartLinkTypeRegistry) and FOUND-28 (payload builder match) share the same type namespace; the field-shape map should live alongside the extractor chain in the unified registry.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet. (Note: FOUND-17 is already listed in Bundle 1 for the platform-registry angle; if tackled in Bundle 1, carry FOUND-28 into that session.)
+- **Bundle 7 — SmartLink type registry:** ✅ MERGED INTO BUNDLE 1 — #FOUND-17 and #FOUND-28 are now in Bundle 1.
 
-- **Bundle 8 — Auth freshness service:** #FOUND-12
+- **Bundle 8 — Auth freshness service:** #FOUND-12 ✅ SHIPPED (wave-2 PR1)
     - **Why grouped:** Security-sensitive extraction; keep as its own session with an independent security review step.
     - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
 
@@ -966,11 +969,11 @@
 ## Standalone — do NOT bundle
 
 - **#FOUND-1 — Platform CHECK constraint → lookup table** · P1 / DB migration on a live table.
-- **#FOUND-2 — Menu.menus per-platform columns → child table** · P1 / DB migration + backfill, L effort.
-- **#FOUND-3 — SiteMedia PURPOSE_COVER → convention-based** · P1 / DB migration (index changes) + model + request.
-- **#FOUND-4 — Workplace JSONB → site.workplaces table** · P1 / DB migration + backfill + 4 service/controller changes, L effort.
-- **#FOUND-5 — Credentials/experience JSON → child tables** · P1 / DB migration + backfill + visibility service rewrite, L effort.
-- **#FOUND-6 — menu_items.platforms → child table** · P2 / DB migration + backfill, must coordinate with FOUND-2 deploy window.
-- **#FOUND-12 — requiresFreshAal2 duplication** · P2 / Auth-critical security logic.
-- **#FOUND-18 — IntegrationConnection apifyStatus/placeId** · P2 / DB migration (new columns) + state-machine code change.
+- **#FOUND-2 — Menu.menus per-platform columns → child table** · P1 / DB migration + backfill, L effort. ✅ SHIPPED (wave-2 PR2)
+- **#FOUND-3 — SiteMedia PURPOSE_COVER → convention-based** · P1 / DB migration (index changes) + model + request. ✅ SHIPPED (wave-2 PR7)
+- **#FOUND-4 — Workplace JSONB → site.workplaces table** · P1 / DB migration + backfill + 4 service/controller changes, L effort. ✅ SHIPPED (wave-2 PR3)
+- **#FOUND-5 — Credentials/experience JSON → child tables** · P1 / DB migration + backfill + visibility service rewrite, L effort. ✅ SHIPPED (wave-2 PR3)
+- **#FOUND-6 — menu_items.platforms → child table** · P2 / DB migration + backfill, must coordinate with FOUND-2 deploy window. ✅ SHIPPED (wave-2 PR2)
+- **#FOUND-12 — requiresFreshAal2 duplication** · P2 / Auth-critical security logic. ✅ SHIPPED (wave-2 PR1)
+- **#FOUND-18 — IntegrationConnection apifyStatus/placeId** · P2 / DB migration (new columns) + state-machine code change. ✅ SHIPPED (wave-2 PR8)
 

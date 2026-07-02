@@ -60,6 +60,12 @@ it('detects events providers by host (eventbrite / humanitix), custom otherwise'
     expect($detector->detectFor('events', 'https://meetup.com/group'))->toBeNull(); // unknown → custom
 });
 
+it('providersFor returns detectable event slugs in registration order, excluding fallbacks', function () {
+    $detector = app(ProviderDetector::class);
+    // events-custom has no Detection strategy and must be excluded.
+    expect($detector->providersFor('events'))->toBe(['eventbrite', 'humanitix']);
+});
+
 // ── Booking detect routing ────────────────────────────────────────────
 
 it('routes a Fresha URL to the picker step without writing a booking row', function () {

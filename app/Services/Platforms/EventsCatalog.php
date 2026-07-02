@@ -27,21 +27,38 @@ use Illuminate\Support\Carbon;
 // The existing per-platform controllers are untouched.
 class EventsCatalog
 {
-    /** @var list<string> */
-    private const EVENT_PLATFORMS = ['eventbrite', 'humanitix'];
-
     private const CUSTOM_PLATFORM = 'events-custom';
 
     private const MAX_ACCOUNTS = 5;   // per platform (mirrors ManagesIntegrationConnection::maxAccounts)
 
     private const MAX_EVENTS = 10;    // per platform (mirrors EventsPlatformController::MAX_STANDALONE_EVENTS)
 
+    /** @var array<string, array{eventUrl:callable,fetchEvent:callable,accountUrl:callable,fetchAccount:callable}> */
+    private readonly array $adapters;
+
     public function __construct(
         private readonly EventbriteScraper $eventbrite,
         private readonly HumanitixScraper $humanitix,
         private readonly LinkCardScraper $linkCard,
         private readonly ProviderDetector $detector,
-    ) {}
+    ) {
+        // Build the per-provider callable map in the constructor so test mocks
+        // bound before instantiation are captured by the closures correctly.
+        $this->adapters = [
+            'eventbrite' => [
+                'eventUrl'     => fn (string $u) => $this->eventbrite->normalizeEventUrl($u),
+                'fetchEvent'   => fn (string $u) => $this->eventbrite->fetchSingleEvent($u),
+                'accountUrl'   => fn (string $u) => $this->eventbrite->normalizeOrgUrl($u),
+                'fetchAccount' => fn (string $u) => $this->eventbrite->fetchEvents($u),
+            ],
+            'humanitix' => [
+                'eventUrl'     => fn (string $u) => $this->humanitix->normalizeEventUrl($u),
+                'fetchEvent'   => fn (string $u) => $this->humanitix->fetchSingleEvent($u),
+                'accountUrl'   => fn (string $u) => $this->humanitix->resolveHostUrl($u),
+                'fetchAccount' => fn (string $u) => $this->humanitix->fetchEvents($u),
+            ],
+        ];
+    }
 
     /**
      * Detect + store a pasted URL.
@@ -55,30 +72,33 @@ class EventsCatalog
 
         if ($provider !== null) {
             $a = $this->adapter($provider);
-            $label = ucfirst($provider);
 
-            // Event-first: a single event URL adds just that event. (Humanitix's
-            // host resolver would otherwise turn an event link into its whole
-            // organiser, which isn't what "paste this event" means.)
-            if (($eventUrl = ($a['eventUrl'])($raw)) !== null) {
-                $event = ($a['fetchEvent'])($eventUrl);
-                if (! is_array($event)) {
-                    return $this->fail("Couldn't load that {$label} event.", 422);
+            if ($a !== null) {
+                $label = ucfirst($provider);
+
+                // Event-first: a single event URL adds just that event. (Humanitix's
+                // host resolver would otherwise turn an event link into its whole
+                // organiser, which isn't what "paste this event" means.)
+                if (($eventUrl = ($a['eventUrl'])($raw)) !== null) {
+                    $event = ($a['fetchEvent'])($eventUrl);
+                    if (! is_array($event)) {
+                        return $this->fail("Couldn't load that {$label} event.", 422);
+                    }
+
+                    return $this->storeStandalone($user, $provider, EventsPayload::standalonePayload($event));
                 }
 
-                return $this->storeStandalone($user, $provider, EventsPayload::standalonePayload($event));
-            }
+                // Else an organiser/host account → connect it (events auto-refresh).
+                if (($accountUrl = ($a['accountUrl'])($raw)) !== null) {
+                    $result = ($a['fetchAccount'])($accountUrl);
+                    if (! is_array($result)) {
+                        return $this->fail("Couldn't load that {$label} page.", 422);
+                    }
 
-            // Else an organiser/host account → connect it (events auto-refresh).
-            if (($accountUrl = ($a['accountUrl'])($raw)) !== null) {
-                $result = ($a['fetchAccount'])($accountUrl);
-                if (! is_array($result)) {
-                    return $this->fail("Couldn't load that {$label} page.", 422);
+                    return $this->storeAccount($user, $provider, $accountUrl, $result);
                 }
-
-                return $this->storeAccount($user, $provider, $accountUrl, $result);
+                // Matched host but neither a recognised event nor account URL → custom.
             }
-            // Matched host but neither a recognised event nor account URL → custom.
         }
 
         return $this->storeCustom($user, $raw);
@@ -97,8 +117,12 @@ class EventsCatalog
         $accounts = [];
         $events = [];
 
+        // Derive the live platform list from the registry so adding a new events
+        // provider only requires a descriptor — no edit here.
+        $eventPlatforms = $this->detector->providersFor('events');
+
         // Organiser/host accounts (eventbrite + humanitix) + their upcoming events.
-        foreach (self::EVENT_PLATFORMS as $platform) {
+        foreach ($eventPlatforms as $platform) {
             foreach ($this->accountRows($user, $platform) as $row) {
                 $account = EventsAccountPayload::fromArray($row->payload);
                 $upcoming = $this->dropElapsed(EventsPayload::withIds($account->upcoming()));
@@ -125,7 +149,7 @@ class EventsCatalog
         }
 
         // Standalone events: eventbrite/humanitix singles + custom cards.
-        foreach ([...self::EVENT_PLATFORMS, self::CUSTOM_PLATFORM] as $platform) {
+        foreach ([...$eventPlatforms, self::CUSTOM_PLATFORM] as $platform) {
             foreach ($this->eventRows($user, $platform) as $row) {
                 $standalone = StandaloneEventPayload::fromArray($row->payload);
                 $id = $standalone->id();
@@ -255,24 +279,10 @@ class EventsCatalog
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    /** @return array{eventUrl:callable, fetchEvent:callable, accountUrl:callable, fetchAccount:callable} */
-    private function adapter(string $provider): array
+    /** @return array{eventUrl:callable,fetchEvent:callable,accountUrl:callable,fetchAccount:callable}|null */
+    private function adapter(string $provider): ?array
     {
-        if ($provider === 'humanitix') {
-            return [
-                'eventUrl' => fn (string $u) => $this->humanitix->normalizeEventUrl($u),
-                'fetchEvent' => fn (string $u) => $this->humanitix->fetchSingleEvent($u),
-                'accountUrl' => fn (string $u) => $this->humanitix->resolveHostUrl($u),
-                'fetchAccount' => fn (string $u) => $this->humanitix->fetchEvents($u),
-            ];
-        }
-
-        return [
-            'eventUrl' => fn (string $u) => $this->eventbrite->normalizeEventUrl($u),
-            'fetchEvent' => fn (string $u) => $this->eventbrite->fetchSingleEvent($u),
-            'accountUrl' => fn (string $u) => $this->eventbrite->normalizeOrgUrl($u),
-            'fetchAccount' => fn (string $u) => $this->eventbrite->fetchEvents($u),
-        ];
+        return $this->adapters[$provider] ?? null;
     }
 
     private function rowsFor(User $user, string $platform)

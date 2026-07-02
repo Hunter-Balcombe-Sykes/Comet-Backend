@@ -62,8 +62,7 @@ class VimeoController extends SingleSelectionPlatformController
 
         // Re-adding an already-connected profile keeps that account's chosen
         // highlights; a new profile starts with none.
-        $existing = $this->matchAccountRow($user, 'apiPath', $source['apiPath'])?->payload;
-        $highlights = data_get($existing, 'highlights', []);
+        $highlights = $this->preserveHighlights($user, 'apiPath', $source['apiPath']);
 
         return $this->connected($user, [
             'url' => $source['link'],

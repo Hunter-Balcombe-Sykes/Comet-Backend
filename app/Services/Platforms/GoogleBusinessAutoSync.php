@@ -32,6 +32,10 @@ class GoogleBusinessAutoSync
 {
     private const MAX_ORDERING = 10;
 
+    private const RESERVATION_PLATFORMS = ['opentable', 'resdiary', 'nowbookit', 'reservations'];
+
+    private const BOOKING_PLATFORMS = ['fresha', 'square', 'booking'];
+
     public function __construct(
         private readonly OpenTableService $openTable,
         private readonly ResDiaryService $resDiary,
@@ -120,7 +124,7 @@ class GoogleBusinessAutoSync
             $label = $write['payload']['name'] ?? 'Reservations';
             if ($this->hasAnyReservation($userId)) {
                 return [$this->conflictFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write), [
-                    'remove' => ['opentable', 'resdiary', 'nowbookit', 'reservations'],
+                    'remove' => self::RESERVATION_PLATFORMS,
                     'write' => $write,
                 ])];
             }
@@ -194,7 +198,7 @@ class GoogleBusinessAutoSync
 
     private function hasAnyReservation(string $userId): bool
     {
-        foreach (['opentable', 'resdiary', 'nowbookit', 'reservations'] as $platform) {
+        foreach (self::RESERVATION_PLATFORMS as $platform) {
             if ($this->has($userId, $platform)) {
                 return true;
             }
@@ -217,9 +221,9 @@ class GoogleBusinessAutoSync
             $label = match ($write['platform']) {
                 'fresha' => 'Fresha', 'square' => 'Square', default => $write['payload']['name'] ?? 'Booking',
             };
-            if ($this->has($userId, 'fresha') || $this->has($userId, 'square') || $this->has($userId, 'booking')) {
+            if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
                 return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
-                    'remove' => ['fresha', 'square', 'booking'],
+                    'remove' => self::BOOKING_PLATFORMS,
                     'write' => $write,
                 ])];
             }
