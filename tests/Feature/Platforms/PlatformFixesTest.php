@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
@@ -287,7 +288,7 @@ it('returns busy 429 when the daily Apify cap is reached without locking the use
     config(['services.apify.token' => 'test-token']);
 
     $user = fbActingUser();
-    $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+    $dayKey = CacheKeyGenerator::apifyActorDailyLimit('instagram', now()->format('Y-m-d'));
     $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
 
     // Pre-seed the daily counter at the cap (200).
@@ -307,7 +308,7 @@ it('allows a connect attempt after the daily cap resets when no cooldown was set
     Queue::fake();
 
     $user = fbActingUser();
-    $dayKey = 'platforms:instagram:apify-daily:'.now()->format('Y-m-d');
+    $dayKey = CacheKeyGenerator::apifyActorDailyLimit('instagram', now()->format('Y-m-d'));
     $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
 
     // Simulate: cap was hit, then reset (cap key gone, no cooldown set).
