@@ -38,6 +38,10 @@ class Workplace extends BaseModel
         'phone',
         'website',
         'previous_website',
+        // Brand-signal analysis of previous_website (WebsiteStyleAnalyzer
+        // output), kept in step with the URL by WorkplaceObserver. System-
+        // written only — never accepted from requests.
+        'previous_website_analysis',
         'category',
         'description',
     ];
@@ -45,6 +49,7 @@ class Workplace extends BaseModel
     protected $casts = [
         'latitude' => 'float',
         'longitude' => 'float',
+        'previous_website_analysis' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

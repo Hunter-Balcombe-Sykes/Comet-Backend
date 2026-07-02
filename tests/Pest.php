@@ -614,11 +614,19 @@ function setupWorkplacesTable(): void
         phone TEXT NULL,
         website TEXT NULL,
         previous_website TEXT NULL,
+        previous_website_analysis TEXT NULL,
         category TEXT NULL,
         description TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    // Defensive ALTER for suites that created the table before the analysis
+    // column existed (mirrors the setupSitesTable pattern).
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.workplaces ADD COLUMN previous_website_analysis TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 }
 
 /**

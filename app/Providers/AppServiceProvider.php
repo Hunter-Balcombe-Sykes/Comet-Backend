@@ -54,6 +54,8 @@ use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
+use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
+use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
 use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
@@ -107,11 +109,19 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Design-kit preset factors. Registry is a singleton holding the
-        // concrete factor list; an empty list makes the preset system a no-op.
-        $this->app->singleton(DesignFactorRegistry::class, fn () => new DesignFactorRegistry([
-            new GoogleBusinessTypeFactor,
-            new InstagramCategoryFactor,
-        ]));
+        // concrete factor lists; empty lists make the preset system a no-op.
+        // Hierarchy: previous-website 100 > Google 50 > Instagram 30 >
+        // outside-websites 10.
+        $this->app->singleton(DesignFactorRegistry::class, fn () => new DesignFactorRegistry(
+            [
+                new GoogleBusinessTypeFactor,
+                new InstagramCategoryFactor,
+            ],
+            [
+                new PreviousWebsiteFactor,
+                new OutsideWebsitesFactor,
+            ],
+        ));
     }
 
     /**
