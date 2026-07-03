@@ -526,3 +526,54 @@ it('merges a second mode link for the same store into the existing entry on add'
     expect($res->json('entries.0.data.pickupUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
     expect($res->json('entries.0.data.deliveryUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
 });
+
+// ── DoorDash locale address — data minimisation (PRIV-2) ─────────────
+// The full street address must never leave the backend towards Apify.
+// Only city + state are forwarded; when neither is stored the field is null
+// so the scraper applies its own AU fallback (DOORDASH_FALLBACK_ADDRESS).
+
+it('resolveAll returns only city+state as the doordash locale address when a full street is stored', function () {
+    $user = menuUser('m17');
+    // A DoorDash ordering link is required for resolveAll() to return non-null.
+    ordering($user, 'https://www.doordash.com/store/priv2-test/', null, '2026-06-17 10:00:00');
+
+    // Create a site row and a workplace with both a full street and a city + state.
+    $siteId = (string) \Illuminate\Support\Str::uuid();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+    ]);
+    \App\Models\Core\Site\Workplace::create([
+        'site_id' => $siteId,
+        'address' => '42 Home Street',   // sole-trader home address — must NOT reach Apify
+        'city' => 'Melbourne',
+        'state' => 'VIC',
+    ]);
+
+    $plan = app(\App\Services\Platforms\MenuSource::class)->resolveAll($user);
+    expect($plan)->not->toBeNull();
+    // City + state only — the full street must be absent.
+    expect($plan['address'])->toBe('Melbourne, VIC, Australia');
+    expect($plan['address'])->not->toContain('42 Home Street');
+});
+
+it('resolveAll returns null as the doordash locale address when only a street is stored (no city/state)', function () {
+    $user = menuUser('m18');
+    ordering($user, 'https://www.doordash.com/store/priv2-nolocale/', null, '2026-06-17 10:00:00');
+
+    $siteId = (string) \Illuminate\Support\Str::uuid();
+    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+    ]);
+    // Street only — no city or state stored.
+    \App\Models\Core\Site\Workplace::create([
+        'site_id' => $siteId,
+        'address' => '99 Private Road',
+    ]);
+
+    $plan = app(\App\Services\Platforms\MenuSource::class)->resolveAll($user);
+    expect($plan)->not->toBeNull();
+    // Null signals the scraper to apply DOORDASH_FALLBACK_ADDRESS ('Melbourne VIC, Australia').
+    expect($plan['address'])->toBeNull();
+});

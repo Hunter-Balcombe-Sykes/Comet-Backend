@@ -250,7 +250,7 @@ class SafeUrlFetcher
     }
 
     /** @throws SafeUrlException */
-    private function assertSafe(string $url): void
+    public function assertSafe(string $url): void
     {
         $parts = parse_url($url);
         $scheme = strtolower($parts['scheme'] ?? '');

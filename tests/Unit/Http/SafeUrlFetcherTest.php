@@ -34,3 +34,19 @@ it('rejects non-http(s) schemes', function () {
     expect(fn () => app(SafeUrlFetcher::class)->fetch('file:///etc/passwd'))
         ->toThrow(SafeUrlException::class);
 });
+
+// ── assertSafe() is now public — callable without going through fetch() ───────
+
+it('assertSafe() is public and rejects a loopback IP directly', function () {
+    // Proves the method is accessible as a public API (used by InstagramConnectJob
+    // as a defence-in-depth IP-resolution layer on top of the CDN host allowlist).
+    expect(fn () => app(SafeUrlFetcher::class)->assertSafe('http://127.0.0.1/'))
+        ->toThrow(SafeUrlException::class);
+});
+
+it('assertSafe() accepts a literal public IP without throwing', function () {
+    // 1.1.1.1 is Cloudflare's globally-routed public DNS resolver — passes
+    // FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE without a DNS lookup.
+    expect(fn () => app(SafeUrlFetcher::class)->assertSafe('http://1.1.1.1/'))
+        ->not->toThrow(SafeUrlException::class);
+});

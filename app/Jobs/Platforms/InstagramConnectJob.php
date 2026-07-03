@@ -3,6 +3,8 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Http\SafeUrlException;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Bus\Queueable;
@@ -66,6 +68,12 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
     // generous; it stops a pathological file filling the temp disk / R2, and an
     // oversized reel simply falls back to its poster (no autoplay).
     private const MAX_VIDEO_BYTES = 52428800;
+
+    // Hard cap on a mirrored still image (15 MB). Instagram photos are tiny
+    // (<1 MB in practice); 15 MB is deliberately generous to future-proof against
+    // high-res uploads while still preventing a pathological response from
+    // buffering/storing a huge payload.
+    private const MAX_IMAGE_BYTES = 15728640;
 
     public function __construct(
         public readonly string $userId,
@@ -191,11 +199,31 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
         }
     }
 
-    // Mirror a single image (cover or profile pic) to R2. SSRF guard: CDN host
-    // allowlist + redirects refused + content-type must be image/*.
+    // Mirror a single image (cover or profile pic) to R2.
+    //
+    // SSRF guard (layered):
+    //   1. CDN host allowlist — only cdninstagram.com / fbcdn.net subdomains pass.
+    //   2. IP-resolution check — even an allow-listed hostname must resolve to a
+    //      public address (defence-in-depth; the allowlist alone can't catch a
+    //      compromised CDN hostname). Routes through SafeUrlFetcher::assertSafe(),
+    //      the same guard used by every other outbound fetch in the subsystem.
+    //   3. Redirects refused — a 3xx response is dropped, not followed (withoutRedirecting).
+    //   4. Content-type enforced — only image/* is stored.
+    //   5. Byte cap — rejects before store if Content-Length signals an oversized
+    //      file, with a hard strlen check as fallback for absent/wrong headers.
     private function mirrorOne(string $url, string $path): ?string
     {
         if (! $this->isAllowedHost($url)) {
+            return null;
+        }
+
+        // IP-resolution guard: cdninstagram.com / fbcdn.net always resolve to
+        // public IPs, so a SafeUrlException here is anomalous and worth surfacing.
+        try {
+            app(SafeUrlFetcher::class)->assertSafe($url);
+        } catch (SafeUrlException $e) {
+            report($e);
+
             return null;
         }
 
@@ -215,7 +243,21 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
                 return null;
             }
 
-            Storage::disk('media')->put($path, $response->body());
+            // Fast rejection when the server declares the size upfront.
+            $contentLength = $response->header('Content-Length');
+            if ($contentLength !== null && (int) $contentLength > self::MAX_IMAGE_BYTES) {
+                return null;
+            }
+
+            $body = $response->body();
+
+            // Hard cap enforced after buffering — covers absent or inaccurate
+            // Content-Length headers. Nothing over the limit reaches R2.
+            if (strlen($body) > self::MAX_IMAGE_BYTES) {
+                return null;
+            }
+
+            Storage::disk('media')->put($path, $body);
 
             return Storage::disk('media')->url($path);
         } catch (Throwable $e) {
@@ -228,11 +270,21 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
 
     // Mirror a reel's mp4 to R2, STREAMED via a temp file so a large video never
     // buffers fully in worker memory, and size-capped so a pathological file can't
-    // fill disk/R2. Same SSRF guard as mirrorOne (host allowlist + redirects
-    // refused). Returns null on any miss → the caller falls back to the poster.
+    // fill disk/R2. Same layered SSRF guard as mirrorOne (host allowlist +
+    // IP-resolution check + redirects refused). Returns null on any miss → the
+    // caller falls back to the poster.
     private function mirrorVideo(string $url, string $path): ?string
     {
         if (! $this->isAllowedHost($url)) {
+            return null;
+        }
+
+        // IP-resolution guard matching mirrorOne — defence-in-depth.
+        try {
+            app(SafeUrlFetcher::class)->assertSafe($url);
+        } catch (SafeUrlException $e) {
+            report($e);
+
             return null;
         }
 
