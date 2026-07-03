@@ -32,7 +32,7 @@ class SafeUrlFetcher
     /**
      * Fetch a URL safely. Returns the final response body + metadata, or throws.
      *
-     * @return array{status:int, body:string, finalUrl:string, contentType:string}
+     * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
      *
      * @throws SafeUrlException
      */
@@ -66,6 +66,11 @@ class SafeUrlFetcher
                 'body' => $response->body(),
                 'finalUrl' => $current,
                 'contentType' => (string) $response->header('Content-Type'),
+                // Conditional-request validators (Plan 5). getHeaderLine() returns ''
+                // when absent → null. A 304 lands here (no Location header ⇒ not a
+                // followed redirect), carrying its validators back to the caller.
+                'etag' => $response->header('ETag') ?: null,
+                'lastModified' => $response->header('Last-Modified') ?: null,
             ];
         }
 
@@ -81,7 +86,7 @@ class SafeUrlFetcher
      * The platform scrapers use this: a user-pasted URL that doesn't resolve
      * is "platform unavailable", not an application error.
      *
-     * @return array{status:int, body:string, finalUrl:string, contentType:string}|null
+     * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}|null
      */
     public function tryFetch(string $url, array $headers = []): ?array
     {
