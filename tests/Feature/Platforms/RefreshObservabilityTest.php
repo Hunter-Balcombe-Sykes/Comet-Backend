@@ -5,7 +5,9 @@
 // OBS-1 report()/fail() assertions across the 4 surviving silent-failure sites.
 // All imports for the whole file live in this block; Tasks 8 & 10 append only bodies.
 
+use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Exceptions\Platforms\PlaceDetailsUnavailableException;
+use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessService;
@@ -89,5 +91,38 @@ it('does NOT report a transient unavailable miss', function () {
 
     $conn->refresh();
     expect($conn->last_refresh_status)->toBe('unavailable');
+    Exceptions::assertNothingReported();
+});
+
+// ── Task 10: PublicIntegrationConnectionResource fail-closed allowlist ──────────
+
+it('reports (and fails closed to empty) when a platform has no public allowlist', function () {
+    Exceptions::fake();
+
+    // Build the model WITHOUT saving so the SEC-1 saving guard doesn't reject the
+    // unknown platform — we only exercise the resource's read-time allowlist branch.
+    $conn = new IntegrationConnection([
+        'platform' => 'totally-unregistered',
+        'resource_id' => 'x',
+        'payload' => ['secret_internal_key' => 'leak-me'],
+    ]);
+
+    $out = (new PublicIntegrationConnectionResource($conn))->toArray(request());
+
+    expect($out['payload'])->toBe([]); // fail-closed: nothing leaks
+    Exceptions::assertReported(fn (MissingPublicAllowlistException $e) => str_contains($e->getMessage(), 'totally-unregistered'));
+});
+
+it('does not report for a normally-allowlisted platform', function () {
+    Exceptions::fake();
+
+    $conn = new IntegrationConnection([
+        'platform' => 'youtube', 'resource_id' => 'youtube',
+        'payload' => ['handle' => 'c', 'name' => 'vid', '_internal' => 'hidden'],
+    ]);
+
+    $out = (new PublicIntegrationConnectionResource($conn))->toArray(request());
+
+    expect($out['payload'])->toHaveKey('handle')->not->toHaveKey('_internal');
     Exceptions::assertNothingReported();
 });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Platforms;
 
+use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -133,6 +134,8 @@ class PublicIntegrationConnectionResource extends ApiResource
             // by SEC-2 because every registered platform already has an entry, so
             // this branch is only reachable by an unregistered platform — which
             // the SEC-1 model saving guard also rejects at write time.)
+            // OBS-1: report() so Nightwatch pages — Log::warning alone is invisible to it.
+            report(new MissingPublicAllowlistException($platform));
             Log::warning('PublicIntegrationConnectionResource: no allowlist for platform', [
                 'platform' => $platform,
             ]);
