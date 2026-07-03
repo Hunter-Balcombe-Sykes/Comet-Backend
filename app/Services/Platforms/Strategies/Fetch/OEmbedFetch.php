@@ -3,6 +3,7 @@
 namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\ConditionalContext;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use Closure;
@@ -30,10 +31,16 @@ final readonly class OEmbedFetch implements FetchStrategy
             throw new FetchShapeException('missing_key: link');
         }
 
-        $resolved = $this->oembed->resolve(($this->endpointFor)($link));
+        $cond = ConditionalContext::for($connection);
+        $resolved = $this->oembed->resolve(($this->endpointFor)($link), $cond);
+
+        if ($cond?->notModified) {
+            throw new FetchNotModifiedException($this->platform);
+        }
         if ($resolved === null) {
             throw new FetchUnavailableException("{$this->platform}_oembed_failed");
         }
+        $cond?->applyTo($connection);
 
         return [
             ...$payload,
