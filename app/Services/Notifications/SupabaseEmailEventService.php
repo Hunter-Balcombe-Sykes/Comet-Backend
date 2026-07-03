@@ -23,11 +23,11 @@ class SupabaseEmailEventService
     /**
      * Record a successful Mail::queue() dispatch for a handled action type.
      *
-     * @param  array<string, mixed>  $payload    Raw inbound webhook payload.
-     * @param  string                $webhookId  Standard Webhooks idempotency key.
-     * @param  string                $actionType Supabase email_action_type.
-     * @param  string|null           $recipientEmail Plaintext email — hashed before storage.
-     * @param  string|null           $requestId  X-Request-Id for Cloud log correlation.
+     * @param  array<string, mixed>  $payload  Raw inbound webhook payload.
+     * @param  string  $webhookId  Standard Webhooks idempotency key.
+     * @param  string  $actionType  Supabase email_action_type.
+     * @param  string|null  $recipientEmail  Plaintext email — hashed before storage.
+     * @param  string|null  $requestId  X-Request-Id for Cloud log correlation.
      */
     public function recordQueued(
         array $payload,
@@ -37,10 +37,10 @@ class SupabaseEmailEventService
         ?string $requestId = null,
     ): void {
         $this->write($webhookId, $actionType, $recipientEmail, $requestId, $payload, [
-            'status'    => SupabaseEmailEvent::STATUS_QUEUED,
+            'status' => SupabaseEmailEvent::STATUS_QUEUED,
             'queued_at' => now(),
             'failed_at' => null,
-            'error'     => null,
+            'error' => null,
         ]);
     }
 
@@ -58,10 +58,10 @@ class SupabaseEmailEventService
         ?string $requestId = null,
     ): void {
         $this->write($webhookId, $actionType, $recipientEmail, $requestId, $payload, [
-            'status'    => SupabaseEmailEvent::STATUS_FAILED,
+            'status' => SupabaseEmailEvent::STATUS_FAILED,
             'failed_at' => now(),
             'queued_at' => null,
-            'error'     => $e->getMessage(),
+            'error' => $e->getMessage(),
         ]);
     }
 
@@ -78,10 +78,10 @@ class SupabaseEmailEventService
         ?string $requestId = null,
     ): void {
         $this->write($webhookId, $actionType, $recipientEmail, $requestId, $payload, [
-            'status'    => SupabaseEmailEvent::STATUS_UNHANDLED,
+            'status' => SupabaseEmailEvent::STATUS_UNHANDLED,
             'queued_at' => null,
             'failed_at' => null,
-            'error'     => null,
+            'error' => null,
         ]);
     }
 
@@ -92,7 +92,7 @@ class SupabaseEmailEventService
      * but never propagates to the webhook response path.
      *
      * @param  array<string, mixed>  $payload
-     * @param  array<string, mixed>  $fields    Status-specific columns to set.
+     * @param  array<string, mixed>  $fields  Status-specific columns to set.
      */
     private function write(
         string $webhookId,
@@ -104,11 +104,11 @@ class SupabaseEmailEventService
     ): void {
         try {
             $data = array_merge([
-                'webhook_id'           => $webhookId,
-                'request_id'           => $requestId,
-                'action_type'          => $actionType,
+                'webhook_id' => $webhookId,
+                'request_id' => $requestId,
+                'action_type' => $actionType,
                 'recipient_email_hash' => $this->hashEmail($recipientEmail),
-                'raw_payload'          => $this->redactPayload($payload),
+                'raw_payload' => $this->redactPayload($payload),
             ], $fields);
 
             // Upsert on webhook_id so a Supabase retry arriving after the 300s Redis
@@ -122,8 +122,8 @@ class SupabaseEmailEventService
             // Trail write failure must never break the webhook response.
             Log::error('supabase.email_event.trail_write_failed', [
                 'webhook_id' => $webhookId,
-                'action'     => $actionType,
-                'error'      => $e->getMessage(),
+                'action' => $actionType,
+                'error' => $e->getMessage(),
             ]);
         }
     }

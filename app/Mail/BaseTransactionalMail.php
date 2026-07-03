@@ -52,7 +52,7 @@ abstract class BaseTransactionalMail extends Mailable
         // Non-auth mailables never set $webhookId; fall back to Symfony's default
         // Message-ID to avoid building an invalid "@domain" local-part.
         if ($this->webhookId === '') {
-            return new Headers();
+            return new Headers;
         }
 
         // Extract the domain portion of the from address (e.g. "hello@partna.au" → "partna.au").

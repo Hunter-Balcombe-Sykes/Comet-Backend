@@ -1,9 +1,7 @@
 <?php
 
-use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Models\Core\Site\Block;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Str;
 
 /**
  * P3-21: Invalid blockType must return 422 (invalid input), not 403 (authz failure).

@@ -97,6 +97,7 @@ class UserLinkBlockController extends ApiController
                 $linkBlock->user_id = $pro->id;
                 $linkBlock->site_id = $site->id;
                 $linkBlock->save();
+
                 return $linkBlock->fresh();
             },
         );

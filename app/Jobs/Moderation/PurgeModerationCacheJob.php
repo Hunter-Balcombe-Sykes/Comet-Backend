@@ -68,5 +68,4 @@ class PurgeModerationCacheJob implements ShouldQueue
 
         $this->markCompleted($entry);
     }
-
 }

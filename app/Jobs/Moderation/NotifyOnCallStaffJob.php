@@ -68,5 +68,4 @@ class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
 
         $this->markCompleted($entry);
     }
-
 }

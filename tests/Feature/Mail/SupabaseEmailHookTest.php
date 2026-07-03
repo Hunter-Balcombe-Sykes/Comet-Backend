@@ -6,6 +6,7 @@ use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
 use App\Models\Core\Notifications\SupabaseEmailEvent;
+use App\Services\Notifications\SupabaseEmailEventService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
@@ -327,7 +328,7 @@ it('WHK-5: two builds with the same webhook-id produce identical Message-IDs (re
     Config::set('mail.from.address', 'hello@partna.au');
     $webhookId = 'msg_stable_deadbeef';
 
-    $first  = new EmailConfirmMail('user@example.com', 'User', '123456', $webhookId);
+    $first = new EmailConfirmMail('user@example.com', 'User', '123456', $webhookId);
     $second = new EmailConfirmMail('user@example.com', 'User', '123456', $webhookId);
 
     // Both builds — same as what a Horizon retry produces after deserialization —
@@ -352,10 +353,10 @@ it('WHK-5: controller threads the webhook-id into the queued mailable', function
     $webhookId = $req['headers']['webhook-id'];
 
     $response = $this->call('POST', '/api/internal/email-hooks/supabase', [], [], [], [
-        'HTTP_webhook-id'        => $webhookId,
+        'HTTP_webhook-id' => $webhookId,
         'HTTP_webhook-timestamp' => $req['headers']['webhook-timestamp'],
         'HTTP_webhook-signature' => $req['headers']['webhook-signature'],
-        'CONTENT_TYPE'           => 'application/json',
+        'CONTENT_TYPE' => 'application/json',
     ], $req['body']);
 
     $response->assertOk();
@@ -374,7 +375,7 @@ it('WHK-3: fails closed (400) when the webhook-id header is absent', function ()
     // normally 401 an empty webhook-id, so this proves the controller is
     // independently hardened and never queues an email without an idempotency key.
     $controller = app(SupabaseEmailHookController::class);
-    $eventService = app(\App\Services\Notifications\SupabaseEmailEventService::class);
+    $eventService = app(SupabaseEmailEventService::class);
     $request = Request::create(
         '/api/internal/email-hooks/supabase',
         'POST',
@@ -515,10 +516,10 @@ it('WHK-3: stored raw_payload contains no token and no plaintext email', functio
     $req = makeSupabaseHookRequest([
         'user' => ['email' => 'piicheck@partna.au', 'user_metadata' => ['name' => 'PII Check']],
         'email_data' => [
-            'token_hash'        => 'very-secret-token-hash',
-            'token'             => '654321',
+            'token_hash' => 'very-secret-token-hash',
+            'token' => '654321',
             'email_action_type' => 'signup',
-            'site_url'          => 'https://glncumufgaqcmqhzwrxm.supabase.co',
+            'site_url' => 'https://glncumufgaqcmqhzwrxm.supabase.co',
         ],
     ]);
 

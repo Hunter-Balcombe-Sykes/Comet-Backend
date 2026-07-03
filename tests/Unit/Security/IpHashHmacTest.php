@@ -13,7 +13,6 @@
  * Both classes use config('app.key') as their HMAC key, matching the
  * HashesClientData trait used everywhere else in the codebase.
  */
-
 it('HMAC-SHA256 with the same ip + key produces the same hash (deterministic)', function () {
     $ip = '203.0.113.1';
     $key = 'test-key-sec14-determinism';

@@ -19,11 +19,11 @@ use Illuminate\Support\Facades\DB;
 // platform_connections already has ENABLE + the policy; this guard adds FORCE.
 dataset('rls_tables', [
     'platform_connections' => ['site', 'platform_connections', 'platform_connections_app_backend_all'],
-    'menus'                => ['site', 'menus',                'menus_app_backend_all'],
-    'menu_categories'      => ['site', 'menu_categories',      'menu_categories_app_backend_all'],
-    'menu_items'           => ['site', 'menu_items',           'menu_items_app_backend_all'],
-    'menu_platform_links'  => ['site', 'menu_platform_links',  'menu_platform_links_app_backend_all'],
-    'menu_item_platforms'  => ['site', 'menu_item_platforms',  'menu_item_platforms_app_backend_all'],
+    'menus' => ['site', 'menus',                'menus_app_backend_all'],
+    'menu_categories' => ['site', 'menu_categories',      'menu_categories_app_backend_all'],
+    'menu_items' => ['site', 'menu_items',           'menu_items_app_backend_all'],
+    'menu_platform_links' => ['site', 'menu_platform_links',  'menu_platform_links_app_backend_all'],
+    'menu_item_platforms' => ['site', 'menu_item_platforms',  'menu_item_platforms_app_backend_all'],
 ]);
 
 it('has RLS enabled and forced on each table', function (string $schema, string $table, string $_policy) {
@@ -34,11 +34,11 @@ it('has RLS enabled and forced on each table', function (string $schema, string 
     // Cast to int: PDO_pgsql can return booleans as 't'/'f' strings, and 'f' is
     // truthy in PHP — compare the integer form explicitly.
     $row = DB::selectOne(
-        "SELECT (c.relrowsecurity)::int    AS rls_enabled,
+        'SELECT (c.relrowsecurity)::int    AS rls_enabled,
                 (c.relforcerowsecurity)::int AS rls_forced
            FROM pg_class c
            JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname = ? AND c.relname = ?",
+          WHERE n.nspname = ? AND c.relname = ?',
         [$schema, $table]
     );
 

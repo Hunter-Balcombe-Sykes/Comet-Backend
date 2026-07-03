@@ -87,5 +87,4 @@ class NotifyReportedUserJob implements ShouldBeUnique, ShouldQueue
 
         $this->markCompleted($entry);
     }
-
 }

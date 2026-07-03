@@ -110,6 +110,7 @@ class StaffServiceManagementController extends ApiController
                     'is_active' => $data['is_active'] ?? true,
                     'sort_order' => $data['sort_order'] ?? $next,
                 ]);
+
                 return $service->fresh();
             },
         );

@@ -422,6 +422,7 @@ class EvidenceConclusions
                 if ($this->dist($cand['c'], $cluster['rep']) <= self::CLUSTER_DIST) {
                     $cluster['votes']++;
                     $cluster['sources'][$cand['source']] = true;
+
                     continue 2;
                 }
             }

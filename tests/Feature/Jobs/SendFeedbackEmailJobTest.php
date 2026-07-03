@@ -2,6 +2,7 @@
 
 use App\Jobs\Notifications\SendFeedbackEmailJob;
 use App\Mail\FeedbackSubmittedMail;
+use App\Models\Core\Feedback;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -123,12 +124,12 @@ it('includes user_id in failed() log context after permanent failure (LIFE-4c)',
 
     // Simulate the state Horizon would have after handle() loaded the row but
     // mail failed — set $userId via reflection as if handle() ran to that point.
-    $row = \App\Models\Core\Feedback::find($id);
-    $prop = new \ReflectionProperty($job, 'userId');
+    $row = Feedback::find($id);
+    $prop = new ReflectionProperty($job, 'userId');
     $prop->setAccessible(true);
     $prop->setValue($job, $row->user_id);
 
-    $job->failed(new \RuntimeException('smtp down'));
+    $job->failed(new RuntimeException('smtp down'));
 
     // report($e) also calls Log::error internally so we use atLeast()->once()
     // and match specifically on the 'failed permanently' message with user_id.

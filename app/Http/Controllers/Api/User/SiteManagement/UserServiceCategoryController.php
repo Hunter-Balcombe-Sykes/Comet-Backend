@@ -64,6 +64,7 @@ class UserServiceCategoryController extends ApiController
                     'title' => $data['title'],
                     'sort_order' => $data['sort_order'] ?? $next,
                 ]);
+
                 return $category->fresh();
             },
         );

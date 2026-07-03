@@ -7,6 +7,7 @@ use App\Jobs\ProcessImageVariantsJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
@@ -169,7 +170,7 @@ it('streams the original to a temp file (readStream) rather than loading it all 
     Storage::disk('local')->put($originalPath, 'image-bytes');
 
     // Spy on the Storage facade so we can assert get() is never called on this disk.
-    $diskSpy = Mockery::spy(\Illuminate\Filesystem\FilesystemAdapter::class);
+    $diskSpy = Mockery::spy(FilesystemAdapter::class);
 
     // The spy must delegate real readStream behaviour so the job can actually pipe.
     $realDisk = Storage::disk('local');

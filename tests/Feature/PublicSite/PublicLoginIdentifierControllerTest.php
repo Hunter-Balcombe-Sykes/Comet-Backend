@@ -4,6 +4,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 
 beforeEach(function () {
@@ -92,8 +93,8 @@ it('exhausting signup-availability does not 429 login-identifier (bucket indepen
         'partna.waitlist.enabled' => false,
     ]);
 
-    \Illuminate\Support\Facades\Http::fake([
-        'https://test.supabase.co/auth/v1/admin/users*' => \Illuminate\Support\Facades\Http::response(['users' => []], 200),
+    Http::fake([
+        'https://test.supabase.co/auth/v1/admin/users*' => Http::response(['users' => []], 200),
     ]);
 
     // Exhaust the signup-availability bucket (tight 1/min limit for test isolation).

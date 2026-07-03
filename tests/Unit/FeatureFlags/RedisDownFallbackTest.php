@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\Core\User\User;
 use App\Services\FeatureFlags\FeatureFlagService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\Feature\FeatureFlags\FeatureFlagTestCase;
 use Tests\TestCase;
 
@@ -54,7 +56,7 @@ it('enabled() returns the DB flag value (not config) when Redis is down and a Fe
 // allFor() loads registry + pro overrides via allForFromDb() when cache throws.
 // This test verifies the merged result: base flag from DB, user override wins.
 it('allFor() returns merged DB registry + user override when Redis is down', function () {
-    $proId = (string) \Illuminate\Support\Str::uuid();
+    $proId = (string) Str::uuid();
 
     // Seed a base flag: default_enabled=false.
     DB::connection('pgsql')->table('core.feature_flags')->insert([
@@ -68,7 +70,7 @@ it('allFor() returns merged DB registry + user override when Redis is down', fun
 
     // Seed a user override: enabled=true for this pro.
     DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'flag_key' => 'base_flag',
         'user_id' => $proId,
         'enabled' => 1,
@@ -88,7 +90,7 @@ it('allFor() returns merged DB registry + user override when Redis is down', fun
 
     Cache::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
 
-    $pro = new \App\Models\Core\User\User;
+    $pro = new User;
     $pro->id = $proId;
     $pro->status = 'active';
 

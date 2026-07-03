@@ -51,5 +51,4 @@ class QuarantineMediaJob implements ShouldQueue
             $this->markCompleted($entry);
         });
     }
-
 }

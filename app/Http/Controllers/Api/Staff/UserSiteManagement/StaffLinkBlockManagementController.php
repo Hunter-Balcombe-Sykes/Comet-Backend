@@ -58,6 +58,7 @@ class StaffLinkBlockManagementController extends ApiController
                 $block->user_id = $professional->id;
                 $block->site_id = $site->id;
                 $block->save();
+
                 return $block->fresh();
             },
         );
