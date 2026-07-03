@@ -75,7 +75,7 @@ it('OEmbedFetch throws FetchUnavailableException where the refresher records sta
 
 it('DeezerFetch produces the same success payload as the refresher (embedUrl recomputed)', function () {
     $this->mock(DeezerApi::class, function ($m) {
-        $m->shouldReceive('fetchArtist')->with('123')->andReturn([
+        $m->shouldReceive('fetchArtist')->with('123', Mockery::any())->andReturn([
             'name' => 'Fresh', 'thumbnail' => 'https://e-cdn.deezer.com/new.jpg', 'link' => 'https://www.deezer.com/artist/123',
         ]);
     });

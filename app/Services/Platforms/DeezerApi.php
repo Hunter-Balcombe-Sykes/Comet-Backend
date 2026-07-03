@@ -27,10 +27,19 @@ class DeezerApi
     /**
      * @return array{name:?string, thumbnail:?string, link:string, fans:?int}|null
      */
-    public function fetchArtist(string $id): ?array
+    public function fetchArtist(string $id, ?ConditionalContext $cond = null): ?array
     {
-        $res = $this->fetcher->tryFetch("https://api.deezer.com/artist/{$id}", ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json']);
-        if ($res === null || $res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch("https://api.deezer.com/artist/{$id}", array_merge(
+            ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json'],
+            $cond?->headers() ?? [],
+        ));
+        if ($res === null) {
+            return null;
+        }
+        if ($cond !== null && $cond->handle($res)) {
+            return null; // 304 Not Modified — caller short-circuits
+        }
+        if ($res['status'] !== 200) {
             return null;
         }
 
