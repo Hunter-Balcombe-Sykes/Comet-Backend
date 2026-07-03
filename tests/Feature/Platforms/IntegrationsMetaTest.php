@@ -59,6 +59,37 @@ it('keeps the most recently refreshed row per platform', function () {
         ->assertJsonPath('platforms.shop.last_refresh_status', 'ok');
 });
 
+// SEM-1: two never-refreshed connections on the same multi-account platform
+// (e.g. two YouTube channels) both land in the NULLS-LAST tail with no
+// timestamp to order by. The old code kept an arbitrary "first" row, so
+// has_refresh_error could flip between requests depending on scan order.
+// The fix aggregates ANY-across-connections for is_active/has_refresh_error
+// and MAX for last_refreshed_at, so the result no longer depends on which
+// row the DB happens to return first.
+it('deterministically aggregates status across tied never-refreshed connections', function () {
+    $user = integrationsMetaUser('multiacct');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'chan-a',
+        'payload' => ['handle' => 'a'], 'is_active' => true,
+        'last_refreshed_at' => null, 'last_refresh_status' => null,
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'chan-b',
+        'payload' => ['handle' => 'b'], 'is_active' => false,
+        'last_refreshed_at' => null, 'last_refresh_status' => 'error',
+    ]);
+
+    // Run it a few times — with the old first-row-wins logic this would be
+    // nondeterministic; the aggregate must be stable every time.
+    foreach (range(1, 3) as $_) {
+        actingAsUser($user)->getJson('/api/integrations/meta')
+            ->assertOk()
+            ->assertJsonPath('platforms.youtube.is_active', true) // ANY: chan-a is active
+            ->assertJsonPath('platforms.youtube.has_refresh_error', true) // ANY: chan-b errored
+            ->assertJsonPath('platforms.youtube.last_refreshed_at', null); // MAX of two nulls
+    }
+});
+
 it('scopes metadata to the authenticated user', function () {
     $user = integrationsMetaUser('lonely');
     $other = integrationsMetaUser('busy');

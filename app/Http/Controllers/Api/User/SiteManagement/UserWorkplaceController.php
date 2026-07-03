@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
+use App\Http\Resources\WorkplaceResource;
 use App\Models\Core\Site\Workplace;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
@@ -32,7 +33,7 @@ class UserWorkplaceController extends ApiController
         $workplace = Workplace::query()->where('site_id', $site->id)->first();
 
         return $this->success([
-            'workplace' => $this->normalizeProfile($workplace),
+            'workplace' => WorkplaceResource::forWorkplace($workplace),
         ]);
     }
 
@@ -76,7 +77,7 @@ class UserWorkplaceController extends ApiController
         );
 
         return $this->success([
-            'workplace' => $this->normalizeProfile($workplace),
+            'workplace' => WorkplaceResource::forWorkplace($workplace),
         ]);
     }
 
@@ -147,36 +148,5 @@ class UserWorkplaceController extends ApiController
         $trimmed = trim($value);
 
         return $trimmed !== '' ? $trimmed : null;
-    }
-
-    // A row with no name has no identity — return null. Every other field
-    // is optional; the dashboard can save a workplace with just a name.
-    private function normalizeProfile(?Workplace $workplace): ?array
-    {
-        if (! $workplace) {
-            return null;
-        }
-
-        $name = $this->trimOrNull($workplace->name);
-        if (! $name) {
-            return null;
-        }
-
-        return [
-            'name' => $name,
-            'address' => $this->trimOrNull($workplace->address),
-            'address_line1' => $this->trimOrNull($workplace->address_line1),
-            'city' => $this->trimOrNull($workplace->city),
-            'state' => $this->trimOrNull($workplace->state),
-            'postcode' => $this->trimOrNull($workplace->postcode),
-            'country' => $this->trimOrNull($workplace->country),
-            'latitude' => $workplace->latitude !== null ? (float) $workplace->latitude : null,
-            'longitude' => $workplace->longitude !== null ? (float) $workplace->longitude : null,
-            'phone' => $this->trimOrNull($workplace->phone),
-            'website' => $this->trimOrNull($workplace->website),
-            'previous_website' => $this->trimOrNull($workplace->previous_website),
-            'category' => $this->trimOrNull($workplace->category),
-            'description' => $this->trimOrNull($workplace->description),
-        ];
     }
 }

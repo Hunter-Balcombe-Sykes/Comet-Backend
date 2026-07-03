@@ -88,8 +88,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 11 of 21 complete
-- P3 Low: 7 of 20 complete
+- P2 Medium: 12 of 21 complete
+- P3 Low: 9 of 20 complete
 
 ---
 
@@ -652,7 +652,7 @@
         }
         ```
 
-- [ ] **#SEM-1** · P2 — `IntegrationsMetaController` picks an arbitrary first row when platform timestamps tie
+- [x] **#SEM-1** · P2 — `IntegrationsMetaController` picks an arbitrary first row when platform timestamps tie
     - **Where:** app/Http/Controllers/Api/Platforms/IntegrationsMetaController.php:28-44
     - **Affects:** Dashboard sync-status badges for users with multiple connections on the same multi-account platform (YouTube, Bandcamp, Vimeo all support `multiAccount()`).
     - **Effort:** S (~0.5–1h)
@@ -929,7 +929,7 @@
         private const PAGE_TIMEOUT_MS = 25_000;
         ```
 
-- [ ] **#API-1** · P3 — `UserWorkplaceController` returns hand-built arrays instead of a Resource class
+- [x] **#API-1** · P3 — `UserWorkplaceController` returns hand-built arrays instead of a Resource class
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php:46-55, 58-72
     - **Affects:** Contract-drift risk between the GET and PUT response shapes for the workplace card.
     - **Effort:** S (~0.5–1h)
@@ -948,7 +948,7 @@
         }
         ```
 
-- [ ] **#API-2** · P3 — `IntegrationsMetaController` returns a hand-built array instead of a Resource class
+- [x] **#API-2** · P3 — `IntegrationsMetaController` returns a hand-built array instead of a Resource class
     - **Where:** app/Http/Controllers/Api/Platforms/IntegrationsMetaController.php:29-50
     - **Affects:** Same root cause and tier as #API-1 — consistency with the project's Resource-class convention.
     - **Effort:** S (~0.5–1h)
