@@ -42,15 +42,16 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
-- P2 Medium: 0 of 7 complete
+- P1 High: 3 of 3 complete
+- P2 Medium: 3 of 7 complete  (SCALE-3, SCALE-4, OBS-1)
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P1 — Fix before scaling past a few thousand connected accounts
 
-- [ ] **#SCALE-1** · P1 — The whole refresh pipeline is one serial daily command (300/run cap, synchronous fetches)
+- [x] **#SCALE-1** · P1 — The whole refresh pipeline is one serial daily command (300/run cap, synchronous fetches)
+    - **✅ Resolved:** Plan 1 — `docs/superpowers/plans/2026-07-02-platform-refresh-foundation-plan-1.md`. `RefreshIntegrationConnectionsCommand` is now a dispatcher (`dueForRefresh` scope → one `RefreshConnectionJob` per due connection; no `limit(300)`/serial `foreach`/`usleep`), paced by the per-provider `platform-refresh` RateLimiter, with the `integrations:refresh-backlog` staleness gauge. Verified in code 2026-07-03.
     - **Where:** app/Console/Commands/RefreshIntegrationConnectionsCommand.php:17,29-63 · app/Services/Platforms/PlatformRefresher.php:44
     - **Affects:** Freshness of every refreshable card (Google reviews/photos, YouTube, Apple Music, Eventbrite, Vimeo, Bandcamp, Pinterest, Humanitix, Strava…) across all users.
     - **Effort:** L (~1–2d)
@@ -74,7 +75,8 @@
         }
         ```
 
-- [ ] **#SCALE-2** · P1 — Apify spend is uncoordinated: only Instagram is budget-gated; Menu + Google Business bypass it
+- [x] **#SCALE-2** · P1 — Apify spend is uncoordinated: only Instagram is budget-gated; Menu + Google Business bypass it
+    - **✅ Resolved:** Plan 2 — `docs/superpowers/plans/2026-07-02-platform-refresh-plan-2-apify-budget.md`. Shared `ApifyBudget` (per-actor + global daily cap); `tryClaim()` gates `MenuApifyScraper::fetch()` **and** `fetchStores()` (the real hot path) + `GoogleBusinessApifyScraper::fetch()`; `InstagramApifyBudget` deleted. Verified in code 2026-07-03.
     - **Where:** app/Services/Platforms/MenuApifyScraper.php:72-77 · app/Services/Platforms/GoogleBusinessApifyScraper.php:44-48 (no gate) vs app/Services/Cache/InstagramApifyBudget.php (Instagram only)
     - **Affects:** Paid Apify compute budget + reliability of all three scraping integrations.
     - **Effort:** M (~2–4h)
@@ -93,7 +95,8 @@
         }
         ```
 
-- [ ] **#JOB-1** · P1 — Synchronous third-party HTTP on the request thread blocks PHP-FPM workers
+- [x] **#JOB-1** · P1 — Synchronous third-party HTTP on the request thread blocks PHP-FPM workers
+    - **✅ Resolved:** Plan 3 — `docs/superpowers/plans/2026-07-02-platform-refresh-plan-3-async-connect.md`. All four link controllers (CustomLinks/OnlineOrdering/Booking/Reservations) return **202 + poll**; the outbound fetch moved off the request thread to the shared `EnrichLinkCardJob` (`snapshotOrMinimal` gone from all four; `minimalCard` stays sync). Fresha excluded (booking dropped / handled by the Fresha remediation plan). Verified in code 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/OnlineOrderingController.php:60 · BookingController.php:61 · CustomLinksController.php:56 · ReservationsController.php:60 (`snapshotOrMinimal`) · FreshaController (fetchLocation / 12s GraphQL `fetchEmployeeServices`)
     - **Affects:** Every user adding an ordering / custom / booking / reservation link (live) and Fresha connect/save (test-mode). Under concurrency, the FPM worker pool.
     - **Effort:** L (~1–2d)
@@ -113,7 +116,8 @@
 
 ## P2 — 10k-fleet hardening
 
-- [ ] **#SCALE-3** · P2 — Daily refresh fans out to third-party hosts with no per-host rate-limit or response caching
+- [x] **#SCALE-3** · P2 — Daily refresh fans out to third-party hosts with no per-host rate-limit or response caching
+    - **✅ Resolved:** Plan 4 — `docs/superpowers/plans/2026-07-03-platform-refresh-plan-4-observability-host-limits.md`. `refresh.host_limits` inner-burst pool caps (`YoutubeThumbnailResolver::pooledHead`, `SafeUrlFetcher::pooledGet`, Places media pool) + iTunes response cache (`AppleSearch`) + Places photo-url carry-forward. (The old global `--throttle-ms` was already removed in Plan 1; per-provider job pacing is the `platform-refresh` RateLimiter.) Verified in code 2026-07-03.
     - **Where:** RefreshIntegrationConnectionsCommand.php (global `--throttle-ms` only) · AppleSearch.php:66 (iTunes) · EventbriteScraper.php:120 / HumanitixScraper.php:136 (`fetchMany` bursts) · YoutubeThumbnailResolver.php:60-80 (ytimg HEAD pool) · GoogleBusinessService.php:218-236 (Places media, **billed**)
     - **Affects:** Every keyless/limited third-party host the refresh touches.
     - **Effort:** M (~2–4h)
@@ -124,7 +128,8 @@
     - **Plain English:** The nightly "refresh everyone" job knocks on lots of other companies' doors at a fixed pace no matter whose door it is. Some of those companies (Apple's free search, Eventbrite) will slam the door — or bill us — if we knock too fast or too often.
     - **10k re-tier:** the point at which free-tier limits and per-call billing turn "a bit rude" into "cards stop refreshing / bill spikes."
 
-- [ ] **#SCALE-4** · P2 — `menu:retry-unavailable` dispatches up to 200 expensive scrape jobs every 15 minutes, unpaced
+- [x] **#SCALE-4** · P2 — `menu:retry-unavailable` dispatches up to 200 expensive scrape jobs every 15 minutes, unpaced
+    - **✅ Resolved:** Plan 2 — `docs/superpowers/plans/2026-07-02-platform-refresh-plan-2-apify-budget.md`. `RetryUnavailableMenusCommand` default `--limit` lowered 200→50, dispatch staggered (`--stagger-seconds`), and stops early once `ApifyBudget::remaining('menu')` hits 0. Verified in code 2026-07-03.
     - **Where:** app/Console/Commands/RetryUnavailableMenusCommand.php:19,41-42 · routes/console.php:262 (`everyFifteenMinutes`)
     - **Affects:** The `scraping` queue, Apify budget (ties to #SCALE-2), Horizon worker pool.
     - **Effort:** M (~2–4h)
@@ -141,7 +146,8 @@
     - **Technical:** Gold standard puts locks on the dedicated `cache_locks` connection so a data-store `Cache::flush()` / `cache:clear` can't release them. On the default connection, a flush (or an operator clearing cache during an incident) drops every in-flight connection-write mutex → concurrent JSONB `payload` writes clobber each other (last-write-wins).
     - **Plain English:** The locks that stop two edits from colliding are standing in the main room. Pull the fire alarm (a cache clear) and all the guards vanish at once, so two saves can overwrite each other.
 
-- [ ] **#OBS-1** · P2 — Silent failures across the fetch/refresh chain: `Log::warning` only, nothing reaches Nightwatch
+- [x] **#OBS-1** · P2 — Silent failures across the fetch/refresh chain: `Log::warning` only, nothing reaches Nightwatch
+    - **✅ Resolved:** Plan 4 — `docs/superpowers/plans/2026-07-03-platform-refresh-plan-4-observability-host-limits.md`. `report()`/`$this->fail()` added at the 4 surviving sites: `GoogleBusinessService::fetchPlaceDetails` (both branches, `PlaceDetailsUnavailableException`), `PlatformRefresher` shape-error, `DeleteMirroredMediaJob` guard (`$this->fail()`), `PublicIntegrationConnectionResource` fail-closed (`MissingPublicAllowlistException`). The 5th listed site — `FreshaController::fetchEmployeeServices` — is **deferred to the Fresha GraphQL remediation plan** (`docs/superpowers/plans/2026-07-02-fresha-graphql-remediation.md`), which deletes that method wholesale (adding `report()` to soon-deleted code would be throwaway). Verified in code 2026-07-03.
     - **Where:** app/Services/Platforms/GoogleBusinessService.php:138-153 (fetchPlaceDetails) · PlatformRefresher.php:56-70 (recordFailure, shape errors) · FreshaController.php (employee services) · app/Jobs/Platforms/DeleteMirroredMediaJob.php:55-59 (returns without `fail()`) · app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php (missing-allowlist fail-closed)
     - **Affects:** On-call visibility into stale cards, corrupted payloads, orphaned cleanup, and a billed-API (Google Places) outage.
     - **Effort:** M (~2–4h, cluster)
