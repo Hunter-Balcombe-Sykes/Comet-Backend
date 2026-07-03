@@ -60,11 +60,14 @@ class DeleteMirroredMediaJob implements ShouldBeUnique, ShouldQueue
     public function handle(): void
     {
         // Defence-in-depth: only ever delete inside the platforms namespace. A
-        // corrupted/empty _folder must never widen into a broad-prefix wipe.
+        // corrupted/empty _folder must never widen into a broad-prefix wipe — and it
+        // must NOT silently no-op either (OBS-1). fail() → failed() → report() pages
+        // on-call; fail() doesn't stop handle(), so return right after.
         if (! str_starts_with($this->folder, 'platforms/')) {
             Log::warning('DeleteMirroredMediaJob: refused non-platforms prefix', [
                 'folder' => $this->folder,
             ]);
+            $this->fail(new \RuntimeException("DeleteMirroredMediaJob refused non-platforms prefix: {$this->folder}"));
 
             return;
         }
