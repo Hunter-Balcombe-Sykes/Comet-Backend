@@ -208,6 +208,8 @@ the job completes.
 | `POST /booking/detect` → fresha | **unchanged 200** | No HTTP fetch involved. |
 | `POST /booking/detect` → square | **unchanged 200** | No HTTP fetch involved. |
 | `POST /reservations/detect` → opentable | **unchanged 200** | No HTTP fetch involved. |
+| `POST /reservations/detect` → resdiary | **unchanged 200** | No HTTP fetch involved. |
+| `POST /reservations/detect` → nowbookit | **unchanged 200** | No HTTP fetch involved. |
 | `POST /reservations/detect` → fresha | **unchanged 200** | No HTTP fetch involved. |
 | `POST /reservations/detect` → square | **unchanged 200** | No HTTP fetch involved. |
 | All `GET` listing endpoints | **unchanged** | `/custom/links`, `/online-ordering/entries`, etc. |
