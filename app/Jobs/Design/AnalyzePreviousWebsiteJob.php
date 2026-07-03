@@ -41,7 +41,10 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
         return $this->siteId;
     }
 
-    public function __construct(public readonly string $siteId) {}
+    public function __construct(public readonly string $siteId)
+    {
+        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+    }
 
     public function handle(WebsiteStyleAnalyzer $analyzer, LogoAutoGrabber $grabber): void
     {

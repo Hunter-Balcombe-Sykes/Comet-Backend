@@ -39,7 +39,10 @@ class ResolveDesignPresetsJob implements ShouldBeUnique, ShouldQueue
         return $this->userId;
     }
 
-    public function __construct(public readonly string $userId) {}
+    public function __construct(public readonly string $userId)
+    {
+        $this->onQueue('default');
+    }
 
     public function handle(DesignPresetResolver $resolver): void
     {

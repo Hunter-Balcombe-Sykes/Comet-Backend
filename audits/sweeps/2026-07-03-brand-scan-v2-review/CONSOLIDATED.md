@@ -87,7 +87,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 6 complete
+- P1 High: 3 of 6 complete
 - P2 Medium: 5 of 21 complete
 - P3 Low: 5 of 20 complete
 
@@ -217,7 +217,7 @@
         ```
     - `[Confirmed no matching test file exists via repo-wide glob.]`
 
-- [ ] **#SCALE-1** · P1 — Design analysis jobs default to the `default` queue, blocking fast work behind slow outbound HTTP
+- [x] **#SCALE-1** · P1 — Design analysis jobs default to the `default` queue, blocking fast work behind slow outbound HTTP
     - **Where:** app/Jobs/Design/{AnalyzeConnectionWebsitesJob,AnalyzePreviousWebsiteJob,ResolveDesignPresetsJob}.php (no `onQueue()` call)
     - **Affects:** Every Horizon worker on the `default` supervisor. A burst of brand-scan work (holding a worker up to 300s while waiting on 15 external snapshots) starves other `default` jobs — cache purges, quick DB writes — that would finish in under a second.
     - **Effort:** S (~0.5–1h)
@@ -237,7 +237,7 @@
             public int $uniqueFor = 360;
         ```
 
-- [ ] **#SCALE-2** · P1 — `AnalyzeConnectionWebsitesJob` timeout (300s) is shorter than its own worst-case processing time
+- [x] **#SCALE-2** · P1 — `AnalyzeConnectionWebsitesJob` timeout (300s) is shorter than its own worst-case processing time
     - **Where:** app/Jobs/Design/AnalyzeConnectionWebsitesJob.php:39 (`$timeout`), :87 (`MAX_ANALYSES_PER_RUN`); app/Services/Design/Scan/BrandScanClient.php (`attempt()` retry with `networkidle2` → `load`)
     - **Affects:** Any user with several custom links or shop brands. When a target site is slow, the job is killed by Horizon mid-loop with the remaining budget's analyses silently dropped — no `failed()` recovery re-queues them.
     - **Effort:** S (~0.5–1h)

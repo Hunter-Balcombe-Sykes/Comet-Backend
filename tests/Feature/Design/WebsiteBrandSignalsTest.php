@@ -570,15 +570,17 @@ it('checkpoints each shop brand immediately so a mid-run failure keeps prior pro
 });
 
 it('caps analyses per run at the budget and self-continues with a delayed follow-up', function () {
+    // MAX_ANALYSES_PER_RUN is 2 (SCALE-2 timeout budget) — seed one more
+    // connection than the budget so a remainder is left for the self-continue.
     Queue::fake();
     $user = createTenant('life1-budget');
-    foreach (range(1, 16) as $i) {
+    foreach (range(1, 3) as $i) {
         wbsSeedConnection($user, ['kind' => 'link', 'url' => "https://cap{$i}.test"], 'custom');
     }
 
     $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
     $analyzer->shouldReceive('analyze')
-        ->times(15)
+        ->times(2)
         ->andReturnUsing(fn (string $url) => wbsAnalysis($url, null, ['bg' => 'dark']));
 
     (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
@@ -589,8 +591,63 @@ it('caps analyses per run at the budget and self-continues with a delayed follow
         ->filter(fn ($c) => isset($c->payload['styleAnalysis']))
         ->count();
 
-    expect($analyzedCount)->toBe(15);
-    Queue::assertPushed(AnalyzeConnectionWebsitesJob::class, fn ($job) => $job->userId === (string) $user->id);
+    expect($analyzedCount)->toBe(2);
+    // Follow-up is a fresh continuation (0) on the scraping lane — proves the
+    // ctor's onQueue() carries through self::dispatch().
+    Queue::assertPushedOn(
+        'scraping',
+        AnalyzeConnectionWebsitesJob::class,
+        fn ($job) => $job->userId === (string) $user->id && $job->continuation === 0,
+    );
+});
+
+// ── Queue routing (SCALE-1) ─────────────────────────────────────────────────
+
+it('routes the scraping-bound design jobs onto the scraping queue and the resolve job onto default', function () {
+    Queue::fake();
+
+    AnalyzeConnectionWebsitesJob::dispatch('user-1');
+    AnalyzePreviousWebsiteJob::dispatch('site-1');
+    ResolveDesignPresetsJob::dispatch('user-1');
+
+    Queue::assertPushedOn('scraping', AnalyzeConnectionWebsitesJob::class);
+    Queue::assertPushedOn('scraping', AnalyzePreviousWebsiteJob::class);
+    Queue::assertPushedOn('default', ResolveDesignPresetsJob::class);
+});
+
+// ── AnalyzeConnectionWebsitesJob failed() kill-recovery (SCALE-2) ──────────
+
+it('re-dispatches a bounded continuation from failed() when connections still need analysis', function () {
+    Queue::fake();
+    $user = createTenant('life1-failed-redispatch');
+    wbsSeedConnection($user, ['kind' => 'link', 'url' => 'https://stillneeds.test'], 'custom');
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->failed(new RuntimeException('kill'));
+
+    Queue::assertPushedOn(
+        'scraping',
+        AnalyzeConnectionWebsitesJob::class,
+        fn ($job) => $job->userId === (string) $user->id && $job->continuation === 1,
+    );
+});
+
+it('does not re-dispatch from failed() when no connection needs analysis', function () {
+    Queue::fake();
+    $user = createTenant('life1-failed-noop');
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->failed(new RuntimeException('kill'));
+
+    Queue::assertNotPushed(AnalyzeConnectionWebsitesJob::class);
+});
+
+it('stops re-dispatching from failed() once the continuation cap is reached', function () {
+    Queue::fake();
+    $user = createTenant('life1-failed-capped');
+    wbsSeedConnection($user, ['kind' => 'link', 'url' => 'https://stillneeds.test'], 'custom');
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id, 3))->failed(new RuntimeException('kill'));
+
+    Queue::assertNotPushed(AnalyzeConnectionWebsitesJob::class);
 });
 
 // ── AnalyzePreviousWebsiteJob + logo grab v2 ───────────────────────────────

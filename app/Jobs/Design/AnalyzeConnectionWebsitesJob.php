@@ -38,22 +38,41 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
     /** @var list<int> */
     public array $backoff = [60];
 
-    // Up to MAX_ANALYSES_PER_RUN sites × (page + stylesheets).
-    public int $timeout = 300;
+    // BrandScanClient::snapshot() attempts up to 2 waits (networkidle2→load) at
+    // partna.brand_scan.timeout (40s) each = 80s worst-case per URL. Bounded by
+    // MAX_ANALYSES_PER_RUN=2 → 160s worst-case, kept under this timeout (170),
+    // under the scraping supervisor's own limit (180), and under $uniqueFor/360
+    // (redis retry_after) — must stay under all three or a slow run + the
+    // ShouldBeUniqueUntilProcessing release could let a duplicate through.
+    public int $timeout = 170;
 
     public int $uniqueFor = 360;
 
-    // MAX_LINKS is 20 + a handful of shop brands; 15 covers a realistic set in
-    // one run. Rare stragglers are picked up by the next connection write or
-    // the backfill command.
-    private const MAX_ANALYSES_PER_RUN = 15;
+    // Lowered from 15: at 80s worst-case per URL, a larger budget risks
+    // blowing $timeout. Small batches + the self-continue below still sweep a
+    // realistic connection set within a few runs; stragglers are picked up by
+    // the next connection write or the backfill command.
+    private const MAX_ANALYSES_PER_RUN = 2;
+
+    // Cap on failed()'s own kill-recovery re-dispatch chain (see failed()) so a
+    // deterministically-throwing entry can't loop forever — it re-dispatches at
+    // most this many times before falling back to the backfill command.
+    private const MAX_FAILURE_CONTINUATIONS = 3;
 
     public function uniqueId(): string
     {
         return $this->userId;
     }
 
-    public function __construct(public readonly string $userId) {}
+    public function __construct(
+        public readonly string $userId,
+        // Set only by failed()'s own re-dispatch (see below) to bound the
+        // kill-recovery chain; a fresh dispatch (observer/backfill/self-continue)
+        // always defaults to 0.
+        public readonly int $continuation = 0,
+    ) {
+        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+    }
 
     /** Does this connection carry an outside-website URL lacking its analysis? */
     public static function connectionNeedsAnalyses(IntegrationConnection $connection): bool
@@ -160,5 +179,26 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
             'user_id' => $this->userId,
             'error' => $e->getMessage(),
         ]);
+
+        // Kill-recovery: handle()'s own self-continue only fires on a graceful
+        // return (budget exhausted, more to do). A hard failure (both $tries
+        // exhausted) never reaches that line, so without this the remainder
+        // would silently wait for the next connection write or the backfill
+        // command. Bounded by MAX_FAILURE_CONTINUATIONS so a deterministically
+        // -throwing entry can't loop forever.
+        if ($this->continuation >= self::MAX_FAILURE_CONTINUATIONS) {
+            return;
+        }
+
+        $moreToDo = IntegrationConnection::query()
+            ->where('user_id', $this->userId)
+            ->active()
+            ->whereIn('platform', OutsideWebsitesFactor::SOURCE_PLATFORMS)
+            ->get()
+            ->contains(fn (IntegrationConnection $c) => self::connectionNeedsAnalyses($c));
+
+        if ($moreToDo) {
+            self::dispatch($this->userId, $this->continuation + 1)->delay(now()->addSeconds(60));
+        }
     }
 }
