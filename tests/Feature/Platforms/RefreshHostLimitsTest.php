@@ -117,3 +117,36 @@ it('skips billed re-resolution of photos that already carry a url, and pools the
     Http::assertSentCount(2);
     expect(method_exists(GoogleBusinessService::class, 'resolvePhotoUrls'))->toBeTrue();
 });
+
+it('reuses a prior photo url when the ref is unchanged (no re-bill), resolves changed refs', function () {
+    config()->set('services.google_maps.server_api_key', 'test-key');
+
+    // The Place-Details response returns two photo refs: one seen before, one new.
+    // NOTE ordering: the `/media` pattern is listed FIRST — Http::fake matches the
+    // first pattern, and the details glob (`v1/places/*`) would otherwise also match
+    // the media URL (`v1/places/ChIJx/photos/NEW/media`). Media-first disambiguates.
+    Http::fake([
+        'places.googleapis.com/*/media*' => Http::response(['photoUri' => 'https://lh3.example/new.jpg'], 200),
+        'places.googleapis.com/v1/places/*' => Http::response([
+            'id' => 'ChIJx',
+            'photos' => [
+                ['name' => 'places/ChIJx/photos/STABLE', 'widthPx' => 100, 'heightPx' => 100],
+                ['name' => 'places/ChIJx/photos/NEW', 'widthPx' => 100, 'heightPx' => 100],
+            ],
+        ], 200),
+    ]);
+
+    $svc = app(GoogleBusinessService::class);
+    $prior = [
+        ['ref' => 'places/ChIJx/photos/STABLE', 'url' => 'https://lh3.example/stable.jpg'],
+    ];
+
+    $details = $svc->fetchPlaceDetails('ChIJx', $prior);
+
+    $byRef = collect($details['photos'])->keyBy('ref');
+    expect($byRef['places/ChIJx/photos/STABLE']['url'])->toBe('https://lh3.example/stable.jpg') // reused, not re-billed
+        ->and($byRef['places/ChIJx/photos/NEW']['url'])->toBe('https://lh3.example/new.jpg');    // freshly resolved
+
+    // Only the NEW ref hit the billed media endpoint.
+    Http::assertSentCount(2); // 1 details + 1 media (STABLE skipped)
+});

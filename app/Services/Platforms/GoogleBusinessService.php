@@ -120,7 +120,7 @@ class GoogleBusinessService extends PlatformScraper
      *
      * @return array<string,mixed>|null
      */
-    public function fetchPlaceDetails(string $placeId): ?array
+    public function fetchPlaceDetails(string $placeId, array $priorPhotos = []): ?array
     {
         $key = config('services.google_maps.server_api_key');
         if (! is_string($key) || $key === '') {
@@ -158,6 +158,11 @@ class GoogleBusinessService extends PlatformScraper
         // Photo refs → servable image URLs (one billed media call per photo,
         // pooled). Street View availability is a free metadata probe.
         if (isset($mapped['photos']) && is_array($mapped['photos'])) {
+            // SCALE-3: pre-populate servable urls from the prior payload for unchanged
+            // refs so resolvePhotoUrls skips them (no billed re-call). Best-effort —
+            // a rotated ref just resolves fresh below. Connect callers pass no prior
+            // photos, so this is a no-op there.
+            $mapped['photos'] = $this->carryForwardPhotoUrls($mapped['photos'], $priorPhotos);
             $mapped['photos'] = $this->resolvePhotoUrls($key, $placeId, $mapped['photos']);
         }
         if (isset($mapped['lat'], $mapped['lng'])
@@ -295,6 +300,37 @@ class GoogleBusinessService extends PlatformScraper
         $mapped['detailsFetchedAt'] = now()->toIso8601String();
 
         return $mapped;
+    }
+
+    /**
+     * Copy a resolved servable url from the prior payload onto any fresh photo whose
+     * ref is unchanged, so the billed media re-resolve is skipped (SCALE-3). Fail-safe:
+     * an unmatched/rotated ref is left without a url and resolved fresh downstream.
+     *
+     * @param  array<int, array<string,mixed>>  $photos  fresh photos (ref only, no url)
+     * @param  array<int, array<string,mixed>>  $priorPhotos  previously stored photos (ref + url)
+     * @return array<int, array<string,mixed>>
+     */
+    private function carryForwardPhotoUrls(array $photos, array $priorPhotos): array
+    {
+        $priorByRef = [];
+        foreach ($priorPhotos as $p) {
+            if (! empty($p['ref']) && ! empty($p['url'])) {
+                $priorByRef[$p['ref']] = $p['url'];
+            }
+        }
+        if ($priorByRef === []) {
+            return $photos;
+        }
+
+        foreach ($photos as $i => $photo) {
+            $ref = $photo['ref'] ?? null;
+            if ($ref !== null && empty($photo['url']) && isset($priorByRef[$ref])) {
+                $photos[$i]['url'] = $priorByRef[$ref];
+            }
+        }
+
+        return $photos;
     }
 
     /**

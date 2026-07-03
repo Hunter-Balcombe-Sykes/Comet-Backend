@@ -37,7 +37,7 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
             return $payload;
         }
 
-        $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId);
+        $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId, (array) ($payload['photos'] ?? []));
         if ($details === null) {
             throw new FetchUnavailableException('google_details_fetch_failed');
         }
