@@ -232,6 +232,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/detect', [ReservationsController::class, 'detect']);
+            Route::get('/detect/status', [ReservationsController::class, 'detectStatus']);
             Route::get('/status', [ReservationsController::class, 'status']);
             Route::get('/suggestion', [ReservationsController::class, 'suggestion']);
             Route::delete('/', [ReservationsController::class, 'forget']);
