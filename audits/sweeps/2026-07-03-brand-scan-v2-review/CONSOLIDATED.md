@@ -87,9 +87,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 4 of 21 complete
-- P3 Low: 3 of 20 complete
+- P1 High: 1 of 6 complete
+- P2 Medium: 5 of 21 complete
+- P3 Low: 5 of 20 complete
 
 ---
 
@@ -182,7 +182,7 @@
         ```
     - `[Confirmed no matching test file exists via repo-wide glob.]`
 
-- [ ] **#TEST-2** · P1 — `LogoAutoGrabber` has no visible test coverage for CDN upscaling, ICO decode, or SVG safety
+- [x] **#TEST-2** · P1 — `LogoAutoGrabber` has no visible test coverage for CDN upscaling, ICO decode, or SVG safety
     - **Where:** app/Services/Design/LogoAutoGrabber.php (upsizeUrl, icoLargestPngFrame, svgIsSafe, attemptSlot)
     - **Affects:** Auto-populated logos on every newly-onboarded sitepage. A regression in CDN URL rewriting or ICO parsing silently grabs the wrong image or fails to grab a valid one.
     - **Effort:** M (~2–4h)
@@ -413,7 +413,7 @@
         }
         ```
 
-- [ ] **#SCALE-3** · P2 — `LogoAutoGrabber` fires up to ~32 outbound HTTP requests against third-party CDNs with no pacing
+- [x] **#SCALE-3** · P2 — `LogoAutoGrabber` fires up to ~32 outbound HTTP requests against third-party CDNs with no pacing
     - **Where:** app/Services/Design/LogoAutoGrabber.php:147-168 (attemptSlot)
     - **Affects:** Target hosts receiving a burst of rapid image-fetch requests during logo auto-grab (up to 16 candidates × 2 URL variants × 2 slots).
     - **Effort:** S (~0.5–1h)
@@ -690,7 +690,7 @@
         ];
         ```
 
-- [ ] **#LIFE-2** · P3 — `LogoAutoGrabber`'s occupied-slot check has a check-then-upload race with concurrent manual uploads
+- [x] **#LIFE-2** · P3 — `LogoAutoGrabber`'s occupied-slot check has a check-then-upload race with concurrent manual uploads
     - **Where:** app/Services/Design/LogoAutoGrabber.php:47-51 (grabIfEmpty), :140-180 (attemptSlot)
     - **Affects:** Users whose previous-website analysis runs concurrently with a manual logo upload — a benign race that surfaces as a noisy Nightwatch error instead of a silent no-op.
     - **Effort:** S (~0.5–1h)
@@ -806,7 +806,7 @@
             // No DB::transaction() wrapping the above + the stale sweep below.
         ```
 
-- [ ] **#DINT-1** · P3 — `LogoAutoGrabber`'s occupied-slot check ignores `processing_state`
+- [x] **#DINT-1** · P3 — `LogoAutoGrabber`'s occupied-slot check ignores `processing_state`
     - **Where:** app/Services/Design/LogoAutoGrabber.php:47-51
     - **Affects:** A logo stuck in `pending`/`processing`/`failed` state (requires a prior processing-pipeline failure to occur) blocks the auto-grabber from ever filling that slot.
     - **Effort:** S (~0.5–1h)

@@ -7,6 +7,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\MediaUploadService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 
@@ -51,6 +52,12 @@ class LogoAutoGrabber
     /** Rejections: scripts/handlers, foreignObject, embedded rasters, any external/data ref. */
     private const SVG_FORBIDDEN = '/<\s*script|<\s*foreignobject|\bon[a-z]+\s*=|javascript:|<\s*image\b|data:/i';
 
+    /** Delay between outbound candidate fetches so a brand-scan doesn't hammer a single host's CDN. */
+    private const FETCH_PACING_US = 200_000;
+
+    /** Set after the first outbound fetch; paces every fetch after it (spans both slot attempts). */
+    private bool $fetchedBefore = false;
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MediaUploadService $uploads,
@@ -71,6 +78,10 @@ class LogoAutoGrabber
             ->where('pool', SiteMedia::POOL_DESIGN)
             ->whereIn('purpose', [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE])
             ->where('is_active', true)
+            // A FAILED row never finished processing — treat its slot as empty so a
+            // permanently-stuck upload doesn't block auto-grab forever (matches the
+            // occupancy convention in MediaUploadService::createMediaRow).
+            ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
             ->pluck('purpose')
             ->all();
 
@@ -195,7 +206,7 @@ class LogoAutoGrabber
 
             // Upsized CDN variant first, original bytes as fallback.
             foreach (array_unique(array_filter([$this->upsizeUrl($candidate['url']), $candidate['url']])) as $url) {
-                $image = $this->fetchImage($url);
+                $image = $this->pacedFetchImage($url);
                 if ($image === null) {
                     continue;
                 }
@@ -372,6 +383,23 @@ class LogoAutoGrabber
     // ── fetch / decode ─────────────────────────────────────────────────────
 
     /**
+     * Same as fetchImage(), but paced: every fetch after the first in this
+     * grabIfEmpty() call sleeps briefly first, so a brand-scan with several
+     * candidates/variants doesn't burst-hammer a single previous-website host.
+     *
+     * @return array{0:string,1:string,2:int,3:int}|null
+     */
+    private function pacedFetchImage(string $url): ?array
+    {
+        if ($this->fetchedBefore) {
+            usleep(self::FETCH_PACING_US);
+        }
+        $this->fetchedBefore = true;
+
+        return $this->fetchImage($url);
+    }
+
+    /**
      * Fetch + sniff a candidate. .ico containers are decoded to their largest
      * embedded PNG frame. Returns [bytes, mime, width, height] or null.
      *
@@ -493,6 +521,17 @@ class LogoAutoGrabber
             ]);
 
             return true;
+        } catch (UniqueConstraintViolationException $e) {
+            // Benign race: another request (or the other slot's own retry) filled
+            // this purpose's singleton index between our occupancy check and this
+            // insert — not an error, just a lost race. Must precede \Throwable:
+            // UniqueConstraintViolationException extends QueryException.
+            Log::info('LogoAutoGrabber: logo slot filled concurrently; skipping.', [
+                'site_id' => $site->id,
+                'purpose' => $purpose,
+            ]);
+
+            return false;
         } catch (\Throwable $e) {
             report($e);
 
