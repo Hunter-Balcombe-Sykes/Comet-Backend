@@ -21,6 +21,27 @@ use App\Models\Core\Site\IntegrationConnection;
 // Graceful degradation: no stored validator ⇒ headers() is empty ⇒ a normal 200 ⇒
 // validators captured for next time. An upstream that never emits validators ⇒ we
 // keep capturing null ⇒ every poll is a full fetch, exactly as today.
+//
+// Opting in a further single-GET strategy (no spine change needed):
+//   1. Give the scraper's GET method an optional `?ConditionalContext $cond = null`
+//      last param; merge `$cond?->headers() ?? []` into the request headers; after
+//      the fetch, `if ($cond !== null && $cond->handle($res)) return null;` before
+//      the existing status/null guard.
+//   2. In the strategy: `$cond = ConditionalContext::for($connection);` pass it in;
+//      `if ($cond?->notModified) throw new FetchNotModifiedException($platform);`
+//      BEFORE the empty/null guard; `$cond?->applyTo($connection);` on success.
+// Ready candidates (all route through SafeUrlFetcher::tryFetch), deferred only to
+// bound this plan's blast radius — NOT because the upstream is unsuitable:
+//   • TwitchFetch (single HTML GET)                     — 1 call
+//   • StravaFetch (club page; ignore the optional image probe on a 304)
+//   • EventbriteFetch / HumanitixFetch — the standalone `kind==='event'` path only
+//     (the organiser/account path is multi-URL via fetchMany — NOT a candidate)
+//   • YoutubeFetch  — needs channelId cached first (today it resolves handle→id via
+//     a prior channel-page GET, making it a 2-call fetch)
+//   • PinterestFetch — its feed.rss GET is ideal but is paired with a profile GET
+// NOT candidates: iTunes (already app-cached, Plan 4), Google Places (billed, raw
+// Http::, 6-day gated), the menu (Apify actor — no HTTP validator; #CACHE-1 stays
+// Bundle C), and any strategy whose payload needs >1 upstream call.
 final class ConditionalContext
 {
     /** Set true by handle() on a 304; the strategy raises FetchNotModifiedException. */
