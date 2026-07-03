@@ -76,3 +76,24 @@ it('only writes metadata on first sight (preserves first-seen IP)', function () 
     expect($list[0]['ip_prefix'])->toBe('1.1.1.0');
     expect($list[0]['browser_family'])->toBe('Other'); // 'first'/'second' don't match any UA pattern
 });
+
+it('degrades gracefully when a crash leaves the metadata hash with only the _init sentinel', function () {
+    // LIFE-2: HSETNX wins the race and sets `_init`, but a crash (process
+    // death, connection drop) before the following HMSET means the hash never
+    // gets its other fields. Seed exactly that partial state directly —
+    // simulating the crash by skipping HMSET is more faithful than mocking
+    // Redis::shouldReceive('hmset')->andThrow(), since trackForUser() has no
+    // try/catch: an HMSET failure IS the crash, it doesn't get caught here.
+    Redis::sadd('auth:user-sessions:user-1', 'sess-a');
+    Redis::hset('auth:session-meta:sess-a', '_init', '1');
+
+    $list = $this->service->listSessionsForUser('user-1');
+
+    expect($list)->toHaveCount(1);
+    expect($list[0]['session_id'])->toBe('sess-a');
+    expect($list[0]['created_at'])->toBe(0);
+    expect($list[0]['last_seen_at'])->toBeNull();
+    expect($list[0]['ip_prefix'])->toBe('');
+    expect($list[0]['browser_family'])->toBe('Other');
+    expect($list[0]['platform'])->toBe('Other');
+});

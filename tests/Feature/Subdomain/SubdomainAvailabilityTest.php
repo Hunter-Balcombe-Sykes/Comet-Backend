@@ -4,8 +4,10 @@
 
 use App\Models\Core\User\User;
 use App\Services\Site\SubdomainAvailabilityService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 
 // Self-contained schema setup (parallel-safe — does not depend on another
@@ -164,6 +166,25 @@ it('holds handles aliased by another user but not the caller\'s own', function (
         ->and($this->service->check('exhandle', null, 'user-other')['available'])->toBeTrue();
 
     Carbon::setTestNow();
+});
+
+it('fails open and reports the exception when the handle-alias query throws', function () {
+    Exceptions::fake();
+
+    // Force a real QueryException out of the core.user_handle_aliases query
+    // (simulating a transient DB failure) by dropping the table out from under
+    // it — no DB mocking needed. beforeEach's CREATE TABLE IF NOT EXISTS
+    // restores it for the next test regardless of run order.
+    DB::connection('pgsql')->statement('DROP TABLE core.user_handle_aliases');
+
+    $check = $this->service->check('brandnew');
+
+    // Fail-open: degrades to "not held" instead of propagating the error,
+    // mirroring UpdateSiteRequest's contract.
+    expect($check['available'])->toBeTrue()
+        ->and($check['reason'])->toBeNull();
+
+    Exceptions::assertReported(QueryException::class);
 });
 
 it('reports the change window for a user inside the cooldown', function () {

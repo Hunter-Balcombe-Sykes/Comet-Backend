@@ -813,6 +813,42 @@ it('links engine emits a flat list with id/title/url/category/platform', functio
     expect($links[0]['id'])->toBeString(); // real block id, not null
 });
 
+it('rebuilds title/url for legacy link rows from the platform config + settings.handle', function () {
+    // Older link-block rows can have empty title/url at rest — getLinks
+    // rebuilds both from config('partna.social_platforms.{platform}') using
+    // settings.handle as the source of truth when the stored columns are blank.
+    $pro = seedIndividualProfile('links-legacy');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'link',
+        'block_group' => 'links',
+        'title' => '',
+        'url' => '',
+        'sort_order' => 1,
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'category' => 'social',
+        'platform' => 'instagram',
+        'settings' => json_encode(['handle' => 'someuser']),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $links = $this->getJson('/api/public/profiles/links-legacy')->assertOk()->json('data.profile.links');
+
+    expect($links)->toHaveCount(1);
+    expect($links[0])->toMatchArray([
+        'title' => 'Instagram', // config('partna.social_platforms.instagram.display_name')
+        'url' => 'https://instagram.com/someuser', // url_template with {handle} substituted
+        'category' => 'social',
+        'platform' => 'instagram',
+    ]);
+});
+
 it('booking link is synthesised into the links list when the booking section is live', function () {
     $pro = seedIndividualProfile('book-live');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');

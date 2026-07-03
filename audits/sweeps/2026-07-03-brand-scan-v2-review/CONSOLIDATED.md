@@ -88,8 +88,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 14 of 21 complete
-- P3 Low: 9 of 20 complete
+- P2 Medium: 17 of 21 complete
+- P3 Low: 10 of 20 complete
 
 ---
 
@@ -549,7 +549,7 @@
         ]);
         ```
 
-- [ ] **#TEST-4** · P2 — `TokenRevocationService::trackForUser` HSETNX/HMSET race has no concurrency test
+- [x] **#TEST-4** · P2 — `TokenRevocationService::trackForUser` HSETNX/HMSET race has no concurrency test
     - **Where:** app/Services/Auth/TokenRevocationService.php (trackForUser)
     - **Affects:** Active Sessions UI correctness. A crash between `HSETNX` and `HMSET` leaves a metadata hash with only `_init` set — a cosmetic bug, but untested.
     - **Effort:** S (~0.5–1h)
@@ -566,7 +566,7 @@
         }
         ```
 
-- [ ] **#TEST-5** · P2 — `SubdomainAvailabilityService` fail-open behaviour on a handle-alias query error has no test
+- [x] **#TEST-5** · P2 — `SubdomainAvailabilityService` fail-open behaviour on a handle-alias query error has no test
     - **Where:** app/Services/Site/SubdomainAvailabilityService.php (check method, try/catch around the handle-alias query)
     - **Affects:** Subdomain-claim UX. If the `core.user_handle_aliases` query throws, a held handle is reported "available," even though the subsequent write would still be blocked by other checks.
     - **Effort:** S (~0.5–1h)
@@ -615,7 +615,7 @@
         }
         ```
 
-- [ ] **#TEST-8** · P2 — `SafeUrlFetcher::fetchMany()` pool concurrency and redirect re-validation have no test
+- [x] **#TEST-8** · P2 — `SafeUrlFetcher::fetchMany()` pool concurrency and redirect re-validation have no test
     - **Where:** app/Services/Http/SafeUrlFetcher.php (fetchMany, pooledGet)
     - **Affects:** SSRF protection for bulk fetches (custom links, shop brands). `fetch()`/`assertSafe()` already have unit tests; `fetchMany()`'s independent redirect-following implementation does not.
     - **Effort:** M (~2–4h)
@@ -982,7 +982,7 @@
         }
         ```
 
-- [ ] **#TEST-11** · P3 — `getLinks()`'s legacy title/URL rebuild-from-platform-config path has no test
+- [x] **#TEST-11** · P3 — `getLinks()`'s legacy title/URL rebuild-from-platform-config path has no test
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php (getLinks)
     - **Affects:** Public sitepage link rendering for professionals with older link-block rows (empty stored title/url, platform + handle only).
     - **Effort:** S (~0.5–1h)
