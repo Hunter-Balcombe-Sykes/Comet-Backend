@@ -4,6 +4,7 @@ namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\ConditionalContext;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Platforms\YoutubeScraper;
 
@@ -24,10 +25,15 @@ final readonly class YoutubeMusicFetch implements FetchStrategy
             throw new FetchShapeException('missing_key: channelId');
         }
 
-        $feed = $this->youtube->fetchUploadsFeed((string) $channelId, 12);
+        $cond = ConditionalContext::for($connection);
+        $feed = $this->youtube->fetchUploadsFeed((string) $channelId, 12, $cond);
+        if ($cond?->notModified) {
+            throw new FetchNotModifiedException('youtube-music');
+        }
         if ($feed === null || $feed['videos'] === []) {
             throw new FetchUnavailableException('youtube_music_no_releases');
         }
+        $cond?->applyTo($connection);
         $items = YoutubeMusicController::musicItems($feed['videos']);
 
         return [

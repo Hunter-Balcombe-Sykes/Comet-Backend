@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +43,8 @@ class PlatformRefresher
 
         try {
             return $strategy->run($connection);
+        } catch (FetchNotModifiedException $e) {
+            return $this->recordNotModified($connection);
         } catch (FetchShapeException $e) {
             // OBS-1: a shape error means a stored payload lost a required key (data
             // corruption). Report it so Nightwatch pages — the Log::warning in
@@ -53,6 +56,25 @@ class PlatformRefresher
         } catch (FetchUnavailableException $e) {
             return $this->recordFailure($connection, $e->getMessage(), 'unavailable');
         }
+    }
+
+    // 304 Not Modified: upstream confirmed the stored payload is still current. Bump
+    // last_refreshed_at so the connection isn't re-checked until its next TTL, and
+    // clear the failure counter (a 304 IS a healthy hit). Write QUIETLY: nothing
+    // changed, so we must NOT fire IntegrationConnectionObserver — its saved() purges
+    // the sitepage edge cache and re-resolves design presets on EVERY save.
+    // updateQuietly() bypasses the observer, which is exactly right when there is no
+    // content change to publish (the whole point of the 304 short-circuit).
+    private function recordNotModified(IntegrationConnection $connection): IntegrationConnection
+    {
+        $connection->updateQuietly([
+            'last_refreshed_at' => now(),
+            'last_refresh_status' => 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ]);
+
+        return $connection;
     }
 
     // Persist a failed refresh: log a shape error loudly, then atomically bump

@@ -49,6 +49,8 @@ class IntegrationConnection extends BaseModel
         'consecutive_failures',
         'apify_status',
         'place_id',
+        'refresh_etag',
+        'refresh_last_modified',
     ];
 
     protected $casts = [

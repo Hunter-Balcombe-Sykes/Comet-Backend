@@ -507,10 +507,23 @@ function setupSitesTable(): void
         consecutive_failures INTEGER NULL DEFAULT 0,
         apify_status TEXT NULL,
         place_id TEXT NULL,
+        refresh_etag TEXT NULL,
+        refresh_last_modified TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )');
+
+    // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
+    // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
+    // already-created table within a run).
+    foreach (['refresh_etag', 'refresh_last_modified'] as $vCol) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists / unsupported — ignore
+        }
+    }
 
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
     // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),

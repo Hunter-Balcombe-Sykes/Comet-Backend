@@ -16,12 +16,21 @@ class OEmbedService extends PlatformScraper
 
     /**
      * @return array{name:?string, thumbnail:?string, embedUrl:?string}|null
-     *                                                                       null when the endpoint is unreachable or returns no usable JSON.
+     *                                                                       null when the endpoint is unreachable, returns no usable JSON, or signals 304 Not Modified.
      */
-    public function resolve(string $oembedEndpoint): ?array
+    public function resolve(string $oembedEndpoint, ?ConditionalContext $cond = null): ?array
     {
-        $res = $this->fetcher->tryFetch($oembedEndpoint, ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json']);
-        if ($res === null || $res['status'] !== 200) {
+        $res = $this->fetcher->tryFetch($oembedEndpoint, array_merge(
+            ['User-Agent' => self::USER_AGENT, 'Accept' => 'application/json'],
+            $cond?->headers() ?? [],
+        ));
+        if ($res === null) {
+            return null;
+        }
+        if ($cond !== null && $cond->handle($res)) {
+            return null; // 304 Not Modified — caller short-circuits
+        }
+        if ($res['status'] !== 200) {
             return null;
         }
 

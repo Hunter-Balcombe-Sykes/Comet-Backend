@@ -73,9 +73,9 @@ class YoutubeScraper extends PlatformScraper
      *
      * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string}>}|null
      */
-    public function fetchUploadsFeed(string $channelId, int $limit = 15): ?array
+    public function fetchUploadsFeed(string $channelId, int $limit = 15, ?ConditionalContext $cond = null): ?array
     {
-        $headers = ['User-Agent' => self::USER_AGENT];
+        $headers = array_merge(['User-Agent' => self::USER_AGENT], $cond?->headers() ?? []);
 
         // Use the channel's uploads-playlist feed (UU…) rather than the channel
         // feed (UC…). On a fresh upload the channel_id feed can lag hours — or
@@ -84,7 +84,15 @@ class YoutubeScraper extends PlatformScraper
         // is the channel id with its "UC" prefix swapped to "UU".
         $uploadsPlaylistId = 'UU'.substr($channelId, 2);
         $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
-        if ($rss === null || $rss['status'] !== 200) {
+        if ($rss === null) {
+            return null;
+        }
+        // 304 Not Modified → let the caller (a fetch strategy) short-circuit. On a
+        // 200, capture the fresh ETag/Last-Modified for next time.
+        if ($cond !== null && $cond->handle($rss)) {
+            return null;
+        }
+        if ($rss['status'] !== 200) {
             return null;
         }
 

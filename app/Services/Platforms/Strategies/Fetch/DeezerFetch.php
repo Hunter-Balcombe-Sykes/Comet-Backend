@@ -3,6 +3,7 @@
 namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\ConditionalContext;
 use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
@@ -23,10 +24,16 @@ final readonly class DeezerFetch implements FetchStrategy
             throw new FetchShapeException('missing_key: artistId');
         }
 
-        $artist = $this->deezer->fetchArtist((string) $id);
+        $cond = ConditionalContext::for($connection);
+        $artist = $this->deezer->fetchArtist((string) $id, $cond);
+
+        if ($cond?->notModified) {
+            throw new FetchNotModifiedException('deezer');
+        }
         if ($artist === null) {
             throw new FetchUnavailableException('deezer_fetch_failed');
         }
+        $cond?->applyTo($connection);
 
         return [
             ...$payload,
