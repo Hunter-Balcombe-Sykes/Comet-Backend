@@ -241,6 +241,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::get('/entries', [OnlineOrderingController::class, 'entries']);
             Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
+            Route::get('/entries/{id}/status', [OnlineOrderingController::class, 'entryStatus'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [OnlineOrderingController::class, 'forget']);
         });

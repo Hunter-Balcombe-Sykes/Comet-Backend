@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -45,26 +46,28 @@ class OnlineOrderingController extends ApiController
     }
 
     // POST /api/platforms/online-ordering/entries — attach an ordering link.
+    // Returns 202 immediately with a minimal card; EnrichLinkCardJob upgrades
+    // name/logo/favicon off-thread once the HTTP fetch completes (JOB-1).
+    // Merge-on-add / MAX_ENTRIES / storeKey logic runs synchronously — all
+    // URL-derived, no slow fetch needed.
     public function addEntry(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validate(['url' => ['required', 'string', 'max:1000']]);
 
-        // Fetch + parse outside the lock (slow external HTTP).
         $url = $this->scraper->normalizeUrl($validated['url']);
         if (! $url) {
             return $this->error('Enter a valid link (https://...).', 422);
         }
-        // Never rejects on an unfetchable page (bot-blocked platforms like Uber
-        // Eats) — it falls back to a minimal card so any ordering link attaches.
-        $meta = $this->scraper->snapshotOrMinimal($url);
+        // Minimal card only — the slow metadata fetch moves to EnrichLinkCardJob (JOB-1).
+        $meta = ['url' => $url, ...$this->scraper->minimalCard($url)];
 
         // The mode the URL itself declares (Uber Eats ?diningMode=PICKUP|DELIVERY),
         // used to slot a merge-on-add into the right pickup/delivery URL.
         $mode = $this->modeOf($meta['url']);
         $storeKey = $this->storeKey($meta['url']);
 
-        return $this->withConnectionLock($user, function () use ($user, $meta, $mode, $storeKey) {
+        return $this->withConnectionLock($user, function () use ($user, $meta, $mode, $storeKey, $url) {
             // Merge-on-add: a link to a store the user already has (same platform +
             // store path) folds into that existing row — one store = one entry
             // carrying both a pickup and a delivery URL — instead of a duplicate.
@@ -76,10 +79,11 @@ class OnlineOrderingController extends ApiController
             }
 
             if ($existing) {
-                $this->writeConnection($user, $this->mergeStorePayload(CardPayload::fromArray($existing->payload)->toArray(), $meta, $mode), $existing->resource_id);
+                $rid = $existing->resource_id;
+                $this->writePendingLinkCard($user, $this->mergeStorePayload(CardPayload::fromArray($existing->payload)->toArray(), $meta, $mode), $rid);
             } else {
                 $rid = $this->entryResourceId($meta['url']);
-                $this->writeConnection($user, $this->mergeStorePayload([
+                $this->writePendingLinkCard($user, $this->mergeStorePayload([
                     'id' => $rid,
                     'provider' => 'custom',
                     'source' => 'manual',
@@ -87,11 +91,24 @@ class OnlineOrderingController extends ApiController
                 ], $meta, $mode), $rid);
             }
 
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
             // Ordering links drive the shared menu — (re)derive it from them.
             MenuFetchJob::dispatch((string) $user->id);
 
-            return $this->success(['entries' => $this->entriesData($user)]);
+            return $this->success([
+                'status' => 'pending',
+                'entries' => $this->entriesData($user),
+                'statusUrl' => url("/api/integrations/online-ordering/entries/{$rid}/status"),
+            ], 202);
         });
+    }
+
+    // GET /api/integrations/online-ordering/entries/{id}/status — poll enrichment.
+    public function entryStatus(Request $request, string $id): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        return $this->linkCardStatusResponse($user, $id, fn () => ['entries' => $this->entriesData($user)]);
     }
 
     // DELETE /api/platforms/online-ordering/entries/{id}

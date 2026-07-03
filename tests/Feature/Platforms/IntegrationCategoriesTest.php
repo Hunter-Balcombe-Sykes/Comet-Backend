@@ -5,6 +5,7 @@ use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\ProviderDetector;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -30,6 +31,8 @@ function fakeScraper(array $snapshot): void
     test()->mock(LinkCardScraper::class, function ($m) use ($snapshot) {
         $m->shouldReceive('normalizeUrl')->andReturnUsing(fn ($u) => $snapshot['url'] ?? $u);
         $m->shouldReceive('snapshotOrMinimal')->andReturn($snapshot);
+        // addEntry now calls minimalCard (async JOB-1) instead of snapshotOrMinimal.
+        $m->shouldReceive('minimalCard')->andReturn($snapshot);
     });
 }
 
@@ -182,6 +185,7 @@ it('reports opentable as the connected reservation', function () {
 // ── Online ordering (multi-entry) ─────────────────────────────────────
 
 it('adds, lists and removes online-ordering entries', function () {
+    Queue::fake();
     $user = catUser('cat8');
 
     fakeScraper([
@@ -192,8 +196,10 @@ it('adds, lists and removes online-ordering entries', function () {
         'logo' => null,
     ]);
 
+    // addEntry returns 202 with a minimal card (async JOB-1); name comes from the
+    // canned minimalCard mock which returns the same snapshot as before.
     actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/my-cafe'])
-        ->assertOk()
+        ->assertStatus(202)
         ->assertJsonPath('entries.0.provider', 'custom')
         ->assertJsonPath('entries.0.name', 'Uber Eats')
         ->assertJsonPath('entries.0.source', 'manual');
@@ -219,13 +225,16 @@ it('attaches any link even when the page cannot be fetched (graceful fallback)',
 });
 
 it('adds an unfetchable online-ordering link as a branded card (no 422)', function () {
+    // addEntry now calls minimalCard (URL-only, no HTTP) rather than snapshotOrMinimal,
+    // so SafeUrlFetcher is never invoked. The mock is kept as documentation but unused.
+    Queue::fake();
     test()->mock(SafeUrlFetcher::class, fn ($m) => $m->shouldReceive('tryFetch')->andReturn(null));
     $user = catUser('cat9');
 
     actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
         'url' => 'https://www.ubereats.com/au/store/ollies-pizza-parlour/abc',
     ])
-        ->assertOk()
+        ->assertStatus(202)
         ->assertJsonPath('entries.0.name', 'ubereats.com')
         ->assertJsonPath('entries.0.url', 'https://www.ubereats.com/au/store/ollies-pizza-parlour/abc');
 });
