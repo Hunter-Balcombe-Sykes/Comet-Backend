@@ -7,6 +7,7 @@
 
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\YoutubeThumbnailResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -85,4 +86,34 @@ it('caps fetchMany concurrency via a chunked pool helper', function () {
     foreach ($urls as $u) {
         expect($out[$u]['status'])->toBe(200);
     }
+});
+
+it('skips billed re-resolution of photos that already carry a url, and pools the rest', function () {
+    config()->set('services.google_maps.server_api_key', 'test-key');
+    config()->set('partna.refresh.host_limits.google_places.pool_concurrency', 2);
+
+    Http::fake([
+        'places.googleapis.com/*/media*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg'], 200),
+    ]);
+
+    $svc = app(GoogleBusinessService::class);
+    $ref = new ReflectionMethod(GoogleBusinessService::class, 'resolvePhotoUrls');
+    $ref->setAccessible(true);
+
+    $photos = [
+        ['ref' => 'places/x/photos/a', 'url' => 'https://cached.example/a.jpg'], // already resolved
+        ['ref' => 'places/x/photos/b'],                                          // needs resolving
+        ['ref' => 'places/x/photos/c'],                                          // needs resolving
+    ];
+
+    $out = $ref->invoke($svc, 'test-key', 'ChIJx', $photos);
+
+    // Already-resolved photo untouched; the other two resolved.
+    expect($out[0]['url'])->toBe('https://cached.example/a.jpg')
+        ->and($out[1]['url'])->toBe('https://lh3.example/resolved.jpg')
+        ->and($out[2]['url'])->toBe('https://lh3.example/resolved.jpg');
+
+    // Only the 2 unresolved photos were billed (the cached one sent nothing).
+    Http::assertSentCount(2);
+    expect(method_exists(GoogleBusinessService::class, 'resolvePhotoUrls'))->toBeTrue();
 });
