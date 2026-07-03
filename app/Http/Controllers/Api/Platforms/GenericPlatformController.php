@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
@@ -51,7 +52,7 @@ class GenericPlatformController extends ApiController
 
         // Capability checkpoint (spec §9) — true for everyone today; the gate
         // exists so future paid-tier/account-type rules are a per-descriptor flag.
-        abort_unless($descriptor->availableFor($user), 403);
+        $this->authorizeForUser($user, 'connect', [new IntegrationConnection(['user_id' => $user->id]), $descriptor]);
 
         $strategy = $descriptor->connectStrategy();
         abort_if($strategy === null, 404);

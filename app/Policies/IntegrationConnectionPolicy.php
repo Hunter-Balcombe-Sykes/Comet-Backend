@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\User\User;
+use App\Services\Platforms\Registry\PlatformDescriptor;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -38,6 +39,22 @@ class IntegrationConnectionPolicy extends BasePolicy
     {
         if ($denied = $this->denyIfPendingDeletion($actor)) {
             return $denied;
+        }
+
+        return $this->ownerMatches($actor, $skeleton);
+    }
+
+    // Capability gate for the generic connect flow — checks account eligibility
+    // via the descriptor before the write-level create ability fires in writeConnection().
+    // Extra arg pattern: authorizeForUser($user, 'connect', [$skeleton, $descriptor]).
+    public function connect(User $actor, Model $skeleton, PlatformDescriptor $descriptor): bool|Response
+    {
+        if ($denied = $this->denyIfPendingDeletion($actor)) {
+            return $denied;
+        }
+
+        if (! $descriptor->availableFor($actor)) {
+            return Response::deny('This platform is not available for your account.', 403);
         }
 
         return $this->ownerMatches($actor, $skeleton);
