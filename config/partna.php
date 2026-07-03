@@ -1203,6 +1203,17 @@ return [
                 'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 6),
             ],
         ],
+
+        // Plan 5: HTTP conditional requests (ETag / If-None-Match / 304) on the
+        // single-GET poll strategies. When enabled, a wired fetch strategy sends the
+        // connection's stored validator and short-circuits on a 304 (no payload
+        // write, no cache purge). Global kill-switch: set false to force full fetches
+        // everywhere if an upstream starts mis-answering conditional requests. Off ⇒
+        // ConditionalContext::for() returns null and every strategy fetches exactly
+        // as before (graceful degradation is per-strategy; this is the master off).
+        'conditional' => [
+            'enabled' => (bool) env('PARTNA_REFRESH_CONDITIONAL_ENABLED', true),
+        ],
     ],
 
     'video_variants' => [
