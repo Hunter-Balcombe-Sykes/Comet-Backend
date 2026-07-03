@@ -260,4 +260,10 @@ class CacheKeyGenerator
     {
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
+
+    /** Cached keyless iTunes Search/Lookup response, keyed by request path (SCALE-3). */
+    public static function itunesResponse(string $path): string
+    {
+        return 'platforms:itunes:'.sha1($path);
+    }
 }

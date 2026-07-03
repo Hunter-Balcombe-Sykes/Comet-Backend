@@ -43,6 +43,12 @@ class PlatformRefresher
         try {
             return $strategy->run($connection);
         } catch (FetchShapeException $e) {
+            // OBS-1: a shape error means a stored payload lost a required key (data
+            // corruption). Report it so Nightwatch pages — the Log::warning in
+            // recordFailure() alone is an invisible breadcrumb. Transient upstream
+            // misses (FetchUnavailableException, below) stay quiet by design.
+            report($e);
+
             return $this->recordFailure($connection, $e->getMessage(), 'error');
         } catch (FetchUnavailableException $e) {
             return $this->recordFailure($connection, $e->getMessage(), 'unavailable');

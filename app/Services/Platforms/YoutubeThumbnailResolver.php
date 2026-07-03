@@ -75,13 +75,11 @@ class YoutubeThumbnailResolver
             return $result;
         }
 
-        // 2. Probe every miss concurrently — one batched round-trip, not N.
-        $responses = Http::pool(fn (Pool $pool) => array_map(
-            fn (string $id) => $pool->as($id)
-                ->timeout(self::TIMEOUT_SECONDS)
-                ->head($this->maxresUrl($id)),
-            $misses,
-        ));
+        // 2. Probe every miss concurrently, but in bounded chunks so one refresh can't
+        //    fan out an unlimited burst of HEADs to i.ytimg.com (SCALE-3). Global
+        //    across the batch; per-provider job pacing is handled upstream by the
+        //    platform-refresh RateLimiter.
+        $responses = $this->pooledHead($misses);
 
         // 3. Record each fresh verdict, write it to cache, and merge into the map.
         // A pooled request that errored comes back as a Throwable, not a Response
@@ -97,6 +95,32 @@ class YoutubeThumbnailResolver
         }
 
         return $result;
+    }
+
+    /**
+     * HEAD-probe every id concurrently, capped at the configured pool concurrency.
+     * Chunks the ids and runs one Http::pool per chunk; results keyed by id (via
+     * $pool->as($id)) are merged across chunks.
+     *
+     * @param  array<int,string>  $ids
+     * @return array<string, Response|\Throwable>
+     */
+    private function pooledHead(array $ids): array
+    {
+        $max = max(1, (int) config('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 10));
+        $responses = [];
+
+        foreach (array_chunk($ids, $max) as $chunk) {
+            $batch = Http::pool(fn (Pool $pool) => array_map(
+                fn (string $id) => $pool->as($id)
+                    ->timeout(self::TIMEOUT_SECONDS)
+                    ->head($this->maxresUrl($id)),
+                $chunk,
+            ));
+            $responses += $batch; // key-preserving union (keys are the ids)
+        }
+
+        return $responses;
     }
 
     private function cacheKey(string $videoId): string

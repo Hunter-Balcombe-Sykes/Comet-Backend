@@ -1173,6 +1173,36 @@ return [
             // Report to Nightwatch when the overdue count exceeds this.
             'alert_threshold' => (int) env('PARTNA_REFRESH_BACKLOG_THRESHOLD', 500),
         ],
+
+        // SCALE-3: inner per-host burst control for the refresh fetch strategies.
+        // The per-provider 'platform-refresh' RateLimiter (rate_limits, above) paces
+        // how many refresh JOBS run per minute per platform. It does NOT see the
+        // concurrent HTTP a SINGLE fetch fans out within one job — these cap those
+        // bursts so a fetch can't hammer a keyless / billed third-party host. (The old
+        // global --throttle-ms was removed in Plan 1; there is no global delay to max
+        // against — these are the inner-burst residual.)
+        'host_limits' => [
+            // iTunes Search/Lookup — keyless, ~20 req/min/IP (429s after ~20 Apple
+            // refreshes in one run). Cache successful responses so repeated lookups
+            // across a run (and re-runs within the window) don't each re-hit Apple.
+            'itunes' => [
+                'cache_ttl_seconds' => (int) env('PARTNA_REFRESH_ITUNES_CACHE_TTL', 21600), // 6h
+            ],
+            // i.ytimg.com maxresdefault HEAD probes (YoutubeThumbnailResolver). Cheap
+            // HEADs, so a generous cap; bounds the batch when many videos miss cache.
+            'youtube_thumbnails' => [
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 10),
+            ],
+            // Google Places media — BILLED per call. Keep the concurrent burst tight.
+            'google_places' => [
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_PLACES_POOL', 5),
+            ],
+            // Shared SafeUrlFetcher::fetchMany pool (Eventbrite/Humanitix HTML scrapes;
+            // WAF-ban risk in aggregate). Caps every fetchMany caller globally.
+            'fetch_many' => [
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 6),
+            ],
+        ],
     ],
 
     'video_variants' => [

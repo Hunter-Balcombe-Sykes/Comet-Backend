@@ -2,7 +2,9 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Cache;
 
 // Apple Music + Apple Podcasts lookups on the unauthenticated iTunes Search API
 // (no key). Resolves an artist/show to its id, then returns the recent releases
@@ -80,13 +82,28 @@ class AppleSearch extends PlatformScraper
 
     private function itunes(string $path): ?array
     {
+        // SCALE-3: cache successful lookups (iTunes is keyless, ~20 req/min/IP). Only
+        // a valid decoded response is stored — a null/non-200 must be retried, never
+        // remembered. Matches the YoutubeThumbnailResolver "cache the verdict, not the
+        // miss" pattern; key centralised in CacheKeyGenerator.
+        $key = CacheKeyGenerator::itunesResponse($path);
+        $cached = Cache::get($key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         $res = $this->fetcher->tryFetch('https://itunes.apple.com'.$path, ['User-Agent' => self::USER_AGENT]);
         if ($res === null || $res['status'] !== 200) {
             return null;
         }
         $json = json_decode($res['body'], true);
+        if (! is_array($json)) {
+            return null;
+        }
 
-        return is_array($json) ? $json : null;
+        Cache::put($key, $json, (int) config('partna.refresh.host_limits.itunes.cache_ttl_seconds'));
+
+        return $json;
     }
 
     // Artwork comes back as "...100x100bb.jpg"; swap for HD without a 2nd call.

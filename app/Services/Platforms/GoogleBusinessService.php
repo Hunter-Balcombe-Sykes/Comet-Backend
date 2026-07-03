@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Exceptions\Platforms\PlaceDetailsUnavailableException;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -120,7 +121,7 @@ class GoogleBusinessService extends PlatformScraper
      *
      * @return array<string,mixed>|null
      */
-    public function fetchPlaceDetails(string $placeId): ?array
+    public function fetchPlaceDetails(string $placeId, array $priorPhotos = []): ?array
     {
         $key = config('services.google_maps.server_api_key');
         if (! is_string($key) || $key === '') {
@@ -136,6 +137,7 @@ class GoogleBusinessService extends PlatformScraper
                 ])
                 ->get('https://places.googleapis.com/v1/places/'.rawurlencode($placeId));
         } catch (\Throwable $e) {
+            report($e); // OBS-1: billed-call network failure must reach Nightwatch, not just the log.
             Log::warning('google_business.details_fetch_failed', [
                 'placeId' => $placeId,
                 'message' => $e->getMessage(),
@@ -145,6 +147,7 @@ class GoogleBusinessService extends PlatformScraper
         }
 
         if (! $res->ok()) {
+            report(new PlaceDetailsUnavailableException($placeId, $res->status())); // OBS-1: an outage (429/5xx) pages on-call.
             Log::warning('google_business.details_fetch_failed', [
                 'placeId' => $placeId,
                 'status' => $res->status(),
@@ -158,6 +161,11 @@ class GoogleBusinessService extends PlatformScraper
         // Photo refs → servable image URLs (one billed media call per photo,
         // pooled). Street View availability is a free metadata probe.
         if (isset($mapped['photos']) && is_array($mapped['photos'])) {
+            // SCALE-3: pre-populate servable urls from the prior payload for unchanged
+            // refs so resolvePhotoUrls skips them (no billed re-call). Best-effort —
+            // a rotated ref just resolves fresh below. Connect callers pass no prior
+            // photos, so this is a no-op there.
+            $mapped['photos'] = $this->carryForwardPhotoUrls($mapped['photos'], $priorPhotos);
             $mapped['photos'] = $this->resolvePhotoUrls($key, $placeId, $mapped['photos']);
         }
         if (isset($mapped['lat'], $mapped['lng'])
@@ -298,27 +306,83 @@ class GoogleBusinessService extends PlatformScraper
     }
 
     /**
+     * Copy a resolved servable url from the prior payload onto any fresh photo whose
+     * ref is unchanged, so the billed media re-resolve is skipped (SCALE-3). Fail-safe:
+     * an unmatched/rotated ref is left without a url and resolved fresh downstream.
+     *
+     * @param  array<int, array<string,mixed>>  $photos  fresh photos (ref only, no url)
+     * @param  array<int, array<string,mixed>>  $priorPhotos  previously stored photos (ref + url)
+     * @return array<int, array<string,mixed>>
+     */
+    private function carryForwardPhotoUrls(array $photos, array $priorPhotos): array
+    {
+        $priorByRef = [];
+        foreach ($priorPhotos as $p) {
+            if (! empty($p['ref']) && ! empty($p['url'])) {
+                $priorByRef[$p['ref']] = $p['url'];
+            }
+        }
+        if ($priorByRef === []) {
+            return $photos;
+        }
+
+        foreach ($photos as $i => $photo) {
+            $ref = $photo['ref'] ?? null;
+            if ($ref !== null && empty($photo['url']) && isset($priorByRef[$ref])) {
+                $photos[$i]['url'] = $priorByRef[$ref];
+            }
+        }
+
+        return $photos;
+    }
+
+    /**
      * Resolve stored photo refs to servable image URLs via the Place Photos
      * media endpoint — one billed call per photo, pooled for latency. A
      * failed resolve keeps the ref without a url; the next weekly refresh
      * retries.
+     *
+     * Photos that already carry a non-empty url (e.g. carried over from the
+     * prior payload by Task 6) are skipped — never re-billed (SCALE-3).
      *
      * @param  array<int, array<string,mixed>>  $photos
      * @return array<int, array<string,mixed>>
      */
     private function resolvePhotoUrls(string $key, string $placeId, array $photos): array
     {
+        $photos = array_values($photos);
+
+        // SCALE-3: only resolve photos MISSING a servable url. A photo whose url was
+        // carried over from the prior payload (GoogleBusinessFetch) is not re-billed.
+        $toResolve = [];
+        foreach ($photos as $index => $photo) {
+            if (empty($photo['url']) && ! empty($photo['ref'])) {
+                $toResolve[$index] = $photo;
+            }
+        }
+        if ($toResolve === []) {
+            return $photos;
+        }
+
+        // Cap the concurrent burst of BILLED media calls (SCALE-3): chunk the pool.
+        $max = max(1, (int) config('partna.refresh.host_limits.google_places.pool_concurrency', 5));
+
         try {
-            $responses = Http::pool(fn (Pool $pool) => array_map(
-                fn (array $photo) => $pool
-                    ->timeout(5)
-                    ->withHeaders(['X-Goog-Api-Key' => $key])
-                    ->get('https://places.googleapis.com/v1/'.($photo['ref'] ?? '').'/media', [
-                        'maxWidthPx' => 1200,
-                        'skipHttpRedirect' => 'true',
-                    ]),
-                array_values($photos),
-            ));
+            $responses = [];
+            foreach (array_chunk($toResolve, $max, true) as $chunk) {
+                $batch = Http::pool(fn (Pool $pool) => array_map(
+                    fn (int $i, array $photo) => $pool->as((string) $i)
+                        ->timeout(5)
+                        ->withHeaders(['X-Goog-Api-Key' => $key])
+                        ->get('https://places.googleapis.com/v1/'.($photo['ref'] ?? '').'/media', [
+                            'maxWidthPx' => 1200,
+                            'skipHttpRedirect' => 'true',
+                        ]),
+                    array_keys($chunk),
+                    array_values($chunk),
+                ));
+                $responses += $batch;
+            }
         } catch (\Throwable $e) {
             report($e);
             Log::warning('google_business.photo_resolve_failed', [
@@ -329,7 +393,7 @@ class GoogleBusinessService extends PlatformScraper
             return $photos;
         }
 
-        foreach (array_values($photos) as $index => $photo) {
+        foreach ($toResolve as $index => $photo) {
             $res = $responses[$index] ?? null;
             $uri = $res instanceof Response && $res->ok() ? $res->json('photoUri') : null;
             if (is_string($uri) && $uri !== '') {
