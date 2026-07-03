@@ -86,3 +86,59 @@ it('purges the sitepage edge cache when a connection is written', function () {
 
     Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
+
+it('does not purge the edge cache on a status-only update (CACHE-2)', function () {
+    $user = makePlatformUser('cache2-status');
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => 'cache2-status',
+    ]);
+
+    Queue::fake();
+    // 'tiktok' has no registered design factor and isn't an outside-website
+    // source platform, so resolveDesignPresets() also no-ops — keeps this
+    // purge-only assertion from being muddied by the preset-resolve path.
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'tiktok',
+        'resource_id' => 'tt-status',
+        'payload' => [],
+    ]);
+
+    // Refetch: wasRecentlyCreated is a sticky per-instance flag that never
+    // resets after the initial insert, so reusing $conn would spuriously
+    // satisfy the guard's create-branch on every subsequent save.
+    $conn = IntegrationConnection::find($conn->id);
+
+    // Reset the fake so only the upcoming status-only update is captured —
+    // the create() above legitimately purges (wasRecentlyCreated).
+    Queue::fake();
+    $conn->update(['last_refresh_status' => 'ok']);
+
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
+});
+
+it('purges the edge cache when a connection payload changes (CACHE-2)', function () {
+    $user = makePlatformUser('cache2-payload');
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => 'cache2-payload',
+    ]);
+
+    Queue::fake();
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'tiktok',
+        'resource_id' => 'tt-payload',
+        'payload' => ['a' => 1],
+    ]);
+
+    $conn = IntegrationConnection::find($conn->id); // see note above on wasRecentlyCreated
+
+    Queue::fake();
+    $conn->update(['payload' => ['a' => 2]]);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+});

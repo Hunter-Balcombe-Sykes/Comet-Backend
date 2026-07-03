@@ -57,6 +57,7 @@ class IndividualProfilePayloadBuilder
 {
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
+        private readonly DesignPresetResolver $presetResolver,
     ) {}
 
     /**
@@ -460,7 +461,7 @@ class IndividualProfilePayloadBuilder
         // Defensive: a preset bug yields an empty layer, never breaking render.
         $preset = [];
         try {
-            $preset = app(DesignPresetResolver::class)->presetLayer((string) $site->id);
+            $preset = $this->presetResolver->presetLayer((string) $site->id);
         } catch (\Throwable $e) {
             report($e);
         }

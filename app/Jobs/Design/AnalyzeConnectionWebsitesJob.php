@@ -7,7 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\WebsiteStyleAnalyzer;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -20,9 +20,16 @@ use Throwable;
 // OutsideWebsitesFactor's mode vote. Each payload write is a normal update()
 // so IntegrationConnectionObserver refires: analyses now match their URLs, so
 // no re-dispatch (converges), and the resolve job is queued by the same
-// observer pass. ShouldBeUnique per user coalesces bursts (e.g. several links
-// added back-to-back).
-class AnalyzeConnectionWebsitesJob implements ShouldBeUnique, ShouldQueue
+// observer pass.
+//
+// ShouldBeUniqueUntilProcessing (not plain ShouldBeUnique) per user coalesces
+// bursts (e.g. several links added back-to-back) AND lets this job re-dispatch
+// itself when the per-run budget runs out (see handle()'s self-continue): the
+// "UntilProcessing" variant releases the uniqueness lock the moment the worker
+// picks the job up, not after handle() returns — a plain ShouldBeUnique job
+// dispatching itself from inside handle() would hit its own still-held lock
+// and be silently dropped.
+class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -120,21 +127,29 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUnique, ShouldQueue
                 continue;
             }
 
-            // shop: brand-keyed map — analyze each brand entry missing one.
-            $changed = false;
+            // shop: brand-keyed map — analyze each brand entry missing one,
+            // checkpointing after EVERY brand (not once at the end of the
+            // connection) so a mid-connection failure — or simply running out
+            // of budget partway through a many-brand connection — keeps
+            // whatever was already analyzed instead of losing it.
             foreach ($payload as $key => $brand) {
                 if ($budget <= 0) {
                     break;
                 }
                 if (is_array($brand) && self::entryNeedsAnalysis($brand)) {
                     $payload[$key]['styleAnalysis'] = $analyzer->analyze(trim((string) $brand['url']));
-                    $changed = true;
+                    $connection->update(['payload' => $payload]);
                     $budget--;
                 }
             }
-            if ($changed) {
-                $connection->update(['payload' => $payload]);
-            }
+        }
+
+        // Self-continue: budget ran out but connections still need analysis —
+        // requeue a delayed follow-up instead of waiting for the next
+        // connection write or the backfill command to pick up the remainder.
+        $moreToDo = $connections->contains(fn (IntegrationConnection $c) => self::connectionNeedsAnalyses($c));
+        if ($budget <= 0 && $moreToDo) {
+            self::dispatch($this->userId)->delay(now()->addSeconds(30));
         }
     }
 

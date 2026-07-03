@@ -73,7 +73,40 @@ class AnalyzePreviousWebsiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $analysis = $analyzer->analyze($url);
+        // Guard ONLY the analyze() call — an uncaught throw (network blip,
+        // analyzer bug) would otherwise exhaust retries and leave the stored
+        // analysis stale, so WorkplaceObserver::reconcile() (url+v match only,
+        // it doesn't check ok) never sees it as in-sync and re-dispatches on
+        // every save — a storm. Negatively-cache instead: store an ok:false
+        // doc matching WebsiteStyleAnalyzer::doc()'s shape so the URL+version
+        // read as in-sync and stop the storm. PreviousWebsiteFactor::usable()
+        // requires ok===true, so the failed doc contributes nothing. The save()
+        // below stays unguarded so a transient DB error still retries via
+        // $tries/$backoff.
+        try {
+            $analysis = $analyzer->analyze($url);
+        } catch (Throwable $e) {
+            report($e);
+            $analysis = [
+                'v' => WebsiteStyleAnalyzer::VERSION,
+                'url' => $url,
+                'finalUrl' => null,
+                'ok' => false,
+                'mode' => 'none',
+                'failure' => 'exception',
+                'analyzedAt' => now()->toIso8601String(),
+                'accent' => null,
+                'signals' => [],
+                'logo' => ['candidates' => []],
+                'notes' => [$e->getMessage()],
+            ];
+            $workplace->previous_website_analysis = $analysis;
+            $workplace->save();
+            $this->dispatchResolve();
+
+            return;
+        }
+
         $workplace->previous_website_analysis = $analysis;
         $workplace->save();
 

@@ -13,11 +13,12 @@ use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Support\Facades\Log;
 
-// Purges the user's public sitepage edge cache on any platform-connection write
-// (dashboard CRUD + the refresh cron), so platform/product edits appear on the
-// sitepage immediately instead of waiting for the edge TTL to lapse. This is the
-// proper fix for the sitepage staleness (replaces the temporary low-TTL band-aid
-// in partna-pages).
+// Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
+// write (dashboard CRUD + the refresh cron — create, payload change, or
+// (de)activation; not status-only writes like last_visited_at), so platform/
+// product edits appear on the sitepage immediately instead of waiting for the
+// edge TTL to lapse. This is the proper fix for the sitepage staleness (replaces
+// the temporary low-TTL band-aid in partna-pages).
 //
 // Surgical direct purge (like ServiceCategoryObserver) rather than touch()ing the
 // site: platform selections are NOT part of the public-profile payload — they're
@@ -30,15 +31,15 @@ class IntegrationConnectionObserver
 
     public function saved(IntegrationConnection $connection): void
     {
-        $this->purge($connection);
-
-        // Re-resolve design presets on MEANINGFUL changes only — a connect
-        // (created), a payload refresh, or an (de)activation — not status-only
-        // writes like last_visited_at / refresh status. The job is
-        // ShouldBeUnique + idempotent, so a burst coalesces to one rebuild.
+        // Purge + preset resolve both gate on MEANINGFUL changes only — a
+        // connect (created), a payload refresh, or an (de)activation — not
+        // status-only writes like last_visited_at / refresh status. Both
+        // downstream jobs are ShouldBeUnique + idempotent, so a burst
+        // coalesces to one purge + one rebuild.
         if ($connection->wasRecentlyCreated
             || $connection->wasChanged('payload')
             || $connection->wasChanged('is_active')) {
+            $this->purge($connection);
             $this->resolveDesignPresets($connection);
         }
     }

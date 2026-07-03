@@ -537,6 +537,62 @@ it('treats a v1 styleAnalysis as needing re-analysis', function () {
     expect(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses(IntegrationConnection::query()->find($id)))->toBeTrue();
 });
 
+// ── AnalyzeConnectionWebsitesJob per-brand checkpoint + self-continue (LIFE-1) ──
+
+it('checkpoints each shop brand immediately so a mid-run failure keeps prior progress', function () {
+    // Fake the queue so the b1 checkpoint's own IntegrationConnectionObserver
+    // dispatch (payload changed → AnalyzeConnectionWebsitesJob re-fires) doesn't
+    // run for real mid-test and clobber b2 with a genuine (SSRF-rejected)
+    // analysis before our own loop gets to it.
+    Queue::fake();
+    $user = createTenant('life1-checkpoint');
+    $shopId = wbsSeedConnection($user, [
+        'b1' => ['id' => 'b1', 'url' => 'https://b1.test'],
+        'b2' => ['id' => 'b2', 'url' => 'https://b2.test'],
+    ], 'shop');
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldReceive('analyze')->once()->with('https://b1.test')
+        ->andReturn(wbsAnalysis('https://b1.test', null, ['bg' => 'dark']));
+    $analyzer->shouldReceive('analyze')->once()->with('https://b2.test')
+        ->andThrow(new RuntimeException('scan failed'));
+
+    try {
+        (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
+    } catch (RuntimeException) {
+        // Expected — b2's analyze() call throws mid-run; the checkpoint under
+        // test is that b1's write already landed before this happened.
+    }
+
+    $shop = IntegrationConnection::query()->find($shopId);
+    expect($shop->payload['b1']['styleAnalysis']['ok'] ?? null)->toBeTrue()
+        ->and($shop->payload['b2']['styleAnalysis'] ?? null)->toBeNull();
+});
+
+it('caps analyses per run at the budget and self-continues with a delayed follow-up', function () {
+    Queue::fake();
+    $user = createTenant('life1-budget');
+    foreach (range(1, 16) as $i) {
+        wbsSeedConnection($user, ['kind' => 'link', 'url' => "https://cap{$i}.test"], 'custom');
+    }
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldReceive('analyze')
+        ->times(15)
+        ->andReturnUsing(fn (string $url) => wbsAnalysis($url, null, ['bg' => 'dark']));
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
+
+    $analyzedCount = IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->get()
+        ->filter(fn ($c) => isset($c->payload['styleAnalysis']))
+        ->count();
+
+    expect($analyzedCount)->toBe(15);
+    Queue::assertPushed(AnalyzeConnectionWebsitesJob::class, fn ($job) => $job->userId === (string) $user->id);
+});
+
 // ── AnalyzePreviousWebsiteJob + logo grab v2 ───────────────────────────────
 
 it('stores the analysis, grabs the best square candidate, and records decisions', function () {
@@ -653,4 +709,65 @@ it('extracts the largest PNG frame from an .ico container', function () {
 
     expect(LogoAutoGrabber::icoLargestPngFrame($ico))->toBe($large)
         ->and(LogoAutoGrabber::icoLargestPngFrame('garbage'))->toBeNull();
+});
+
+// ── AnalyzePreviousWebsiteJob reconciliation guard (TEST-9 / LIFE-3) ───────
+
+it('short-circuits without calling the analyzer when a current, url-matching, ok analysis exists', function () {
+    $user = createTenant('pw-guard-hit');
+    $url = 'https://old.example';
+    $seeded = wbsAnalysis($url, '#123abc', ['bg' => 'dark']);
+    wbsSeedWorkplace($user->site->id, $url, $seeded);
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldNotReceive('analyze');
+    $grabber = Mockery::mock(LogoAutoGrabber::class);
+    $grabber->shouldNotReceive('grabIfEmpty');
+
+    (new AnalyzePreviousWebsiteJob($user->site->id))->handle($analyzer, $grabber);
+
+    // Untouched — the guard returned before any write.
+    expect(Workplace::query()->find($user->site->id)->previous_website_analysis['accent']['hex'])->toBe($seeded['accent']['hex']);
+});
+
+it('re-analyzes when the guard misses: stale version, mismatched url, or a prior failure', function (array $seedAnalysis) {
+    $user = createTenant('pw-guard-miss-'.Str::random(6));
+    $url = 'https://old.example';
+    wbsSeedWorkplace($user->site->id, $url, $seedAnalysis);
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldReceive('analyze')->once()->with($url)->andReturn(wbsAnalysis($url, null, [], ok: false));
+    $grabber = Mockery::mock(LogoAutoGrabber::class);
+    $grabber->shouldNotReceive('grabIfEmpty'); // ok:false result must not enter the logo-grab branch
+
+    (new AnalyzePreviousWebsiteJob($user->site->id))->handle($analyzer, $grabber);
+
+    $stored = Workplace::query()->find($user->site->id)->previous_website_analysis;
+    expect($stored['url'])->toBe($url)->and($stored['ok'])->toBeFalse();
+})->with([
+    'stale analyzer version' => [wbsAnalysis('https://old.example', null, ['bg' => 'dark'], v: 1)],
+    'mismatched stored url' => [wbsAnalysis('https://different.example', null, ['bg' => 'dark'])],
+    'previously failed (ok:false)' => [wbsAnalysis('https://old.example', null, ['bg' => 'dark'], ok: false)],
+]);
+
+it('negatively caches an uncaught analyzer exception instead of leaving a stale doc (LIFE-3)', function () {
+    Queue::fake();
+    $user = createTenant('pw-analyzer-throws');
+    $url = 'https://boom.example';
+    wbsSeedWorkplace($user->site->id, $url, null);
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldReceive('analyze')->once()->with($url)->andThrow(new RuntimeException('boom'));
+    $grabber = Mockery::mock(LogoAutoGrabber::class);
+    $grabber->shouldNotReceive('grabIfEmpty');
+
+    // Must not bubble — the whole point is to negatively-cache instead of exhausting retries.
+    (new AnalyzePreviousWebsiteJob($user->site->id))->handle($analyzer, $grabber);
+
+    $stored = Workplace::query()->find($user->site->id)->previous_website_analysis;
+    expect($stored['ok'])->toBeFalse()
+        ->and($stored['url'])->toBe($url)
+        ->and($stored['v'])->toBe(WebsiteStyleAnalyzer::VERSION);
+
+    Queue::assertPushed(ResolveDesignPresetsJob::class);
 });
