@@ -65,3 +65,24 @@ it('chunks the ytimg maxres probes to the configured pool concurrency', function
     }
     Http::assertSentCount(5); // every id probed across chunks
 });
+
+it('caps fetchMany concurrency via a chunked pool helper', function () {
+    config()->set('partna.refresh.host_limits.fetch_many.pool_concurrency', 2);
+    // Literal public IP bypasses assertSafe()'s DNS resolution → hermetic. 8.8.8.8 is
+    // a public address (passes NO_PRIV_RANGE|NO_RES_RANGE); Http::fake stubs the GET.
+    Http::fake(['8.8.8.8/*' => Http::response('<html>ok</html>', 200)]);
+
+    expect(method_exists(SafeUrlFetcher::class, 'pooledGet'))->toBeTrue();
+
+    $urls = [
+        'https://8.8.8.8/1', 'https://8.8.8.8/2', 'https://8.8.8.8/3',
+        'https://8.8.8.8/4', 'https://8.8.8.8/5',
+    ];
+    $out = app(SafeUrlFetcher::class)->fetchMany($urls);
+
+    // All 5 resolved despite a cap of 2 (chunked, not dropped).
+    expect(array_keys($out))->toEqualCanonicalizing($urls);
+    foreach ($urls as $u) {
+        expect($out[$u]['status'])->toBe(200);
+    }
+});

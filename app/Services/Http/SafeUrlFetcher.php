@@ -139,16 +139,10 @@ class SafeUrlFetcher
             $originals = array_keys($pending);
             $currentUrls = array_column($pending, 'current');
 
-            // Fire all current URLs in one concurrent pool; key by index to map back.
-            $responses = Http::pool(fn (Pool $pool) => array_map(
-                fn (int $i, string $url) => $pool->as((string) $i)
-                    ->timeout(self::TIMEOUT_SECONDS)
-                    ->withHeaders($mergedHeaders)
-                    ->withoutRedirecting()
-                    ->get($url),
-                array_keys($currentUrls),
-                $currentUrls,
-            ));
+            // Fire the current round's URLs, capped to the configured concurrency so a
+            // large organiser (many event pages) can't burst all at once against the
+            // target host (SCALE-3, WAF-ban risk). Indices key the pool → map back.
+            $responses = $this->pooledGet($currentUrls, $mergedHeaders);
 
             $nextPending = [];
             foreach ($originals as $i => $original) {
@@ -195,6 +189,36 @@ class SafeUrlFetcher
         }
 
         return $results;
+    }
+
+    /**
+     * GET a list of URLs concurrently, capped at the configured pool concurrency.
+     * Preserves the numeric index as the pool key (via $pool->as((string) $i)) so the
+     * caller maps responses back to its $originals; chunks are merged key-preserving.
+     *
+     * @param  array<int,string>  $currentUrls  0-indexed list of URLs for this round.
+     * @param  array<string,string>  $mergedHeaders
+     * @return array<string, Response|\Throwable> Keyed by "$i".
+     */
+    private function pooledGet(array $currentUrls, array $mergedHeaders): array
+    {
+        $max = max(1, (int) config('partna.refresh.host_limits.fetch_many.pool_concurrency', 6));
+        $responses = [];
+
+        foreach (array_chunk($currentUrls, $max, true) as $chunk) {
+            $batch = Http::pool(fn (Pool $pool) => array_map(
+                fn (int $i, string $url) => $pool->as((string) $i)
+                    ->timeout(self::TIMEOUT_SECONDS)
+                    ->withHeaders($mergedHeaders)
+                    ->withoutRedirecting()
+                    ->get($url),
+                array_keys($chunk),
+                array_values($chunk),
+            ));
+            $responses += $batch;
+        }
+
+        return $responses;
     }
 
     /**
