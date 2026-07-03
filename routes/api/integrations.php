@@ -206,6 +206,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::get('/links', [CustomLinksController::class, 'links']);
             Route::post('/links', [CustomLinksController::class, 'addLink']);
+            Route::get('/links/{id}/status', [CustomLinksController::class, 'linkStatus'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/links/{id}', [CustomLinksController::class, 'removeLink'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [CustomLinksController::class, 'forget']);
         });
@@ -222,6 +223,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/detect', [BookingController::class, 'detect']);
+            Route::get('/detect/status', [BookingController::class, 'detectStatus']);
             Route::get('/status', [BookingController::class, 'status']);
             Route::delete('/', [BookingController::class, 'forget']);
         });
@@ -230,6 +232,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/detect', [ReservationsController::class, 'detect']);
+            Route::get('/detect/status', [ReservationsController::class, 'detectStatus']);
             Route::get('/status', [ReservationsController::class, 'status']);
             Route::get('/suggestion', [ReservationsController::class, 'suggestion']);
             Route::delete('/', [ReservationsController::class, 'forget']);
@@ -240,6 +243,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::get('/entries', [OnlineOrderingController::class, 'entries']);
             Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
+            Route::get('/entries/{id}/status', [OnlineOrderingController::class, 'entryStatus'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/', [OnlineOrderingController::class, 'forget']);
         });

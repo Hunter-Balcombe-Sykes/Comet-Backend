@@ -579,7 +579,7 @@ it('covers every integration GET read-route in the golden master', function () {
     // TEST-6: Pin route IDENTITY, not just count.
     // Sorted URI snapshot — catches add/remove AND one-for-one swaps.
     // Count guard kept too for fast failure messaging.
-    expect($readRoutes->count())->toBe(53);
+    expect($readRoutes->count())->toBe(57);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/selection',
@@ -587,8 +587,10 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/apple/podcast/selection',
         'api/platforms/bandcamp/accounts',
         'api/platforms/bandcamp/selection',
+        'api/platforms/booking/detect/status',
         'api/platforms/booking/status',
         'api/platforms/custom/links',
+        'api/platforms/custom/links/{id}/status',
         'api/platforms/deezer/accounts',
         'api/platforms/deezer/selection',
         'api/platforms/eventbrite/accounts',
@@ -607,10 +609,12 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/meta',
         'api/platforms/nowbookit/selection',
         'api/platforms/online-ordering/entries',
+        'api/platforms/online-ordering/entries/{id}/status',
         'api/platforms/opentable/selection',
         'api/platforms/pinterest/selection',
         'api/platforms/reddit/selection',
         'api/platforms/resdiary/selection',
+        'api/platforms/reservations/detect/status',
         'api/platforms/reservations/status',
         'api/platforms/shop/brands',
         'api/platforms/shop/selection',

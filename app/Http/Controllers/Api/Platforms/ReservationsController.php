@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OpenTableService;
@@ -52,24 +53,37 @@ class ReservationsController extends ApiController
             return $this->success(['provider' => $provider, 'next' => "{$provider}-connect", 'selection' => null]);
         }
 
-        // Unknown → custom fallback.
+        // Unknown → custom fallback. Minimal card now; enrich off-thread (JOB-1).
         $url = $this->scraper->normalizeUrl($validated['url']);
         if (! $url) {
             return $this->error('Enter a valid link (https://...).', 422);
         }
-        $meta = $this->scraper->snapshotOrMinimal($url);   // never null — minimal card on fetch failure
+        $meta = $this->scraper->minimalCard($url);
 
-        return $this->withConnectionLock($user, function () use ($user, $meta) {
+        return $this->withConnectionLock($user, function () use ($user, $meta, $url) {
             $this->clearReservations($user);   // single-slot
             $payload = ['provider' => 'custom', 'source' => 'manual', ...$meta];
-            $this->writeConnection($user, $payload);
+            $this->writePendingLinkCard($user, $payload);
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
 
             return $this->success([
                 'provider' => 'custom',
                 'next' => 'custom-saved',
+                'status' => 'pending',
                 'selection' => $this->shapeCustom($payload),
-            ]);
+                'statusUrl' => url('/api/integrations/reservations/detect/status'),
+            ], 202);
         });
+    }
+
+    // GET /api/integrations/reservations/detect/status — poll the custom-card enrichment.
+    public function detectStatus(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        return $this->linkCardStatusResponse($user, $this->defaultResourceId(), fn () => [
+            'selection' => $this->shapeCustom($this->readConnection($user) ?? []),
+        ]);
     }
 
     // GET /api/platforms/reservations/status — read-aggregate (opentable | custom).

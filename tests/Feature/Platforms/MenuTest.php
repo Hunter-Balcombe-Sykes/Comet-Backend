@@ -78,6 +78,14 @@ function fakeEchoOrderingScraper(): void
             'favicon' => null,
             'logo' => null,
         ]);
+        // addEntry now calls minimalCard (async JOB-1) instead of snapshotOrMinimal.
+        $m->shouldReceive('minimalCard')->andReturnUsing(fn ($u) => [
+            'url' => $u,
+            'name' => 'Uber Eats',
+            'description' => null,
+            'favicon' => null,
+            'logo' => null,
+        ]);
     });
 }
 
@@ -502,15 +510,15 @@ it('merges a second mode link for the same store into the existing entry on add'
     $user = menuUser('m16');
     fakeEchoOrderingScraper();
 
-    // First add — a pickup-typed Uber Eats link.
+    // First add — a pickup-typed Uber Eats link. Returns 202 (async JOB-1).
     actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
         'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP',
-    ])->assertOk()->assertJsonCount(1, 'entries');
+    ])->assertStatus(202)->assertJsonCount(1, 'entries');
 
     // Second add — the SAME store, delivery variant — folds into the same row.
     $res = actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
         'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY',
-    ])->assertOk();
+    ])->assertStatus(202);
 
     // Still ONE row in the DB (no duplicate) and one consolidated entry.
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(1);

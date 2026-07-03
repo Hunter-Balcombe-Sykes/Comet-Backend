@@ -102,6 +102,63 @@ trait ManagesIntegrationConnection
         );
     }
 
+    /**
+     * Async-connect variant of writeConnection: writes a usable MINIMAL card
+     * immediately with status 'pending', so the connect action can return 202
+     * before the slow enrichment fetch runs (JOB-1). EnrichLinkCardJob flips the
+     * status to 'ok' once it has upgraded the display fields. Policy-gated exactly
+     * like writeConnection (create vs update ability resolved before the upsert).
+     */
+    protected function writePendingLinkCard(User $user, array $payload, ?string $resourceId = null): IntegrationConnection
+    {
+        $existing = $this->connectionFor($user, $resourceId);
+        if ($existing) {
+            $this->authorizeForUser($user, 'update', $existing);
+        } else {
+            $skeleton = new IntegrationConnection([
+                'user_id' => $user->id,
+                'platform' => $this->platform(),
+                'resource_id' => $resourceId ?? $this->defaultResourceId(),
+            ]);
+            $this->authorizeForUser($user, 'create', $skeleton);
+        }
+
+        return IntegrationConnection::updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'platform' => $this->platform(),
+                'resource_id' => $resourceId ?? $this->defaultResourceId(),
+            ],
+            [
+                'payload' => $payload,
+                'is_active' => true,
+                'last_refreshed_at' => null,
+                'last_refresh_status' => 'pending',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+    }
+
+    /**
+     * Poll response for an async link-card enrichment (JOB-1), mirroring the
+     * Instagram connectStatus shape: pending → ready(+data) → failed. 404 when the
+     * resource doesn't exist for the caller (never 403 — no existence leak).
+     */
+    protected function linkCardStatusResponse(User $user, string $resourceId, callable $whenReady): JsonResponse
+    {
+        $connection = $this->connectionFor($user, $resourceId);
+        if (! $connection) {
+            return $this->error('Link not found.', 404);
+        }
+
+        return match ($connection->last_refresh_status) {
+            'pending' => $this->success(['status' => 'pending']),
+            'ok' => $this->success(['status' => 'ready', ...$whenReady($connection)]),
+            default => $this->success(['status' => 'failed']),
+        };
+    }
+
     /** Read one resource's selection payload (null when nothing is stored). */
     protected function readConnection(User $user, ?string $resourceId = null): ?array
     {
