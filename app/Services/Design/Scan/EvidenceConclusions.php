@@ -17,13 +17,41 @@ namespace App\Services\Design\Scan;
  */
 class EvidenceConclusions
 {
-    public const MIN_CONFIDENCE = 0.5;
+    /** Fallback default for config('partna.brand_scan.confidence.min_confidence'). */
+    private const MIN_CONFIDENCE = 0.5;
 
-    /** Colours within this RGB euclidean distance corroborate each other. */
+    /**
+     * Colours within this RGB euclidean distance corroborate each other.
+     * Fallback default for config('partna.brand_scan.confidence.agree_dist').
+     */
     private const AGREE_DIST = 40.0;
 
-    /** Accent candidates within this distance merge into one cluster. */
+    /**
+     * Accent candidates within this distance merge into one cluster.
+     * Fallback default for config('partna.brand_scan.confidence.cluster_dist').
+     */
     private const CLUSTER_DIST = 30.0;
+
+    /**
+     * Confidence floor a signal/accent must clear to survive in conclude()'s
+     * output. Public + static so PreviousWebsiteFactor/OutsideWebsitesFactor
+     * can apply the SAME bar when re-checking a stored v2 analysis document —
+     * keeping this the single source of truth for the threshold.
+     */
+    public static function minConfidence(): float
+    {
+        return (float) config('partna.brand_scan.confidence.min_confidence', self::MIN_CONFIDENCE);
+    }
+
+    private static function agreeDist(): float
+    {
+        return (float) config('partna.brand_scan.confidence.agree_dist', self::AGREE_DIST);
+    }
+
+    private static function clusterDist(): float
+    {
+        return (float) config('partna.brand_scan.confidence.cluster_dist', self::CLUSTER_DIST);
+    }
 
     /**
      * @param  array<string, mixed>  $evidence  collector stash (decoded)
@@ -64,7 +92,7 @@ class EvidenceConclusions
 
         // Below-threshold conclusions are dropped, not stored — an absent key
         // IS the "no confident conclusion" representation.
-        $signals = array_filter($signals, fn (array $s): bool => $s['confidence'] >= self::MIN_CONFIDENCE);
+        $signals = array_filter($signals, fn (array $s): bool => $s['confidence'] >= self::minConfidence());
 
         return [
             'signals' => $signals,
@@ -102,7 +130,7 @@ class EvidenceConclusions
         }
 
         if ($computedRaw !== null && $pixel !== null) {
-            $confidence = $this->dist($computedRaw, $pixel) <= self::AGREE_DIST ? 0.95 : 0.25;
+            $confidence = $this->dist($computedRaw, $pixel) <= self::agreeDist() ? 0.95 : 0.25;
         } elseif ($computedRaw !== null) {
             // A background-image anywhere in the paint chain means the colour
             // may never actually be visible — not enough alone.
@@ -419,7 +447,7 @@ class EvidenceConclusions
         $clusters = [];
         foreach ($candidates as $cand) {
             foreach ($clusters as &$cluster) {
-                if ($this->dist($cand['c'], $cluster['rep']) <= self::CLUSTER_DIST) {
+                if ($this->dist($cand['c'], $cluster['rep']) <= self::clusterDist()) {
                     $cluster['votes']++;
                     $cluster['sources'][$cand['source']] = true;
                     continue 2;
@@ -456,12 +484,12 @@ class EvidenceConclusions
 
             // Pixel corroboration: the candidate visibly present on the fold.
             $pixelAccent = $this->parseColor($pixels['accent'] ?? null);
-            if ($pixelAccent !== null && $this->dist($cluster['rep'], $pixelAccent) <= self::AGREE_DIST) {
+            if ($pixelAccent !== null && $this->dist($cluster['rep'], $pixelAccent) <= self::agreeDist()) {
                 $confidence = min(0.95, $confidence + 0.05);
                 $sources[] = 'pixels';
             }
 
-            if ($confidence < self::MIN_CONFIDENCE) {
+            if ($confidence < self::minConfidence()) {
                 return null;
             }
 

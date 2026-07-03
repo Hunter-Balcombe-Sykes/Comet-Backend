@@ -89,7 +89,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
 - P2 Medium: 11 of 21 complete
-- P3 Low: 6 of 20 complete
+- P3 Low: 7 of 20 complete
 
 ---
 
@@ -908,7 +908,7 @@
         }
         ```
 
-- [ ] **#CFG-1** · P3 — Multiple service classes hardcode operational tuning constants instead of reading from config
+- [x] **#CFG-1** · P3 — Multiple service classes hardcode operational tuning constants instead of reading from config
     - **Where:** app/Services/Http/SafeUrlFetcher.php:47-48 (TIMEOUT_SECONDS, MAX_REDIRECTS); app/Services/Auth/TokenRevocationService.php:31-34 (TOUCH_INTERVAL_SECONDS, MAX_LIFETIME_SECONDS); app/Services/Design/Scan/BrandScanClient.php:99 (PAGE_TIMEOUT_MS); app/Services/Design/Scan/{EvidenceConclusions,ScreenshotSampler}.php (MIN_CONFIDENCE, AGREE_DIST, CLUSTER_DIST, BG_MODALITY_MIN, ACCENT_MIN_SAMPLES, ACCENT_CLUSTER_MIN_SHARE)
     - **Affects:** Ops/engineers tuning outbound-fetch, session-lifecycle, or brand-scan-confidence behaviour per environment — currently requires a code deploy for every adjustment.
     - **Effort:** M (~2–4h) — mechanical extraction across the listed files, one PR.

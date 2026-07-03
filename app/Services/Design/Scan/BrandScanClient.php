@@ -16,9 +16,6 @@ use Illuminate\Support\Facades\Http;
  */
 class BrandScanClient
 {
-    /** In-browser navigation budget; the HTTP timeout adds headroom on top. */
-    private const PAGE_TIMEOUT_MS = 25_000;
-
     private const VIEWPORT_W = 1440;
 
     private const VIEWPORT_H = 1200;
@@ -69,7 +66,8 @@ class BrandScanClient
                     'collectorJs' => $collector,
                     'width' => self::VIEWPORT_W,
                     'height' => self::VIEWPORT_H,
-                    'timeoutMs' => self::PAGE_TIMEOUT_MS,
+                    // In-browser navigation budget; the HTTP timeout above adds headroom on top.
+                    'timeoutMs' => (int) ($cfg['page_timeout_ms'] ?? 25_000),
                     'waitUntil' => $waitUntil,
                 ]);
         } catch (ConnectionException $e) {

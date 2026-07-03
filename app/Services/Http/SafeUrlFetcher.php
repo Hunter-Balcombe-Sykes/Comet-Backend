@@ -22,12 +22,23 @@ use Illuminate\Support\Facades\Http;
  */
 class SafeUrlFetcher
 {
+    /** Fallback defaults for config('partna.http_fetch.*') — kept in sync with config/partna.php. */
     private const MAX_REDIRECTS = 5;
 
     private const TIMEOUT_SECONDS = 8;
 
     /** Browser-ish UA — some providers 403 obvious bots / empty UAs. */
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)';
+
+    private readonly int $maxRedirects;
+
+    private readonly int $timeoutSeconds;
+
+    public function __construct()
+    {
+        $this->maxRedirects = (int) config('partna.http_fetch.max_redirects', self::MAX_REDIRECTS);
+        $this->timeoutSeconds = (int) config('partna.http_fetch.timeout_seconds', self::TIMEOUT_SECONDS);
+    }
 
     /**
      * Fetch a URL safely. Returns the final response body + metadata, or throws.
@@ -40,14 +51,14 @@ class SafeUrlFetcher
     {
         $current = $url;
 
-        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+        for ($hop = 0; $hop <= $this->maxRedirects; $hop++) {
             $this->assertSafe($current);
 
             $response = Http::withHeaders(array_merge([
                 'User-Agent' => self::USER_AGENT,
                 'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
             ], $headers))
-                ->timeout(self::TIMEOUT_SECONDS)
+                ->timeout($this->timeoutSeconds)
                 ->withoutRedirecting()
                 ->get($current);
 
@@ -165,7 +176,7 @@ class SafeUrlFetcher
                     $next = $this->resolveRedirect($pending[$original]['current'], $location);
                     $hops = $pending[$original]['hops'] + 1;
 
-                    if ($hops > self::MAX_REDIRECTS) {
+                    if ($hops > $this->maxRedirects) {
                         // Too many hops — drop this URL.
                         continue;
                     }
@@ -213,7 +224,7 @@ class SafeUrlFetcher
         foreach (array_chunk($currentUrls, $max, true) as $chunk) {
             $batch = Http::pool(fn (Pool $pool) => array_map(
                 fn (int $i, string $url) => $pool->as((string) $i)
-                    ->timeout(self::TIMEOUT_SECONDS)
+                    ->timeout($this->timeoutSeconds)
                     ->withHeaders($mergedHeaders)
                     ->withoutRedirecting()
                     ->get($url),

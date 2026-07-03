@@ -61,7 +61,7 @@ class PreviousWebsiteFactor implements SiteDesignFactor
         $hex = is_array($accent) ? ($accent['hex'] ?? null) : null;
         if (is_string($hex)
             && preg_match('/^#[0-9a-f]{6}$/i', $hex)
-            && (float) ($accent['confidence'] ?? 0) >= EvidenceConclusions::MIN_CONFIDENCE) {
+            && (float) ($accent['confidence'] ?? 0) >= EvidenceConclusions::minConfidence()) {
             $out['color_accent'] = strtolower($hex);
         }
 
@@ -81,7 +81,7 @@ class PreviousWebsiteFactor implements SiteDesignFactor
         foreach (is_array($analysis['signals'] ?? null) ? $analysis['signals'] : [] as $signal => $data) {
             if (is_array($data)
                 && is_string($data['tier'] ?? null)
-                && (float) ($data['confidence'] ?? 0) >= EvidenceConclusions::MIN_CONFIDENCE) {
+                && (float) ($data['confidence'] ?? 0) >= EvidenceConclusions::minConfidence()) {
                 $tiers[$signal] = $data['tier'];
             }
         }

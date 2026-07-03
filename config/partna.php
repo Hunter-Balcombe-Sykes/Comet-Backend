@@ -859,6 +859,24 @@ return [
         'login_identifier_per_minute' => (int) env('PARTNA_LOGIN_IDENTIFIER_PER_MINUTE', 20),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Session tracking (TokenRevocationService)
+    |--------------------------------------------------------------------------
+    | Redis-backed Supabase session_id blocklist + per-user "Active Sessions"
+    | tracking. See TokenRevocationService's class docblock for the full model.
+    */
+    'sessions' => [
+        // Rolling last-activity resolution. One Redis SET NX per request in the
+        // common case; the meta hash is only written when the interval elapses.
+        'touch_interval_seconds' => (int) env('PARTNA_SESSION_TOUCH_INTERVAL_SECONDS', 600),
+
+        // Refresh tokens last ~30 days in Supabase; outlast access tokens but not
+        // refresh tokens, so a revoked/tracked session entry self-cleans on the
+        // same schedule as the token it represents.
+        'max_lifetime_seconds' => (int) env('PARTNA_SESSION_MAX_LIFETIME_SECONDS', 30 * 24 * 60 * 60),
+    ],
+
     // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
     // brand_signup_code) are diverted to a waitlist row instead of creating a
     // Professional. Default false (fail-closed). Read via config() — never env()
@@ -1042,6 +1060,23 @@ return [
 
     /*
     |----------------------------------------------------------------------
+    | Outbound-fetch budget (SafeUrlFetcher)
+    |----------------------------------------------------------------------
+    | Every custom-link and platform-scraper fetch of a user-supplied URL goes
+    | through SafeUrlFetcher. These tune the SSRF-guarded fetch itself — pool
+    | concurrency for the batched fetchMany() path lives alongside the other
+    | per-host burst caps at refresh.host_limits.fetch_many.
+    */
+    'http_fetch' => [
+        // Per-request HTTP client timeout (seconds).
+        'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 8),
+        // Max redirect hops followed; each hop is re-validated for SSRF before
+        // being followed (SafeUrlFetcher::fetch() / fetchMany()).
+        'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 5),
+    ],
+
+    /*
+    |----------------------------------------------------------------------
     | Brand scanner (website style analysis, self-hosted)
     |----------------------------------------------------------------------
     | WebsiteStyleAnalyzer v2 renders target sites in real Chrome via the
@@ -1056,6 +1091,35 @@ return [
         'url' => env('PARTNA_BRAND_SCAN_URL', ''),
         'token' => env('PARTNA_BRAND_SCAN_TOKEN', ''),
         'timeout' => (int) env('PARTNA_BRAND_SCAN_TIMEOUT', 40),
+        // In-browser navigation budget (ms) sent to the Worker as `timeoutMs` —
+        // the HTTP `timeout` above adds headroom on top of this (BrandScanClient).
+        'page_timeout_ms' => (int) env('PARTNA_BRAND_SCAN_PAGE_TIMEOUT_MS', 25_000),
+
+        // EvidenceConclusions confidence-engine thresholds. Values are policy
+        // tuning, not secrets — env-overridable so ops can adjust strictness
+        // without a redeploy.
+        'confidence' => [
+            // Signals below this confidence are omitted from the output entirely
+            // (see EvidenceConclusions::conclude() — an absent key IS "no confident
+            // conclusion", never a wrong value).
+            'min_confidence' => (float) env('PARTNA_BRAND_SCAN_MIN_CONFIDENCE', 0.5),
+            // Colours within this RGB euclidean distance corroborate each other.
+            'agree_dist' => (float) env('PARTNA_BRAND_SCAN_AGREE_DIST', 40.0),
+            // Accent candidates within this distance merge into one cluster.
+            'cluster_dist' => (float) env('PARTNA_BRAND_SCAN_CLUSTER_DIST', 30.0),
+        ],
+
+        // ScreenshotSampler pixel-evidence thresholds.
+        'sampler' => [
+            // Edge samples must concentrate this hard into one histogram bucket
+            // before modalEdgeColor() calls a dominant background colour.
+            'bg_modality_min' => (float) env('PARTNA_BRAND_SCAN_BG_MODALITY_MIN', 0.55),
+            // Minimum saturated pixel samples before saturatedCluster() will
+            // nominate an accent corroborator at all.
+            'accent_min_samples' => (int) env('PARTNA_BRAND_SCAN_ACCENT_MIN_SAMPLES', 200),
+            // Share of saturated samples the top cluster must hold to qualify.
+            'accent_cluster_min_share' => (float) env('PARTNA_BRAND_SCAN_ACCENT_CLUSTER_MIN_SHARE', 0.30),
+        ],
     ],
 
     /*

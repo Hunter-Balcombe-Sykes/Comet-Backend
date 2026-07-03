@@ -15,12 +15,20 @@ namespace App\Services\Design\Scan;
  */
 class ScreenshotSampler
 {
-    /** Edge samples must concentrate this hard into one bucket to call a bg. */
+    /**
+     * Edge samples must concentrate this hard into one bucket to call a bg.
+     * Fallback default for config('partna.brand_scan.sampler.bg_modality_min').
+     */
     private const BG_MODALITY_MIN = 0.55;
 
+    /** Fallback default for config('partna.brand_scan.sampler.accent_min_samples'). */
     private const ACCENT_MIN_SAMPLES = 200;
 
-    private const ACCENT_CLUSTER_MIN_SHARE = 0.30; // of saturated samples
+    /**
+     * Of saturated samples. Fallback default for
+     * config('partna.brand_scan.sampler.accent_cluster_min_share').
+     */
+    private const ACCENT_CLUSTER_MIN_SHARE = 0.30;
 
     /**
      * @return array{bg: ?string, accent: ?string} hex colours or null
@@ -76,7 +84,7 @@ class ScreenshotSampler
         arsort($buckets);
         $topKey = array_key_first($buckets);
         $topCount = $buckets[$topKey];
-        if ($topCount / $total < self::BG_MODALITY_MIN) {
+        if ($topCount / $total < (float) config('partna.brand_scan.sampler.bg_modality_min', self::BG_MODALITY_MIN)) {
             return null; // no dominant flat colour at the edges — abstain
         }
 
@@ -114,14 +122,14 @@ class ScreenshotSampler
                 $saturated++;
             }
         }
-        if ($saturated < self::ACCENT_MIN_SAMPLES || $buckets === []) {
+        if ($saturated < (int) config('partna.brand_scan.sampler.accent_min_samples', self::ACCENT_MIN_SAMPLES) || $buckets === []) {
             return null;
         }
 
         arsort($buckets);
         $topKey = array_key_first($buckets);
         $topCount = $buckets[$topKey];
-        if ($topCount / $saturated < self::ACCENT_CLUSTER_MIN_SHARE) {
+        if ($topCount / $saturated < (float) config('partna.brand_scan.sampler.accent_cluster_min_share', self::ACCENT_CLUSTER_MIN_SHARE)) {
             return null;
         }
 

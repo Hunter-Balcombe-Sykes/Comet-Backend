@@ -29,6 +29,12 @@ class TokenRevocationService
 
     private const SESSION_TOUCH_PREFIX = 'auth:session-touch:';
 
+    // Fallback defaults for config('partna.sessions.*') — kept in sync with
+    // config/partna.php. MAX_LIFETIME_SECONDS is ALSO used as revoke()'s default
+    // parameter value below: PHP default-parameter expressions must be
+    // compile-time constants, so that one reference can't become a config()
+    // call — every other reference reads config() with this as the fallback.
+    //
     // Rolling last-activity resolution. One Redis SET NX per request in the
     // common case; the meta hash is only written when the interval elapses.
     private const TOUCH_INTERVAL_SECONDS = 600;
@@ -75,7 +81,7 @@ class TokenRevocationService
 
         $setKey = self::USER_SESSIONS_PREFIX.$userId;
         Redis::sadd($setKey, $sessionId);
-        Redis::expire($setKey, self::MAX_LIFETIME_SECONDS);
+        Redis::expire($setKey, $this->maxLifetimeSeconds());
 
         if ($metadata !== null) {
             // Hash of session metadata (first-seen device/location, etc.) used
@@ -100,7 +106,7 @@ class TokenRevocationService
                     'browser_family' => $this->parseUaBrowserFamily((string) ($metadata['user_agent'] ?? '')),
                     'platform' => $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
                 ]);
-                Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
+                Redis::expire($metaKey, $this->maxLifetimeSeconds());
             }
         }
 
@@ -120,14 +126,26 @@ class TokenRevocationService
             return;
         }
 
-        $won = (bool) Redis::set(self::SESSION_TOUCH_PREFIX.$sessionId, '1', 'EX', self::TOUCH_INTERVAL_SECONDS, 'NX');
+        $won = (bool) Redis::set(self::SESSION_TOUCH_PREFIX.$sessionId, '1', 'EX', $this->touchIntervalSeconds(), 'NX');
         if (! $won) {
             return;
         }
 
         $metaKey = self::SESSION_META_PREFIX.$sessionId;
         Redis::hset($metaKey, 'last_seen_at', (string) time());
-        Redis::expire($metaKey, self::MAX_LIFETIME_SECONDS);
+        Redis::expire($metaKey, $this->maxLifetimeSeconds());
+    }
+
+    /** Config-driven rolling touch interval (config/partna.php: sessions.touch_interval_seconds). */
+    private function touchIntervalSeconds(): int
+    {
+        return (int) config('partna.sessions.touch_interval_seconds', self::TOUCH_INTERVAL_SECONDS);
+    }
+
+    /** Config-driven Redis TTL for tracking/meta entries (config/partna.php: sessions.max_lifetime_seconds). */
+    private function maxLifetimeSeconds(): int
+    {
+        return (int) config('partna.sessions.max_lifetime_seconds', self::MAX_LIFETIME_SECONDS);
     }
 
     /**
