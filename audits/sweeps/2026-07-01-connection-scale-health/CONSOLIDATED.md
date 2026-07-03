@@ -44,7 +44,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
 - P2 Medium: 7 of 7 complete  (SCALE-3, SCALE-4, OBS-1, CCH-1, CCH-2, CACHE-1, JOB-2)
-- P3 Low: 1 of 4 complete  (CCH-3)
+- P3 Low: 4 of 4 complete  (CCH-3, SCALE-5, SHOP-1, CCH-4)
 
 ---
 
@@ -188,7 +188,8 @@
 
 ## P3 — Polish / cleanup
 
-- [ ] **#SCALE-5** · P3 — Repeated per-request queries on connection rows (all bounded, harmless today)
+- [x] **#SCALE-5** · P3 — Repeated per-request queries on connection rows (all bounded, harmless today)
+    - **✅ Resolved (4 of 5 sites; 1 correctly skipped):** Eager-load-once + in-memory keyBy/groupBy/memoize at: `GoogleBusinessController::synced` (keyBy `platform|resource_id` — collision-free per the `(user_id,platform,resource_id) WHERE deleted_at IS NULL` unique index + SoftDeletes scope); `MenuSource::entries()` (per-request memo keyed by user_id; all callers read-only); `EventsCatalog::selection()` (single `whereIn('platform')->groupBy` replacing 5 per-platform queries — filters + order verified identical); `GoogleBusinessAutoSync::seedOrdering` (`$existingCount` + `$existingStoreKeys` map replacing per-iteration `count()`/`hasStoreKey()` — cap timing + in-batch dedup verified). **Skipped** `IntegrationConnectionObserver::purge` — a static user_id→subdomain cache would persist across Horizon jobs and serve a stale subdomain after a handle rename (staleness risk > 1–2 saved queries). Independent review confirmed all four behavior-equivalent. 2026-07-03.
     - **Where:** GoogleBusinessController.php:145 (synced N+1) · IntegrationConnectionObserver.php:86 (User+site lookup per event) · MenuSource.php:198 (`entries()` re-run ×4) · EventsCatalog.php:98-143 (`rowsFor` ×5) · GoogleBusinessAutoSync.php:352 (`hasStoreKey` get-then-filter)
     - **Affects:** Connection-pool churn on menu/events/GB paths under viral cache-miss traffic.
     - **Effort:** S (~0.5–1h)
@@ -196,7 +197,8 @@
     - **Technical:** Each site loads < 50 rows (per-user data is small — inside the audit's own N+1 drop threshold), so this is a micro-optimisation, not a scale blocker; worth doing when these paths are touched.
     - **Plain English:** A few "walk back to the filing cabinet" round-trips that are cheap because the files are thin. Tidy them up opportunistically.
 
-- [ ] **#SHOP-1** · P3 — Shop catalog cache: stale-after-save + a cache that's written but never read *(verify Shop is live)*
+- [x] **#SHOP-1** · P3 — Shop catalog cache: stale-after-save + a cache that's written but never read *(verify Shop is live)*
+    - **✅ Resolved (Shop confirmed live):** ShopController's product-picker routes (`brandProducts`, `setProducts`, `catalog`) are registered/live in routes/api/integrations.php — this is the display-Shop platform card (link a store, showcase products), NOT the stripped Shopify/Stripe commerce. `brandProducts` now uses `Cache::remember` (true read-through — a warm catalog short-circuits the live scrape; TTL + key unchanged), and `setProducts` now `Cache::forget($this->catalogKey($id))` after the write so the picker doesn't serve a stale catalog for the ~10-min TTL. Same key helper both sides (verified). Independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php (`setProducts`, `brandProducts`, `providerProducts`)
     - **Affects:** Dashboard product-picker freshness (if the Shop/product feature ships).
     - **Effort:** S (~0.5–1h)
@@ -212,7 +214,8 @@
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add `CacheKeyGenerator::platformConnectionLock(...)` and call it here (single source of truth, consistent with `CacheLockService`).
 
-- [ ] **#CCH-4** · P3 — Per-card refresh cooldown TTL is unjittered
+- [x] **#CCH-4** · P3 — Per-card refresh cooldown TTL is unjittered
+    - **✅ Resolved:** Wrapped the 12s cooldown in `JitteredTtl::applyJitter` (RefreshController) → an int in [10,14]s, so multi-pod cooldowns don't expire in lockstep after a synchronized deploy/restart. Independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/RefreshController.php (`Cache::add(..., 12)`)
     - **Affects:** Multi-pod synchronized cooldown expiry after a deploy/restart (minor UX throttle only).
     - **Effort:** S (~0.5–1h)

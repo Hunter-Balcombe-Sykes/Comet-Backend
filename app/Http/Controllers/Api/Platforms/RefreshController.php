@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\Cache;
 // cooldown keeps the button from hammering the upstream scrapers.
 class RefreshController extends ApiController
 {
+    use JitteredTtl;
     use ResolveCurrentUser;
 
     private const COOLDOWN_SECONDS = 12;
@@ -39,7 +41,7 @@ class RefreshController extends ApiController
 
         // Atomic add doubles as the cooldown gate: a present key means the
         // button was hit moments ago, so we reject instead of re-scraping.
-        if (! Cache::add("integrations:refresh:{$user->id}:{$platform}", true, self::COOLDOWN_SECONDS)) {
+        if (! Cache::add("integrations:refresh:{$user->id}:{$platform}", true, self::applyJitter(self::COOLDOWN_SECONDS))) {
             return $this->error('Just refreshed — give it a few seconds before trying again.', 429);
         }
 

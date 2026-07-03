@@ -204,6 +204,9 @@ class ShopController extends ApiController
     }
 
     // GET /api/platforms/shop/brands/{id}/products — live products for the picker.
+    // Cache::remember short-circuits the live scrape when the cache was already
+    // warmed by addBrand or a recent GET, so re-opening the picker within the
+    // 10-min window is instant and doesn't re-scrape the upstream store.
     public function brandProducts(Request $request, string $id): JsonResponse
     {
         $map = $this->brandMap($this->currentUser($request));
@@ -211,12 +214,11 @@ class ShopController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
-        $products = $this->providerProducts($map[$id]);
-        // Warm a short-lived catalog cache so the immediately-following PUT
-        // /selection reuses these products instead of re-scraping the whole store.
-        // Jittered TTL so concurrent cold misses at the boundary don't all
-        // re-scrape the store at once.
-        Cache::put($this->catalogKey($id), $products, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
+        $products = Cache::remember(
+            $this->catalogKey($id),
+            self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
+            fn () => $this->providerProducts($map[$id]),
+        );
 
         return $this->success(['products' => $products]);
     }
@@ -245,6 +247,9 @@ class ShopController extends ApiController
                 ->values()
                 ->all();
             $this->writeConnection($user, $map);
+            // Invalidate the picker catalog so a subsequent GET re-scrapes the
+            // store instead of serving the pre-selection snapshot for up to 10 min.
+            Cache::forget($this->catalogKey($id));
 
             return $this->success((new ShopBrandResource($map[$id]))->resolve());
         });

@@ -355,11 +355,26 @@ class GoogleBusinessAutoSync
                 $stores[$key][] = $p;
             }
 
+            // Eager-load all existing ordering rows once. Without this, hasStoreKey
+            // and count() both query the table on every iteration of $stores, turning
+            // an N-store enrichment into 2N+1 round-trips.
+            $existingOrdering = IntegrationConnection::query()
+                ->where('user_id', $userId)
+                ->where('platform', 'online-ordering')
+                ->get();
+            $existingCount = $existingOrdering->count();
+            // Key by storeKey for O(1) duplicate detection.
+            $existingStoreKeys = $existingOrdering->mapWithKeys(function (IntegrationConnection $row) {
+                $key = $this->storeKey(CardPayload::fromArray($row->payload)->url()) ?? '';
+
+                return [$key => true];
+            })->all();
+
             foreach ($stores as $storeKey => $group) {
-                if ($this->count($userId, 'online-ordering') >= self::MAX_ORDERING) {
+                if ($existingCount >= self::MAX_ORDERING) {
                     break;
                 }
-                if ($this->hasStoreKey($userId, $storeKey)) {
+                if ($existingStoreKeys[$storeKey] ?? false) {
                     continue;   // only-if-empty per store — never clobber an existing one
                 }
 
@@ -394,6 +409,10 @@ class GoogleBusinessAutoSync
                         'deliveryUrl' => $deliveryUrl,
                     ], fn ($v) => $v !== null),
                 ]);
+                // Track the newly written store in-memory so the cap and dupe
+                // checks stay accurate without re-querying on each iteration.
+                $existingCount++;
+                $existingStoreKeys[$storeKey] = true;
                 // Online-ordering is multi-entry — every new store is just added (no
                 // conflict concept), so each is a 'seeded' finding.
                 $findings[] = $this->seededFinding('online-ordering', $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
