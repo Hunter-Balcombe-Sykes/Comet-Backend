@@ -88,7 +88,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 12 of 21 complete
+- P2 Medium: 14 of 21 complete
 - P3 Low: 9 of 20 complete
 
 ---
@@ -583,7 +583,7 @@
         }
         ```
 
-- [ ] **#TEST-6** · P2 — `ScreenshotSampler` has no test coverage for its modality gate or empty-image handling
+- [x] **#TEST-6** · P2 — `ScreenshotSampler` has no test coverage for its modality gate or empty-image handling
     - **Where:** app/Services/Design/Scan/ScreenshotSampler.php (entire class)
     - **Affects:** Pixel-level background/accent evidence feeding into brand-scan conclusions.
     - **Effort:** M (~2–4h)
@@ -598,7 +598,7 @@
         private const ACCENT_CLUSTER_MIN_SHARE = 0.30;
         ```
 
-- [ ] **#TEST-7** · P2 — `CategoryStylePresets::classify()` specific-before-generic keyword ordering contract has no test
+- [x] **#TEST-7** · P2 — `CategoryStylePresets::classify()` specific-before-generic keyword ordering contract has no test
     - **Where:** app/Services/Design/Presets/CategoryStylePresets.php (classify)
     - **Affects:** Design-preset assignment for Google Business / Instagram connections. A reordered keyword map (e.g. 'bar' before 'barber') silently misclassifies businesses.
     - **Effort:** S (~0.5–1h)
