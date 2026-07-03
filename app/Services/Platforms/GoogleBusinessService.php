@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Exceptions\Platforms\PlaceDetailsUnavailableException;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -136,6 +137,7 @@ class GoogleBusinessService extends PlatformScraper
                 ])
                 ->get('https://places.googleapis.com/v1/places/'.rawurlencode($placeId));
         } catch (\Throwable $e) {
+            report($e); // OBS-1: billed-call network failure must reach Nightwatch, not just the log.
             Log::warning('google_business.details_fetch_failed', [
                 'placeId' => $placeId,
                 'message' => $e->getMessage(),
@@ -145,6 +147,7 @@ class GoogleBusinessService extends PlatformScraper
         }
 
         if (! $res->ok()) {
+            report(new PlaceDetailsUnavailableException($placeId, $res->status())); // OBS-1: an outage (429/5xx) pages on-call.
             Log::warning('google_business.details_fetch_failed', [
                 'placeId' => $placeId,
                 'status' => $res->status(),
