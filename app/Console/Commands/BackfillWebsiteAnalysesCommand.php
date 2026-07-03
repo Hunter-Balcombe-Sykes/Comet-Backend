@@ -62,18 +62,19 @@ class BackfillWebsiteAnalysesCommand extends Command
             });
 
         // Outside websites: one coalescing job per user with any source connection.
-        $connections = IntegrationConnection::query()
+        // Full rows are only needed for --retry-failures (payload mutation below);
+        // built as a factory so each use gets its own query instance.
+        $outsideConnections = fn () => IntegrationConnection::query()
             ->active()
             ->whereIn('platform', OutsideWebsitesFactor::SOURCE_PLATFORMS)
-            ->when($userIds, fn ($q) => $q->whereIn('user_id', $userIds))
-            ->get();
+            ->when($userIds, fn ($q) => $q->whereIn('user_id', $userIds));
 
         // A current-version FAILED analysis converges (needs-analysis is false),
         // so it never retries organically. On demand, strip such entries —
         // quietly, so the observer doesn't double-dispatch; the explicit job
         // below re-analyzes.
         if ($this->option('retry-failures')) {
-            foreach ($connections as $connection) {
+            foreach ($outsideConnections()->get() as $connection) {
                 $payload = is_array($connection->payload) ? $connection->payload : [];
                 $changed = false;
                 if ($connection->platform === 'custom') {
@@ -93,7 +94,9 @@ class BackfillWebsiteAnalysesCommand extends Command
             }
         }
 
-        $outsideUserIds = $connections->pluck('user_id')->unique()->values();
+        // Dedup pushed to Postgres (SELECT DISTINCT) instead of hydrating every
+        // connection model just to read one column off each.
+        $outsideUserIds = $outsideConnections()->distinct()->pluck('user_id');
         foreach ($outsideUserIds as $userId) {
             AnalyzeConnectionWebsitesJob::dispatch((string) $userId);
         }

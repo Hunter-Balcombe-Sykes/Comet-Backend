@@ -89,7 +89,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
 - P2 Medium: 11 of 21 complete
-- P3 Low: 5 of 20 complete
+- P3 Low: 6 of 20 complete
 
 ---
 
@@ -748,7 +748,7 @@
             catch (\Throwable $e) { report($e); }
         ```
 
-- [ ] **#SCALE-4** · P3 — `BackfillWebsiteAnalysesCommand` loads all matching connection rows into memory instead of streaming
+- [x] **#SCALE-4** · P3 — `BackfillWebsiteAnalysesCommand` loads all matching connection rows into memory instead of streaming
     - **Where:** app/Console/Commands/BackfillWebsiteAnalysesCommand.php:78-81
     - **Affects:** Operator running a manual backfill. Not on any schedule (confirmed), so impact is bounded to occasional manual invocation.
     - **Effort:** S (~0.5–1h)
@@ -844,6 +844,7 @@
         ```
 
 - [ ] **#OBS-4** · P3 — `BackfillWebsiteAnalysesCommand` has no `$timeout` property
+    - **⏭️ NOT IMPLEMENTED — premise invalid (2026-07-03, verified 2×):** A `public int $timeout` on an `Illuminate\Console\Command` is inert in this codebase — no command declares one, the base `Command` class has no such property, and Nightwatch already captures EVERY command's duration unconditionally via `whenCommandLifecycleIsLongerThan(-1)` (neither command is scheduled). The finding's observability goal is already met; adding the property would be dead code. Left unticked.
     - **Where:** app/Console/Commands/BackfillWebsiteAnalysesCommand.php:1
     - **Affects:** Low — this is a manual-only command (confirmed not scheduled), so a hung run is directly visible to the operator running it.
     - **Effort:** S (~0.5–1h)
@@ -860,6 +861,7 @@
         ```
 
 - [ ] **#OBS-5** · P3 — `ScanWebsiteCommand` has no `$timeout` property
+    - **⏭️ NOT IMPLEMENTED — premise invalid (2026-07-03, verified 2×):** Same as #OBS-4 — a `$timeout` property on a Command is unread by the framework/Nightwatch/scheduler here; observability is already unconditional. Dead code avoided; left unticked.
     - **Where:** app/Console/Commands/ScanWebsiteCommand.php:1
     - **Affects:** Developer experience only — a manual debugging command with no scheduled invocation.
     - **Effort:** S (~0.5–1h)
