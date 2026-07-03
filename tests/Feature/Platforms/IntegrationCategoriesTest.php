@@ -97,6 +97,7 @@ it('routes a Square URL to square-connect', function () {
 });
 
 it('falls back to a branded custom card for an unknown booking URL', function () {
+    Queue::fake();
     $user = catUser('cat3');
 
     fakeScraper([
@@ -107,10 +108,13 @@ it('falls back to a branded custom card for an unknown booking URL', function ()
         'logo' => null,
     ]);
 
+    // Custom fallback is now async (JOB-1): returns 202 + status=pending immediately;
+    // EnrichLinkCardJob upgrades the display fields off-thread.
     actingAsUser($user)->postJson('/api/platforms/booking/detect', ['url' => 'https://calendly.com/me'])
-        ->assertOk()
+        ->assertStatus(202)
         ->assertJsonPath('provider', 'custom')
         ->assertJsonPath('next', 'custom-saved')
+        ->assertJsonPath('status', 'pending')
         ->assertJsonPath('selection.name', 'Calendly');
 
     $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail();
