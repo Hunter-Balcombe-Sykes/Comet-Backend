@@ -43,7 +43,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 6 of 7 complete  (SCALE-3, SCALE-4, OBS-1, CCH-1, CCH-2, CACHE-1)
+- P2 Medium: 7 of 7 complete  (SCALE-3, SCALE-4, OBS-1, CCH-1, CCH-2, CACHE-1, JOB-2)
 - P3 Low: 1 of 4 complete  (CCH-3)
 
 ---
@@ -175,7 +175,8 @@
     - **Technical:** Video IDs are global, so a cron batch refreshing many users who follow the same channel fires concurrent HEAD probes to `i.ytimg.com` on each expiry (Category 1). A first-scrape `'hq'` verdict is then trusted for the full 30-day jittered TTL even after YouTube generates the HD thumbnail hours later.
     - **Plain English:** When the "does this video have an HD thumbnail?" note expires, everyone re-asks YouTube at once; and if the first answer was "not yet," we keep showing the low-res version for a month even after HD appears.
 
-- [ ] **#JOB-2** · P2 — Instagram reconnect orphans the previous mirrored R2 media (no cleanup path)
+- [x] **#JOB-2** · P2 — Instagram reconnect orphans the previous mirrored R2 media (no cleanup path)
+    - **✅ Resolved (root-cause fix in the connect job — premise corrected):** On verifying against current code, the "unbounded growth on every reconnect" premise was **overstated**: the R2 folder is `platforms/instagram/{created_at→timestamp}`, which is **stable per connection** (created_at is immutable across `updateOrCreate`), and the mirror filenames are **fixed** (`photo.jpg`, `reel.mp4`, `reel-cover.jpg`, `profile.jpg`) — so a reconnect *overwrites* live files, it does not accumulate. The only real orphan is the **complement**: files of a media *type* no longer present (e.g. a prior reel when the account now leads with a photo). Both originally-suggested fixes (controller-side dispatch OR broadening the observer) were **rejected as racy** — because old_folder == new_folder, a separately-queued `DeleteMirroredMediaJob` can (on retry / concurrent worker) run *after* the re-mirror and wipe fresh media. Fix instead reclaims the complement **in-job, after the writes** (`InstagramConnectJob::handle()`): delete the fixed-name paths not (re)written this run. Race-free (happens-after the writes, same job) and window-free (never deletes a path it just wrote). 3 new tests. Owner approved the approach; independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/InstagramController.php (updateOrCreate → `payload => []`) · app/Observers/Core/IntegrationConnectionObserver.php (updated() only handles folder→folder)
     - **Affects:** R2 storage cost — old images/reels accumulate permanently on every reconnect.
     - **Effort:** S (~0.5–1h)

@@ -437,3 +437,125 @@ it('connectStatus returns 404 when the connection belongs to another user', func
         ->getJson('/api/platforms/instagram/connect/status')
         ->assertStatus(404);
 });
+
+// ── JOB-2: stale mirror reclaim within a reconnect run ───────────────────────
+
+it('reconnect reclaims stale reel files when the account now leads with a photo only (JOB-2)', function () {
+    Storage::fake('media');
+
+    $photoUrl = 'https://scontent.cdninstagram.com/photo_new.jpg';
+
+    Http::fake([
+        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $user = igAsyncUser('igjob2a');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+    // Pre-seed stale reel files left by a prior connect run.
+    Storage::disk('media')->put("{$folder}/reel.mp4", 'old-video-bytes');
+    Storage::disk('media')->put("{$folder}/reel-cover.jpg", 'old-cover-bytes');
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Job2 User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn([
+        'photo' => ['thumbnailUrl' => $photoUrl, 'shortCode' => 'abc'],
+        'video' => null, // no reel this time — stale reel files must be reclaimed
+    ]);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+
+    (new InstagramConnectJob($user->id, 'job2user', $connection->id))->handle($scraper);
+
+    // Fresh photo written.
+    expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
+    // Stale reel + cover must be deleted.
+    expect(Storage::disk('media')->exists("{$folder}/reel.mp4"))->toBeFalse();
+    expect(Storage::disk('media')->exists("{$folder}/reel-cover.jpg"))->toBeFalse();
+});
+
+it('first connect writes photo and does not delete any spurious files (JOB-2)', function () {
+    Storage::fake('media');
+
+    $photoUrl = 'https://scontent.cdninstagram.com/first_photo.jpg';
+
+    Http::fake([
+        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $user = igAsyncUser('igjob2b');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'First User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn([
+        'photo' => ['thumbnailUrl' => $photoUrl, 'shortCode' => 'first'],
+        'video' => null,
+    ]);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+
+    // No pre-existing files — handle() must complete without exception.
+    (new InstagramConnectJob($user->id, 'firstuser', $connection->id))->handle($scraper);
+
+    expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
+    $connection->refresh();
+    expect($connection->last_refresh_status)->toBe('ok');
+});
+
+it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB-2)', function () {
+    Storage::fake('media');
+
+    $photoUrl = 'https://scontent.cdninstagram.com/pic2.jpg';
+
+    Http::fake([
+        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $user = igAsyncUser('igjob2c');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => null,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+    // Pre-seed a profile pic from a prior connect run.
+    Storage::disk('media')->put("{$folder}/profile.jpg", 'old-profile-bytes');
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Pic Gone User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn([
+        'photo' => ['thumbnailUrl' => $photoUrl, 'shortCode' => 'pic2'],
+        'video' => null,
+    ]);
+    // Profile pic no longer available on this run.
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+
+    (new InstagramConnectJob($user->id, 'picgoneuser', $connection->id))->handle($scraper);
+
+    // Fresh photo still written.
+    expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
+    // Stale profile pic must be reclaimed.
+    expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeFalse();
+});
