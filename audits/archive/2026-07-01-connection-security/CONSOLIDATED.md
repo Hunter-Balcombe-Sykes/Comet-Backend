@@ -34,15 +34,18 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 0 of 1 complete — the 1 (#PRIV-1) is **DEFERRED** (blocked on a product/legal decision, not a pure engineering fix)
 - P2 Medium: 5 of 5 complete
 - P3 Low: 1 of 1 complete
+
+**Archived 2026-07-03 with #PRIV-1 open, by owner decision** — the 6 engineering findings landed in `edc0246b`; the sole remainder is deferred pending a legal/product call (see the ⏸ note under P1). Re-open and `execute audit` this file when that decision is made.
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#PRIV-1** · P1 — Instagram username + scraped media sent to Apify and permanently rehosted with no visible consent step (and fires automatically via Google-Business auto-sync)
+- [ ] **#PRIV-1** · P1 · ⏸ **DEFERRED 2026-07-03** — Instagram username + scraped media sent to Apify and permanently rehosted with no visible consent step (and fires automatically via Google-Business auto-sync)
+    - **Why deferred:** Blocked on a product/legal decision — Apify's DPA/sub-processor & ToS-disclosure status, the consent-flow design, and whether to gate the Google-Business auto-sync path. This is not a localized code fix: the engineering (consent step before `InstagramController::connect()` + gating `GoogleBusinessAutoSync::seedInstagram`) only begins once that call is made. Cross-reference the prior platform-integrations legal review (memory `project_platform_integrations_legal.md`), which flagged this exact IG→Apify→rehost pattern. Re-open when the decision lands.
     - **Where:** app/Services/Platforms/InstagramScraper.php:37-42 · app/Jobs/Platforms/InstagramConnectJob.php:196-286 · app/Services/Platforms/GoogleBusinessAutoSync.php (`seedInstagram`)
     - **Affects:** Every user who connects Instagram — via the manual "Connect Instagram" flow **and** the automatic Google-Business auto-sync path — has their Instagram username and scraped profile data (display name, follower count, one photo, one reel) transmitted to Apify (a US processor) and then permanently copied into Partna's own R2 storage.
     - **Effort:** M (~2–4h) for a consent step + processor-status confirmation; the DPA/ToS decision is a product/legal call, not just engineering.
