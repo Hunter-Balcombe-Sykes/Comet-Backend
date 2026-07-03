@@ -3,6 +3,13 @@
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Cache\CacheKeyGenerator;
 
+it('builds the platform connection lock key with and without a suffix', function () {
+    expect(CacheKeyGenerator::platformConnectionLock('youtube', 'user-1'))
+        ->toBe('platforms:youtube:lock:user-1');
+    expect(CacheKeyGenerator::platformConnectionLock('shop', 'user-1', 'brand-9'))
+        ->toBe('platforms:shop:lock:user-1:brand-9');
+});
+
 it('enumerates cache-bust variants in lockstep with the controller filter inputs', function () {
     // Lock the accepted-input allowlists. A deliberate change to either must update this test.
     expect(SiteMedia::GALLERY_POOLS)->toEqual(['gallery', 'content']);

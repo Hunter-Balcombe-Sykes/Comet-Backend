@@ -7,12 +7,14 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -538,41 +540,90 @@ it('resolveAll returns only city+state as the doordash locale address when a ful
     ordering($user, 'https://www.doordash.com/store/priv2-test/', null, '2026-06-17 10:00:00');
 
     // Create a site row and a workplace with both a full street and a city + state.
-    $siteId = (string) \Illuminate\Support\Str::uuid();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
     ]);
-    \App\Models\Core\Site\Workplace::create([
+    Workplace::create([
         'site_id' => $siteId,
         'address' => '42 Home Street',   // sole-trader home address — must NOT reach Apify
         'city' => 'Melbourne',
         'state' => 'VIC',
     ]);
 
-    $plan = app(\App\Services\Platforms\MenuSource::class)->resolveAll($user);
+    $plan = app(MenuSource::class)->resolveAll($user);
     expect($plan)->not->toBeNull();
     // City + state only — the full street must be absent.
     expect($plan['address'])->toBe('Melbourne, VIC, Australia');
     expect($plan['address'])->not->toContain('42 Home Street');
 });
 
+// ── Wholesale-rebuild guard (CACHE-1) ─────────────────────────────────
+// Runs MenuFetchJob twice with IDENTICAL scraper output and asserts that
+// category names, item names, category count, item count, and per-item
+// platform-link count are identical after both runs. Proves the delete→
+// reinsert cycle is behavior-preserving (UUIDs may differ; content must not).
+
+it('wholesale rebuild produces identical menu structure across two forced runs with the same scraper output', function () {
+    $user = menuUser('mguard1');
+    ordering($user, 'https://www.ubereats.com/store/guard', null, '2026-06-17 10:00:00');
+
+    $scraperOutput = [
+        'uber-eats' => [
+            'store' => ['name' => 'Guard Eats', 'currency' => 'AUD'],
+            'categories' => [
+                ['name' => 'Mains', 'items' => [
+                    ['name' => 'Burger', 'pickupPrice' => 12.0, 'deliveryPrice' => 13.0],
+                    ['name' => 'Fries', 'pickupPrice' => 5.0, 'deliveryPrice' => 5.0],
+                ]],
+                ['name' => 'Drinks', 'items' => [
+                    ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
+                ]],
+            ],
+        ],
+    ];
+
+    // Run #1 — first build.
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $cats1 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
+    $items1 = MenuItem::query()->where('menu_id', $menu->id)->orderBy('category_id')->orderBy('position')->pluck('name')->all();
+    $linkCount1 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
+
+    // Run #2 — identical scraper output, forced rebuild.
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu->refresh();
+    $cats2 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
+    $items2 = MenuItem::query()->where('menu_id', $menu->id)->orderBy('category_id')->orderBy('position')->pluck('name')->all();
+    $linkCount2 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
+
+    expect($cats2)->toBe($cats1);
+    expect($items2)->toBe($items1);
+    expect($linkCount2)->toBe($linkCount1);
+    expect($menu->fetch_status)->toBe('ok');
+});
+
 it('resolveAll returns null as the doordash locale address when only a street is stored (no city/state)', function () {
     $user = menuUser('m18');
     ordering($user, 'https://www.doordash.com/store/priv2-nolocale/', null, '2026-06-17 10:00:00');
 
-    $siteId = (string) \Illuminate\Support\Str::uuid();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
     ]);
     // Street only — no city or state stored.
-    \App\Models\Core\Site\Workplace::create([
+    Workplace::create([
         'site_id' => $siteId,
         'address' => '99 Private Road',
     ]);
 
-    $plan = app(\App\Services\Platforms\MenuSource::class)->resolveAll($user);
+    $plan = app(MenuSource::class)->resolveAll($user);
     expect($plan)->not->toBeNull();
     // Null signals the scraper to apply DOORDASH_FALLBACK_ADDRESS ('Melbourne VIC, Australia').
     expect($plan['address'])->toBeNull();

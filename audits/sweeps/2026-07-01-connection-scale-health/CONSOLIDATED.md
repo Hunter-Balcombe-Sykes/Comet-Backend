@@ -43,8 +43,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 3 of 7 complete  (SCALE-3, SCALE-4, OBS-1)
-- P3 Low: 0 of 4 complete
+- P2 Medium: 6 of 7 complete  (SCALE-3, SCALE-4, OBS-1, CCH-1, CCH-2, CACHE-1)
+- P3 Low: 1 of 4 complete  (CCH-3)
 
 ---
 
@@ -138,7 +138,8 @@
     - **Technical:** Runs every 15 min, `foreach ($menus as $menu) MenuFetchJob::dispatch(...)` up to 200 rows; each `MenuFetchJob` makes two Apify actor calls with a 600s timeout. `ShouldBeUnique` dedups per user, but 200 distinct users = 200 concurrent actor runs. During a vendor outage this re-fires up to ~800 runs/hour for the 6-hour window.
     - **Plain English:** Every 15 minutes the system re-phones up to 200 restaurants whose menus failed, all at once, each call slow and metered. On a bad day at the menu provider it keeps doing this for hours.
 
-- [ ] **#CCH-1** · P2 — `withConnectionLock` mutex lives on the default Redis connection, not `cache_locks`
+- [x] **#CCH-1** · P2 — `withConnectionLock` mutex lives on the default Redis connection, not `cache_locks`
+    - **✅ Resolved (no code change — premise stale):** The default cache store is `redis` (config/cache.php:18) and that store sets `lock_connection => cache_locks` (config/cache.php:80), so `Cache::lock()` already places the mutex on the dedicated `cache_locks` Redis DB and survives a data-store `Cache::flush()`. The finding's suggested `Cache::store('cache_locks')->lock()` is a functional no-op in prod and would break tests under `CACHE_STORE=array` (forces redis over the ArrayLock path). Verified against config + Laravel lock semantics; independent review concurred. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php:160
     - **Affects:** Every platform-controller write serialised through the lock (Apple, YouTube, Vimeo, Bandcamp, Shop, Events, Fresha visibility, Custom Links).
     - **Effort:** S (~0.5–1h)
@@ -155,7 +156,8 @@
     - **Technical:** Nightwatch alerts only on thrown/failed exceptions and auto-detected slow jobs — a bare `Log::warning` is an invisible breadcrumb. Verified inconsistency: in `GoogleBusinessService`, siblings `resolvePhotoUrls`/`streetViewPano` **do** call `report($e)`, but `fetchPlaceDetails` (the billed Place-Details call) only warns and returns null → `FetchUnavailableException` → `status='unavailable'`, no alert. A shape error in `recordFailure` means a stored payload lost a required key (data corruption) yet only warns.
     - **Plain English:** Several of these failure points write a quiet note in a logbook nobody watches instead of pulling the alarm. A Google outage would silently stale every business card — and nobody gets paged until users complain.
 
-- [ ] **#CACHE-1** · P2 — Menu persisted as a full delete-then-reinsert (rebuild-on-write)
+- [x] **#CACHE-1** · P2 — Menu persisted as a full delete-then-reinsert (rebuild-on-write)
+    - **✅ Resolved (accept + document + guard test):** Kept the wholesale rebuild. `persist()` only runs when `handle()`'s unchanged-skip gate misses (URL match + `fetch_status='ok'` + per-platform settlement) — it is not a hot path — and there is no stable per-item identity to diff on (`ue_external_id` was dropped; `menu_items.id` is a fresh UUID each scrape; the menu is dashboard-only and read fresh, so UUID churn is invisible to consumers). Added an explanatory comment at the delete block + a guard test asserting category/item names, counts, and platform-link counts are identical across two forced rebuilds with identical scraper output. A heuristic name-based row-diff was rejected as fragile for a rarely-run path. Independent review concurred. 2026-07-03.
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:176-225
     - **Affects:** Write load on `site.menu_items` / `site.menu_categories`.
     - **Effort:** M (~2–4h)
@@ -164,7 +166,8 @@
     - **Plain English:** Every menu change erases the whole whiteboard and rewrites it, even if one dish changed. Fine occasionally; wasteful when menus churn (Google Business sync, batch imports).
     - **10k re-tier:** thousands of menus × 100–200 items → millions of avoidable row mutations across a day's link maintenance.
 
-- [ ] **#CCH-2** · P2 — YouTube thumbnail-verdict cache: no single-flight lock + up to 30-day stale verdict
+- [x] **#CCH-2** · P2 — YouTube thumbnail-verdict cache: no single-flight lock + up to 30-day stale verdict
+    - **✅ Resolved:** Split the verdict TTL — `'maxres'` keeps the long ~30-day TTL (never regresses once published), `'hq'` re-probes on a short recheck TTL (new `partna.refresh.host_limits.youtube_thumbnails.hq_recheck_ttl_seconds`, 6h default, env `PARTNA_REFRESH_YTIMG_HQ_RECHECK_TTL`). Single-flight via `rememberLocked` deliberately NOT added: Plan 4's `pooledHead()` already batches miss probes in one `Http::pool` round and the `platform-refresh` RateLimiter paces jobs per provider, so cross-job duplicate (unbilled) HEADs to `i.ytimg.com` are bounded; a per-id lock would serialize probes and negate the pool. Independent review concurred. 2026-07-03.
     - **Where:** app/Services/Platforms/YoutubeThumbnailResolver.php:102-130
     - **Affects:** Every YouTube/YouTube-Music refresh; end-user thumbnail quality.
     - **Effort:** S (~0.5–1h)
@@ -201,7 +204,8 @@
     - **Plain English:** After you change your product list the picker can show the old one for ten minutes; and the "cache" the code keeps is written but never read, so every picker open re-scrapes the store for nothing.
     - **Note:** Commerce was stripped 2026-05-22 — confirm the Shop product-picker is a shipping surface before spending effort here.
 
-- [ ] **#CCH-3** · P3 — Connection-lock key built by ad-hoc string concatenation
+- [x] **#CCH-3** · P3 — Connection-lock key built by ad-hoc string concatenation
+    - **✅ Resolved:** Added `CacheKeyGenerator::platformConnectionLock($platform, $userId, $suffix)` (byte-identical to the former inline concat, so no in-flight lock name changes) and called it in `withConnectionLock`. Done in one pass with #CCH-1 (same code site). Unit test locks the key shape. 2026-07-03.
     - **Where:** ManagesIntegrationConnection.php (withConnectionLock) — `"platforms:{$this->platform()}:lock:{$user->id}"...`
     - **Affects:** Future lock-inspection / cross-platform coordination code (drift risk).
     - **Effort:** S (~0.5–1h)

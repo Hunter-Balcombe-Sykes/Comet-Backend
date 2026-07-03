@@ -249,6 +249,17 @@ class CacheKeyGenerator
         return "yt_thumb:{$videoId}";
     }
 
+    /**
+     * Per-user, per-platform mutex key for serialising a read→mutate→write
+     * connection-payload cycle (ManagesIntegrationConnection::withConnectionLock).
+     * Lock name only (locks live on the cache_locks connection via config/cache.php
+     * lock_connection). $suffix scopes the lock when one controller serves two platforms.
+     */
+    public static function platformConnectionLock(string $platform, string $userId, ?string $suffix = null): string
+    {
+        return "platforms:{$platform}:lock:{$userId}".($suffix !== null ? ":{$suffix}" : '');
+    }
+
     /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */
     public static function apifyGlobalDailyLimit(string $date): string
     {

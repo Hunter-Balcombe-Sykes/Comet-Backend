@@ -229,8 +229,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     private function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
     {
         DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now) {
-            // Clear children first (FK cascade covers this on Postgres, but be
-            // explicit so SQLite tests don't leak orphaned item-platform rows).
+            // Wholesale rebuild (delete children → reinsert) is intentional, not a perf gap:
+            // persist() only runs when handle()'s unchanged-skip gate misses (genuine content
+            // change / forced refresh / recovery), so it is not a hot path. There is also no
+            // stable per-item identity to diff against — ue_external_id was dropped and
+            // menu_items.id is a fresh UUID each scrape; the menu is dashboard-only and read
+            // fresh, so UUID churn is invisible to consumers. Keep it atomic in the txn.
+            //
+            // Also clears children explicitly (FK cascade covers this on Postgres, but being
+            // explicit prevents orphaned item-platform rows in SQLite tests).
             $itemIds = MenuItem::query()->where('menu_id', $menu->id)->pluck('id');
             MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
             MenuItem::query()->where('menu_id', $menu->id)->delete();
