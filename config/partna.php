@@ -1143,6 +1143,23 @@ return [
         'platform_refresh' => env('PARTNA_QUEUE_PLATFORM_REFRESH', 'platform_refresh'),
     ],
 
+    // Platform connection CONNECT-time throttle (Seam 5 / strategy §5 step 4). The
+    // paid Apify connect jobs (InstagramConnectJob, MenuFetchJob, GoogleBusinessEnrichJob)
+    // carry the 'platform-connect' RateLimiter as middleware, keyed by Apify ACTOR.
+    // ApifyBudget caps daily SPEND; this caps per-minute BURST RATE so a signup spike
+    // can't stampede one actor. Separate from 'refresh.rate_limits' because connect
+    // (Apify) and refresh (official APIs) hit different vendors.
+    'connect' => [
+        // Per-actor connect scrapes/minute; falls back to 'default'. Cache-backed →
+        // Redis in prod → global across ALL workers. Sized as a spike ceiling: well
+        // above normal pre-beta connect volume, binding only under a burst (and the
+        // real gate once the scraping supervisor grows past its current 2 workers).
+        'rate_limits' => [
+            'default' => (int) env('PARTNA_CONNECT_RATE_DEFAULT', 20),
+            // e.g. 'menu' => 10,
+        ],
+    ],
+
     // Platform connection refresh (SCALE-1). The dispatcher (integrations:refresh)
     // selects connections due per default_ttl_seconds (or the descriptor override)
     // and fans out RefreshConnectionJob; per-provider rate_limits cap outbound

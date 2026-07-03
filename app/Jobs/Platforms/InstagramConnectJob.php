@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -31,26 +32,32 @@ use Throwable;
 // The connection row is written with last_refresh_status='pending' by the
 // controller BEFORE this job is dispatched, so the status endpoint can respond
 // before the job runs.
-class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
+class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     // Apify can take up to 110s; allow headroom for media mirroring on top.
     public int $timeout = 150;
 
-    public int $tries = 2;
+    // Unlimited attempts, bounded by retryUntil() below — the 'platform-connect'
+    // RateLimited middleware RELEASES this job when the Apify actor is over-limit, and
+    // every release counts as an attempt. A finite $tries would mass-fail connects
+    // during the exact signup spike the gate exists to absorb. Genuine errors stay
+    // capped by $maxExceptions, so a broken scrape still fails fast.
+    public int $tries = 0;
 
-    /** @var list<int> */
+    /** @var list<int> Backoff between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30, 120];
 
     // One content failure (e.g. Apify returned bad data) should surface quickly
     // rather than silently retrying twice.
     public int $maxExceptions = 2;
 
-    // One auto-connect per connection at a time. The window exceeds $timeout
-    // (150s) so a duplicate dispatch can't slip in, bill a second Apify scrape,
-    // and tear the connection row while the first run is still in flight (LIFE-1).
-    public int $uniqueFor = 180;
+    // One auto-connect per connection at a time. The window matches retryUntil() so a
+    // job parked in rate-limit purgatory can't have a duplicate slip in behind it, bill
+    // a second Apify scrape, and tear the connection row (LIFE-1). The lock also releases
+    // on completion/failure, so this is the worst-case backstop, not the common path.
+    public int $uniqueFor = 900;
 
     // Instagram CDN hosts we'll fetch media from. URLs come from the scraper, but
     // we still (1) restrict to known CDN hosts and (2) fetch with redirects
@@ -90,6 +97,26 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->connectionId.':'.$this->username;
+    }
+
+    /** Apify actor for the 'platform-connect' rate budget. */
+    public function providerRateKey(): string
+    {
+        return 'instagram';
+    }
+
+    /** @return array<int, object> */
+    public function middleware(): array
+    {
+        return [new RateLimited('platform-connect')];
+    }
+
+    // Wall-clock deadline for rate-limit releases. A connect held behind its actor's
+    // per-minute limit keeps retrying until it slips through or 15 min elapses, then
+    // lapses to failed() (terminal, user can reconnect) — never an infinite park.
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addMinutes(15);
     }
 
     public function handle(InstagramScraper $scraper): void

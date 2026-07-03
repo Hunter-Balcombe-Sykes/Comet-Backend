@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
@@ -26,23 +27,28 @@ use Throwable;
 // 'pending' BEFORE this job is dispatched; the job merges the Apify result and
 // flips the status to 'ok' / 'unavailable'. The dashboard polls the selection
 // endpoint until the status leaves 'pending'.
-class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
+class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     // Apify single-place run is usually well under a minute; allow headroom.
     public int $timeout = 130;
 
-    public int $tries = 2;
+    // Unlimited attempts, bounded by retryUntil() below — the 'platform-connect'
+    // RateLimited middleware RELEASES this job when the actor is over-limit, and every
+    // release counts as an attempt. A finite $tries would mass-fail enrichments during
+    // a burst the gate exists to absorb. Genuine errors stay capped by $maxExceptions.
+    public int $tries = 0;
 
-    /** @var list<int> */
+    /** @var list<int> Backoff between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30, 120];
 
     public int $maxExceptions = 2;
 
-    // One enrichment per connection at a time. The window exceeds $timeout so a
-    // duplicate dispatch can't slip in and bill a second Apify run mid-flight.
-    public int $uniqueFor = 180;
+    // One enrichment per connection at a time. The window matches retryUntil() so a job
+    // parked in rate-limit purgatory can't have a duplicate slip in and bill a second
+    // Apify run. The lock also releases on completion/failure — worst-case backstop.
+    public int $uniqueFor = 900;
 
     public function __construct(
         public readonly string $userId,
@@ -56,6 +62,26 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->userId.':'.$this->placeId;
+    }
+
+    /** Apify actor for the 'platform-connect' rate budget. */
+    public function providerRateKey(): string
+    {
+        return 'google-business';
+    }
+
+    /** @return array<int, object> */
+    public function middleware(): array
+    {
+        return [new RateLimited('platform-connect')];
+    }
+
+    // Wall-clock deadline for rate-limit releases. An enrichment held behind the actor's
+    // per-minute limit keeps retrying until it runs or 15 min elapses, then lapses to
+    // failed() (terminal) — never an infinite park.
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addMinutes(15);
     }
 
     public function handle(GoogleBusinessApifyScraper $scraper, GoogleBusinessAutoSync $autoSync): void

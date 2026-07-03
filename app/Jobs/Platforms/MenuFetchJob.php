@@ -15,6 +15,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -37,7 +38,7 @@ use Throwable;
 // the scrape runs ONLY when a store URL changed (or $force) or the last fetch
 // wasn't ok — re-deriving links on an unrelated change is free. When the user has
 // no Uber Eats / DoorDash link at all, the menu row is soft-deleted (cleared).
-class MenuFetchJob implements ShouldBeUnique, ShouldQueue
+class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -45,16 +46,22 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
     // headroom for MAX_ATTEMPTS × ATTEMPT_TIMEOUT per platform in MenuApifyScraper.
     public int $timeout = 600;
 
-    public int $tries = 2;
+    // Unlimited attempts, bounded by retryUntil() below — the 'platform-connect'
+    // RateLimited middleware RELEASES this job when the menu actor is over-limit, and
+    // every release counts as an attempt. A finite $tries would mass-fail scrapes
+    // during a burst the gate exists to absorb. Genuine errors stay capped by
+    // $maxExceptions, so a broken scrape still fails fast.
+    public int $tries = 0;
 
-    /** @var list<int> */
+    /** @var list<int> Backoff between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30, 120];
 
     public int $maxExceptions = 2;
 
-    // One menu fetch per user at a time; the window exceeds $timeout so a
-    // duplicate dispatch can't slip in and bill a second run mid-flight.
-    public int $uniqueFor = 660;
+    // One menu fetch per user at a time. The window matches retryUntil() so a job
+    // parked in rate-limit purgatory can't have a duplicate slip in and bill a second
+    // run. The lock also releases on completion/failure — this is the worst-case backstop.
+    public int $uniqueFor = 1800;
 
     public function __construct(
         public readonly string $userId,
@@ -66,6 +73,26 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->userId;
+    }
+
+    /** Apify actor for the 'platform-connect' rate budget. */
+    public function providerRateKey(): string
+    {
+        return 'menu';
+    }
+
+    /** @return array<int, object> */
+    public function middleware(): array
+    {
+        return [new RateLimited('platform-connect')];
+    }
+
+    // Wall-clock deadline for rate-limit releases. A menu scrape held behind the actor's
+    // per-minute limit keeps retrying until it runs or 30 min elapses (headroom over the
+    // 600s job timeout), then lapses to failed() (terminal) — never an infinite park.
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addMinutes(30);
     }
 
     public function handle(MenuSource $source, MenuApifyScraper $scraper, MenuMerger $merger): void

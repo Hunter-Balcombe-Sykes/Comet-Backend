@@ -36,6 +36,7 @@ use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
+use App\Jobs\Platforms\ThrottledByProvider;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\DeezerApi;
@@ -316,6 +317,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             );
 
             return Limit::perMinute($perMinute)->by('platform-refresh:'.$job->platform);
+        });
+
+        // Per-actor CONNECT-time burst gate (Seam 5). Separate from platform-refresh:
+        // connect jobs hit paid Apify actors, refresh jobs hit official APIs — different
+        // vendors, different budgets. Keyed by the job's Apify actor so one actor's
+        // signup spike can't starve the others. Applied as middleware on the three
+        // ThrottledByProvider connect jobs.
+        RateLimiter::for('platform-connect', function (ThrottledByProvider $job) {
+            $actor = $job->providerRateKey();
+            $perMinute = (int) config(
+                "partna.connect.rate_limits.{$actor}",
+                config('partna.connect.rate_limits.default')
+            );
+
+            return Limit::perMinute($perMinute)->by('platform-connect:'.$actor);
         });
     }
 }
