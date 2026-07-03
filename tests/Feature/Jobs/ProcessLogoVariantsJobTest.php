@@ -142,10 +142,17 @@ it('marks failed without a fallback when the original is missing', function () {
     $client = Mockery::mock(LogoProcessorClient::class);
     $client->shouldNotReceive('process');
 
-    (new ProcessLogoVariantsJob("images/test/{$imageId}/original.png", $imageId, "images/test/{$imageId}"))
-        ->handle($service, $client);
+    $job = new ProcessLogoVariantsJob("images/test/{$imageId}/original.png", $imageId, "images/test/{$imageId}");
+    $job->withFakeQueueInteractions();
+    $job->handle($service, $client);
 
-    expect(SiteMedia::query()->findOrFail($imageId)->processing_state)->toBe(SiteMedia::PROCESSING_STATE_FAILED);
+    // JOB-3: also routed through fail() (Nightwatch visibility) — a fake
+    // queue interaction records this without invoking the real failed().
+    $job->assertFailed();
+
+    $row = SiteMedia::query()->findOrFail($imageId);
+    expect($row->processing_state)->toBe(SiteMedia::PROCESSING_STATE_FAILED);
+    expect((string) $row->processing_error)->toContain('Original file not found');
     Queue::assertNotPushed(ProcessImageVariantsJob::class);
 });
 

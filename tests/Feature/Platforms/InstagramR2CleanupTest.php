@@ -4,7 +4,9 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Observers\Core\IntegrationConnectionObserver;
 use App\Services\Platforms\InstagramScraper;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -146,4 +148,28 @@ it('the async connect job stores the R2 _folder in the payload', function () {
     $conn->refresh();
 
     expect($conn->payload['_folder'])->toBe('platforms/instagram/'.$conn->created_at->timestamp);
+});
+
+// ── JOB-4: observer swallows + reports a dispatch failure instead of 500ing the write ──
+
+it('reports (and does not throw) when the mirrored-media cleanup dispatch fails', function () {
+    Exceptions::fake();
+    $conn = makeIgConnection(r2CleanupUser('r2obsdispatch'), ['username' => 'x', '_folder' => 'platforms/instagram/OLD']);
+
+    // Dirty the payload in-memory (not saved) so getOriginal() still holds the
+    // OLD folder while ->payload holds the NEW one — isolates the dispatch
+    // failure path without depending on a real DB update.
+    $conn->payload = ['username' => 'x', '_folder' => 'platforms/instagram/NEW'];
+
+    // Force DeleteMirroredMediaJob::dispatch() to blow up synchronously
+    // (PendingDispatch::__destruct fires within this statement) instead of
+    // mocking the job class directly.
+    config(['queue.default' => 'invalid-connection-xyz']);
+
+    expect(fn () => (new IntegrationConnectionObserver)->updated($conn))->not->toThrow(Throwable::class);
+
+    // assertReported() matches on the closure's exact parameter type, not
+    // Throwable — the queue manager throws InvalidArgumentException for an
+    // unconfigured connection name.
+    Exceptions::assertReported(fn (InvalidArgumentException $e) => str_contains($e->getMessage(), 'invalid-connection-xyz'));
 });

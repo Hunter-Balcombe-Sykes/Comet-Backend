@@ -115,6 +115,8 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
     {
         $user = User::query()->find($this->userId);
         if ($user === null) {
+            $this->fail(new \RuntimeException("User {$this->userId} not found."));
+
             return;
         }
 
@@ -187,6 +189,11 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
         // command. Bounded by MAX_FAILURE_CONTINUATIONS so a deterministically
         // -throwing entry can't loop forever.
         if ($this->continuation >= self::MAX_FAILURE_CONTINUATIONS) {
+            return;
+        }
+
+        // User gone (deleted/soft-deleted between dispatch and failure) — nothing to sweep.
+        if (User::query()->whereKey($this->userId)->doesntExist()) {
             return;
         }
 

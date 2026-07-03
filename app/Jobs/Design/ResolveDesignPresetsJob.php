@@ -48,6 +48,8 @@ class ResolveDesignPresetsJob implements ShouldBeUnique, ShouldQueue
     {
         $user = User::query()->find($this->userId);
         if ($user === null) {
+            $this->fail(new \RuntimeException("User {$this->userId} not found."));
+
             return;
         }
 

@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Core\Site\SiteMedia;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -188,4 +190,61 @@ it('does not throw when a variant file is already missing from storage', functio
 
     // Must not throw.
     expect(fn () => $media->forceDelete())->not->toThrow(Throwable::class);
+});
+
+// ── OBS-3: catch blocks report() before logging, so Nightwatch sees the failure ──
+
+it('reports (but does not throw) when a variant file fails to delete during force-delete', function () {
+    Exceptions::fake();
+
+    $siteId = (string) Str::uuid();
+    $mediaId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => (string) Str::uuid(),
+        'subdomain' => 'test-site-obs3',
+        'is_published' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId,
+        'site_id' => $siteId,
+        'pool' => SiteMedia::POOL_GALLERY,
+        'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
+        'processing_state' => SiteMedia::PROCESSING_STATE_READY,
+        'is_active' => 1,
+        // No `path` — isolates this test to the variant-file catch. The
+        // original-file catch is symmetric and covered by code review.
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $variantPath = "images/{$mediaId}/optimized.webp";
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $mediaId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'media',
+        'path' => $variantPath,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $brokenDisk = Mockery::mock(Filesystem::class);
+    $brokenDisk->shouldReceive('exists')->with($variantPath)->andReturn(true);
+    $brokenDisk->shouldReceive('delete')->with($variantPath)->andThrow(new RuntimeException('disk exploded'));
+    Storage::shouldReceive('disk')->with('media')->andReturn($brokenDisk);
+
+    $media = SiteMedia::query()->findOrFail($mediaId);
+
+    expect(fn () => $media->forceDelete())->not->toThrow(Throwable::class);
+
+    // assertReported() matches on the closure's exact parameter type, not
+    // Throwable — the mocked disk throws RuntimeException.
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'disk exploded');
 });

@@ -87,8 +87,8 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 6 complete
-- P2 Medium: 5 of 21 complete
+- P1 High: 4 of 6 complete
+- P2 Medium: 11 of 21 complete
 - P3 Low: 5 of 20 complete
 
 ---
@@ -260,7 +260,7 @@
         }
         ```
 
-- [ ] **#OBS-1** · P1 — Logo edge-cache purge failure swallowed silently after a successful logo process
+- [x] **#OBS-1** · P1 — Logo edge-cache purge failure swallowed silently after a successful logo process
     - **Where:** app/Jobs/ProcessLogoVariantsJob.php (purgeEdgeCache method)
     - **Affects:** Public sitepage visitors — a logo that finished processing successfully may never reach the edge, leaving the old (or a broken) logo visible for up to 24h primary / 7d SWR-shadow TTL.
     - **Effort:** S (~0.5–1h)
@@ -428,7 +428,7 @@
                 $image = $this->fetchImage($url);
         ```
 
-- [ ] **#JOB-1** · P2 — `AnalyzeConnectionWebsitesJob::handle()` silently discards the job when the user isn't found
+- [x] **#JOB-1** · P2 — `AnalyzeConnectionWebsitesJob::handle()` silently discards the job when the user isn't found
     - **Where:** app/Jobs/Design/AnalyzeConnectionWebsitesJob.php:115-117
     - **Affects:** Observability only — the user is already gone (deleted between dispatch and execution), so there's no real-user impact, but Horizon marks the job succeeded and Nightwatch never fires.
     - **Effort:** S (~0.5–1h)
@@ -444,7 +444,7 @@
         }
         ```
 
-- [ ] **#JOB-2** · P2 — `ResolveDesignPresetsJob::handle()` silently discards the job when the user isn't found
+- [x] **#JOB-2** · P2 — `ResolveDesignPresetsJob::handle()` silently discards the job when the user isn't found
     - **Where:** app/Jobs/Design/ResolveDesignPresetsJob.php:68-70
     - **Affects:** Same root cause and same tier as #JOB-1 — pure observability gap, zero real-user impact.
     - **Effort:** S (~0.5–1h)
@@ -460,7 +460,7 @@
         }
         ```
 
-- [ ] **#JOB-3** · P2 — `ProcessLogoVariantsJob` reports success on two failure paths that never call `$this->fail()`
+- [x] **#JOB-3** · P2 — `ProcessLogoVariantsJob` reports success on two failure paths that never call `$this->fail()`
     - **Where:** app/Jobs/ProcessLogoVariantsJob.php:111-116 (missing/trashed/terminal early-exit), :124-128 (`markFailed()` + return)
     - **Affects:** Logo processing pipeline visibility. A logo that genuinely failed (original file missing on disk) is marked `failed` in the DB but Horizon/Nightwatch see it as a clean success.
     - **Effort:** S (~0.5–1h)
@@ -477,7 +477,7 @@
         }
         ```
 
-- [ ] **#JOB-4** · P2 — `IntegrationConnectionObserver::updated()` dispatches a job with no try/catch, unlike its sibling methods
+- [x] **#JOB-4** · P2 — `IntegrationConnectionObserver::updated()` dispatches a job with no try/catch, unlike its sibling methods
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:68-78
     - **Affects:** Instagram connection updates that change the mirrored folder. A Redis hiccup during dispatch would crash the request/command even though the underlying save already succeeded.
     - **Effort:** S (~0.5–1h)
@@ -498,7 +498,7 @@
         }
         ```
 
-- [ ] **#OBS-2** · P2 — Orphaned SVG artifact deletion failure not reported to Nightwatch
+- [x] **#OBS-2** · P2 — Orphaned SVG artifact deletion failure not reported to Nightwatch
     - **Where:** app/Jobs/ProcessLogoVariantsJob.php:280-287 (storeSvgVariant)
     - **Affects:** Storage cost from accumulating orphaned vector files with no operational visibility.
     - **Effort:** S (~0.5–1h)
@@ -517,7 +517,7 @@
         }
         ```
 
-- [ ] **#OBS-3** · P2 — `SiteMedia` force-delete file cleanup failures not reported to Nightwatch
+- [x] **#OBS-3** · P2 — `SiteMedia` force-delete file cleanup failures not reported to Nightwatch
     - **Where:** app/Models/Core/Site/SiteMedia.php:124-144 (booted, forceDeleting hook)
     - **Affects:** Storage layer — orphaned variant/original files accumulate on hard delete with no alert, and since the DB row is gone there's no way to retry later.
     - **Effort:** S (~0.5–1h)

@@ -72,10 +72,19 @@ class IntegrationConnectionObserver
             return;
         }
 
-        $old = InstagramPayload::fromArray($connection->getOriginal('payload'))->folder;
-        $new = InstagramPayload::fromArray($connection->payload)->folder;
-        if ($old && $new && $old !== $new) {
-            DeleteMirroredMediaJob::dispatch($old);
+        try {
+            $old = InstagramPayload::fromArray($connection->getOriginal('payload'))->folder;
+            $new = InstagramPayload::fromArray($connection->payload)->folder;
+            if ($old && $new && $old !== $new) {
+                DeleteMirroredMediaJob::dispatch($old);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver mirrored-media cleanup dispatch failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 

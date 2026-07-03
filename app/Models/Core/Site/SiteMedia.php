@@ -167,6 +167,7 @@ class SiteMedia extends BaseModel
                         $disk->delete($variant->path);
                     }
                 } catch (\Throwable $e) {
+                    report($e);
                     Log::warning('Failed to delete variant file during SiteMedia force-delete', [
                         'media_id' => $media->id,
                         'disk' => $variant->disk,
@@ -185,6 +186,7 @@ class SiteMedia extends BaseModel
                         $mediaDisk->delete($media->path);
                     }
                 } catch (\Throwable $e) {
+                    report($e);
                     Log::warning('Failed to delete original file during SiteMedia force-delete', [
                         'media_id' => $media->id,
                         'path' => $media->path,

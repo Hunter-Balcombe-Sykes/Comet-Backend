@@ -103,6 +103,7 @@ class ProcessLogoVariantsJob implements ShouldQueue
         if (! $disk->exists($this->originalPath)) {
             // Nothing to process and nothing to fall back to — terminal failure.
             $this->markFailed('Original file not found on media disk.');
+            $this->fail(new \RuntimeException('Original file not found on media disk.'));
 
             return;
         }
@@ -210,6 +211,7 @@ class ProcessLogoVariantsJob implements ShouldQueue
             try {
                 $disk->delete($existingPath);
             } catch (Throwable $e) {
+                report($e);
                 Log::warning('ProcessLogoVariantsJob: failed to delete orphaned svg.', [
                     'image_id' => $this->imageId,
                     'old_path' => $existingPath,
@@ -284,6 +286,7 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 try {
                     $disk->delete($existingPath);
                 } catch (Throwable $e) {
+                    report($e);
                     Log::warning('ProcessLogoVariantsJob: failed to delete orphaned icon.', [
                         'image_id' => $this->imageId, 'old_path' => $existingPath, 'error' => $e->getMessage(),
                     ]);
@@ -318,6 +321,7 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 CloudflareCachePurgeJob::dispatch($subdomain);
             }
         } catch (Throwable $e) {
+            report($e);
             Log::warning('ProcessLogoVariantsJob: cache purge dispatch failed.', [
                 'image_id' => $this->imageId,
                 'message' => $e->getMessage(),

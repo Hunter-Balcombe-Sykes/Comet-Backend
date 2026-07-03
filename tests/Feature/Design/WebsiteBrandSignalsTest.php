@@ -828,3 +828,53 @@ it('negatively caches an uncaught analyzer exception instead of leaving a stale 
 
     Queue::assertPushed(ResolveDesignPresetsJob::class);
 });
+
+// ── JOB-1 / JOB-2: null-user hardening routes through fail(), not a bare return ──
+
+it('AnalyzeConnectionWebsitesJob: handle() fails via fail() for an unknown user', function () {
+    $userId = (string) Str::uuid(); // no core.users row for this id
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldNotReceive('analyze');
+
+    $job = new AnalyzeConnectionWebsitesJob($userId);
+    $job->withFakeQueueInteractions();
+    $job->handle($analyzer);
+
+    $job->assertFailed();
+});
+
+it('AnalyzeConnectionWebsitesJob: failed() does not re-dispatch once the user no longer exists', function () {
+    Queue::fake();
+    $userId = (string) Str::uuid(); // deleted/soft-deleted between dispatch and this failure
+
+    // A connection still "needing analysis" for that gone user — without the
+    // JOB-1 guard this would trigger a pointless kill-recovery re-dispatch.
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'platform' => 'custom',
+        'resource_id' => 'res-'.Str::random(6),
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://gone.test']),
+        'is_active' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    (new AnalyzeConnectionWebsitesJob($userId))->failed(new RuntimeException('boom'));
+
+    Queue::assertNotPushed(AnalyzeConnectionWebsitesJob::class);
+});
+
+it('ResolveDesignPresetsJob: handle() fails via fail() for an unknown user', function () {
+    $userId = (string) Str::uuid(); // no core.users row for this id
+
+    $resolver = Mockery::mock(DesignPresetResolver::class);
+    $resolver->shouldNotReceive('resolveForUser');
+
+    $job = new ResolveDesignPresetsJob($userId);
+    $job->withFakeQueueInteractions();
+    $job->handle($resolver);
+
+    $job->assertFailed();
+});
