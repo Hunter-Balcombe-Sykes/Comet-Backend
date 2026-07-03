@@ -73,7 +73,7 @@ class YoutubeScraper extends PlatformScraper
      *
      * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string}>}|null
      */
-    public function fetchUploadsFeed(string $channelId, int $limit = 15): ?array
+    public function fetchUploadsFeed(string $channelId, int $limit = 15, ?ConditionalContext $cond = null): ?array
     {
         $headers = ['User-Agent' => self::USER_AGENT];
 

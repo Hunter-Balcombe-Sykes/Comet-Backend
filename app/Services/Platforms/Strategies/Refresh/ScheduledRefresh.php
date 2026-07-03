@@ -29,6 +29,11 @@ class ScheduledRefresh implements RefreshStrategy
             'last_refresh_status' => 'ok',
             'last_refresh_error' => null,
             'consecutive_failures' => 0,
+            // Conditional-request validators (Plan 5). A wired fetch strategy set these
+            // via ConditionalContext::applyTo() before returning; a non-wired strategy
+            // leaves them at their stored value, so this is a harmless no-op write there.
+            'refresh_etag' => $connection->refresh_etag,
+            'refresh_last_modified' => $connection->refresh_last_modified,
         ]);
 
         return $connection;
