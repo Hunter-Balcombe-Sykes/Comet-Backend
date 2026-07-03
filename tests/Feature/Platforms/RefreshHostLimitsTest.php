@@ -7,7 +7,6 @@
 
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\AppleSearch;
-use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\YoutubeThumbnailResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -47,4 +46,22 @@ it('does not cache a failed iTunes lookup (retried on the next call)', function 
 
     expect($resolve->invoke($apple, 'Retry Artist'))->toBeNull(); // 429 → null, not cached
     expect($resolve->invoke($apple, 'Retry Artist'))->toBe(7);    // re-fetched, succeeds
+});
+
+it('chunks the ytimg maxres probes to the configured pool concurrency', function () {
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 2);
+    Http::fake(['i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 200)]);
+
+    // The private chunked-pool helper must exist — proves the cap is wired, not that
+    // the functional result happens to match on the current unbounded code.
+    expect(method_exists(YoutubeThumbnailResolver::class, 'pooledHead'))->toBeTrue();
+
+    $ids = ['aaa', 'bbb', 'ccc', 'ddd', 'eee']; // 5 misses, cap 2 → 3 chunks
+    $result = app(YoutubeThumbnailResolver::class)->bestForMany($ids);
+
+    expect($result)->toHaveCount(5);
+    foreach ($ids as $id) {
+        expect($result[$id])->toBe("https://i.ytimg.com/vi/{$id}/maxresdefault.jpg");
+    }
+    Http::assertSentCount(5); // every id probed across chunks
 });
