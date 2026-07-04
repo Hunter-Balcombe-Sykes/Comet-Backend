@@ -29,9 +29,9 @@ use Illuminate\Support\Facades\Route;
 
 // Per-user integration endpoints. Each controller is a per-platform adapter
 // (kept under Api\Platforms — one external platform each); the feature/domain is
-// "Integrations". Registered under /integrations (canonical) AND /platforms (a
-// legacy alias for the pre-rename dashboard, dropped once the frontend flips to
-// /integrations). Promotion plan documented in FreshaController.
+// "Integrations". Registered under /platforms (canonical — the dashboard calls
+// these). The legacy /integrations alias was removed 2026-07-04 once the frontend
+// finished migrating to /platforms.
 
 $registerIntegrationRoutes = function (string $base): void {
     // Same stack as the main user API group (routes/api/user.php): pending-deletion
@@ -343,5 +343,4 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware);
 };
 
-$registerIntegrationRoutes('integrations');
 $registerIntegrationRoutes('platforms');

@@ -72,12 +72,12 @@ class BookingController extends ApiController
                 'next' => 'custom-saved',
                 'status' => 'pending',
                 'selection' => $this->shapeCustom($payload),
-                'statusUrl' => url('/api/integrations/booking/detect/status'),
+                'statusUrl' => url('/api/platforms/booking/detect/status'),
             ], 202);
         });
     }
 
-    // GET /api/integrations/booking/detect/status — poll the custom-card enrichment.
+    // GET /api/platforms/booking/detect/status — poll the custom-card enrichment.
     public function detectStatus(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);

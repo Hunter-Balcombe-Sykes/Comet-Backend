@@ -30,7 +30,7 @@ it('addLink returns 202 with a minimal card and no outbound HTTP', function () {
 
     $user = customLinksCtrlUser('asynclink1');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/custom/links', ['url' => 'https://www.example.com/x']);
+    $res = actingAsUser($user)->postJson('/api/platforms/custom/links', ['url' => 'https://www.example.com/x']);
 
     $res->assertStatus(202)
         ->assertJsonPath('status', 'pending')
@@ -56,7 +56,7 @@ it('status endpoint reports ready once the row is ok', function () {
     ]);
 
     actingAsUser($user)
-        ->getJson("/api/integrations/custom/links/{$rid}/status")
+        ->getJson("/api/platforms/custom/links/{$rid}/status")
         ->assertOk()
         ->assertJsonPath('status', 'ready');
 });

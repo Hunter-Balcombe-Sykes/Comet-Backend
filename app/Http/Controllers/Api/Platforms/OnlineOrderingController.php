@@ -98,12 +98,12 @@ class OnlineOrderingController extends ApiController
             return $this->success([
                 'status' => 'pending',
                 'entries' => $this->entriesData($user),
-                'statusUrl' => url("/api/integrations/online-ordering/entries/{$rid}/status"),
+                'statusUrl' => url("/api/platforms/online-ordering/entries/{$rid}/status"),
             ], 202);
         });
     }
 
-    // GET /api/integrations/online-ordering/entries/{id}/status — poll enrichment.
+    // GET /api/platforms/online-ordering/entries/{id}/status — poll enrichment.
     public function entryStatus(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);

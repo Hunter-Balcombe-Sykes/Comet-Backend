@@ -31,7 +31,7 @@ it('returns sync metadata per platform in one call', function () {
         'last_refresh_status' => 'error', 'last_refresh_error' => 'internal scraper detail',
     ]);
 
-    $response = actingAsUser($user)->getJson('/api/integrations/meta')
+    $response = actingAsUser($user)->getJson('/api/platforms/meta')
         ->assertOk()
         ->assertJsonPath('platforms.youtube.last_refresh_status', 'ok')
         ->assertJsonPath('platforms.youtube.has_refresh_error', false)
@@ -54,7 +54,7 @@ it('keeps the most recently refreshed row per platform', function () {
         'last_refreshed_at' => now()->subHour(), 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->getJson('/api/integrations/meta')
+    actingAsUser($user)->getJson('/api/platforms/meta')
         ->assertOk()
         ->assertJsonPath('platforms.shop.last_refresh_status', 'ok');
 });
@@ -82,7 +82,7 @@ it('deterministically aggregates status across tied never-refreshed connections'
     // Run it a few times — with the old first-row-wins logic this would be
     // nondeterministic; the aggregate must be stable every time.
     foreach (range(1, 3) as $_) {
-        actingAsUser($user)->getJson('/api/integrations/meta')
+        actingAsUser($user)->getJson('/api/platforms/meta')
             ->assertOk()
             ->assertJsonPath('platforms.youtube.is_active', true) // ANY: chan-a is active
             ->assertJsonPath('platforms.youtube.has_refresh_error', true) // ANY: chan-b errored
@@ -98,7 +98,7 @@ it('scopes metadata to the authenticated user', function () {
         'payload' => ['handle' => 'busy'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $response = actingAsUser($user)->getJson('/api/integrations/meta')->assertOk();
+    $response = actingAsUser($user)->getJson('/api/platforms/meta')->assertOk();
 
     expect($response->json('platforms'))->toBe([]);
 });

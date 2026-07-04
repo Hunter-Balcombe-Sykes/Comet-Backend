@@ -51,7 +51,7 @@ it('addEntry returns 202, sends no HTTP, and dispatches EnrichLinkCardJob + Menu
     $user = ooUser('oo1');
 
     $res = actingAsUser($user)
-        ->postJson('/api/integrations/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/x']);
+        ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/x']);
 
     $res->assertStatus(202)->assertJsonPath('status', 'pending');
     Http::assertNothingSent();
@@ -66,7 +66,7 @@ it('addEntry 202 body includes a statusUrl', function () {
     $user = ooUser('oo2');
 
     actingAsUser($user)
-        ->postJson('/api/integrations/online-ordering/entries', ['url' => 'https://www.doordash.com/store/abc'])
+        ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.doordash.com/store/abc'])
         ->assertStatus(202)
         ->assertJsonStructure(['statusUrl']);
 });
@@ -78,7 +78,7 @@ it('addEntry writes the connection row with status pending', function () {
     $user = ooUser('oo3');
 
     actingAsUser($user)
-        ->postJson('/api/integrations/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/y'])
+        ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/y'])
         ->assertStatus(202);
 
     $conn = IntegrationConnection::where('user_id', $user->id)
@@ -99,7 +99,7 @@ it('still enforces MAX_ENTRIES synchronously — 422 before any job is pushed', 
     seedOoEntries($user, 10);
 
     $res = actingAsUser($user)
-        ->postJson('/api/integrations/online-ordering/entries', ['url' => 'https://www.doordash.com/store/z']);
+        ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.doordash.com/store/z']);
 
     $res->assertStatus(422);
     Queue::assertNotPushed(EnrichLinkCardJob::class);
@@ -128,7 +128,7 @@ it('merge-on-add dispatches EnrichLinkCardJob for the existing row', function ()
 
     // Add the delivery URL for the same store (same path, different diningMode).
     actingAsUser($user)
-        ->postJson('/api/integrations/online-ordering/entries', [
+        ->postJson('/api/platforms/online-ordering/entries', [
             'url' => 'https://www.ubereats.com/store/samepath?diningMode=DELIVERY',
         ])
         ->assertStatus(202);
@@ -154,7 +154,7 @@ it('entryStatus returns pending while the enrichment job is running', function (
     ]);
 
     actingAsUser($user)
-        ->getJson("/api/integrations/online-ordering/entries/{$rid}/status")
+        ->getJson("/api/platforms/online-ordering/entries/{$rid}/status")
         ->assertOk()
         ->assertJsonPath('status', 'pending');
 });
@@ -174,7 +174,7 @@ it('entryStatus returns ready with entries when enrichment completes', function 
     ]);
 
     actingAsUser($user)
-        ->getJson("/api/integrations/online-ordering/entries/{$rid}/status")
+        ->getJson("/api/platforms/online-ordering/entries/{$rid}/status")
         ->assertOk()
         ->assertJsonPath('status', 'ready')
         ->assertJsonStructure(['entries']);
@@ -197,6 +197,6 @@ it('entryStatus returns 404 for a resource the user does not own', function () {
     ]);
 
     actingAsUser($other)
-        ->getJson("/api/integrations/online-ordering/entries/{$rid}/status")
+        ->getJson("/api/platforms/online-ordering/entries/{$rid}/status")
         ->assertStatus(404);
 });

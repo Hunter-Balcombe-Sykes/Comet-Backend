@@ -116,8 +116,8 @@ it('never exposes the internal _folder on the instagram status or selection endp
         '_folder' => 'platforms/instagram/123', 'source' => 'google-business',
     ])->update(['is_active' => true, 'last_refresh_status' => 'ok']);
 
-    $status = actingAsUser($user)->getJson('/api/integrations/instagram/connect/status')->assertOk()->json();
-    $selection = actingAsUser($user)->getJson('/api/integrations/instagram/selection')->assertOk()->json();
+    $status = actingAsUser($user)->getJson('/api/platforms/instagram/connect/status')->assertOk()->json();
+    $selection = actingAsUser($user)->getJson('/api/platforms/instagram/selection')->assertOk()->json();
 
     expect($status['data']['connection'] ?? $status['connection'] ?? [])->not->toHaveKey('_folder');
     expect($status['data']['connection'] ?? $status['connection'] ?? [])->not->toHaveKey('source');

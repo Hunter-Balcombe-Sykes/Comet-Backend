@@ -27,7 +27,7 @@ it('lists a stored custom link with its full card shape', function () {
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->getJson('/api/integrations/custom/links')
+    actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
         ->assertJsonPath('links.0.id', 'link-abc')
         ->assertJsonPath('links.0.url', 'https://acme.test')

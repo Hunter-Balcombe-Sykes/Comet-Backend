@@ -85,7 +85,7 @@ class InstagramController extends ApiController
 
         return $this->success([
             'status' => 'pending',
-            'statusUrl' => url('/api/integrations/instagram/connect/status'),
+            'statusUrl' => url('/api/platforms/instagram/connect/status'),
         ], 202);
     }
 

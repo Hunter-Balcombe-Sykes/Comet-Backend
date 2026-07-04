@@ -68,7 +68,7 @@ class CustomLinksController extends ApiController
             return $this->success([
                 'status' => 'pending',
                 'link' => $this->cardData($rid, $payload),
-                'statusUrl' => url("/api/integrations/custom/links/{$rid}/status"),
+                'statusUrl' => url("/api/platforms/custom/links/{$rid}/status"),
             ], 202);
         });
     }

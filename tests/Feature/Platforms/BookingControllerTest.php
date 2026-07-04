@@ -29,7 +29,7 @@ it('detect custom URL returns 202 + minimal card and enqueues EnrichLinkCardJob 
 
     $user = bookingUser('bookuser');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/booking/detect', [
+    $res = actingAsUser($user)->postJson('/api/platforms/booking/detect', [
         'url' => 'https://www.example.com/book',
     ]);
 
@@ -46,7 +46,7 @@ it('detect fresha URL stays synchronous 200 with no job dispatched', function ()
 
     $user = bookingUser('freshuser');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/booking/detect', [
+    $res = actingAsUser($user)->postJson('/api/platforms/booking/detect', [
         'url' => 'https://www.fresha.com/a/some-salon',
     ]);
 
@@ -61,7 +61,7 @@ it('detect square URL stays synchronous 200 with no job dispatched', function ()
 
     $user = bookingUser('squareuser');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/booking/detect', [
+    $res = actingAsUser($user)->postJson('/api/platforms/booking/detect', [
         'url' => 'https://squareup.com/appointments/book/some-store',
     ]);
 
@@ -77,10 +77,10 @@ it('detect/status returns pending while the enrichment job is running', function
 
     $user = bookingUser('polluser');
 
-    actingAsUser($user)->postJson('/api/integrations/booking/detect', [
+    actingAsUser($user)->postJson('/api/platforms/booking/detect', [
         'url' => 'https://www.example.com/book',
     ])->assertStatus(202);
 
-    $res = actingAsUser($user)->getJson('/api/integrations/booking/detect/status');
+    $res = actingAsUser($user)->getJson('/api/platforms/booking/detect/status');
     $res->assertOk()->assertJsonPath('status', 'pending');
 });

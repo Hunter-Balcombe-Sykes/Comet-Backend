@@ -29,7 +29,7 @@ it('detect custom URL returns 202 + minimal card and enqueues EnrichLinkCardJob 
 
     $user = reservationsUser('resuser');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/reservations/detect', [
+    $res = actingAsUser($user)->postJson('/api/platforms/reservations/detect', [
         'url' => 'https://www.example.com/reserve',
     ]);
 
@@ -46,7 +46,7 @@ it('detect opentable URL stays synchronous 200 with no job dispatched', function
 
     $user = reservationsUser('otuser');
 
-    $res = actingAsUser($user)->postJson('/api/integrations/reservations/detect', [
+    $res = actingAsUser($user)->postJson('/api/platforms/reservations/detect', [
         'url' => 'https://www.opentable.com.au/restaurant/profile/266537',
     ]);
 
@@ -62,10 +62,10 @@ it('detect/status returns pending while the enrichment job is running', function
 
     $user = reservationsUser('respolluser');
 
-    actingAsUser($user)->postJson('/api/integrations/reservations/detect', [
+    actingAsUser($user)->postJson('/api/platforms/reservations/detect', [
         'url' => 'https://www.example.com/reserve',
     ])->assertStatus(202);
 
-    $res = actingAsUser($user)->getJson('/api/integrations/reservations/detect/status');
+    $res = actingAsUser($user)->getJson('/api/platforms/reservations/detect/status');
     $res->assertOk()->assertJsonPath('status', 'pending');
 });
