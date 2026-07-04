@@ -28,6 +28,7 @@
 - **Combine plan+impl:** YES for S/XS effort · NO for P0/P1 or L/XL (those plan first, then implement)
 - **Per-item override:** escalate to Opus for gnarly logic or risky blast radius; a trivial
   mechanical S item may drop to Haiku. Default to the table above unless an item clearly warrants a change.
+- **Per-finding plan model (annotated inline 2026-07-04):** the header default above is superseded per finding by the `**Plan: …**` tag on each finding line. Opus is reserved for the 4 open-design / L–XL items — **#FOUND-14, #FOUND-23, #FOUND-24, #FOUND-25** (new tables + live-data migration, or a multi-archetype strategy contract with no direct exemplar). Every other finding plans with **Sonnet**, because it collapses into a pattern the codebase already proves out (`SectionVisibilityRegistry`, `GenericPlatformController`, `ProviderDetector`, `ReorderService`, `RefreshesLatestTile`). The S/XS mechanical items combine plan+impl, so "Plan: Sonnet" there means Sonnet does both in one pass.
 - **Trigger:** say `execute audit <path to this file>` to run plan → implement → independent review
   per bundle/item. Blockers (P0 · auth · money · DB/migration · L/XL) pause for sign-off.
   Full runbook: `scripts/audit/fix-flow.md`.
@@ -56,7 +57,7 @@
 
 ## Progress
 
-- P0 Before pilot: 1 of 9 complete
+- P0 Before pilot: 2 of 9 complete
 - P1 Important spines: 0 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
@@ -65,7 +66,8 @@
 
 ## P0 — Before pilot (data-shape & compliance — cost rises with real user data)
 
-- [ ] **#FOUND-1** · P0 — GDPR data-export registry requires editing 3+ locations in lockstep; a missed step silently omits a user's data
+- [x] **#FOUND-1** · P0 · **Plan: Sonnet** — GDPR data-export registry requires editing 3+ locations in lockstep; a missed step silently omits a user's data
+    - **✅ IMPLEMENTED (2026-07-04):** Collapsed `build()`/`stream()`'s two independently hand-maintained enumerations into one `sectionDescriptors()` manifest (26 sections, exact order/name parity verified against the removed code); `csvNameFor()`'s two now-redundant `match()` arms removed; added a regression-guard test asserting every `stream()`-yielded section resolves to a real `build()` key, so the two can't drift apart again. Zero behavior change — `DataExportZipWriterStreamingTest`'s SHA-256 reproducibility assertion and `DataExportPayloadBuilderTest`'s exact-shape assertion both passed untouched, full suite green (3119 passed). Implemented by an independent Sonnet subagent from `docs/superpowers/plans/2026-07-04-found-1-data-export-registry.md`, independently reviewed by a separate Sonnet instance — one review concern (legal-rationale comments apparently dropped from the enumeration) was verified false: that rationale already lives, untouched, on each `streamXxx()` method's own docblock. Merged to `development` via PR #226.
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php` (`build()`, `stream()`), `app/Services/User/DataExport/DataExportZipWriter.php` (`csvNameFor()`)
     - **Affects:** Any real user who submits a GDPR data-export request after a new exportable table/section is added without every edit site being touched — the export silently ships incomplete, which is a compliance failure, not just a maintenance cost.
     - **Effort:** M (~2–4h)
@@ -95,8 +97,8 @@
         }
         ```
 
-- [x] **#FOUND-13** · P0 — MenuFetchJob writes `menu_items.badges` as manually json_encoded JSON, bypassing the relational structure the rest of the table already uses
-    - **⏭️ NOT IMPLEMENTED — premise invalid (2026-07-04, verified 2×):** The finding's own "Affects" framing (a future dietary-filter feature, e.g. "show me vegetarian dishes") does not hold: `badges` is DoorDash-only ranking/promo copy (e.g. "#1 Most Liked"), normalized to `[{text, type?}]` by `MenuApifyScraper::badges()` — not a dietary-tag structure. Repo-wide grep for dietary/vegetarian/gluten/allergen/vegan turns up exactly one unrelated hit (`GoogleBusinessService`'s `servesVegetarianFood` store-level amenity flag — a different feature entirely). Both read sites (`MenuController::show()`, `PublicMenuController::show()`) pass `$item->badges` straight through with no filtering, sorting, or querying anywhere in the codebase. With zero present or planned query pattern, neither the child-table extraction nor the audit's own fallback (a GIN index) is justified — an index with nothing to accelerate is pure overhead on a column that's rewritten wholesale every scrape. Kept as plain JSONB; decision documented inline in `MenuItem.php` and `MenuFetchJob.php` so this isn't re-litigated without new evidence of an actual query need.
+- [x] **#FOUND-13** · P0 · **Plan: Sonnet** — MenuFetchJob writes `menu_items.badges` as manually json_encoded JSON, bypassing the relational structure the rest of the table already uses
+    - **⏭️ NOT IMPLEMENTED — premise invalid (2026-07-04, verified 2×):** The finding's own "Affects" framing (a future dietary-filter feature, e.g. "show me vegetarian dishes") does not hold: `badges` is DoorDash-only ranking/promo copy (e.g. "#1 Most Liked"), normalized to `[{text, type?}]` by `MenuApifyScraper::badges()` — not a dietary-tag structure. Repo-wide grep for dietary/vegetarian/gluten/allergen/vegan turns up exactly one unrelated hit (`GoogleBusinessService`'s `servesVegetarianFood` store-level amenity flag — a different feature entirely). Both read sites (`MenuController::show()`, `PublicMenuController::show()`) pass `$item->badges` straight through with no filtering, sorting, or querying anywhere in the codebase. With zero present or planned query pattern, neither the child-table extraction nor the audit's own fallback (a GIN index) is justified — an index with nothing to accelerate is pure overhead on a column that's rewritten wholesale every scrape. Kept as plain JSONB; decision documented inline in `MenuItem.php` and `MenuFetchJob.php` so this isn't re-litigated without new evidence of an actual query need. Merged to `development` via PR #225 (commits `dd3d73f6`, `c8e9965d`), independent Sonnet review PASS.
     - **Where:** `app/Jobs/Platforms/MenuFetchJob.php` (`persist()`)
     - **Affects:** Any future dietary-filter feature ("show me vegetarian dishes") — badges can't be indexed or queried without a full JSON scan.
     - **Effort:** M (~2–4h, DB migration)
@@ -137,7 +139,7 @@
             });
         ```
 
-- [ ] **#FOUND-25** · P0 — ShopController's brand+product map grows unboundedly inside one JSONB cell per user
+- [ ] **#FOUND-25** · P0 · **Plan: Opus** — ShopController's brand+product map grows unboundedly inside one JSONB cell per user
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php` (`brandMap()`, `addBrand()`, `setProducts()`), `app/Http/Requests/Platforms/SetShopProductsRequest.php`
     - **Affects:** Every user with a shop connection — up to 5 brands × up to 250 selected products each can live in a single JSONB cell.
     - **Effort:** L (~1–2d, DB migration)
@@ -162,7 +164,7 @@
         'productIds.*' => ['string', 'max:50'],
         ```
 
-- [ ] **#FOUND-34** · P0 — Row-type is encoded as a string prefix on `resource_id` (`event-`, `link-`) instead of a discriminator column
+- [ ] **#FOUND-34** · P0 · **Plan: Sonnet** — Row-type is encoded as a string prefix on `resource_id` (`event-`, `link-`) instead of a discriminator column
     - **Where:** `app/Services/Platforms/EventsCatalog.php` (`accountRows()`, `eventRows()`)
     - **Affects:** Any code branching on `resource_id` prefix; a new row kind needs every prefix-check site updated.
     - **Effort:** M (~2–4h)
@@ -177,7 +179,7 @@
         )->values();
         ```
 
-- [ ] **#FOUND-35** · P0 — Social link `handle` stays in `settings` JSONB while `platform`/`category` were already promoted to real columns
+- [ ] **#FOUND-35** · P0 · **Plan: Sonnet** — Social link `handle` stays in `settings` JSONB while `platform`/`category` were already promoted to real columns
     - **Where:** `app/Console/Commands/BackfillSocialLinksCommand.php`
     - **Affects:** Any future feature needing to search/filter/uniqueness-constrain a link block's handle.
     - **Effort:** M (~2–4h, DB migration)
@@ -190,7 +192,7 @@
         // settings JSONB. handle stays in settings as it has no dedicated column.
         ```
 
-- [ ] **#FOUND-36** · P0 — MenuSource loads every online-ordering row for a user and filters `url` in PHP instead of a column
+- [ ] **#FOUND-36** · P0 · **Plan: Sonnet** — MenuSource loads every online-ordering row for a user and filters `url` in PHP instead of a column
     - **Where:** `app/Services/Platforms/MenuSource.php` (`entries()`), `app/Services/Platforms/Payloads/CardPayload.php` (`url()`)
     - **Affects:** Menu resolution for users with online-ordering links. Current per-user cardinality is small (typically 1–2 links), so this is low urgency today, but the pattern will not hold up if this feature grows to allow many saved ordering links.
     - **Effort:** M (~2–4h, DB migration)
@@ -209,7 +211,7 @@
             ->values();
         ```
 
-- [ ] **#FOUND-37** · P0 — `core.users.about` JSONB column is now dead weight following the completed credentials/experience extraction
+- [ ] **#FOUND-37** · P0 · **Plan: Sonnet** — `core.users.about` JSONB column is now dead weight following the completed credentials/experience extraction
     - **Where:** `app/Http/Controllers/Api/User/Account/UserSelfController.php` (`update()`), `app/Http/Resources/UserDashboardResource.php`, `app/Models/Core/User/User.php` (`'about' => 'array'` cast)
     - **Affects:** Schema clarity — a nullable JSONB column that always resolves to `null` after validation is confusing debt, not active risk.
     - **Effort:** S (~0.5–1h, DB migration)
@@ -233,7 +235,7 @@
         'about' => (object) $this->aboutPayload(),
         ```
 
-- [ ] **#FOUND-49** · P0 — The booking section's `platform` field stays in `settings` JSONB while related fields have already been promoted
+- [ ] **#FOUND-49** · P0 · **Plan: Sonnet** — The booking section's `platform` field stays in `settings` JSONB while related fields have already been promoted
     - **Where:** `supabase/migrations/20260701170000_promote_block_settings_columns.sql`
     - **Affects:** `SitepageDataResolverService::getBooking` must extract the value via JSON path.
     - **Effort:** S (~0.5–1h, DB migration)
@@ -249,7 +251,7 @@
 
 ## P1 — Important extensibility spines (fix at next platform/section add)
 
-- [ ] **#FOUND-5** · P1 — Platform route `defaults('platform', ...)` strings are hand-typed ~36 times with no registry validation
+- [ ] **#FOUND-5** · P1 · **Plan: Sonnet** — Platform route `defaults('platform', ...)` strings are hand-typed ~36 times with no registry validation
     - **Where:** `routes/api/integrations.php` (every `->defaults('platform', '<slug>')`)
     - **Affects:** Every route registered for a platform; a typo in one occurrence silently 404s or misroutes that specific action with no boot-time warning.
     - **Effort:** S (~0.5–1h)
@@ -265,7 +267,7 @@
         Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', 'youtube-music');
         ```
 
-- [ ] **#FOUND-11** · P1 — Platform identifier strings are bare literals scattered across queries, jobs, and dispatch arrays with no enum or registry
+- [ ] **#FOUND-11** · P1 · **Plan: Sonnet** — Platform identifier strings are bare literals scattered across queries, jobs, and dispatch arrays with no enum or registry
     - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php` (`->where('platform', 'google-business')`), `app/Jobs/Platforms/EnrichLinkCardJob.php` (`public string $platform`), `app/Jobs/Platforms/MenuFetchJob.php` (`'uber-eats'`, `'doordash'` array keys)
     - **Affects:** Any rename or typo of a platform key — a mismatch is a silent zero-row query or a rate-limiter key miss, with no compiler check.
     - **Effort:** M (~2–4h)
@@ -291,7 +293,7 @@
         ) {
         ```
 
-- [ ] **#FOUND-23** · P1 — Adding a third food-delivery platform requires editing 5+ locations across the Menu subsystem's Services and Jobs layers
+- [ ] **#FOUND-23** · P1 · **Plan: Opus** — Adding a third food-delivery platform requires editing 5+ locations across the Menu subsystem's Services and Jobs layers
     - **Where:** `app/Services/Platforms/MenuApifyScraper.php` (`ACTORS` constant, `driver()`), `app/Services/Platforms/MenuMerger.php` (`PLATFORMS` constant), `app/Services/Platforms/MenuSource.php` (`PLATFORMS` constant), `app/Jobs/Platforms/MenuFetchJob.php` (`handle()`, `persist()`)
     - **Affects:** Any engineer adding Menulog, Deliveroo, or a third aggregator to the newest, most-actively-developed part of the codebase.
     - **Effort:** L (~1–2d)
@@ -320,7 +322,7 @@
         foreach (['uber-eats' => $plan['ueUrl'], 'doordash' => $plan['ddUrl']] as $platform => $url) { ... }
         ```
 
-- [ ] **#FOUND-24** · P1 — Adding a music/video/social listen platform requires copying scaffolding across a controller file AND 7 route definitions
+- [ ] **#FOUND-24** · P1 · **Plan: Opus** — Adding a music/video/social listen platform requires copying scaffolding across a controller file AND 7 route definitions
     - **Where:** `app/Http/Controllers/Api/Platforms/{Bandcamp,Deezer,Soundcloud,Spotify,Twitch,Vimeo,Youtube,YoutubeMusic,Pinterest,Strava,NowBookit,OpenTable,ResDiary}Controller.php` (13 `SingleSelectionPlatformController` subclasses), `routes/api/integrations.php` (4 duplicated 7-route groups for YouTube/Bandcamp/Vimeo/YouTube Music)
     - **Affects:** Every developer adding a new music/video/social platform — currently the highest-volume duplication pattern in the codebase.
     - **Effort:** XL (~16–32h)
@@ -361,7 +363,7 @@
 
 ## P2 — Rest: extensibility / leaky abstraction (roadmap-triggered)
 
-- [ ] **#FOUND-3** · P2 — LiveStatusPoller + StreamingTokenManager hardcode a per-platform `match`/config map that a third streaming platform would copy again
+- [ ] **#FOUND-3** · P2 · **Plan: Sonnet** — LiveStatusPoller + StreamingTokenManager hardcode a per-platform `match`/config map that a third streaming platform would copy again
     - **Where:** `app/Services/Streaming/LiveStatusPoller.php` (`poll()`, `pollTwitch()`, `pollKick()`), `app/Services/Streaming/StreamingTokenManager.php` (`PLATFORM_CONFIG`)
     - **Affects:** Adding a third streaming platform (e.g. YouTube Live).
     - **Effort:** M (~2–4h)
@@ -379,7 +381,7 @@
         };
         ```
 
-- [ ] **#FOUND-6** · P2 — EventbriteController/HumanitixController are pure delegation wrappers with no shared interface
+- [ ] **#FOUND-6** · P2 · **Plan: Sonnet** — EventbriteController/HumanitixController are pure delegation wrappers with no shared interface
     - **Where:** `app/Http/Controllers/Api/Platforms/EventbriteController.php`, `app/Http/Controllers/Api/Platforms/HumanitixController.php`
     - **Affects:** Adding a third events platform (Ticketmaster, Meetup) — currently means copying one of these ~70-line files.
     - **Effort:** M (~2–4h)
@@ -399,7 +401,7 @@
         }
         ```
 
-- [ ] **#FOUND-7** · P2 — EventsCatalog hardcodes a per-platform adapter map of closures in its constructor
+- [ ] **#FOUND-7** · P2 · **Plan: Sonnet** — EventsCatalog hardcodes a per-platform adapter map of closures in its constructor
     - **Where:** `app/Services/Platforms/EventsCatalog.php` (`__construct`, `$this->adapters`)
     - **Affects:** Adding a third events platform to the unified catalog.
     - **Effort:** M (~2–4h)
@@ -419,7 +421,7 @@
         ];
         ```
 
-- [ ] **#FOUND-8** · P2 — GoogleBusinessAutoSync hardcodes an if-else chain over reservation/booking providers
+- [ ] **#FOUND-8** · P2 · **Plan: Sonnet** — GoogleBusinessAutoSync hardcodes an if-else chain over reservation/booking providers
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php` (`RESERVATION_PLATFORMS`, `BOOKING_PLATFORMS` constants, `seedReservation()`'s provider chain)
     - **Affects:** Adding a fourth reservation provider (e.g. SevenRooms) to the Google Business auto-sync flow.
     - **Effort:** M (~2–4h)
@@ -438,7 +440,7 @@
         if ($this->nowBookit->isNowBookitUrl($url) && ($ids = $this->nowBookit->parseIds($url)) !== null) { ... }
         ```
 
-- [ ] **#FOUND-9** · P2 — Shop provider dispatch is hardcoded across three separate switches in two files
+- [ ] **#FOUND-9** · P2 · **Plan: Sonnet** — Shop provider dispatch is hardcoded across three separate switches in two files
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php` (`brandProfileFor()`, `providerProducts()`), `app/Services/Platforms/ShopProviderDetector.php` (`detect()`)
     - **Affects:** Adding a shop provider (Etsy, Ecwid) — requires editing the detector's probe sequence AND both controller `match()` blocks AND the constructor's scraper list.
     - **Effort:** M (~2–4h)
@@ -466,7 +468,7 @@
         };
         ```
 
-- [ ] **#FOUND-16** · P2 — UserSectionBlockController hardcodes a `blockType === 'bio'` special case that will grow into an if-ladder as more sections need side effects
+- [ ] **#FOUND-16** · P2 · **Plan: Sonnet** — UserSectionBlockController hardcodes a `blockType === 'bio'` special case that will grow into an if-ladder as more sections need side effects
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php` (`upsert()`)
     - **Affects:** Any future section type needing a cross-model side effect on save.
     - **Effort:** M (~2–4h)
@@ -487,7 +489,7 @@
         }
         ```
 
-- [ ] **#FOUND-17** · P2 — Media reorder is hand-rolled inline instead of using the shared ReorderService that link/section blocks already use
+- [ ] **#FOUND-17** · P2 · **Plan: Sonnet** — Media reorder is hand-rolled inline instead of using the shared ReorderService that link/section blocks already use
     - **Where:** `app/Http/Controllers/Api/User/Uploads/UserUploadController.php` (`reorder()`) vs `app/Services/Site/ReorderService.php`
     - **Affects:** Any future reorder endpoint; a fix to the shared two-pass offset algorithm would miss this copy.
     - **Effort:** M (~2–4h)
@@ -513,7 +515,7 @@
         foreach ($newOrder as $i => $id) { (clone $scopeQuery)->where('id', $id)->update(['sort_order' => $i]); }
         ```
 
-- [ ] **#FOUND-18** · P2 — Notification email preference resolution (mandatory → per-pro policy → global policy → user pref → default) lives entirely inside a controller
+- [ ] **#FOUND-18** · P2 · **Plan: Sonnet** — Notification email preference resolution (mandatory → per-pro policy → global policy → user pref → default) lives entirely inside a controller
     - **Where:** `app/Http/Controllers/Api/User/Notifications/NotificationEmailPreferenceController.php` (`index()`)
     - **Affects:** Any future consumer needing the same resolved preference (a background job deciding whether to send, a staff panel showing override state).
     - **Effort:** M (~2–4h)
@@ -532,7 +534,7 @@
         else { $effective = true; }
         ```
 
-- [ ] **#FOUND-19** · P2 — StaffAnalyticsController builds raw SQL queries and cache orchestration directly in the controller
+- [ ] **#FOUND-19** · P2 · **Plan: Sonnet** — StaffAnalyticsController builds raw SQL queries and cache orchestration directly in the controller
     - **Where:** `app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php` (`summary()`)
     - **Affects:** Any future staff analytics dimension; the controller grows linearly with each addition.
     - **Effort:** M (~2–4h)
@@ -551,7 +553,7 @@
             ->get();
         ```
 
-- [ ] **#FOUND-20** · P2 — PublicEnquiryController orchestrates 9 distinct steps in a single ~110-line method, and 4 lead-capture controllers each re-implement the same honeypot/timing gate
+- [ ] **#FOUND-20** · P2 · **Plan: Sonnet** — PublicEnquiryController orchestrates 9 distinct steps in a single ~110-line method, and 4 lead-capture controllers each re-implement the same honeypot/timing gate
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php` (`submit()`)
     - **Affects:** Testability of the spam-detection pipeline; consistency across `PublicCustomerLeadController`, `PublicEmailSubscriptionController`, `PublicWaitlistController`, which duplicate the same honeypot + timing checks.
     - **Effort:** M (~2–4h)
@@ -568,7 +570,7 @@
         }
         ```
 
-- [ ] **#FOUND-21** · P2 — Adding a new public-profile content section requires hand-wiring 2+ files with no registry
+- [ ] **#FOUND-21** · P2 · **Plan: Sonnet** — Adding a new public-profile content section requires hand-wiring 2+ files with no registry
     - **Where:** `app/Services/PublicSite/IndividualProfilePayloadBuilder.php` (`build()`, 8 `build*()` methods), `app/Services/PublicSite/SitepageDataResolverService.php` (8 `get*()` methods)
     - **Affects:** Engineers adding a new public-profile section (e.g. "testimonials").
     - **Effort:** M (~2–4h)
@@ -590,7 +592,7 @@
         ]))->resolve();
         ```
 
-- [ ] **#FOUND-22** · P2 — Moderation outcome notifications require a new Notification class plus a match-arm edit per decision type
+- [ ] **#FOUND-22** · P2 · **Plan: Sonnet** — Moderation outcome notifications require a new Notification class plus a match-arm edit per decision type
     - **Where:** `app/Jobs/Moderation/NotifyReportedUserJob.php` (dispatch `match`), `app/Notifications/Moderation/{ContentHidden,AccountSuspended,AccountBanned}Notification.php`
     - **Affects:** Adding a new moderation outcome (e.g. "warn", "temporary limit").
     - **Effort:** M (~2–4h)
@@ -608,7 +610,7 @@
         };
         ```
 
-- [ ] **#FOUND-48** · P2 — `blocks_group_type_check` hardcodes the section-type enum in a CHECK constraint alongside the config it mirrors
+- [ ] **#FOUND-48** · P2 · **Plan: Sonnet** — `blocks_group_type_check` hardcodes the section-type enum in a CHECK constraint alongside the config it mirrors
     - **Where:** `supabase/migrations/20260701160000_blocks_group_type_pair_check.sql`
     - **Affects:** Adding a new sitepage section type requires a migration in addition to the config/frontend work already required.
     - **Effort:** S (~0.5–1h)
@@ -629,7 +631,7 @@
             ) NOT VALID;
         ```
 
-- [ ] **#FOUND-50** · P2 — Moderation schema CHECK enums (`case_type`, `reportable_type`, `reason_code`) may need a lookup table if new content types (from the scraping subsystem) become reportable
+- [ ] **#FOUND-50** · P2 · **Plan: Sonnet** — Moderation schema CHECK enums (`case_type`, `reportable_type`, `reason_code`) may need a lookup table if new content types (from the scraping subsystem) become reportable
     - **Where:** `supabase/migrations/20260528000000_create_moderation_schema.sql` (`cases_case_type_check`, `cases_reportable_type_check`, `case_signals_reason_code_check`)
     - **Affects:** Adding a new moderation case type, reportable content type, or report reason requires a migration.
     - **Effort:** M (~2–4h)
@@ -645,7 +647,7 @@
 
 ## P3 — Opportunistic (dedup & config polish, fix on-touch)
 
-- [ ] **#FOUND-2** · P3 — TurnstileProvider and HCaptchaProvider duplicate ~80% of their HTTP/error-handling shape
+- [ ] **#FOUND-2** · P3 · **Plan: Sonnet** — TurnstileProvider and HCaptchaProvider duplicate ~80% of their HTTP/error-handling shape
     - **Where:** `app/Services/BotProtection/Providers/TurnstileProvider.php`, `app/Services/BotProtection/Providers/HCaptchaProvider.php`
     - **Affects:** Adding a third CAPTCHA provider (e.g. reCAPTCHA v3); any cross-provider change to timeout/error handling.
     - **Effort:** M (~2–4h)
@@ -666,7 +668,7 @@
         catch (RequestException $e) { throw ...; }
         ```
 
-- [ ] **#FOUND-4** · P3 — Seven platform highlight-save Form Requests are structurally identical, differing only in field name and cap
+- [ ] **#FOUND-4** · P3 · **Plan: Sonnet** — Seven platform highlight-save Form Requests are structurally identical, differing only in field name and cap
     - **Where:** `app/Http/Requests/Platforms/Save{AppleMusic,ApplePodcast,Bandcamp,Vimeo,Youtube,YoutubeMusic}HighlightsRequest.php`, `SetShopProductsRequest.php`
     - **Affects:** Every new platform with highlight curation — each one currently means a new, hand-copied request class.
     - **Effort:** M (~2–4h)
@@ -687,7 +689,7 @@
         'itemIds.*' => ['string', 'max:30'],
         ```
 
-- [ ] **#FOUND-10** · P3 — Highlights curation flow is duplicated 5×, differing only in id field and cap
+- [ ] **#FOUND-10** · P3 · **Plan: Sonnet** — Highlights curation flow is duplicated 5×, differing only in id field and cap
     - **Where:** `AppleController.php`, `BandcampController.php`, `YoutubeController.php`, `YoutubeMusicController.php`, `VimeoController.php` (each `highlights()`)
     - **Affects:** Any change to the highlights pattern (cap, stale-tile refresh policy) needs identical edits in 5 files.
     - **Effort:** M (~2–4h)
@@ -703,7 +705,7 @@
             ->filter()->take(self::MAX_HIGHLIGHTS)->values()->all();
         ```
 
-- [ ] **#FOUND-12** · P3 — GoogleBusinessEnrichJob and InstagramConnectJob duplicate identical queue/retry boilerplate
+- [ ] **#FOUND-12** · P3 · **Plan: Sonnet** — GoogleBusinessEnrichJob and InstagramConnectJob duplicate identical queue/retry boilerplate
     - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php`, `app/Jobs/Platforms/InstagramConnectJob.php`
     - **Affects:** Any change to the retry/backoff policy for Apify-backed connect jobs; a third Apify job (TikTok, Facebook) would copy this again.
     - **Effort:** M (~2–4h)
@@ -720,7 +722,7 @@
         public function middleware(): array { return [new RateLimited('platform-connect')]; }
         ```
 
-- [ ] **#FOUND-15** · P3 — FreshaController embeds ~200 lines of HTML/GraphQL scraping logic that the codebase's own convention places in a Service
+- [ ] **#FOUND-15** · P3 · **Plan: Sonnet** — FreshaController embeds ~200 lines of HTML/GraphQL scraping logic that the codebase's own convention places in a Service
     - **Where:** `app/Http/Controllers/Api/Platforms/FreshaController.php` (`fetchLocation`, `extractTeam`, `extractServices`, `fetchEmployeeServices`, `fetchMenu`, `stripLocale`, `slugFromUrl`, `extractStoreName`)
     - **Affects:** Any future change to Fresha's page structure; blocks reuse by a future feature needing the same store-menu data.
     - **Effort:** M (~2–4h)
@@ -735,7 +737,7 @@
         // table per user, and wire to /account/platforms in Partna-Frontend.
         ```
 
-- [ ] **#FOUND-26** · P3 — RefreshController hardcodes its cooldown cache key instead of using CacheKeyGenerator
+- [ ] **#FOUND-26** · P3 · **Plan: Sonnet** — RefreshController hardcodes its cooldown cache key instead of using CacheKeyGenerator
     - **Where:** `app/Http/Controllers/Api/Platforms/RefreshController.php:44`
     - **Affects:** Any future cache-key namespacing change would miss this one key.
     - **Effort:** S (~0.5–1h)
@@ -747,7 +749,7 @@
         if (! Cache::add("integrations:refresh:{$user->id}:{$platform}", true, self::applyJitter(self::COOLDOWN_SECONDS))) {
         ```
 
-- [ ] **#FOUND-27** · P3 — Four broadcast-notification mailable classes are identical except for the Blade view name
+- [ ] **#FOUND-27** · P3 · **Plan: Sonnet** — Four broadcast-notification mailable classes are identical except for the Blade view name
     - **Where:** `app/Mail/Notifications/FeatureAnnouncementMail.php`, `IncidentMail.php`, `PolicyUpdateMail.php`, `ProfileTaskMail.php`
     - **Affects:** Adding a new broadcast category.
     - **Effort:** S (~0.5–1h)
@@ -763,7 +765,7 @@
         }
         ```
 
-- [ ] **#FOUND-28** · P3 — Five auth-hook mailable classes are template-coded per Supabase action instead of parameterized
+- [ ] **#FOUND-28** · P3 · **Plan: Sonnet** — Five auth-hook mailable classes are template-coded per Supabase action instead of parameterized
     - **Where:** `app/Mail/Auth/{EmailChange,EmailConfirm,Invite,MagicLink,PasswordReset}Mail.php`
     - **Affects:** Adding a new auth email flow.
     - **Effort:** S (~0.5–1h)
@@ -778,7 +780,7 @@
         }
         ```
 
-- [ ] **#FOUND-29** · P3 — Waitlist applicant-type/industry typo-tolerance is hardcoded in `match()` instead of the config the validators already read from
+- [ ] **#FOUND-29** · P3 · **Plan: Sonnet** — Waitlist applicant-type/industry typo-tolerance is hardcoded in `match()` instead of the config the validators already read from
     - **Where:** `app/Http/Requests/Api/PublicSite/PublicWaitlistSignupRequest.php` (`normalizeApplicantType()`, `normalizeIndustry()`)
     - **Affects:** Adding a new accepted typo or category requires a code deploy.
     - **Effort:** S (~0.5–1h)
@@ -793,7 +795,7 @@
         };
         ```
 
-- [ ] **#FOUND-30** · P3 — Platform connection Resource classes have no shared interface, relying on developer discipline to pick the right base
+- [ ] **#FOUND-30** · P3 · **Plan: Sonnet** — Platform connection Resource classes have no shared interface, relying on developer discipline to pick the right base
     - **Where:** `app/Http/Resources/Platforms/*ConnectionResource.php` (~16 classes)
     - **Affects:** A developer adding a platform that fits an existing shape (`TileConnectionResource`, `MusicEmbedConnectionResource`, `LinkConnectionResource`) may not discover it and create yet another standalone class.
     - **Effort:** M (~2–4h)
@@ -808,7 +810,7 @@
         }
         ```
 
-- [ ] **#FOUND-31** · P3 — EventbriteConnectionResource and HumanitixConnectionResource are byte-identical
+- [ ] **#FOUND-31** · P3 · **Plan: Sonnet** — EventbriteConnectionResource and HumanitixConnectionResource are byte-identical
     - **Where:** `app/Http/Resources/Platforms/EventbriteConnectionResource.php`, `app/Http/Resources/Platforms/HumanitixConnectionResource.php`
     - **Affects:** A field added to one must be manually mirrored to the other.
     - **Effort:** S (~0.5–1h)
@@ -825,7 +827,7 @@
         ];
         ```
 
-- [ ] **#FOUND-32** · P3 — Three staff service-reorder Form Requests are byte-identical copies of their user-facing counterparts instead of extending them
+- [ ] **#FOUND-32** · P3 · **Plan: Sonnet** — Three staff service-reorder Form Requests are byte-identical copies of their user-facing counterparts instead of extending them
     - **Where:** `app/Http/Requests/Api/Staff/UserSite/Services/StaffReorderService{,Category,Layout}Request.php`
     - **Affects:** A validation-rule change needs editing both the user and staff copy.
     - **Effort:** S (~0.5–1h)
@@ -840,7 +842,7 @@
         }
         ```
 
-- [ ] **#FOUND-33** · P3 — StaffStoreServiceRequest/StaffUpdateServiceRequest duplicate the user request instead of extending it with the one extra field
+- [ ] **#FOUND-33** · P3 · **Plan: Sonnet** — StaffStoreServiceRequest/StaffUpdateServiceRequest duplicate the user request instead of extending it with the one extra field
     - **Where:** `app/Http/Requests/Api/Staff/UserSite/Services/StaffStoreServiceRequest.php` vs `app/Http/Requests/Api/User/Services/StoreServiceRequest.php`
     - **Affects:** A field added to service CRUD needs editing both files.
     - **Effort:** S (~0.5–1h)
@@ -853,7 +855,7 @@
         'category_id' => ['nullable', 'uuid', 'exists:service_categories,id'],
         ```
 
-- [ ] **#FOUND-38** · P3 — Email action-type dispatch uses two separate `match()` statements that must stay in lockstep
+- [ ] **#FOUND-38** · P3 · **Plan: Sonnet** — Email action-type dispatch uses two separate `match()` statements that must stay in lockstep
     - **Where:** `app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php` (`resolveMailable()`, `buildConfirmUrl()`)
     - **Affects:** Adding a new Supabase auth email action type.
     - **Effort:** S (~0.5–1h)
@@ -868,7 +870,7 @@
         };
         ```
 
-- [ ] **#FOUND-39** · P3 — Hardcoded first-name/non-name-token lists live in a controller constant instead of config
+- [ ] **#FOUND-39** · P3 · **Plan: Sonnet** — Hardcoded first-name/non-name-token lists live in a controller constant instead of config
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php` (`COMMON_FIRST_NAMES`, `NON_NAME_TOKENS`)
     - **Affects:** Adding a name to the inference dictionary, or blocking a new spam token, requires a code deploy.
     - **Effort:** S (~0.5–1h)
@@ -885,7 +887,7 @@
         ];
         ```
 
-- [ ] **#FOUND-40** · P3 — Bot User-Agent signal list is hardcoded in a controller trait instead of config
+- [ ] **#FOUND-40** · P3 · **Plan: Sonnet** — Bot User-Agent signal list is hardcoded in a controller trait instead of config
     - **Where:** `app/Http/Controllers/Concerns/DetectsClientInfo.php` (`isBotUserAgent()`)
     - **Affects:** Adding a new crawler/bot signature (e.g. a new AI scraper) requires a code deploy.
     - **Effort:** S (~0.5–1h)
@@ -901,7 +903,7 @@
         ];
         ```
 
-- [ ] **#FOUND-41** · P3 — Duplicated raw SQL upsert in StaffNotificationEmailPolicyController's two methods
+- [ ] **#FOUND-41** · P3 · **Plan: Sonnet** — Duplicated raw SQL upsert in StaffNotificationEmailPolicyController's two methods
     - **Where:** `app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationEmailPolicyController.php` (`updateGlobal()`, `updateProfessional()`)
     - **Affects:** A schema change to `notification_email_policies` needs both copies updated.
     - **Effort:** S (~0.5–1h)
@@ -919,7 +921,7 @@
         );
         ```
 
-- [ ] **#FOUND-42** · P3 — PublicMenuController formats menu data inline instead of via a Resource class
+- [ ] **#FOUND-42** · P3 · **Plan: Sonnet** — PublicMenuController formats menu data inline instead of via a Resource class
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicMenuController.php` (`show()`)
     - **Affects:** Consistency if another surface (staff preview, Astro payload) later needs the same menu shape.
     - **Effort:** S (~0.5–1h)
@@ -940,7 +942,7 @@
             ->values()->toArray();
         ```
 
-- [ ] **#FOUND-43** · P3 — Analytics section titles and referrer-source labels are hardcoded in a service class instead of config
+- [ ] **#FOUND-43** · P3 · **Plan: Sonnet** — Analytics section titles and referrer-source labels are hardcoded in a service class instead of config
     - **Where:** `app/Services/Analytics/AnalyticsQueryService.php` (`sectionTitle()`, `SOURCE_CASE`, `REFERRER_LABELS`)
     - **Affects:** Adding a new skeleton section or social referrer source requires a code deploy; the two label constants must independently stay in sync.
     - **Effort:** M (~2–4h)
@@ -954,7 +956,7 @@
         ];
         ```
 
-- [ ] **#FOUND-44** · P3 — `streaming_platforms` and part of `link_block_icon_keys` duplicate data already in `social_platforms`
+- [ ] **#FOUND-44** · P3 · **Plan: Sonnet** — `streaming_platforms` and part of `link_block_icon_keys` duplicate data already in `social_platforms`
     - **Where:** `config/partna.php` (`streaming_platforms`, `link_block_icon_keys`)
     - **Affects:** Adding a new social/streaming platform means editing 2–3 separate lists; a missed one silently skips live-status polling or breaks the icon picker.
     - **Effort:** S (~0.5–1h)
@@ -969,7 +971,7 @@
         ],
         ```
 
-- [ ] **#FOUND-45** · P3 — Notification frontend-type normalization logic is scattered across three coupled locations
+- [ ] **#FOUND-45** · P3 · **Plan: Sonnet** — Notification frontend-type normalization logic is scattered across three coupled locations
     - **Where:** `app/Models/Core/Notifications/Notification.php` (`FRONTEND_TYPES`, `normalizeFrontendType()`, `severityForFrontendType()`)
     - **Affects:** Adding a new canonical frontend display type requires editing a constant, an if-chain, and a match — missing one silently defaults to "Info."
     - **Effort:** S (~0.5–1h)
@@ -988,7 +990,7 @@
         }
         ```
 
-- [ ] **#FOUND-46** · P3 — SiteMedia pool definitions are spread across model constants and two config arrays
+- [ ] **#FOUND-46** · P3 · **Plan: Sonnet** — SiteMedia pool definitions are spread across model constants and two config arrays
     - **Where:** `app/Models/Core/Site/SiteMedia.php` (`POOL_*`, `GALLERY_POOLS`), `config/partna.php` (`image_pools`, `upload_pools`)
     - **Affects:** Adding a new media pool touches 4 locations across 2 files.
     - **Effort:** S (~0.5–1h)
@@ -1004,7 +1006,7 @@
         'image_pools' => ['gallery' => ['max' => ...], 'content' => ['max' => ...], 'documents' => ['max' => 1]],
         ```
 
-- [ ] **#FOUND-47** · P3 — Block model constants duplicate the canonical `config('partna.block_types')` registry
+- [ ] **#FOUND-47** · P3 · **Plan: Sonnet** — Block model constants duplicate the canonical `config('partna.block_types')` registry
     - **Where:** `app/Models/Core/Site/Block.php` (`GROUP_LINKS`, `GROUP_SECTIONS`, `TYPE_LINK`)
     - **Affects:** Config already documents itself as the source of truth; the model constants are a hand-synchronised mirror.
     - **Effort:** S (~0.5h)
@@ -1022,23 +1024,23 @@
 
 - **Bundle 1 — Platform provider dispatch hardening:** #FOUND-7, #FOUND-8, #FOUND-9, #FOUND-11
     - **Why grouped:** all are hardcoded if-else/match dispatch tables over a provider list in the Platforms services layer, fixable with the same registry pattern.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(registry collapse into an existing in-repo pattern — no novel design)_
 
 - **Bundle 2 — Events subsystem duplication:** #FOUND-6, #FOUND-31, #FOUND-34
     - **Why grouped:** same two-platform (Eventbrite/Humanitix) events integration, spanning controller/resource/service layers.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(collapse into the GenericPlatformController archetype — exemplar exists)_
 
 - **Bundle 3 — Highlights & Apify job hygiene:** #FOUND-10, #FOUND-12, #FOUND-15
     - **Why grouped:** shared "connect + curate" controller/job boilerplate across music/video platforms and Fresha.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(trait/base-class extraction mirroring RefreshesLatestTile — exemplar exists)_
 
 - **Bundle 4 — User dashboard controller cleanup:** #FOUND-16, #FOUND-17, #FOUND-18
     - **Why grouped:** same file family (`app/Http/Controllers/Api/User/...`), each extracting inline business logic into a service/registry.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(service/registry extraction; SectionVisibilityRegistry + ReorderService are exemplars)_
 
 - **Bundle 5 — Public/staff controller leaky abstraction:** #FOUND-19, #FOUND-20, #FOUND-21
     - **Why grouped:** same pattern (orchestration logic that belongs in a Service, sitting in a controller) across staff and public surfaces.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(controller→service extraction; #FOUND-20's shared-gate placement is the one call that may want an Opus second opinion)_
 
 - **Bundle 6 — Provider dedup (streaming + bot protection):** #FOUND-2, #FOUND-3
     - **Why grouped:** identical "two providers, one boilerplate shape" pattern in unrelated subsystems, same fix shape.
@@ -1066,11 +1068,11 @@
 
 - **Bundle 12 — Schema CHECK constraint review:** #FOUND-48, #FOUND-49, #FOUND-50
     - **Why grouped:** all three re-examine recently-added schema CHECK constraints against the `platform_connections` precedent; best reviewed together so the "when is a narrow CHECK the right call" judgment is applied consistently.
-    - **Model:** Plan: Opus · Implement: Sonnet · Review: Sonnet.
+    - **Model:** Plan: Sonnet · Implement: Sonnet · Review: Sonnet. _(each finding's keep/defer judgment is already decided in-finding — planning is just enacting it)_
 
 ## Standalone — do NOT bundle
 
-- **#FOUND-1 — GDPR data-export registry** · sole P1 finding; touches a compliance-sensitive data path — run with its own sign-off even though effort is only M.
+- **#FOUND-1 — GDPR data-export registry** · ✅ Closed 2026-07-04 — implemented and independently reviewed, merged via PR #226 (see finding above).
 - **#FOUND-14 — IntegrationConnection canonical_key column** · DB migration + L effort.
 - **#FOUND-23 — Menu subsystem platform registry** · L effort, spans Services + Jobs layers across the newest subsystem.
 - **#FOUND-24 — Music/video/social platform connect registry** · XL effort, widest blast radius in this audit (13 controllers + 4 route groups).
