@@ -732,7 +732,7 @@
         }
         ```
 
-- [ ] **#CACHE-3** · P3 — Site-level design factors re-evaluate on every connection change regardless of which platform changed
+- [x] **#CACHE-3** · P3 — Site-level design factors re-evaluate on every connection change regardless of which platform changed
     - **Where:** app/Services/Design/Presets/DesignPresetResolver.php:92-107 (site-factors loop); app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php:62-89
     - **Affects:** Every design-preset rebuild — connecting Instagram still re-queries and re-processes all custom-link/shop-brand payloads even though the result is guaranteed identical.
     - **Effort:** S (~0.5–1h)
@@ -749,6 +749,7 @@
             try { $values = PresetTargetableColumns::filter($siteFactor->detect($user, $site)); }
             catch (\Throwable $e) { report($e); }
         ```
+    - **Resolution (2026-07-04):** ✅ **DONE** (commit `1bb7a485`, pushed to `development`). **Deviated from the prescribed "conditional-skip" fix — deliberately.** The literal prescription (skip site-factor re-evaluation when the changed platform is irrelevant) is infeasible: `resolveForUser(User $user)` rebuilds statelessly from ALL active connections and has no "changed platform" input (the job is dispatched per-user, coalesced), so a skip would require threading changed-platform state through observer→job→resolver and would break the idempotent full-rebuild design. Instead, the redundant query — the finding's dominant cost — was eliminated: `resolveForUser` now passes its already-loaded `$connections` into `SiteDesignFactor::detect(User, Site, Collection)`, and `OutsideWebsitesFactor` filters that superset in-memory (`whereIn('platform', SOURCE_PLATFORMS)`) instead of issuing its own `IntegrationConnection` query. Verified behavior-preserving (same user_id + active + platform filter, one fewer indexed query per resolve). Added `tests/Feature/Design/Presets/OutsideWebsitesFactorTest.php`. Full suite green (3030 passed).
 
 - [x] **#SCALE-4** · P3 — `BackfillWebsiteAnalysesCommand` loads all matching connection rows into memory instead of streaming
     - **Where:** app/Console/Commands/BackfillWebsiteAnalysesCommand.php:78-81
