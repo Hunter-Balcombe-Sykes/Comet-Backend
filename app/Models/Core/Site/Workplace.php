@@ -38,10 +38,6 @@ class Workplace extends BaseModel
         'phone',
         'website',
         'previous_website',
-        // Brand-signal analysis of previous_website (WebsiteStyleAnalyzer
-        // output), kept in step with the URL by WorkplaceObserver. System-
-        // written only — never accepted from requests.
-        'previous_website_analysis',
         'category',
         'description',
     ];
@@ -49,6 +45,10 @@ class Workplace extends BaseModel
     protected $casts = [
         'latitude' => 'float',
         'longitude' => 'float',
+        // Brand-signal analysis of previous_website (WebsiteStyleAnalyzer
+        // output), kept in step with the URL by WorkplaceObserver. System-
+        // written only via direct attribute assignment (AnalyzePreviousWebsiteJob)
+        // — deliberately NOT in $fillable so no mass-assignment path can set it.
         'previous_website_analysis' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

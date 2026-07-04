@@ -463,11 +463,14 @@ it('does not dispatch when a current-version analysis matches the URL', function
     $user = createTenant('observer-quiet');
     Queue::fake();
 
-    Workplace::query()->create([
-        'site_id' => $user->site->id,
-        'previous_website' => 'https://old.example',
-        'previous_website_analysis' => wbsAnalysis('https://old.example', null, []),
-    ]);
+    // previous_website_analysis is SEC-4 system-written-only (not fillable) —
+    // set it via direct attribute assignment, mirroring how
+    // AnalyzePreviousWebsiteJob writes it in production, then save() once so
+    // the observer sees the fully-reconciled state in a single event.
+    $workplace = new Workplace(['site_id' => $user->site->id]);
+    $workplace->previous_website = 'https://old.example';
+    $workplace->previous_website_analysis = wbsAnalysis('https://old.example', null, []);
+    $workplace->save();
 
     Queue::assertNotPushed(AnalyzePreviousWebsiteJob::class);
 });
@@ -476,11 +479,10 @@ it('re-dispatches when the stored analysis is from an older analyzer version', f
     $user = createTenant('observer-version');
     Queue::fake();
 
-    Workplace::query()->create([
-        'site_id' => $user->site->id,
-        'previous_website' => 'https://old.example',
-        'previous_website_analysis' => wbsAnalysis('https://old.example', null, [], v: 1),
-    ]);
+    $workplace = new Workplace(['site_id' => $user->site->id]);
+    $workplace->previous_website = 'https://old.example';
+    $workplace->previous_website_analysis = wbsAnalysis('https://old.example', null, [], v: 1);
+    $workplace->save();
 
     Queue::assertPushed(AnalyzePreviousWebsiteJob::class, 1);
 });

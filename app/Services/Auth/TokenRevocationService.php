@@ -88,26 +88,41 @@ class TokenRevocationService
             // by the Active Sessions UI. Stored only on first sight — never
             // overwritten — to preserve "first signed in from" semantics.
             //
-            // LIFE-2: use HSETNX on a sentinel field as an atomic check-and-set
-            // guard. Result 1 = we won the race → write all fields. Result 0 =
-            // another request beat us → skip to avoid partial-overwrite.
+            // LIFE-2 + DINT-2: the claim-init-populate-expire sequence (HSETNX
+            // sentinel → HMSET fields → EXPIRE ttl) runs as a single Lua script
+            // so it's atomic server-side. Without this, a crash between the
+            // HSETNX and the EXPIRE (process death, connection drop) could
+            // leave the hash permanently TTL-less — pinned in Redis forever
+            // with only the `_init` sentinel set. The script itself encodes
+            // "populate only if we won the init" so no other caller can
+            // partial-overwrite. SEC-3: store transformed values instead of
+            // raw IP/UA to limit PII exposure in Redis logs/monitoring tools;
+            // truncation is intentional (see truncateIp()).
             $metaKey = self::SESSION_META_PREFIX.$sessionId;
-            $won = (bool) Redis::hsetnx($metaKey, '_init', '1');
 
-            if ($won) {
-                // SEC-3: store transformed values instead of raw IP/UA to limit
-                // PII exposure in Redis logs and monitoring tools. Truncation is
-                // intentional — preserves "same network neighbourhood" signal
-                // without pinpointing the exact device address.
-                Redis::hmset($metaKey, [
-                    'user_id' => $userId,
-                    'created_at' => (string) time(),
-                    'ip_prefix' => $this->truncateIp((string) ($metadata['ip'] ?? '')),
-                    'browser_family' => $this->parseUaBrowserFamily((string) ($metadata['user_agent'] ?? '')),
-                    'platform' => $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
-                ]);
-                Redis::expire($metaKey, $this->maxLifetimeSeconds());
-            }
+            // Redis::eval() runs a server-side Lua script (Redis's built-in EVAL
+            // command) — unrelated to PHP eval(). The script below is a fixed
+            // literal (heredoc, not built from any request/user input); values
+            // are passed as Redis ARGV (data), never interpolated into the
+            // script text, so there is no injection surface.
+            Redis::eval(
+                <<<'LUA'
+                if redis.call('HSETNX', KEYS[1], '_init', '1') == 1 then
+                    redis.call('HMSET', KEYS[1], 'user_id', ARGV[1], 'created_at', ARGV[2], 'ip_prefix', ARGV[3], 'browser_family', ARGV[4], 'platform', ARGV[5])
+                    redis.call('EXPIRE', KEYS[1], ARGV[6])
+                    return 1
+                end
+                return 0
+                LUA,
+                1,
+                $metaKey,
+                $userId,
+                (string) time(),
+                $this->truncateIp((string) ($metadata['ip'] ?? '')),
+                $this->parseUaBrowserFamily((string) ($metadata['user_agent'] ?? '')),
+                $this->parseUaPlatform((string) ($metadata['user_agent'] ?? '')),
+                (string) $this->maxLifetimeSeconds(),
+            );
         }
 
         // Rolling "last active" marker for the Active Sessions UI — separate

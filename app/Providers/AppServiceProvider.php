@@ -341,14 +341,19 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
         });
 
-        // Public site endpoints (viewing sites, pages)
+        // Public site endpoints (viewing sites, pages). CF-Connecting-IP
+        // preferred over $request->ip() (SEC-2) — matches public-profile /
+        // signup-availability so a TrustProxies misconfig can't collapse all
+        // edge requests onto one bucket.
         RateLimiter::for('public-site', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
             return Limit::perMinute(60)
-                ->by($request->ip())
+                ->by((string) $key)
                 ->response(function () {
                     return response()->json([
                         'message' => 'Too many requests.  Please try again later.',
@@ -415,14 +420,17 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
         });
 
-        // Analytics endpoints (pageviews, clicks)
+        // Analytics endpoints (pageviews, clicks). CF-Connecting-IP preferred
+        // (SEC-2) — same rationale as public-site.
         RateLimiter::for('analytics', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
             return Limit::perMinute(120)
-                ->by($request->ip());
+                ->by((string) $key);
         });
 
         // Per-link click cap — secondary defense against sustained single-link spam
@@ -437,18 +445,21 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->ip().':click:'.$blockId);
         });
 
-        // Customer lead submissions (form submissions)
+        // Customer lead submissions (form submissions). CF-Connecting-IP
+        // preferred on the IP-keyed bucket (SEC-2) — same rationale as
+        // public-site.
         RateLimiter::for('leads', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
             }
 
             $subdomain = $request->route('subdomain') ?? 'unknown';
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return [
                 // Per IP:  3 submissions per minute
                 Limit::perMinute(3)
-                    ->by($request->ip())
+                    ->by((string) $key)
                     ->response(function () {
                         return response()->json([
                             'message' => 'Too many submissions. Please wait before trying again.',
@@ -466,7 +477,8 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Public waitlist submissions
+        // Public waitlist submissions. CF-Connecting-IP preferred on the
+        // IP-keyed bucket (SEC-2) — same rationale as public-site.
         RateLimiter::for('waitlist', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
@@ -474,10 +486,11 @@ class AppServiceProvider extends ServiceProvider
 
             $email = strtolower(trim((string) $request->input('email', '')));
             $emailKey = $email !== '' ? hash('sha256', $email) : 'unknown';
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return [
                 Limit::perMinute(5)
-                    ->by('waitlist:ip:'.$request->ip())
+                    ->by('waitlist:ip:'.$key)
                     ->response(function () {
                         return response()->json([
                             'message' => 'Too many waitlist submissions. Please try again shortly.',
@@ -496,16 +509,19 @@ class AppServiceProvider extends ServiceProvider
 
         // public-subscribe: newsletter signups. Tightened from the previous
         // throttle:public-site (60/min IP) to 5/min IP + 12/h per email,
-        // matching the waitlist limiter's per-email cap.
+        // matching the waitlist limiter's per-email cap. CF-Connecting-IP
+        // preferred on the IP-keyed bucket (SEC-2) — same rationale as
+        // public-site.
         RateLimiter::for('public-subscribe', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
             }
 
             $email = strtolower((string) $request->input('email', ''));
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return [
-                Limit::perMinute(5)->by($request->ip())->response(function () {
+                Limit::perMinute(5)->by((string) $key)->response(function () {
                     return response()->json(['message' => 'Too many subscription attempts. Please wait before trying again.'], 429);
                 }),
                 Limit::perHour(12)->by($email !== '' ? "email:{$email}" : 'no-email')->response(function () {

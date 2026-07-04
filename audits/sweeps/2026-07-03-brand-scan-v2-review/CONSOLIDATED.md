@@ -88,8 +88,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 17 of 21 complete
-- P3 Low: 10 of 20 complete
+- P2 Medium: 19 of 21 complete
+- P3 Low: 17 of 20 complete
 
 ---
 
@@ -308,7 +308,7 @@
         ];
         ```
 
-- [ ] **#SEC-2** · P2 — Six rate limiters use `$request->ip()` while two use the Cloudflare-guaranteed `CF-Connecting-IP` header
+- [x] **#SEC-2** · P2 — Six rate limiters use `$request->ip()` while two use the Cloudflare-guaranteed `CF-Connecting-IP` header
     - **Where:** app/Providers/AppServiceProvider.php — `leads`, `waitlist`, `public-subscribe`, `public-site`, `analytics` limiters (`$request->ip()`) vs `public-profile`, `signup-availability` (`CF-Connecting-IP` preferred)
     - **Affects:** Effectiveness of rate limiting on public mutation endpoints if `TrustProxies` is ever stale/misconfigured — all requests from an edge node collapse into one bucket.
     - **Effort:** S (~0.5–1h)
@@ -532,7 +532,7 @@
         }
         ```
 
-- [ ] **#PRIV-1** · P2 — Brand-scan operations log full user-provided URLs to application logs
+- [x] **#PRIV-1** · P2 — Brand-scan operations log full user-provided URLs to application logs
     - **Where:** app/Services/Design/WebsiteStyleAnalyzer.php:93-96 (`brand_scan.scanned`), :56-58 (`brand_scan.failed`)
     - **Affects:** Professionals who set a previous-website URL — the full domain (often their own name/business) flows to Nightwatch, a third-party observability provider.
     - **Effort:** S (~0.5–1h)
@@ -671,7 +671,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-4** · P3 — `Workplace::$fillable` includes a system-written analysis field with no current write path
+- [x] **#SEC-4** · P3 — `Workplace::$fillable` includes a system-written analysis field with no current write path
     - **Where:** app/Models/Core/Site/Workplace.php:30-49
     - **Affects:** Precautionary only — the field is written exclusively via direct property assignment (`saveQuietly`/`save()`, bypassing `$fillable` anyway), and the current controller never mass-assigns it.
     - **Effort:** S (~0.5–1h)
@@ -766,7 +766,7 @@
         $outsideUserIds = $connections->pluck('user_id')->unique()->values();
         ```
 
-- [ ] **#SCHEMA-1** · P3 — `SubdomainAvailabilityService` mixes the default DB connection and an explicit `pgsql` connection in the same method
+- [x] **#SCHEMA-1** · P3 — `SubdomainAvailabilityService` mixes the default DB connection and an explicit `pgsql` connection in the same method
     - **Where:** app/Services/Site/SubdomainAvailabilityService.php:86-110
     - **Affects:** Fragility if the default connection is ever repointed (e.g. a read replica added) — currently harmless since `pgsql` IS the default.
     - **Effort:** S (~0.5–1h)
@@ -826,7 +826,7 @@
         // No ->where('processing_state', ...) filter.
         ```
 
-- [ ] **#DINT-2** · P3 — `TokenRevocationService::trackForUser` Redis metadata write is non-atomic across three commands
+- [x] **#DINT-2** · P3 — `TokenRevocationService::trackForUser` Redis metadata write is non-atomic across three commands
     - **Where:** app/Services/Auth/TokenRevocationService.php:114-130
     - **Affects:** Session metadata durability — a crash between `HSETNX` and `EXPIRE` leaves a key with no TTL, a slow one-key-per-session Redis leak.
     - **Effort:** S (~0.5–1h)
@@ -877,7 +877,7 @@
             // No $timeout property
         ```
 
-- [ ] **#OBS-6** · P3 — Brand-scan failures logged at `info` instead of `warning`
+- [x] **#OBS-6** · P3 — Brand-scan failures logged at `info` instead of `warning`
     - **Where:** app/Services/Design/WebsiteStyleAnalyzer.php:93-96
     - **Affects:** Operations triage — a cluster of quota-exhaustion failures looks identical to routine successful-scan logs.
     - **Effort:** S (~0.5–1h)
@@ -891,7 +891,7 @@
             Log::info('brand_scan.failed', ['url' => $url, 'kind' => $e->kind, 'message' => $e->getMessage()]);
         ```
 
-- [ ] **#OBS-7** · P3 — Duplicate defensive try/catch around `presetLayer()` is dead code
+- [x] **#OBS-7** · P3 — Duplicate defensive try/catch around `presetLayer()` is dead code
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:458-463 (loadDesignKit)
     - **Affects:** Code clarity only — the outer catch can never fire.
     - **Effort:** S (~0.5–1h)
@@ -998,7 +998,7 @@
         }
         ```
 
-- [ ] **#SLOP-1** · P3 — Byte-for-byte duplicated `trimToNull`/`trimOrNull` helper in two classes
+- [x] **#SLOP-1** · P3 — Byte-for-byte duplicated `trimToNull`/`trimOrNull` helper in two classes
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php (trimToNull); app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php (trimOrNull)
     - **Affects:** Maintainability — any change to the trimming behaviour must be made in two places.
     - **Effort:** S (~0.5–1h)
@@ -1024,7 +1024,7 @@
         }
         ```
 
-- [ ] **#SEM-2** · P3 — `AnalyzeConnectionWebsitesJob` writes the full shop-brand payload on every analysis, risking a lost update against a concurrent dashboard edit
+- [x] **#SEM-2** · P3 — `AnalyzeConnectionWebsitesJob` writes the full shop-brand payload on every analysis, risking a lost update against a concurrent dashboard edit
     - **Where:** app/Jobs/Design/AnalyzeConnectionWebsitesJob.php:89-102
     - **Affects:** Shop-brand connections — a dashboard brand-add happening at the exact same moment as this job's payload save could overwrite one or the other.
     - **Effort:** S (~0.5–1h)

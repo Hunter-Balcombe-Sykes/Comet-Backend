@@ -59,7 +59,10 @@ class WebsiteStyleAnalyzer
         try {
             $snap = $this->client->snapshot($url);
         } catch (BrandScanException $e) {
-            Log::info('brand_scan.failed', ['url' => $url, 'kind' => $e->kind, 'message' => $e->getMessage()]);
+            // OBS-6: a failed scan is an operational signal, not routine info.
+            // PRIV-1: log the host only — the full URL (possibly carrying
+            // query-string tokens/PII) never needs to leave the caller's scope.
+            Log::warning('brand_scan.failed', ['url' => parse_url($url, PHP_URL_HOST), 'kind' => $e->kind, 'message' => $e->getMessage()]);
 
             return $this->doc($url, ok: false, mode: 'none', failure: $e->kind, conclusions: [], finalUrl: null);
         }
@@ -80,7 +83,9 @@ class WebsiteStyleAnalyzer
         }
 
         Log::info('brand_scan.scanned', [
-            'url' => $url,
+            // PRIV-1: host only — avoid logging full URLs (query strings may
+            // carry tokens/PII).
+            'url' => parse_url($url, PHP_URL_HOST),
             'mode' => $result['mode'],
             'failure' => $result['failure'],
             'signals' => array_map(fn (array $s) => $s['tier'].'@'.$s['confidence'], $result['signals']),

@@ -458,13 +458,9 @@ class IndividualProfilePayloadBuilder
 
         // Overlay manual on the integration-driven preset layer:
         //   defaults <- presets <- manual   (manual non-null wins per column).
-        // Defensive: a preset bug yields an empty layer, never breaking render.
-        $preset = [];
-        try {
-            $preset = $this->presetResolver->presetLayer((string) $site->id);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        // presetLayer() is defensive internally (catches \Throwable, report()s,
+        // returns [] on any failure) — a preset bug can never break this render.
+        $preset = $this->presetResolver->presetLayer((string) $site->id);
 
         $merged = array_merge($preset, $manual);
         if ($merged === []) {

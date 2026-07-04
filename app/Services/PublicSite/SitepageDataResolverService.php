@@ -389,8 +389,8 @@ class SitepageDataResolverService
             // least one of the two fields is set; collapse to null
             // otherwise so the engine's hasAboutMeContent gate can
             // treat absence as a single null check.
-            $publicEmail = $this->trimToNull($pro->public_contact_email ?? null);
-            $publicPhone = $this->trimToNull($pro->public_contact_number ?? null);
+            $publicEmail = trim_or_null($pro->public_contact_email ?? null);
+            $publicPhone = trim_or_null($pro->public_contact_number ?? null);
             $publicContact = ($publicEmail !== null || $publicPhone !== null)
                 ? ['email' => $publicEmail, 'phone' => $publicPhone]
                 : null;
@@ -434,36 +434,25 @@ class SitepageDataResolverService
             // A row with a null name renders as null on the public wire —
             // setPreviousWebsite and GoogleBusinessAutoSync may write other fields
             // without a name, but the card only goes live once a name is present.
-            $name = $this->trimToNull($workplace->name);
+            $name = trim_or_null($workplace->name);
             if ($name === null) {
                 return null;
             }
 
             return [
                 'name' => $name,
-                'address' => $this->trimToNull($workplace->address),
-                'address_line1' => $this->trimToNull($workplace->address_line1),
-                'city' => $this->trimToNull($workplace->city),
-                'state' => $this->trimToNull($workplace->state),
-                'postcode' => $this->trimToNull($workplace->postcode),
-                'country' => $this->trimToNull($workplace->country),
+                'address' => trim_or_null($workplace->address),
+                'address_line1' => trim_or_null($workplace->address_line1),
+                'city' => trim_or_null($workplace->city),
+                'state' => trim_or_null($workplace->state),
+                'postcode' => trim_or_null($workplace->postcode),
+                'country' => trim_or_null($workplace->country),
                 'latitude' => $workplace->latitude !== null ? (float) $workplace->latitude : null,
                 'longitude' => $workplace->longitude !== null ? (float) $workplace->longitude : null,
-                'phone' => $this->trimToNull($workplace->phone),
-                'website' => $this->trimToNull($workplace->website),
+                'phone' => trim_or_null($workplace->phone),
+                'website' => trim_or_null($workplace->website),
             ];
         });
-    }
-
-    /** Trim a possibly-non-string value to a non-empty string, or null. */
-    private function trimToNull(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $trimmed = trim($value);
-
-        return $trimmed !== '' ? $trimmed : null;
     }
 
     private function normaliseCredential($row): ?array

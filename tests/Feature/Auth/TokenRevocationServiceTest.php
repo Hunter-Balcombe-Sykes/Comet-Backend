@@ -77,6 +77,15 @@ it('only writes metadata on first sight (preserves first-seen IP)', function () 
     expect($list[0]['browser_family'])->toBe('Other'); // 'first'/'second' don't match any UA pattern
 });
 
+it('sets a TTL on the metadata hash atomically with the init+populate write (DINT-2)', function () {
+    // Proves the HSETNX/HMSET/EXPIRE sequence lands as one atomic unit — if the
+    // Lua script partially failed or ran as separate round-trips, a hash could
+    // exist with fields but no TTL (pinned in Redis forever).
+    $this->service->trackForUser('user-1', 'sess-a', ['ip' => '1.2.3.4', 'user_agent' => 'A']);
+
+    expect(Redis::ttl('auth:session-meta:sess-a'))->toBeGreaterThan(0);
+});
+
 it('degrades gracefully when a crash leaves the metadata hash with only the _init sentinel', function () {
     // LIFE-2: HSETNX wins the race and sets `_init`, but a crash (process
     // death, connection drop) before the following HMSET means the hash never

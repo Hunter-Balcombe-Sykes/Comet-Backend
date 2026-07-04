@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -157,11 +158,34 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
                 if ($budget <= 0) {
                     break;
                 }
-                if (is_array($brand) && self::entryNeedsAnalysis($brand)) {
-                    $payload[$key]['styleAnalysis'] = $analyzer->analyze(trim((string) $brand['url']));
-                    $connection->update(['payload' => $payload]);
-                    $budget--;
+                if (! is_array($brand) || ! self::entryNeedsAnalysis($brand)) {
+                    continue;
                 }
+
+                // SEM-2: analyze() is a slow HTTP round-trip (up to ~80s) — it
+                // must run OUTSIDE any row lock, or a concurrent dashboard save
+                // to this connection would block for the full call.
+                $analysis = $analyzer->analyze(trim((string) $brand['url']));
+
+                // Short locked read-modify-write: re-read the row under
+                // lockForUpdate so a concurrent write between our initial read
+                // (above) and now isn't clobbered — merge just this brand's
+                // styleAnalysis into whatever payload is fresh on the row.
+                DB::connection('pgsql')->transaction(function () use ($connection, $key, $analysis) {
+                    $fresh = IntegrationConnection::query()->whereKey($connection->id)->lockForUpdate()->first();
+                    if ($fresh === null) {
+                        return;
+                    }
+                    $freshPayload = $fresh->payload;
+                    $freshPayload[$key]['styleAnalysis'] = $analysis;
+                    $fresh->update(['payload' => $freshPayload]);
+                    // Keep the in-memory $connection in sync so the loop's next
+                    // iteration (entryNeedsAnalysis on this same object) and the
+                    // self-continue check below both see the saved state.
+                    $connection->setRawAttributes($fresh->getAttributes(), true);
+                });
+
+                $budget--;
             }
         }
 

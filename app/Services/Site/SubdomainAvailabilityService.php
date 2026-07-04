@@ -76,7 +76,8 @@ class SubdomainAvailabilityService
         // Only ACTIVE aliases reserve a subdomain — expired rows have released
         // the name back to the pool. The user's OWN alias reports own_alias so
         // the UI can point at the reclaim flow instead of a dead "taken".
-        $aliasRow = DB::table('site.site_subdomain_aliases')
+        $aliasRow = DB::connection('pgsql')
+            ->table('site.site_subdomain_aliases')
             ->whereRaw('lower(subdomain) = ?', [$value])
             ->where(static function ($q) {
                 $q->whereNull('expires_at')->orWhere('expires_at', '>', now());

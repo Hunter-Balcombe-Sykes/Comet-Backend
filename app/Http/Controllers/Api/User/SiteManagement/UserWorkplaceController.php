@@ -47,23 +47,23 @@ class UserWorkplaceController extends ApiController
             ['site_id' => (string) $site->id],
             [
                 'name' => (string) $data['name'],
-                'address' => $this->trimOrNull($data['address'] ?? null),
+                'address' => trim_or_null($data['address'] ?? null),
                 // Structured address components stored alongside the formatted
                 // string so manual edits survive the save round-trip.
-                'address_line1' => $this->trimOrNull($data['address_line1'] ?? null),
-                'city' => $this->trimOrNull($data['city'] ?? null),
-                'state' => $this->trimOrNull($data['state'] ?? null),
-                'postcode' => $this->trimOrNull($data['postcode'] ?? null),
-                'country' => $this->trimOrNull($data['country'] ?? null),
+                'address_line1' => trim_or_null($data['address_line1'] ?? null),
+                'city' => trim_or_null($data['city'] ?? null),
+                'state' => trim_or_null($data['state'] ?? null),
+                'postcode' => trim_or_null($data['postcode'] ?? null),
+                'country' => trim_or_null($data['country'] ?? null),
                 'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
                 'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
-                'phone' => $this->trimOrNull($data['phone'] ?? null),
-                'website' => $this->trimOrNull($data['website'] ?? null),
+                'phone' => trim_or_null($data['phone'] ?? null),
+                'website' => trim_or_null($data['website'] ?? null),
                 // Archive of the business's old website + Google-sourced category
                 // and editorial description (auto-filled from Google Business).
-                'previous_website' => $this->trimOrNull($data['previous_website'] ?? null),
-                'category' => $this->trimOrNull($data['category'] ?? null),
-                'description' => $this->trimOrNull($data['description'] ?? null),
+                'previous_website' => trim_or_null($data['previous_website'] ?? null),
+                'category' => trim_or_null($data['category'] ?? null),
+                'description' => trim_or_null($data['description'] ?? null),
             ],
         );
 
@@ -112,7 +112,7 @@ class UserWorkplaceController extends ApiController
         $workplace = Workplace::query()->where('site_id', (string) $site->id)->first();
 
         return $this->success([
-            'previousWebsite' => $workplace ? $this->trimOrNull($workplace->previous_website) : null,
+            'previousWebsite' => $workplace ? trim_or_null($workplace->previous_website) : null,
         ]);
     }
 
@@ -127,7 +127,7 @@ class UserWorkplaceController extends ApiController
 
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
-        $previousWebsite = $this->trimOrNull($validated['previous_website'] ?? null);
+        $previousWebsite = trim_or_null($validated['previous_website'] ?? null);
 
         Workplace::updateOrCreate(
             ['site_id' => (string) $site->id],
@@ -137,16 +137,5 @@ class UserWorkplaceController extends ApiController
         return $this->success([
             'previousWebsite' => $previousWebsite,
         ]);
-    }
-
-    private function trimOrNull(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $trimmed = trim($value);
-
-        return $trimmed !== '' ? $trimmed : null;
     }
 }
