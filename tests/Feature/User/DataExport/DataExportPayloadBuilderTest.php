@@ -2,6 +2,7 @@
 
 use App\Models\Core\User\User;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Feature\User\DataExport\DataExportTestCase;
@@ -966,7 +967,7 @@ it('every section stream() yields resolves to a real key in build() — FOUND-1 
     $payload = $builder->build($pro->id);
 
     foreach ($streamedNames as $name) {
-        expect(\Illuminate\Support\Arr::has($payload, $name))
+        expect(Arr::has($payload, $name))
             ->toBeTrue("build() is missing section '{$name}' that stream() yields");
     }
 });
