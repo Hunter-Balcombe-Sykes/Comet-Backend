@@ -280,6 +280,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                         'image_url' => $item['imageUrl'] ?? null,
                         'rating' => $item['rating'] ?? null,
                         'rating_count' => $item['ratingCount'] ?? null,
+                        // Kept as JSONB (reviewed 2026-07-04, #FOUND-13) — display-only, no query pattern exists.
                         'badges' => isset($item['badges']) ? json_encode($item['badges']) : null,
                         'base_price' => $item['basePrice'] ?? null,
                         'pickup_price' => $item['pickupPrice'] ?? null,

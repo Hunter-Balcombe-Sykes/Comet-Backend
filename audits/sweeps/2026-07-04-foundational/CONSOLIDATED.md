@@ -56,7 +56,7 @@
 
 ## Progress
 
-- P0 Before pilot: 0 of 9 complete
+- P0 Before pilot: 1 of 9 complete
 - P1 Important spines: 0 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
@@ -95,7 +95,8 @@
         }
         ```
 
-- [ ] **#FOUND-13** · P0 — MenuFetchJob writes `menu_items.badges` as manually json_encoded JSON, bypassing the relational structure the rest of the table already uses
+- [x] **#FOUND-13** · P0 — MenuFetchJob writes `menu_items.badges` as manually json_encoded JSON, bypassing the relational structure the rest of the table already uses
+    - **⏭️ NOT IMPLEMENTED — premise invalid (2026-07-04, verified 2×):** The finding's own "Affects" framing (a future dietary-filter feature, e.g. "show me vegetarian dishes") does not hold: `badges` is DoorDash-only ranking/promo copy (e.g. "#1 Most Liked"), normalized to `[{text, type?}]` by `MenuApifyScraper::badges()` — not a dietary-tag structure. Repo-wide grep for dietary/vegetarian/gluten/allergen/vegan turns up exactly one unrelated hit (`GoogleBusinessService`'s `servesVegetarianFood` store-level amenity flag — a different feature entirely). Both read sites (`MenuController::show()`, `PublicMenuController::show()`) pass `$item->badges` straight through with no filtering, sorting, or querying anywhere in the codebase. With zero present or planned query pattern, neither the child-table extraction nor the audit's own fallback (a GIN index) is justified — an index with nothing to accelerate is pure overhead on a column that's rewritten wholesale every scrape. Kept as plain JSONB; decision documented inline in `MenuItem.php` and `MenuFetchJob.php` so this isn't re-litigated without new evidence of an actual query need.
     - **Where:** `app/Jobs/Platforms/MenuFetchJob.php` (`persist()`)
     - **Affects:** Any future dietary-filter feature ("show me vegetarian dishes") — badges can't be indexed or queried without a full JSON scan.
     - **Effort:** M (~2–4h, DB migration)
@@ -1074,7 +1075,7 @@
 - **#FOUND-23 — Menu subsystem platform registry** · L effort, spans Services + Jobs layers across the newest subsystem.
 - **#FOUND-24 — Music/video/social platform connect registry** · XL effort, widest blast radius in this audit (13 controllers + 4 route groups).
 - **#FOUND-25 — ShopController brand/product relational extraction** · DB migration + L effort.
-- **#FOUND-13 — MenuItem badges child table** · DB migration.
+- **#FOUND-13 — MenuItem badges child table** · ✅ Closed 2026-07-04 as premise-invalid — no query/filter usage exists, no migration needed (see finding above).
 - **#FOUND-35 — MenuSource url column promotion** · DB migration (even though low urgency, any DB migration is standalone per policy).
 - **#FOUND-36 — Drop dead `about` JSONB column** · DB migration (schema change), even though effort is S.
 - **#FOUND-37 — (superseded, see #FOUND-36 numbering)** — *(note: #FOUND-37 in this document is the email-hook match finding; the `about`-column finding is #FOUND-36 above — verify ID before starting work)*.
