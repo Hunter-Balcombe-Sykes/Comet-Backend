@@ -2,6 +2,7 @@
 
 namespace App\Services\Design\Scan;
 
+use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -31,7 +32,7 @@ class BrandScanClient
      * @return array{content: string, screenshot: string} screenshot = raw PNG bytes ('' when absent)
      *
      * @throws BrandScanException
-     * @throws \App\Services\Http\SafeUrlException
+     * @throws SafeUrlException
      */
     public function snapshot(string $url): array
     {
