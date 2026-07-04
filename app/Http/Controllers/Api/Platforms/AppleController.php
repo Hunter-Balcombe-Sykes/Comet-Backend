@@ -333,7 +333,7 @@ class AppleController extends ApiController
         // connectFor already set it before calling this.
         $this->activePlatform = $platform;
 
-        return FeedPayload::fromArray($this->matchAccountRow($user, 'input', $input)?->payload ?? [])->highlights ?? [];
+        return FeedPayload::fromArray($this->matchAccountByCanonical($user, $input)?->payload ?? [])->highlights ?? [];
     }
 
     /** Resolve the selection array through the platform-appropriate tile Resource. */

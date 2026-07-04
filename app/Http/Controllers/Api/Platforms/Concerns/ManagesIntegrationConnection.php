@@ -66,8 +66,14 @@ trait ManagesIntegrationConnection
      * Authorization: resolves whether this is a create (new row) or update
      * (existing row) before the upsert so the correct ability fires. Both
      * abilities run denyIfPendingDeletion; update additionally enforces ownership.
+     *
+     * $canonicalKey stamps the normalized account-identity column (FOUND-14) —
+     * only the account path (writeAccountConnection) passes it, at connect time.
+     * Omitted (null) on every other call site (highlights saves, tile refreshes,
+     * single-selection writes) so those updates never clobber an already-stored
+     * canonical_key back to NULL.
      */
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null): IntegrationConnection
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null): IntegrationConnection
     {
         // Determine create vs. update before the upsert so the correct ability fires.
         $existing = $this->connectionFor($user, $resourceId);
@@ -86,20 +92,27 @@ trait ManagesIntegrationConnection
             $this->authorizeForUser($user, 'create', $skeleton);
         }
 
+        $values = [
+            'payload' => $payload,
+            'is_active' => true,
+            'last_refreshed_at' => now(),
+            'last_refresh_status' => 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ];
+        // Only stamp canonical_key when the caller actually resolved one — an
+        // omitted value here must leave a previously-stored key untouched.
+        if ($canonicalKey !== null) {
+            $values['canonical_key'] = $canonicalKey;
+        }
+
         return IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'platform' => $this->platform(),
                 'resource_id' => $resourceId ?? $this->defaultResourceId(),
             ],
-            [
-                'payload' => $payload,
-                'is_active' => true,
-                'last_refreshed_at' => now(),
-                'last_refresh_status' => 'ok',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
+            $values,
         );
     }
 
@@ -236,10 +249,21 @@ trait ManagesIntegrationConnection
         return 5;
     }
 
+    /**
+     * Normalize a platform-canonical identity value (URL / handle) the same way
+     * everywhere it's used: hashed into accountResourceId, stored in the
+     * canonical_key column, and matched against on lookup. Keeping this in one
+     * place is what makes the hash pre-image and the stored column agree.
+     */
+    private function normalizeCanonicalKey(string $key): string
+    {
+        return strtolower(trim($key));
+    }
+
     /** Stable account resource id from the platform-canonical input (URL / handle). */
     protected function accountResourceId(string $canonicalKey): string
     {
-        return 'acct-'.substr(sha1(strtolower(trim($canonicalKey))), 0, 16);
+        return 'acct-'.substr(sha1($this->normalizeCanonicalKey($canonicalKey)), 0, 16);
     }
 
     /**
@@ -271,39 +295,28 @@ trait ManagesIntegrationConnection
     }
 
     /**
-     * Upsert an account row keyed by its canonical input. Re-connecting an
-     * input that matches an existing row (by derived id, or by the canonical
-     * field stored in a legacy row's payload) updates that row in place;
-     * otherwise a new row is created, capped at maxAccounts(). Returns null
-     * when the cap is hit so the controller can shape the 422.
+     * Upsert an account row keyed by its canonical input (FOUND-14). Re-connecting
+     * an input that matches an existing row — by derived hash, or by the stored
+     * canonical_key column (bridges legacy rows / hash-scheme drift) — updates
+     * that row in place; otherwise a new row is created, capped at maxAccounts().
+     * Returns null when the cap is hit so the controller can shape the 422.
      */
     protected function writeAccountConnection(User $user, string $canonicalKey, array $payload): ?IntegrationConnection
     {
+        $needle = $this->normalizeCanonicalKey($canonicalKey);
         $rid = $this->accountResourceId($canonicalKey);
         $rows = $this->accountRows($user);
 
-        $needle = strtolower(trim($canonicalKey));
+        // Derived-hash match first, then the stored canonical_key (indexed +
+        // DB-unique). Replaces the old 7-field JSONB payload scan.
         $existing = $rows->firstWhere('resource_id', $rid)
-            ?? $rows->first(function (IntegrationConnection $row) use ($needle) {
-                $stored = $row->payload ?? [];
-                // Candidate identity fields across the platform payload shapes
-                // (handle = YouTube, input = Apple, apiPath = Vimeo, channelId =
-                // YouTube Music, login = Twitch, url/link = everything else).
-                foreach (['handle', 'input', 'apiPath', 'channelId', 'login', 'url', 'link'] as $field) {
-                    $value = $stored[$field] ?? null;
-                    if (is_string($value) && strtolower(trim($value)) === $needle) {
-                        return true;
-                    }
-                }
-
-                return false;
-            });
+            ?? $rows->firstWhere('canonical_key', $needle);
 
         if (! $existing && $rows->count() >= $this->maxAccounts()) {
             return null;
         }
 
-        return $this->writeConnection($user, $payload, $existing?->resource_id ?? $rid);
+        return $this->writeConnection($user, $payload, $existing?->resource_id ?? $rid, $needle);
     }
 
     /**
@@ -313,19 +326,19 @@ trait ManagesIntegrationConnection
      *
      * @return list<array<string, mixed>>
      */
-    protected function preserveHighlights(User $user, string $identityField, mixed $identityValue): array
+    protected function preserveHighlights(User $user, string $canonicalKey): array
     {
-        $existing = $this->matchAccountRow($user, $identityField, $identityValue)?->payload;
+        $existing = $this->matchAccountByCanonical($user, $canonicalKey)?->payload;
 
         return data_get($existing, 'highlights', []);
     }
 
-    /** First account row whose payload $field equals $value (account dedupe / lookups). */
-    protected function matchAccountRow(User $user, string $field, mixed $value): ?IntegrationConnection
+    /** First account row whose canonical_key matches (normalized). */
+    protected function matchAccountByCanonical(User $user, string $canonicalKey): ?IntegrationConnection
     {
-        return $this->accountRows($user)->first(
-            fn (IntegrationConnection $row) => data_get($row->payload, $field) === $value,
-        );
+        $needle = $this->normalizeCanonicalKey($canonicalKey);
+
+        return $this->accountRows($user)->firstWhere('canonical_key', $needle);
     }
 
     /**

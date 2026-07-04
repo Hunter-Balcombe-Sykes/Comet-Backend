@@ -113,7 +113,7 @@
         MenuItem::query()->insert($rows);
         ```
 
-- [ ] **#FOUND-14** · P0 — IntegrationConnection account dedupe scans every row's JSONB payload for 7 possible identity fields, with no unique constraint possible
+- [x] **#FOUND-14** · P0 — IntegrationConnection account dedupe scans every row's JSONB payload for 7 possible identity fields, with no unique constraint possible
     - **Where:** `app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php` (`writeAccountConnection()`, `matchAccountRow()`)
     - **Affects:** Every connect/reconnect on multi-account platforms (YouTube, Vimeo, Twitch, Spotify, SoundCloud, Bandcamp, Deezer).
     - **Effort:** L (~1–2d, DB migration)
