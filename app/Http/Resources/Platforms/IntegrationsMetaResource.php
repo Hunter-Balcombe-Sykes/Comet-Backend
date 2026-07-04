@@ -6,7 +6,7 @@ use App\Http\Resources\ApiResource;
 use Illuminate\Http\Request;
 
 /**
- * Shapes the per-platform sync-status map for GET /integrations/meta.
+ * Shapes the per-platform sync-status map for GET /platforms/meta.
  *
  * `$this->resource` is a platform-keyed array already aggregated by the
  * controller (SEM-1): `is_active` / `last_refreshed_at` (Carbon|null) /

@@ -9,7 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * GET /integrations/meta — sync metadata for every platform the user has
+ * GET /platforms/meta — sync metadata for every platform the user has
  * connected, in one query. The dashboard index merges this into each card's
  * status payload to render "Synced 2h ago" / sync-error badges without
  * changing any per-platform endpoint.

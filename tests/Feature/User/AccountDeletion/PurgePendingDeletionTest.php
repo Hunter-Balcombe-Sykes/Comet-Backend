@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -112,6 +113,42 @@ it('writes purged audit row with handle + email snapshots', function () {
         ->and($audit->professional_handle_snapshot)->toBe('snapshot-me')
         ->and($audit->professional_email_snapshot)->toBe('snapshot@example.com')
         ->and($audit->user_id)->toBeNull(); // professional is deleted, FK set null
+});
+
+it('purged audit row records the resolved pre-pseudonymisation email, not the placeholder (SEM-1)', function () {
+    // By purge time (30 days post-confirmation) primary_email is already the
+    // "deleted+{id}@partna.au" placeholder that executeConfirmation() wrote; the
+    // real address survives only in the EVENT_CONFIRMED audit snapshot captured
+    // before pseudonymisation. purge() must resolve THAT for the PURGED receipt.
+    $pro = seedPurgeableUser();
+    $realEmail = 'real-'.substr($pro->id, 0, 6).'@example.com';
+
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+        ->update(['primary_email' => 'deleted+'.$pro->id.'@partna.au']);
+
+    UserDeletionAuditEntry::create([
+        'user_id' => $pro->id,
+        'professional_handle_snapshot' => $pro->handle,
+        'professional_email_snapshot' => $realEmail,
+        'event' => UserDeletionAuditEntry::EVENT_CONFIRMED,
+        'actor_type' => UserDeletionAuditEntry::ACTOR_TYPE_PROFESSIONAL,
+    ]);
+
+    $pro->refresh(); // in-memory model must carry the pseudonymised email
+
+    Http::fake([
+        'test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200),
+    ]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    $purged = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('event', 'purged')->first();
+
+    // Without the SEM-1 fix this would be the "deleted+{id}@partna.au" placeholder.
+    expect($purged)->not->toBeNull()
+        ->and($purged->professional_email_snapshot)->toBe($realEmail)
+        ->and($purged->professional_email_snapshot)->not->toContain('deleted+');
 });
 
 it('command purges professionals past 30 days but skips within grace', function () {

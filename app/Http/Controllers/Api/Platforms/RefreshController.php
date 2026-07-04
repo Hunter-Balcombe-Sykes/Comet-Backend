@@ -30,7 +30,7 @@ class RefreshController extends ApiController
         private readonly PlatformRegistry $registry,
     ) {}
 
-    // POST /integrations/{platform}/refresh
+    // POST /platforms/{platform}/refresh
     public function refresh(Request $request, string $platform): JsonResponse
     {
         if (! $this->registry->isRefreshable($platform)) {

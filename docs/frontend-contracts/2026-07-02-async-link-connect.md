@@ -16,8 +16,8 @@ stored card. A per-endpoint **status URL** reports progress.
 |---|---|---|
 | `POST /api/platforms/custom/links` | `200 {links:[…fully enriched]}` | `202 {status:'pending', link:{…minimal}, statusUrl}` |
 | `POST /api/platforms/online-ordering/entries` | `200 {entries:[…fully enriched]}` | `202 {status:'pending', entries:[…minimal], statusUrl}` |
-| `POST /api/integrations/booking/detect` (custom branch) | `200 {provider:'custom', selection:{…}}` | `202 {provider:'custom', next:'custom-saved', status:'pending', selection:{…minimal}, statusUrl}` |
-| `POST /api/integrations/reservations/detect` (custom branch) | `200 {provider:'custom', selection:{…}}` | `202 {provider:'custom', next:'custom-saved', status:'pending', selection:{…minimal}, statusUrl}` |
+| `POST /api/platforms/booking/detect` (custom branch) | `200 {provider:'custom', selection:{…}}` | `202 {provider:'custom', next:'custom-saved', status:'pending', selection:{…minimal}, statusUrl}` |
+| `POST /api/platforms/reservations/detect` (custom branch) | `200 {provider:'custom', selection:{…}}` | `202 {provider:'custom', next:'custom-saved', status:'pending', selection:{…minimal}, statusUrl}` |
 
 **Unchanged branches — still synchronous 200:**
 - `POST /booking/detect` → `fresha` or `square` provider branches (no HTTP fetch)
@@ -44,14 +44,14 @@ Only the `custom` provider branch (user-supplied URL) changed.
     "favicon": "https://www.google.com/s2/favicons?domain=example.com&sz=64",
     "logo": null
   },
-  "statusUrl": "https://api.partna.au/api/integrations/custom/links/link-<hash>/status"
+  "statusUrl": "https://api.partna.au/api/platforms/custom/links/link-<hash>/status"
 }
 ```
 
 `name` is always the bare domain at 202 time. `description`, `logo` are null until enriched.
 `favicon` is always the Google Favicons CDN URL (no HTTP fetch — URL-derived).
 
-#### Status poll — `GET /api/integrations/custom/links/{id}/status`
+#### Status poll — `GET /api/platforms/custom/links/{id}/status`
 
 | Response body | Meaning |
 |---|---|
@@ -82,7 +82,7 @@ Only the `custom` provider branch (user-supplied URL) changed.
       "deliveryUrl": null
     }
   ],
-  "statusUrl": "https://api.partna.au/api/integrations/online-ordering/entries/oo-<hash>/status"
+  "statusUrl": "https://api.partna.au/api/platforms/online-ordering/entries/oo-<hash>/status"
 }
 ```
 
@@ -90,7 +90,7 @@ Only the `custom` provider branch (user-supplied URL) changed.
 Existing entries are already enriched; only the new one has null `description`/`logo`.
 `statusUrl` references the specific new entry that is being enriched.
 
-#### Status poll — `GET /api/integrations/online-ordering/entries/{id}/status`
+#### Status poll — `GET /api/platforms/online-ordering/entries/{id}/status`
 
 | Response body | Meaning |
 |---|---|
@@ -101,7 +101,7 @@ Existing entries are already enriched; only the new one has null `description`/`
 
 ---
 
-### 3. Booking — `POST /api/integrations/booking/detect` (custom branch only)
+### 3. Booking — `POST /api/platforms/booking/detect` (custom branch only)
 
 **Trigger:** only when the posted URL is not a recognised Fresha or Square URL. The
 `fresha` and `square` branches return synchronous `200` and are unchanged.
@@ -121,13 +121,13 @@ Existing entries are already enriched; only the new one has null `description`/`
     "favicon": "https://www.google.com/s2/favicons?domain=acme.com&sz=64",
     "logo": null
   },
-  "statusUrl": "https://api.partna.au/api/integrations/booking/detect/status"
+  "statusUrl": "https://api.partna.au/api/platforms/booking/detect/status"
 }
 ```
 
 Note: the booking `statusUrl` has no `{id}` segment — there is only one booking slot per user.
 
-#### Status poll — `GET /api/integrations/booking/detect/status`
+#### Status poll — `GET /api/platforms/booking/detect/status`
 
 | Response body | Meaning |
 |---|---|
@@ -138,7 +138,7 @@ Note: the booking `statusUrl` has no `{id}` segment — there is only one bookin
 
 ---
 
-### 4. Reservations — `POST /api/integrations/reservations/detect` (custom branch only)
+### 4. Reservations — `POST /api/platforms/reservations/detect` (custom branch only)
 
 **Trigger:** only when the posted URL is not a recognised OpenTable, Fresha, or Square URL.
 
@@ -157,13 +157,13 @@ Note: the booking `statusUrl` has no `{id}` segment — there is only one bookin
     "favicon": "https://www.google.com/s2/favicons?domain=acme.com&sz=64",
     "logo": null
   },
-  "statusUrl": "https://api.partna.au/api/integrations/reservations/detect/status"
+  "statusUrl": "https://api.partna.au/api/platforms/reservations/detect/status"
 }
 ```
 
 Note: the reservations `statusUrl` has no `{id}` segment — one slot per user.
 
-#### Status poll — `GET /api/integrations/reservations/detect/status`
+#### Status poll — `GET /api/platforms/reservations/detect/status`
 
 | Response body | Meaning |
 |---|---|

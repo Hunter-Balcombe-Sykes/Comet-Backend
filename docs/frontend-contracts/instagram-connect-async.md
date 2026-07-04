@@ -3,7 +3,7 @@
 **Status:** Backend landed 2026-06-09 (audit finding CONS-6). **Frontend must update to match.**
 **Why:** the synchronous `connect()` blocked a PHP-FPM worker for up to ~150s (110s Apify scrape + serial image mirroring). The scrape + mirror now run in a background job (`InstagramConnectJob`, queue `scraping`); the endpoint returns immediately.
 
-Both `/api/integrations/instagram/...` and `/api/platforms/instagram/...` resolve to the same controller (legacy alias) — use whichever the frontend already uses.
+All Instagram endpoints live under `/api/platforms/instagram/...`. (The former `/api/integrations/*` alias was removed 2026-07-04 — `/api/platforms/*` is the only prefix now.)
 
 ---
 
@@ -18,7 +18,7 @@ Request: `{ "username": "someuser" }`
 
 | Status | Body | Meaning |
 |--------|------|---------|
-| `202`  | `{ "status": "pending", "statusUrl": "https://api.partna.au/api/integrations/instagram/connect/status" }` | Accepted; job queued. Begin polling `statusUrl`. |
+| `202`  | `{ "status": "pending", "statusUrl": "https://api.partna.au/api/platforms/instagram/connect/status" }` | Accepted; job queued. Begin polling `statusUrl`. |
 | `422`  | validation error | Bad/missing username. |
 | `429`  | rate-limit error | Per-user cooldown or daily Apify cap hit. Do **not** poll; surface a "try again later" message. |
 
