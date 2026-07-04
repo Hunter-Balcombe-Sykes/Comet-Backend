@@ -88,7 +88,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 19 of 21 complete
+- P2 Medium: 20 of 21 complete
 - P3 Low: 17 of 20 complete
 
 ---
@@ -328,7 +328,7 @@
             $key = $request->header('CF-Connecting-IP') ?? $request->ip();
         ```
 
-- [ ] **#SEC-3** · P2 — `BrandScanClient::snapshot()` ships a URL off-system with no SSRF check of its own
+- [x] **#SEC-3** · P2 — `BrandScanClient::snapshot()` ships a URL off-system with no SSRF check of its own
     - **Where:** app/Services/Design/Scan/BrandScanClient.php:42-55
     - **Affects:** Any future caller of `BrandScanClient::snapshot()` that doesn't pre-validate. Today's only caller (`WebsiteStyleAnalyzer`) correctly calls `assertPublicUrl()` first.
     - **Effort:** S (~0.5–1h)

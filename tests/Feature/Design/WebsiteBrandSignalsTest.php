@@ -79,7 +79,9 @@ function wbsResponse(string $body, string $url, string $type = 'text/html'): arr
 /** Production-wired analyzer with a stubbed (network-free) SSRF fetcher. */
 function wbsAnalyzer(): WebsiteStyleAnalyzer
 {
-    return new WebsiteStyleAnalyzer(new BrandScanClient, new ScreenshotSampler, new EvidenceConclusions, wbsFetcher());
+    $fetcher = wbsFetcher();
+
+    return new WebsiteStyleAnalyzer(new BrandScanClient($fetcher), new ScreenshotSampler, new EvidenceConclusions, $fetcher);
 }
 
 /** Collector evidence with sane light-page defaults; top-level keys REPLACE. */
@@ -677,7 +679,7 @@ it('stores the analysis, grabs the best square candidate, and records decisions'
     )->andReturn(new SiteMedia);
 
     (new AnalyzePreviousWebsiteJob($user->site->id))->handle(
-        new WebsiteStyleAnalyzer(new BrandScanClient, new ScreenshotSampler, new EvidenceConclusions, $fetcher),
+        new WebsiteStyleAnalyzer(new BrandScanClient($fetcher), new ScreenshotSampler, new EvidenceConclusions, $fetcher),
         new LogoAutoGrabber($fetcher, $uploads),
     );
 

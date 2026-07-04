@@ -2,6 +2,7 @@
 
 namespace App\Services\Design\Scan;
 
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
@@ -20,6 +21,8 @@ class BrandScanClient
 
     private const VIEWPORT_H = 1200;
 
+    public function __construct(private readonly SafeUrlFetcher $urlFetcher) {}
+
     /**
      * Snapshot a URL through the Worker. Retries once with the laxer 'load'
      * wait strategy when 'networkidle2' times out (analytics-beacon sites
@@ -28,6 +31,7 @@ class BrandScanClient
      * @return array{content: string, screenshot: string} screenshot = raw PNG bytes ('' when absent)
      *
      * @throws BrandScanException
+     * @throws \App\Services\Http\SafeUrlException
      */
     public function snapshot(string $url): array
     {
@@ -35,6 +39,17 @@ class BrandScanClient
         if (! ($cfg['enabled'] ?? false) || ($cfg['url'] ?? '') === '' || ($cfg['token'] ?? '') === '') {
             throw new BrandScanException('disabled', 'Brand scan disabled or unconfigured.');
         }
+
+        // Cost + junk-URL pre-check, enforced regardless of caller: today's only
+        // caller (WebsiteStyleAnalyzer::analyze) already validates the URL first,
+        // but a future direct caller (CLI command, staff endpoint) must not be
+        // able to ship an unvalidated URL to the Worker, and there's no point
+        // spending a paid Browser Run on a private/invalid address. This is NOT
+        // the authoritative SSRF boundary — it's TOCTOU/DNS-rebind-advisory only
+        // and never sees the Worker's own redirect chain. The authoritative guard
+        // belongs in the partna-brand-scan Worker itself (separate cross-repo
+        // follow-up).
+        $this->urlFetcher->assertPublicUrl($url);
 
         $collector = @file_get_contents(resource_path('design-scan/collector.js'));
         if (! is_string($collector) || trim($collector) === '') {
