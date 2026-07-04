@@ -68,7 +68,7 @@ class UserDesignMediaController extends ApiController
         $site = $this->currentSite($pro);
 
         // SitePolicy::create gates pending_deletion + verifies site ownership.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
+        $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         try {

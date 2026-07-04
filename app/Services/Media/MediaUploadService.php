@@ -229,8 +229,7 @@ class MediaUploadService
                 ->where('site_id', $site->id)
                 ->max('sort_order');
 
-            return SiteMedia::create([
-                'site_id' => $site->id,
+            $media = new SiteMedia([
                 'pool' => SiteMedia::POOL_DESIGN,
                 'purpose' => $purpose,
                 'path' => '',
@@ -241,6 +240,10 @@ class MediaUploadService
                 'original_mime' => $file->getMimeType(),
                 'original_size_bytes' => $file->getSize(),
             ]);
+            $media->site()->associate($site);
+            $media->save();
+
+            return $media;
         });
     }
 
@@ -279,8 +282,7 @@ class MediaUploadService
 
             $maxSort = $siteImages->max('sort_order');
 
-            $media = SiteMedia::create([
-                'site_id' => $site->id,
+            $media = new SiteMedia([
                 'pool' => $pool,
                 'path' => '',
                 'alt_text' => $altText,
@@ -292,6 +294,8 @@ class MediaUploadService
                 'original_mime' => $file->getMimeType(),
                 'original_size_bytes' => $file->getSize(),
             ]);
+            $media->site()->associate($site);
+            $media->save();
 
             Log::info('SiteMedia row created', ['media_id' => $media->id, 'media_type' => $mediaType]);
 

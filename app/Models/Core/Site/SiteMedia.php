@@ -116,8 +116,9 @@ class SiteMedia extends BaseModel
         'processing_state' => self::PROCESSING_STATE_PENDING,
     ];
 
+    // site_id is the tenancy FK — deliberately excluded from mass-assignment (SEC-1).
+    // Write paths set it via ->site()->associate($site), which bypasses $fillable.
     protected $fillable = [
-        'site_id',
         'pool',
         'bucket',
         'path',

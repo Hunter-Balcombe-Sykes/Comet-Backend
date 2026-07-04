@@ -126,16 +126,14 @@ it('SiteMedia::create dispatches CloudflareCachePurgeJob via the touch() chain',
     Queue::fake();
     $fixture = seedTouchFixture();
 
-    SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    (new SiteMedia([
         'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',
         'processing_state' => 'ready',
         'sort_order' => 0,
         'is_active' => true,
-    ]);
+    ]))->site()->associate($fixture['site_id'])->save();
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
         return $job->handle === 'touchtest';
@@ -144,9 +142,7 @@ it('SiteMedia::create dispatches CloudflareCachePurgeJob via the touch() chain',
 
 it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain', function () {
     $fixture = seedTouchFixture();
-    $media = SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    $media = new SiteMedia([
         'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',
@@ -154,6 +150,8 @@ it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain',
         'sort_order' => 0,
         'is_active' => true,
     ]);
+    $media->site()->associate($fixture['site_id']);
+    $media->save();
 
     Queue::fake();
     $media->delete();
@@ -163,9 +161,7 @@ it('SiteMedia::delete dispatches CloudflareCachePurgeJob via the touch() chain',
 it('SiteMedia::delete clears the public payload cache via SiteObserver (invalidation, not just purge)', function () {
     Queue::fake();
     $fixture = seedTouchFixture();
-    $media = SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    $media = new SiteMedia([
         'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',
@@ -173,6 +169,8 @@ it('SiteMedia::delete clears the public payload cache via SiteObserver (invalida
         'sort_order' => 0,
         'is_active' => true,
     ]);
+    $media->site()->associate($fixture['site_id']);
+    $media->save();
 
     // Seed the key AFTER create() so the create's own invalidation can't pre-clear it.
     $key = CacheKeyGenerator::publicSitePayload('touchtest');
@@ -220,9 +218,7 @@ it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJ
 
 it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
-    $media = SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    $media = new SiteMedia([
         'pool' => 'gallery',
         'path' => 'images/test.webp',
         'media_type' => 'image',
@@ -230,6 +226,8 @@ it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurge
         'sort_order' => 0,
         'is_active' => true,
     ]);
+    $media->site()->associate($fixture['site_id']);
+    $media->save();
 
     // Fake AFTER create so we only count purges from the update.
     Queue::fake();
@@ -242,9 +240,7 @@ it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurge
 
 it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
-    $media = SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    $media = new SiteMedia([
         'pool' => 'gallery',
         'path' => 'images/test2.webp',
         'media_type' => 'image',
@@ -252,6 +248,8 @@ it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', funct
         'sort_order' => 1,
         'is_active' => true,
     ]);
+    $media->site()->associate($fixture['site_id']);
+    $media->save();
 
     Queue::fake();
 
@@ -263,9 +261,7 @@ it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', funct
 
 it('SiteMedia save changing processing_state to ready dispatches CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
-    $media = SiteMedia::create([
-        'site_id' => $fixture['site_id'],
-        'user_id' => $fixture['pro_id'],
+    $media = new SiteMedia([
         'pool' => 'gallery',
         'path' => 'images/pending.webp',
         'media_type' => 'image',
@@ -273,6 +269,8 @@ it('SiteMedia save changing processing_state to ready dispatches CloudflareCache
         'sort_order' => 2,
         'is_active' => true,
     ]);
+    $media->site()->associate($fixture['site_id']);
+    $media->save();
 
     Queue::fake();
 

@@ -9,6 +9,12 @@ use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\User\User;
 use App\Policies\SitePolicy;
 use Illuminate\Auth\Access\Response;
+use Tests\TestCase;
+
+// site()->associate() (used by the SiteMedia describe block below) exercises a real
+// Eloquent BelongsTo relation, which needs Model::$resolver set — only available once
+// the framework boots. No DB tables are touched (associate() never queries).
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     $this->policy = new SitePolicy;
@@ -83,14 +89,12 @@ describe('Site', function () {
 // ---------------------------------------------------------------------------
 
 describe('SiteMedia', function () {
-    // Site.user_id not in $fillable — must forceFill so it lands in getAttributes().
-    // The policy verifies that $media->site_id matches the preloaded site's id, so both
-    // must be set consistently.
+    // site_id is not in $fillable (SEC-1) — use ->site()->associate($site), the
+    // sanctioned write path, which sets both site_id and the site relation together.
     it('allows view when the site relation is owned by the actor', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
         $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
-        $media = new SiteMedia(['site_id' => 'site-1']);
-        $media->setRelation('site', $site);
+        $media = (new SiteMedia)->site()->associate($site);
 
         expect($this->policy->view($actor, $media))->toBeTrue();
     });
@@ -98,8 +102,7 @@ describe('SiteMedia', function () {
     it('denies view with 404 when the site relation belongs to a different owner', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
         $site = (new Site)->forceFill(['id' => 'site-2', 'user_id' => 'pro-other']);
-        $media = new SiteMedia(['site_id' => 'site-2']);
-        $media->setRelation('site', $site);
+        $media = (new SiteMedia)->site()->associate($site);
 
         $result = $this->policy->view($actor, $media);
 
@@ -110,8 +113,7 @@ describe('SiteMedia', function () {
     it('allows delete when the actor owns the site relation', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
         $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
-        $media = new SiteMedia(['site_id' => 'site-1']);
-        $media->setRelation('site', $site);
+        $media = (new SiteMedia)->site()->associate($site);
 
         expect($this->policy->delete($actor, $media))->toBeTrue();
     });
@@ -119,8 +121,7 @@ describe('SiteMedia', function () {
     it('denies delete with 423 when actor is pending deletion', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'pending_deletion']);
         $site = (new Site)->forceFill(['id' => 'site-1', 'user_id' => 'pro-actor']);
-        $media = new SiteMedia(['site_id' => 'site-1']);
-        $media->setRelation('site', $site);
+        $media = (new SiteMedia)->site()->associate($site);
 
         $result = $this->policy->delete($actor, $media);
 
@@ -236,8 +237,9 @@ describe('spoofing defense', function () {
     it('denies view when injected site relation id does not match resource site_id', function () {
         $actor = (new User)->forceFill(['id' => 'pro-attacker', 'status' => 'active']);
         $attackerSite = (new Site)->forceFill(['id' => 'site-attacker', 'user_id' => 'pro-attacker']);
-        // Resource belongs to a different site, but attacker injects their own site relation
-        $media = new SiteMedia(['site_id' => 'site-real']);
+        // Resource belongs to a different site, but attacker injects their own site relation.
+        // site_id is not fillable (SEC-1) — forceFill to construct the mismatch deliberately.
+        $media = (new SiteMedia)->forceFill(['site_id' => 'site-real']);
         $media->setRelation('site', $attackerSite);
 
         $result = $this->policy->view($actor, $media);

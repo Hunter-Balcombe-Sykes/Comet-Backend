@@ -68,8 +68,7 @@ it('uses a ready design-pool logo url when present', function () {
     config(['filesystems.disks.media.url' => 'https://media.partna.au']);
 
     $site = makeProSite();
-    $media = SiteMedia::create([
-        'site_id' => $site->id,
+    $media = new SiteMedia([
         'pool' => SiteMedia::POOL_DESIGN,
         'purpose' => SiteMedia::PURPOSE_LOGO_FULL,
         'is_active' => true,
@@ -78,6 +77,8 @@ it('uses a ready design-pool logo url when present', function () {
         'bucket' => 'media',
         'path' => 'design/logo.png',
     ]);
+    $media->site()->associate($site);
+    $media->save();
     $media->mediaVariants()->create([
         'variant_key' => 'md',
         'artifact_type' => 'webp',

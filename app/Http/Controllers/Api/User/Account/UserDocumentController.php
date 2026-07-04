@@ -126,8 +126,7 @@ class UserDocumentController extends ApiController
                 ->max('sort_order');
             $nextSort = is_null($maxSort) ? 0 : ((int) $maxSort + 1);
 
-            return SiteMedia::create([
-                'site_id' => $site->id,
+            $media = new SiteMedia([
                 'pool' => SiteMedia::POOL_DOCUMENTS,
                 'path' => '',
                 'alt_text' => $title,
@@ -140,6 +139,10 @@ class UserDocumentController extends ApiController
                 'original_filename' => $originalFilename,
                 'original_size_bytes' => $file->getSize(),
             ]);
+            $media->site()->associate($site);
+            $media->save();
+
+            return $media;
         });
 
         // Post-commit: stream the bytes to R2 (the lock and connection slot

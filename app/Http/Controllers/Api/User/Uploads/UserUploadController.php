@@ -57,7 +57,7 @@ class UserUploadController extends ApiController
         // SitePolicy::create gates pending_deletion (423) before any media is created.
         // currentSite() already enforces site→professional ownership, so the skeleton's
         // site_id matches the loaded site relation — spoofing defense is a no-op here.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
+        $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $pool = $request->validated('pool');
@@ -210,7 +210,7 @@ class UserUploadController extends ApiController
         $site = $this->currentSite($pro);
 
         // SitePolicy::update gates pending_deletion (423) before reordering existing media.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
+        $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'update', $skeleton);
 
         $pool = $request->validated('pool');

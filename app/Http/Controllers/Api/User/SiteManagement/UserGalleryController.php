@@ -59,7 +59,7 @@ class UserGalleryController extends ApiController
         $site = $this->currentSite($pro);
 
         // SitePolicy::update gates pending_deletion (423) before reordering gallery items.
-        $skeleton = (new SiteMedia(['site_id' => $site->id]))->setRelation('site', $site);
+        $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'update', $skeleton);
 
         // Mass `update()` bypasses Eloquent events, so SiteMediaObserver never
