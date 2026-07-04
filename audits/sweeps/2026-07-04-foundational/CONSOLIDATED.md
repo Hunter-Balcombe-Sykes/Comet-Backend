@@ -1075,7 +1075,7 @@
 - **#FOUND-23 — Menu subsystem platform registry** · L effort, spans Services + Jobs layers across the newest subsystem.
 - **#FOUND-24 — Music/video/social platform connect registry** · XL effort, widest blast radius in this audit (13 controllers + 4 route groups).
 - **#FOUND-25 — ShopController brand/product relational extraction** · DB migration + L effort.
-- **#FOUND-13 — MenuItem badges child table** · DB migration.
+- **#FOUND-13 — MenuItem badges child table** · ✅ Closed 2026-07-04 as premise-invalid — no query/filter usage exists, no migration needed (see finding above).
 - **#FOUND-35 — MenuSource url column promotion** · DB migration (even though low urgency, any DB migration is standalone per policy).
 - **#FOUND-36 — Drop dead `about` JSONB column** · DB migration (schema change), even though effort is S.
 - **#FOUND-37 — (superseded, see #FOUND-36 numbering)** — *(note: #FOUND-37 in this document is the email-hook match finding; the `about`-column finding is #FOUND-36 above — verify ID before starting work)*.
