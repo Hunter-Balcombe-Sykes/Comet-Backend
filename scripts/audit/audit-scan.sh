@@ -158,21 +158,51 @@ if (( PAYLOAD_BYTES > 400000 )); then
     echo "         --codebase mode, which chunks each lens's scope map automatically." >&2
 fi
 
-# --- Fire ---
+# --- Fire (with retry) ---
+# DeepSeek's gateway intermittently resets long "thinking: max" connections
+# (curl 56 "Recv failure") — NOT payload-size-driven (a 118K-token chunk can
+# succeed while a 50K one resets in the same run). A single-shot curl silently
+# drops a whole chunk from a multi-chunk codebase sweep. Retry transport errors
+# and 429/5xx with linear backoff; connect/max timeouts bound a hung socket.
 RESPONSE="$TMP/response.json"
-START=$(date +%s)
-HTTP_CODE=$(curl -sS -o "$RESPONSE" -w "%{http_code}" -X POST \
-    -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
-    -H "Content-Type: application/json" \
-    -d @"$PAYLOAD" \
-    https://api.deepseek.com/v1/chat/completions)
-ELAPSED=$(( $(date +%s) - START ))
+MAX_ATTEMPTS=4
+ATTEMPT=1
+while :; do
+    START=$(date +%s)
+    CURL_RC=0
+    HTTP_CODE=$(curl -sS -o "$RESPONSE" -w "%{http_code}" \
+        --connect-timeout 30 --max-time 1200 \
+        -X POST \
+        -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d @"$PAYLOAD" \
+        https://api.deepseek.com/v1/chat/completions) || CURL_RC=$?
+    ELAPSED=$(( $(date +%s) - START ))
 
-if [[ "$HTTP_CODE" != "200" ]]; then
-    echo "DeepSeek API returned HTTP $HTTP_CODE" >&2
-    jq '.' "$RESPONSE" >&2 2>/dev/null || cat "$RESPONSE" >&2
-    exit 1
-fi
+    [[ "$CURL_RC" -eq 0 && "$HTTP_CODE" == "200" ]] && break
+
+    # Retryable: any curl transport failure, or HTTP 429/5xx. A 4xx other than
+    # 429 is a real client error (bad key, bad payload) — fail fast, no retry.
+    RETRYABLE=false
+    if [[ "$CURL_RC" -ne 0 || "$HTTP_CODE" == "429" || "$HTTP_CODE" == 5* ]]; then
+        RETRYABLE=true
+    fi
+
+    if ! $RETRYABLE || (( ATTEMPT >= MAX_ATTEMPTS )); then
+        if [[ "$CURL_RC" -ne 0 ]]; then
+            echo "DeepSeek scan curl failed (exit $CURL_RC) after ${ATTEMPT} attempt(s)" >&2
+        else
+            echo "DeepSeek API returned HTTP $HTTP_CODE after ${ATTEMPT} attempt(s)" >&2
+            jq '.' "$RESPONSE" >&2 2>/dev/null || cat "$RESPONSE" >&2
+        fi
+        exit 1
+    fi
+
+    BACKOFF=$(( ATTEMPT * 15 ))
+    echo "  ⚠ transient scan failure (curl ${CURL_RC} / HTTP ${HTTP_CODE:-000}) — retry $((ATTEMPT + 1))/${MAX_ATTEMPTS} in ${BACKOFF}s" >&2
+    sleep "$BACKOFF"
+    ATTEMPT=$(( ATTEMPT + 1 ))
+done
 
 if ! jq -e '.choices[0].message.content' "$RESPONSE" >/dev/null 2>&1; then
     echo "Malformed response — no .choices[0].message.content:" >&2

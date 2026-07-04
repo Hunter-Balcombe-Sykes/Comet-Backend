@@ -660,12 +660,21 @@ if $FULL; then
             for p in "${ALL_PATHS[@]}"; do ADJ_SCOPES+=(--scope "$p"); done
             OUT_FILE="$BASE_DIR/audit-${RUN_DATE}-${LENS_NAME}.md"
 
+            # Adjudication budget scales with how many chunk-drafts feed THIS lens's
+            # single adjudication. A whole-backend single-lens sweep (e.g. `foundational`)
+            # merges ~12 chunks into one pass; a flat $3 ceiling starved it ("Exceeded
+            # USD budget"). Multi-lens bundles reach here with 1-2 chunks/lens and stay
+            # cheap — the ceiling only lifts for the lenses that need it. Floor $4, cap $18.
+            CHUNKS_IN_DRAFT=$(grep -cF '<!-- ═══ LENS:' "$LENS_DRAFTS" 2>/dev/null || echo 1)
+            [[ "$CHUNKS_IN_DRAFT" -ge 1 ]] || CHUNKS_IN_DRAFT=1
+            ADJ_MAX=$(awk -v n="$CHUNKS_IN_DRAFT" 'BEGIN{ b=3.0+1.25*n; if(b<4)b=4; if(b>18)b=18; printf "%.2f", b }')
+
             if "$SCRIPT_DIR/audit-adjudicate.sh" \
                 --drafts "$LENS_DRAFTS" \
                 --lens-file "$lf" \
                 "${ADJ_SCOPES[@]}" \
                 --no-source \
-                --max-budget "3.00" \
+                --max-budget "$ADJ_MAX" \
                 --out "$OUT_FILE"; then
                 WRITTEN+=("$OUT_FILE")
             else
