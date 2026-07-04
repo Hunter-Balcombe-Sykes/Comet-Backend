@@ -51,7 +51,7 @@ Route::middleware(['supabase.jwt', 'throttle:bootstrap'])->post('/bootstrap', [B
 require __DIR__.'/api/user.php';
 require __DIR__.'/api/staff.php';
 require __DIR__.'/api/publicSite.php';
-require __DIR__.'/api/integrations.php';
+require __DIR__.'/api/platforms.php';
 
 // GET preserves the existing email-footer link behavior; POST satisfies
 // RFC 8058 one-click unsubscribe (List-Unsubscribe-Post: List-Unsubscribe=One-Click),

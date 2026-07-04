@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms\Registry;
 
-// How the registry-driven route loop in routes/api/integrations.php emits a
+// How the registry-driven route loop in routes/api/platforms.php emits a
 // platform's per-user endpoints. Bespoke platforms are skipped by the loop and
 // keep their hand-written standalone groups.
 enum PlatformRouteShape

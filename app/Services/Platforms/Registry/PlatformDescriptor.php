@@ -301,7 +301,7 @@ class PlatformDescriptor
      * that wrap a scraper/API client — a Closure factory that builds it on demand.
      *
      * The factory form is LOAD-BEARING: the registry singleton is built at app boot
-     * (routes/api/integrations.php iterates it to emit routes), so eagerly resolving
+     * (routes/api/platforms.php iterates it to emit routes), so eagerly resolving
      * a scraper here would bake the real client into the descriptor before a test can
      * bind its mock (the SEC-1 registry-timing gotcha). Deferring resolution to
      * fetchStrategy() call-time — inside PlatformRefresher, after any mock is bound —

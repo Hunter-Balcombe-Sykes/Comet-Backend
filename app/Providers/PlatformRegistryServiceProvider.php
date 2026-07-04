@@ -278,7 +278,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             }
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
-            // Drives the single registry loop in routes/api/integrations.php. Bespoke
+            // Drives the single registry loop in routes/api/platforms.php. Bespoke
             // platforms (the default) keep their standalone groups and are skipped.
 
             // Link-only socials: connect/selection/forget all via GenericPlatformController.
