@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Design\Presets\SiteDesignFactor;
 use App\Services\Design\Presets\StyleTiers;
 use App\Services\Design\WebsiteStyleAnalyzer;
+use Illuminate\Support\Collection;
 
 // Bottom-of-hierarchy factor: the "outside connected websites" — every shop
 // brand's store URL + every custom link the user attached, each analyzed once
@@ -16,7 +17,8 @@ use App\Services\Design\WebsiteStyleAnalyzer;
 // backgrounds + 1 light → dark); a tie means no confident conclusion → no
 // contribution for that column. No accent and no logo grabbing here — snapped
 // tiers only. Recomputed on every resolve, so adding/removing any website
-// reapplies the aggregate.
+// reapplies the aggregate — filtered from the resolver-supplied active
+// connections, no query of its own.
 class OutsideWebsitesFactor implements SiteDesignFactor
 {
     public const SOURCE = 'outside-websites:styles';
@@ -42,9 +44,9 @@ class OutsideWebsitesFactor implements SiteDesignFactor
     }
 
     /** @return array<string, string> */
-    public function detect(User $user, Site $site): array
+    public function detect(User $user, Site $site, Collection $activeConnections): array
     {
-        $analyses = $this->collectAnalyses($user);
+        $analyses = $this->collectAnalyses($activeConnections);
         if ($analyses === []) {
             return [];
         }
@@ -74,15 +76,12 @@ class OutsideWebsitesFactor implements SiteDesignFactor
      * Successful styleAnalysis payloads across all active custom links + shop
      * brands.
      *
+     * @param  Collection<int, IntegrationConnection>  $connections  resolver-supplied active connections (superset); filtered in memory
      * @return list<array<string, mixed>>
      */
-    private function collectAnalyses(User $user): array
+    private function collectAnalyses(Collection $connections): array
     {
-        $connections = IntegrationConnection::query()
-            ->where('user_id', $user->id)
-            ->active()
-            ->whereIn('platform', self::SOURCE_PLATFORMS)
-            ->get();
+        $connections = $connections->whereIn('platform', self::SOURCE_PLATFORMS);
 
         $analyses = [];
         foreach ($connections as $connection) {

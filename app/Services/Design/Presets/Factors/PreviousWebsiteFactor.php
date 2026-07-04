@@ -9,6 +9,7 @@ use App\Services\Design\Presets\SiteDesignFactor;
 use App\Services\Design\Presets\StyleTiers;
 use App\Services\Design\Scan\EvidenceConclusions;
 use App\Services\Design\WebsiteStyleAnalyzer;
+use Illuminate\Support\Collection;
 
 // Top-of-hierarchy factor: the user's PREVIOUS WEBSITE (site.workplaces.
 // previous_website — written manually in settings or auto-filled by Google
@@ -39,8 +40,9 @@ class PreviousWebsiteFactor implements SiteDesignFactor
     }
 
     /** @return array<string, string> */
-    public function detect(User $user, Site $site): array
+    public function detect(User $user, Site $site, Collection $activeConnections): array
     {
+        // $activeConnections unused: this factor reads Workplace, not connections.
         $workplace = Workplace::query()->find((string) $site->id);
         $url = trim((string) ($workplace?->previous_website ?? ''));
         $analysis = $workplace?->previous_website_analysis;

@@ -155,13 +155,15 @@ class DesignPresetResolver
             // aggregates) re-detect on EVERY resolve — their "frozenness" lives in
             // the stored analyses, not in contribution rows. A factor that throws
             // degrades to an empty detection (its rows sweep), never a failed job.
+            // $connections (already loaded above) is handed in so no site factor
+            // needs to re-query IntegrationConnection itself.
             foreach ($this->registry->siteFactors() as $siteFactor) {
                 $source = $siteFactor->key();
                 $desiredSources[] = $source;
 
                 $values = [];
                 try {
-                    $values = PresetTargetableColumns::filter($siteFactor->detect($user, $site));
+                    $values = PresetTargetableColumns::filter($siteFactor->detect($user, $site, $connections));
                 } catch (\Throwable $e) {
                     report($e);
                 }

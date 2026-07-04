@@ -9,6 +9,7 @@ use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\DesignPresetResolver;
 use App\Services\Design\Presets\FactorMode;
 use App\Services\Design\Presets\SiteDesignFactor;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -132,7 +133,7 @@ function dprThrowingSiteFactor(): SiteDesignFactor
             return 50;
         }
 
-        public function detect(User $user, Site $site): array
+        public function detect(User $user, Site $site, Collection $activeConnections): array
         {
             throw new RuntimeException('boom: fake site factor failure');
         }
