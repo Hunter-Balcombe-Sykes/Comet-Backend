@@ -944,3 +944,29 @@ it('exports design_kit for the user\'s site, yielding an empty result when no si
     $payload2 = app(DataExportPayloadBuilder::class)->build($pro2->id);
     expect($payload2['design_kit'])->toBeEmpty();
 });
+
+it('every section stream() yields resolves to a real key in build() — FOUND-1 regression guard', function () {
+    // FOUND-1: build() and stream() used to be two independently hand-written
+    // enumerations of the same ~26 sections; a missed edit to one silently
+    // dropped a section from a GDPR export with nothing warning anyone. Now
+    // build() derives its output from stream()'s own descriptors, so this
+    // assertion can only fail if someone reintroduces a second, separately
+    // maintained list — it is not possible for the two to drift on their own.
+    $pro = seedProForPayload((string) Str::uuid());
+    $builder = app(DataExportPayloadBuilder::class);
+
+    $streamedNames = [];
+    foreach ($builder->stream($pro->id) as $section) {
+        $streamedNames[] = $section['name'];
+    }
+
+    // Sanity check the manifest itself isn't accidentally empty.
+    expect($streamedNames)->not->toBeEmpty();
+
+    $payload = $builder->build($pro->id);
+
+    foreach ($streamedNames as $name) {
+        expect(\Illuminate\Support\Arr::has($payload, $name))
+            ->toBeTrue("build() is missing section '{$name}' that stream() yields");
+    }
+});
