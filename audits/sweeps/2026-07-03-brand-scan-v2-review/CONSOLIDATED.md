@@ -163,7 +163,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TEST-1** · P1 — `DesignPresetResolver` core resolution logic has no visible test coverage
+- [x] **#TEST-1** · P1 — `DesignPresetResolver` core resolution logic has no visible test coverage
     - **Where:** app/Services/Design/Presets/DesignPresetResolver.php (resolveForUser, syncSource, presetLayer)
     - **Affects:** Every design-kit contribution rendered on a public sitepage. A regression in one-shot freeze logic, the stale-contribution sweep, or the priority-merge tiebreak silently ships wrong colours/fonts to visitors.
     - **Effort:** M (~2–4h)
@@ -181,6 +181,7 @@
         $changed = $this->syncSource(...) || $changed;
         ```
     - `[Confirmed no matching test file exists via repo-wide glob.]`
+    - **Resolution (2026-07-04):** ✅ **DONE** (commit `4db5ee2c`, pushed to `development`) — started deliberately in a dedicated session (plan → independent Sonnet implement → independent Sonnet review → fix). **The premise was inaccurate:** coverage already existed — `DesignPresetSystemTest` + `WebsiteBrandSignalsTest` cover the happy/edge paths (one-shot freeze, disconnect sweep, site-factor happy/edge paths, priority merge, order-independence). The audit's class-name glob missed them because Partna names suites after *behaviour*, not the class. Added `tests/Feature/Design/DesignPresetResolverDefensiveTest.php` (5 tests) filling only the residual **defensive/branch** gaps: the equal-priority source-ascending tiebreak, connection- **and** site-factor `detect()` throw→degrade, the Auto-mode re-detect (false side of the freeze gate), and `presetLayer()`'s `catch(\Throwable)→[]`. Full suite green (3029 passed, 0 failed). The independent review caught a false-green in the tiebreak test (passed under a last-wins bug due to SQLite insertion-order return); fixed to assert order-invariance.
 
 - [x] **#TEST-2** · P1 — `LogoAutoGrabber` has no visible test coverage for CDN upscaling, ICO decode, or SVG safety
     - **Where:** app/Services/Design/LogoAutoGrabber.php (upsizeUrl, icoLargestPngFrame, svgIsSafe, attemptSlot)
@@ -1096,8 +1097,8 @@
 
 ## Deferred — do NOT run this pass; surface at completion
 
-**Fix-flow instruction:** #SEC-1, #TEST-1, and #TEST-3 are intentionally deferred by Josh (2026-07-03). Do NOT plan, implement, or tick their checkboxes this run — skip them wherever they appear (their finding entries above; they are deliberately in no bundle and not in Standalone). Their checkboxes stay `[ ]`, so the folder will NOT auto-archive — that is intended. When every other bundle + #SEC-3 is complete, end the run by printing a **"Deferred — start deliberately"** block that lists the three below with their reasons, then STOP (do not run `archive-done.sh`). **(Update 2026-07-04: #SEC-1 has since been started deliberately and completed — see below. #TEST-1 and #TEST-3 remain deferred, so the folder still does not auto-archive.)**
+**Fix-flow instruction:** #SEC-1, #TEST-1, and #TEST-3 are intentionally deferred by Josh (2026-07-03). Do NOT plan, implement, or tick their checkboxes this run — skip them wherever they appear (their finding entries above; they are deliberately in no bundle and not in Standalone). Their checkboxes stay `[ ]`, so the folder will NOT auto-archive — that is intended. When every other bundle + #SEC-3 is complete, end the run by printing a **"Deferred — start deliberately"** block that lists the three below with their reasons, then STOP (do not run `archive-done.sh`). **(Update 2026-07-04: #SEC-1 and #TEST-1 have since been started deliberately and completed — see below. #TEST-3 remains deferred, and other P3 items remain open, so the folder still does not auto-archive.)**
 
 - **#SEC-1** — ✅ **DONE 2026-07-04 (commit `d82015b6`)** — started deliberately with a plan + independent Opus review, exactly as this note advised. *(Original deferral reason: not exploitable today — site_id is server-derived at every creation site — but the fix drops `site_id` from `$fillable`, which silently breaks 5+ `new SiteMedia([...])` / `SiteMedia::create([...])` call sites unless each sets site_id explicitly. Blast radius > the theoretical bug — plan it deliberately with review.)*
-- **#TEST-1** — `DesignPresetResolver` core-resolution test suite · L (~1–2d) autonomous test-writing — run in a dedicated session where the spend can be watched.
+- **#TEST-1** — ✅ **DONE 2026-07-04 (commit `4db5ee2c`)** — completed in a dedicated session with independent implement + review, exactly as this note advised. *(Premise was inaccurate: coverage already existed under behaviour-named suites; added `DesignPresetResolverDefensiveTest.php` for the residual defensive/branch gaps only — see the Resolution note on the finding above.)*
 - **#TEST-3** — `EvidenceConclusions` confidence-engine test suite · L (~1–2d), same reason as TEST-1.
