@@ -2,14 +2,9 @@
 
 namespace App\Observers\Core;
 
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Jobs\Design\AnalyzeConnectionWebsitesJob;
-use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\User\User;
-use App\Services\Design\Presets\DesignFactorRegistry;
-use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
+use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Support\Facades\Log;
 
@@ -29,6 +24,14 @@ class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
 
+    // Defaulted (not just container-resolved) because a couple of tests
+    // instantiate this observer directly with `new` to exercise updated()'s
+    // Instagram-only logic in isolation — IntegrationConnectionCacheRefresher
+    // has no dependencies of its own, so this default is always safe.
+    public function __construct(
+        private readonly IntegrationConnectionCacheRefresher $refresher = new IntegrationConnectionCacheRefresher,
+    ) {}
+
     public function saved(IntegrationConnection $connection): void
     {
         // Purge + preset resolve both gate on MEANINGFUL changes only — a
@@ -39,18 +42,16 @@ class IntegrationConnectionObserver
         if ($connection->wasRecentlyCreated
             || $connection->wasChanged('payload')
             || $connection->wasChanged('is_active')) {
-            $this->purge($connection);
-            $this->resolveDesignPresets($connection);
+            $this->refresher->refresh($connection);
         }
     }
 
     public function deleted(IntegrationConnection $connection): void
     {
-        $this->purge($connection);
-        $this->cleanupMirroredMedia($connection);
         // Disconnect drops this integration's contributions; affected columns
         // re-resolve to the next-best source / manual / default.
-        $this->resolveDesignPresets($connection);
+        $this->refresher->refresh($connection);
+        $this->cleanupMirroredMedia($connection);
     }
 
     /**
@@ -90,8 +91,7 @@ class IntegrationConnectionObserver
 
     public function restored(IntegrationConnection $connection): void
     {
-        $this->purge($connection);
-        $this->resolveDesignPresets($connection);
+        $this->refresher->refresh($connection);
     }
 
     /**
@@ -105,66 +105,6 @@ class IntegrationConnectionObserver
         $folder = InstagramPayload::fromArray($connection->payload)->folder;
         if ($connection->platform === 'instagram' && $folder) {
             DeleteMirroredMediaJob::dispatch($folder);
-        }
-    }
-
-    private function purge(IntegrationConnection $connection): void
-    {
-        try {
-            $subdomain = User::query()
-                ->with('site')
-                ->find($connection->user_id)
-                ?->site?->subdomain;
-
-            if ($subdomain) {
-                CloudflareCachePurgeJob::dispatch($subdomain);
-            }
-        } catch (\Throwable $e) {
-            // Surface to Nightwatch — without report() a persistent failure (Redis
-            // outage, broken user→site join) silently serves stale edge cache with
-            // only a breadcrumb log. Do not re-throw: an observer must not crash the
-            // parent write.
-            report($e);
-            Log::warning('IntegrationConnectionObserver purge failed', [
-                'platform_connection_id' => $connection->id,
-                'user_id' => $connection->user_id,
-                'message' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    // Queue a per-user rebuild of design-kit preset contributions. Swallow +
-    // report on failure: an observer must never crash the parent write.
-    private function resolveDesignPresets(IntegrationConnection $connection): void
-    {
-        try {
-            $platform = (string) $connection->platform;
-
-            // Only platforms that feed the preset layer trigger work: ones with
-            // a registered connection factor, plus the outside-website sources
-            // (custom links / shop brands) feeding the aggregate site factor.
-            $hasFactor = app(DesignFactorRegistry::class)->factorsFor($platform) !== [];
-            $isWebsiteSource = in_array($platform, OutsideWebsitesFactor::SOURCE_PLATFORMS, true);
-            if (! $connection->user_id || (! $hasFactor && ! $isWebsiteSource)) {
-                return;
-            }
-
-            // Outside websites lacking a style analysis get one queued; the
-            // analyses job's payload writes re-enter this observer with
-            // analyses present, so this converges (no dispatch loop).
-            if ($isWebsiteSource && ! $connection->trashed()
-                && AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($connection)) {
-                AnalyzeConnectionWebsitesJob::dispatch((string) $connection->user_id);
-            }
-
-            ResolveDesignPresetsJob::dispatch((string) $connection->user_id);
-        } catch (\Throwable $e) {
-            report($e);
-            Log::warning('IntegrationConnectionObserver preset resolve dispatch failed', [
-                'platform_connection_id' => $connection->id,
-                'user_id' => $connection->user_id,
-                'message' => $e->getMessage(),
-            ]);
         }
     }
 }

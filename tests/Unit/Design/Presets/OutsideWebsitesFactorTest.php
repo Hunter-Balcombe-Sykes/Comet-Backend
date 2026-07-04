@@ -11,6 +11,7 @@
  */
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
@@ -49,6 +50,31 @@ function outsideWbsConnection(string $userId, string $platform, array $payload):
     ]);
 }
 
+/**
+ * Unsaved shop connection with its brand rows pre-set via setRelation() (FOUND-25:
+ * shop brands are relational site.shop_brands rows now, not a payload map) — the
+ * relation is already "loaded" in memory, so OutsideWebsitesFactor reading
+ * $connection->shopBrands never issues a query, preserving this test's whole
+ * point (no DB access).
+ *
+ * @param  list<array{id:string, url:string, styleAnalysis:array}>  $brands
+ */
+function outsideWbsShopConnection(string $userId, array $brands): IntegrationConnection
+{
+    $connection = outsideWbsConnection($userId, 'shop', ['storage' => 'relational']);
+
+    $connection->setRelation('shopBrands', new Collection(array_map(
+        fn (array $b) => (new ShopBrand)->forceFill([
+            'brand_id' => $b['id'],
+            'url' => $b['url'],
+            'style_analysis' => $b['styleAnalysis'],
+        ]),
+        $brands,
+    )));
+
+    return $connection;
+}
+
 it('reads outside-website analyses from the passed-in collection, not a DB query', function () {
     $user = (new User)->forceFill(['id' => 'outside-unit-user']);
     $site = (new Site)->forceFill(['id' => 'outside-unit-site']);
@@ -66,9 +92,9 @@ it('reads outside-website analyses from the passed-in collection, not a DB query
             'kind' => 'link', 'url' => 'https://l3.test',
             'styleAnalysis' => outsideWbsAnalysis('https://l3.test', ['bg' => 'dark']),
         ]),
-        outsideWbsConnection($user->id, 'shop', [
-            'b1' => ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => outsideWbsAnalysis('https://s1.test', ['bg' => 'dark', 'font' => 'nb-architekt'])],
-            'b2' => ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => outsideWbsAnalysis('https://s2.test', ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
+        outsideWbsShopConnection($user->id, [
+            ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => outsideWbsAnalysis('https://s1.test', ['bg' => 'dark', 'font' => 'nb-architekt'])],
+            ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => outsideWbsAnalysis('https://s2.test', ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
         ]),
         // Non-source platform: must be excluded by the in-memory
         // whereIn(SOURCE_PLATFORMS) filter, same as the dropped query's clause.

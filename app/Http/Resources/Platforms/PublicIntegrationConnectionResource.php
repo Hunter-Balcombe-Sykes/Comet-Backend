@@ -81,13 +81,15 @@ class PublicIntegrationConnectionResource extends ApiResource
         'booking' => [],
         'reservations' => [],
         'online-ordering' => [],
-        // shop: payload is a brand-keyed MAP, filtered per brand object (below).
+        // shop: brands live in the site.shop_brands child table now (FOUND-25) —
+        // built from $this->shopBrands below, not from this allowlist map.
     ];
 
     /**
-     * Public fields of a single shop brand object inside the brand-keyed map.
-     * `provider` (shopify / woocommerce / generic) drives sitepage URL +
-     * discount handling; products pass through verbatim (each carries `url`).
+     * Public fields of a single shop brand object (FOUND-25: sourced from a
+     * ShopBrand::toBrandArray(), not the connection's payload). `provider`
+     * (shopify / woocommerce / generic) drives sitepage URL + discount
+     * handling; products pass through verbatim (each carries `url`).
      * `sourceUrl` stays private — it is a re-scrape input, not a public field.
      */
     private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'products'];
@@ -107,21 +109,20 @@ class PublicIntegrationConnectionResource extends ApiResource
     /** Restrict a stored payload to its platform's public allowlist. */
     private function filterPayload(string $platform, mixed $payload): mixed
     {
+        if ($platform === 'shop') {
+            // FOUND-25: brands are the relational site.shop_brands rows
+            // (eager-loaded by the controller as `shopBrands.products`), not the
+            // connection's payload — build the brand-keyed map from there,
+            // allowlisted per brand exactly as before.
+            return $this->shopBrands
+                ->mapWithKeys(fn ($b) => [$b->brand_id => array_intersect_key(
+                    $b->toBrandArray(), array_flip(self::SHOP_BRAND_ALLOWLIST))])
+                ->all();
+        }
+
         // Null / non-array payloads (e.g. a pending connection) pass through.
         if (! is_array($payload)) {
             return $payload;
-        }
-
-        if ($platform === 'shop') {
-            // Brand-keyed map: allowlist each brand object's fields, keys
-            // preserved. Brands stored before the provider field existed are
-            // Shopify (the only provider back then).
-            return array_map(
-                fn ($brand) => is_array($brand)
-                    ? array_intersect_key(['provider' => 'shopify', ...$brand], array_flip(self::SHOP_BRAND_ALLOWLIST))
-                    : $brand,
-                $payload,
-            );
         }
 
         $allowed = self::ALLOWLIST[$platform] ?? null;

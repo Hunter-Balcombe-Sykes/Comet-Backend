@@ -57,7 +57,7 @@
 
 ## Progress
 
-- P0 Before pilot: 7 of 9 complete
+- P0 Before pilot: 8 of 9 complete
 - P1 Important spines: 0 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
@@ -139,7 +139,9 @@
             });
         ```
 
-- [ ] **#FOUND-25** · P0 · **Plan: Opus** — ShopController's brand+product map grows unboundedly inside one JSONB cell per user
+- [x] **#FOUND-25** · P0 · **Plan: Opus** — ShopController's brand+product map grows unboundedly inside one JSONB cell per user
+    - **✅ IMPLEMENTED (2026-07-05):** Extracted the brand+product map out of the single `site.platform_connections.payload` JSONB cell into two child tables — `site.shop_brands` (one row per store + the reserved `individual` bucket, FK→ the shop connection row `ON DELETE CASCADE`) and `site.shop_products` (one row per product). The `shop` connection row stays as the auth/lifecycle anchor; its payload shrinks to a marker `{"storage":"relational"}`. New `ShopBrand`/`ShopProduct` models (`POLICY_EXEMPT` — parent-gated via `IntegrationConnectionPolicy` through `ShopController`, the `MenuItem` precedent). Opus plan caught 3 stale premises: products are a **10-field verbatim object** (incl. the buy `url`/`available`), so each product's full object is kept in a `data` JSONB per row (columns for `product_id`/`position` only) rather than the finding's lossy 4-column shape; brands need `source_url` + `is_individual` columns the finding omitted. Public + dashboard API contracts preserved **value-identical** (allowlisted brand map rebuilt from the relation; contract test asserts it). Pure-SQL idempotent backfill in the migration; delete+reinsert product rebuilds wrapped in a pgsql transaction. **Round-1 independent review FAIL caught 3 real regressions the extraction introduced — all fixed in-unit** (Josh approved fixing #2 properly): (1) edge-cache purge stopped after the first shop write (marker never re-dirties `payload`) → extracted the observer's purge+design-resolve into a shared `IntegrationConnectionCacheRefresher`, called once per `ShopController` mutation, + a regression test proven to fail without the fix; (2) shop-brand website style-analysis silently died (`AnalyzeConnectionWebsitesJob` + `OutsideWebsitesFactor` read `styleAnalysis` from the old payload map) → added a nullable `style_analysis jsonb` column to `shop_brands` and rewired both consumers (shop path only; `custom` untouched); (3) lost write atomicity → wrapped in transactions. Also eager-loaded `shopBrands` in `DesignPresetResolver` (N+1). Independent Sonnet **re-review PASS**; full suite **3133 passed, 0 failed**. Migration `20260704160000` created but **unapplied** — the new code references the new tables, so this migration must be applied to dev Supabase **before** the code deploys (this *inverts* FOUND-37's order; combined sequence: apply both migrations → deploy immediately). Branch `audit-fix/foundational-prepilot-2026-07-04`.
+    - **⚠️ Tracked follow-on (low severity):** `BackfillWebsiteAnalysesCommand --retry-failures` still iterates a shop connection's payload as a brand map, so it's now a silent no-op for shop brands (only the "retry a *previously-failed* shop analysis" recovery path — a manual ops command, zero test coverage; fresh analysis is unaffected). Sweep it up with the same relational rewire when convenient.
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php` (`brandMap()`, `addBrand()`, `setProducts()`), `app/Http/Requests/Platforms/SetShopProductsRequest.php`
     - **Affects:** Every user with a shop connection — up to 5 brands × up to 250 selected products each can live in a single JSONB cell.
     - **Effort:** L (~1–2d, DB migration)

@@ -2,6 +2,7 @@
 
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
@@ -55,25 +56,29 @@ it('strips the internal _folder key from the public Instagram payload', function
 it('applies the per-brand allowlist to the Shopify brand map and strips unknown keys', function () {
     $user = allowlistUser('allow2');
 
-    IntegrationConnection::create([
+    // FOUND-25: brands are relational site.shop_brands rows — fixed columns
+    // mean there's no stray key to leak at the storage layer, but the public
+    // resource must still only expose SHOP_BRAND_ALLOWLIST fields (source_url,
+    // fetch_mode, is_individual, position never reach the public wire).
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'shop',
         'resource_id' => 'shop',
-        'payload' => [
-            'brand-123' => [
-                'id' => 'brand-123',
-                'url' => 'https://shop.example',
-                'name' => 'Example Shop',
-                'currency' => 'AUD',
-                'favicon' => 'https://shop.example/favicon.ico',
-                'logo' => 'https://shop.example/logo.png',
-                'discountCode' => 'SAVE10',
-                'products' => [],
-                '_internalRef' => 'secret-xyz', // not on the allowlist — must be stripped
-            ],
-        ],
+        'payload' => ['storage' => 'relational'],
         'is_active' => true,
         'last_refresh_status' => 'ok',
+    ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id,
+        'brand_id' => 'brand-123',
+        'provider' => 'shopify',
+        'url' => 'https://shop.example',
+        'source_url' => 'https://shop.example/internal-rescrape-input', // must stay private
+        'name' => 'Example Shop',
+        'currency' => 'AUD',
+        'favicon' => 'https://shop.example/favicon.ico',
+        'logo' => 'https://shop.example/logo.png',
+        'discount_code' => 'SAVE10',
     ]);
 
     $brand = $this->getJson('/api/public/profiles/allow2/integrations')
@@ -83,8 +88,8 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
     expect($brand['name'])->toBe('Example Shop');
     expect($brand)->toHaveKey('discountCode'); // kept — current public contract is a pass-through
     expect($brand)->toHaveKey('products');
-    expect($brand['provider'])->toBe('shopify'); // legacy brands default to shopify
-    expect($brand)->not->toHaveKey('_internalRef');
+    expect($brand['provider'])->toBe('shopify');
+    expect($brand)->not->toHaveKey('sourceUrl');
 });
 
 it('allowlists the new v2 platforms on the public endpoint', function () {

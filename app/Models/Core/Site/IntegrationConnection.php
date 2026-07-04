@@ -9,6 +9,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Validation\ValidationException;
 
@@ -119,6 +120,13 @@ class IntegrationConnection extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** FOUND-25: the shop connection's brands (child table, formerly the payload map). */
+    public function shopBrands(): HasMany
+    {
+        return $this->hasMany(ShopBrand::class, 'connection_id')
+            ->orderBy('position')->orderBy('brand_id');
     }
 
     public function scopeActive($query)

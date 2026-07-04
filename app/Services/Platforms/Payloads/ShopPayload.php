@@ -2,21 +2,23 @@
 
 namespace App\Services\Platforms\Payloads;
 
-// Typed boundary for the multi-brand `shop` archetype. Unlike the single-row
-// archetypes, the stored payload is a MAP keyed by brand id
-// ({ "<brandId>": {brand}, "individual": {brand}, … }). This DTO is the single
-// home for the two pieces of tolerant logic that used to live inline in
-// ShopController::brandMap(): the is-array guard on the stored map, and the
-// `provider ??= 'shopify'` default for brands stored before the provider field
-// existed.
+// Typed boundary for the multi-brand `shop` archetype's in-memory shape: a MAP
+// keyed by brand id ({ "<brandId>": {brand}, "individual": {brand}, … }).
 //
-// It PRESERVES every brand object VERBATIM apart from that provider default —
+// FOUND-25: brands are no longer STORED this way — they live in the relational
+// site.shop_brands/site.shop_products child tables, hydrated into this same map
+// shape by ShopController::brandMap() via ShopBrand::toBrandArray(). This DTO
+// now only serves the in-memory helpers built around that shape: the is-array
+// guard on a possibly-garbage input, and primaryWithProducts() for the COMPAT
+// /selection endpoint. `provider ??= 'shopify'` stays as a defensive default —
+// harmless now that every relational row always has a provider, but keeps this
+// tolerant of any caller passing an incomplete array.
+//
+// It PRESERVES every brand array VERBATIM apart from that provider default —
 // products pass through untouched (each is an upstream-shaped object carrying an
 // absolute url), and internal keys (`sourceUrl`, `fetchMode`) MUST survive because
-// ShopController::providerProducts() dispatches on them and brandMap() is written
-// back by the CRUD methods. (The public endpoint drops non-public keys via its own
-// per-brand allowlist; storage stays whole.) That is why this normalizes only
-// `provider` and never imposes a fixed brand key set.
+// ShopController::providerProducts() dispatches on them. That is why this
+// normalizes only `provider` and never imposes a fixed brand key set.
 final readonly class ShopPayload
 {
     /** @param array<string,mixed> $brands brand-keyed map; provider defaulted, all else verbatim */

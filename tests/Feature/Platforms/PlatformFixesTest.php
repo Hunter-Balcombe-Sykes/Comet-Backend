@@ -2,6 +2,7 @@
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AppleSearch;
@@ -234,15 +235,14 @@ it('refreshes the YouTube "most recent" tile when highlights are updated', funct
 function seedShopifyBrand(): User
 {
     $user = fbActingUser();
-    IntegrationConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
-        'payload' => [
-            'b1' => [
-                'id' => 'b1', 'url' => 'https://shop.example.com', 'name' => 'Shop',
-                'currency' => 'USD', 'favicon' => null, 'logo' => null,
-                'discountCode' => '', 'products' => [],
-            ],
-        ],
+        'payload' => ['storage' => 'relational'],
+    ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify',
+        'url' => 'https://shop.example.com', 'name' => 'Shop', 'currency' => 'USD',
+        'discount_code' => '',
     ]);
 
     return $user;

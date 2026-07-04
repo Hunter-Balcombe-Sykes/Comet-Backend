@@ -540,6 +540,39 @@ function setupSitesTable(): void
         // already exists / unsupported — ignore
     }
 
+    // site.shop_brands + site.shop_products — FOUND-25: the shop connection's
+    // brand-keyed JSONB payload map, relationalized. Mirrors migration
+    // 20260704160000 (uuid FKs → TEXT, boolean → INTEGER, jsonb `data` → TEXT).
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.shop_brands (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NULL,
+        brand_id TEXT NULL,
+        provider TEXT NULL,
+        url TEXT NULL,
+        source_url TEXT NULL,
+        name TEXT NULL,
+        currency TEXT NULL,
+        favicon TEXT NULL,
+        logo TEXT NULL,
+        discount_code TEXT NULL,
+        fetch_mode TEXT NULL,
+        is_individual INTEGER NULL DEFAULT 0,
+        position INTEGER NULL DEFAULT 0,
+        style_analysis TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.shop_products (
+        id TEXT PRIMARY KEY,
+        brand_id TEXT NULL,
+        product_id TEXT NULL,
+        position INTEGER NULL DEFAULT 0,
+        data TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
     // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000

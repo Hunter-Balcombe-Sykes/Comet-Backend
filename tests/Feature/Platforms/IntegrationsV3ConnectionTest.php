@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\DeezerApi;
@@ -56,7 +57,9 @@ it('detects a Squarespace store and stores its provider + products source', func
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
     // The discovered products-collection URL is kept privately for refreshes.
-    expect($conn->payload['hester-example']['sourceUrl'])->toBe('https://hester.example/shop');
+    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
+    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'hester-example')->value('source_url'))
+        ->toBe('https://hester.example/shop');
 });
 
 it('detects a Big Cartel store from its host alone', function () {

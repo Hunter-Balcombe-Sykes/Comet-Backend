@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
@@ -21,49 +23,56 @@ function shopPayloadUser(string $h): User
     ]);
 }
 
-it('shop updateBrand preserves other brands internal keys verbatim', function () {
+it('shop updateBrand preserves other brands fields verbatim', function () {
     $user = shopPayloadUser('shp1');
-    // Two brands; brand-1 carries internal keys (fetchMode, sourceUrl) the product
-    // dispatch depends on. Updating brand-2's discount must not strip brand-1's keys.
-    IntegrationConnection::create([
+    // FOUND-25: two brands as separate site.shop_brands rows. brand-1 carries
+    // internal fields (fetch_mode, source_url) the product dispatch depends on.
+    // Updating brand-2's discount must not touch brand-1's row at all.
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
-        'payload' => [
-            'brand-1' => [
-                'id' => 'brand-1', 'provider' => 'woocommerce', 'url' => 'https://b1',
-                'sourceUrl' => 'https://b1/shop', 'fetchMode' => 'client',
-                'discountCode' => 'A', 'products' => [['productId' => 'p1', 'url' => 'https://b1/p1']],
-            ],
-            'brand-2' => [
-                'id' => 'brand-2', 'provider' => 'shopify', 'url' => 'https://b2',
-                'discountCode' => 'B', 'products' => [],
-            ],
-        ],
+        'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand1 = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'woocommerce',
+        'url' => 'https://b1', 'source_url' => 'https://b1/shop', 'fetch_mode' => 'client',
+        'discount_code' => 'A', 'position' => 0,
+    ]);
+    ShopProduct::create(['brand_id' => $brand1->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'url' => 'https://b1/p1']]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-2', 'provider' => 'shopify',
+        'url' => 'https://b2', 'discount_code' => 'B', 'position' => 1,
     ]);
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/brand-2', ['discountCode' => 'NEW'])
         ->assertOk()
         ->assertJsonPath('discountCode', 'NEW');
 
-    $stored = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail()->payload;
-    // brand-1 internal keys + products survive verbatim; brand-2 discount updated.
-    expect($stored['brand-1']['fetchMode'])->toBe('client');
-    expect($stored['brand-1']['sourceUrl'])->toBe('https://b1/shop');
-    expect($stored['brand-1']['products'])->toBe([['productId' => 'p1', 'url' => 'https://b1/p1']]);
-    expect($stored['brand-2']['discountCode'])->toBe('NEW');
+    // brand-1's fields + products survive verbatim; brand-2's discount updated.
+    $brand1->refresh();
+    expect($brand1->fetch_mode)->toBe('client');
+    expect($brand1->source_url)->toBe('https://b1/shop');
+    expect($brand1->products->map->data->all())->toBe([['productId' => 'p1', 'url' => 'https://b1/p1']]);
+    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'brand-2')->value('discount_code'))
+        ->toBe('NEW');
 });
 
 it('shop selection returns the compat flat view of the first brand with products', function () {
     $user = shopPayloadUser('shp2');
-    IntegrationConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
-        'payload' => [
-            'empty' => ['id' => 'empty', 'url' => 'https://e', 'discountCode' => '', 'products' => []],
-            // No provider key — must default to 'shopify' in the compat view.
-            'full' => ['id' => 'full', 'url' => 'https://f', 'discountCode' => 'SAVE', 'products' => [['productId' => 'p1', 'url' => 'https://f/p1']]],
-        ],
+        'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'empty', 'provider' => 'shopify',
+        'url' => 'https://e', 'discount_code' => '', 'position' => 0,
+    ]);
+    $full = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'full', 'provider' => 'shopify',
+        'url' => 'https://f', 'discount_code' => 'SAVE', 'position' => 1,
+    ]);
+    ShopProduct::create(['brand_id' => $full->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'url' => 'https://f/p1']]);
 
     actingAsUser($user)->getJson('/api/platforms/shop/selection')
         ->assertOk()
@@ -77,10 +86,14 @@ it('shop selection returns the compat flat view of the first brand with products
 
 it('shop selection is null when no brand has products', function () {
     $user = shopPayloadUser('shp3');
-    IntegrationConnection::create([
+    $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
-        'payload' => ['b' => ['id' => 'b', 'url' => 'https://b', 'products' => []]],
+        'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'b', 'provider' => 'shopify',
+        'url' => 'https://b', 'position' => 0,
     ]);
 
     actingAsUser($user)->getJson('/api/platforms/shop/selection')

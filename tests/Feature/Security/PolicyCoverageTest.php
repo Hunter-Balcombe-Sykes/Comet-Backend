@@ -11,6 +11,8 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Models\Core\Waitlist\WaitlistSignup;
@@ -64,6 +66,12 @@ const POLICY_EXEMPT = [
     MenuItem::class,
     MenuPlatformLink::class,    // per-platform sync state; access flows through parent Menu
     MenuItemPlatform::class,    // per-platform item availability; access flows through parent Menu
+
+    // FOUND-25: children of the shop IntegrationConnection. Authorized via the
+    // parent IntegrationConnectionPolicy through ShopController; no direct API
+    // surface (same precedent as MenuItem above).
+    ShopBrand::class,
+    ShopProduct::class,
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional

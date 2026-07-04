@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\PlatformInput;
@@ -256,9 +257,9 @@ it('connects a WAF-blocked WooCommerce store via the client-assisted payload', f
         ->assertJsonPath('name', 'FEAR NO EVIL');
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
-    $brand = $conn->payload['fearnoevil-example'];
-    expect($brand['fetchMode'])->toBe('client');
-    expect($brand['url'])->toBe('https://fearnoevil.example');
+    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'fearnoevil-example')->firstOrFail();
+    expect($brand->fetch_mode)->toBe('client');
+    expect($brand->url)->toBe('https://fearnoevil.example');
 
     // The browser-fetched catalog was warmed for the picker — host-pinned, so
     // the spoofed foreign product is gone and the price is decimalised.
@@ -274,8 +275,7 @@ it('connects a WAF-blocked WooCommerce store via the client-assisted payload', f
     actingAsUser($user)->putJson('/api/platforms/shop/brands/fearnoevil-example/selection', [
         'productIds' => ['2964'],
     ])->assertOk();
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first()
-        ->payload['fearnoevil-example']['products'][0]['productId'])->toBe('2964');
+    expect($brand->fresh('products')->products->first()->product_id)->toBe('2964');
 });
 
 it('re-warms a client-mode brand catalog via the catalog endpoint', function () {

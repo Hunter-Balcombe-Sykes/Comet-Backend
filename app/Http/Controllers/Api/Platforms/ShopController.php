@@ -11,11 +11,14 @@ use App\Http\Requests\Platforms\SetShopProductsRequest;
 use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
+use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
+use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
@@ -24,14 +27,25 @@ use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
 // A user connects up to 5 stores by URL alone; ShopProviderDetector works out
 // whether each one is Shopify, WooCommerce, Squarespace, Big Cartel, or a
 // generic storefront with Product JSON-LD — the user never chooses. Each brand carries its provider,
-// profile (name/favicon/logo), discount code, and chosen products, stored as
-// one brand-keyed map on the single 'shop' connection row.
+// profile (name/favicon/logo), discount code, and chosen products.
+//
+// FOUND-25: brands + their chosen products live in site.shop_brands /
+// site.shop_products (one row per brand / product), not in the connection's
+// JSONB payload — the single 'shop' IntegrationConnection row is now just the
+// lifecycle/authorization anchor, its payload a static MARKER. Every mutating
+// method still writes that marker via writeConnection() so the create/update
+// ability keeps firing off the same chokepoint. Because the marker never
+// changes, IntegrationConnectionObserver's payload-dirty gate only fires on
+// the FIRST connect — every mutating method below explicitly invokes
+// IntegrationConnectionCacheRefresher once so brand/product edits still purge
+// the sitepage edge cache and re-resolve design presets.
 //
 // Product selection is decoupled from connect: adding a brand stores it with
 // zero products; the picker (GET .../products + PUT .../selection) runs any time.
@@ -56,6 +70,11 @@ class ShopController extends ApiController
     // /selection right after the picker opened reuses it instead of re-scraping.
     private const CATALOG_TTL_MINUTES = 10;
 
+    // The connection row's payload shrinks to this marker (FOUND-25) — brand
+    // data lives relationally now; the row itself is purely the lifecycle/
+    // authorization anchor.
+    private const MARKER = ['storage' => 'relational'];
+
     public function __construct(
         private readonly ShopProviderDetector $detector,
         private readonly ShopifyScraper $shopify,
@@ -63,6 +82,7 @@ class ShopController extends ApiController
         private readonly SquarespaceScraper $squarespace,
         private readonly BigCartelScraper $bigcartel,
         private readonly GenericShopScraper $generic,
+        private readonly IntegrationConnectionCacheRefresher $refresher,
     ) {}
 
     protected function platform(): string
@@ -107,37 +127,42 @@ class ShopController extends ApiController
         [$brand, $detectedProducts] = $this->brandProfileFor($detected);
         $id = $brand['id'];
 
-        return $this->withConnectionLock($user, function () use ($user, $validated, $detected, $brand, $detectedProducts, $id) {
-            $map = $this->brandMap($user);
+        return $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $validated) {
+            $connection = $this->writeConnection($user, self::MARKER);
+
+            $existing = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
             // The reserved individual-products bucket doesn't occupy a store slot.
-            $storeCount = count(array_diff_key($map, [self::INDIVIDUAL_BRAND_ID => true]));
-            if (! isset($map[$id]) && $storeCount >= self::MAX_BRANDS) {
+            $storeCount = ShopBrand::where('connection_id', $connection->id)->where('is_individual', false)->count();
+            if (! $existing && $storeCount >= self::MAX_BRANDS) {
                 return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
             }
 
             $discount = array_key_exists('discountCode', $validated)
                 ? trim((string) $validated['discountCode'])
-                : ($map[$id]['discountCode'] ?? '');
+                : ($existing?->discount_code ?? '');
 
-            $map[$id] = [
-                'id' => $id,
-                'provider' => $detected['provider'],
-                'url' => $detected['origin'],
-                'sourceUrl' => $detected['sourceUrl'],
-                'name' => $brand['name'],
-                'currency' => $brand['currency'] ?? null,
-                'favicon' => $brand['favicon'],
-                'logo' => $brand['logo'],
-                'discountCode' => $discount,
-                'products' => $map[$id]['products'] ?? [],
-            ];
-            // Client-connected brands can't be re-scraped server-side; the
-            // flag routes product reads through the catalog cache + the
-            // client re-warm endpoint instead of abort(502)ing.
-            if (! empty($detected['fetchMode'])) {
-                $map[$id]['fetchMode'] = $detected['fetchMode'];
-            }
-            $this->writeConnection($user, $map);
+            $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
+            $position = $existing?->position ?? (($maxPosition === null ? -1 : $maxPosition) + 1);
+
+            $brandRow = ShopBrand::updateOrCreate(
+                ['connection_id' => $connection->id, 'brand_id' => $id],
+                [
+                    'provider' => $detected['provider'],
+                    'url' => $detected['origin'],
+                    'source_url' => $detected['sourceUrl'],
+                    'name' => $brand['name'],
+                    'currency' => $brand['currency'] ?? null,
+                    'favicon' => $brand['favicon'],
+                    'logo' => $brand['logo'],
+                    'discount_code' => $discount,
+                    // Client-connected brands can't be re-scraped server-side; the
+                    // flag routes product reads through the catalog cache + the
+                    // client re-warm endpoint instead of abort(502)ing.
+                    'fetch_mode' => $detected['fetchMode'] ?? null,
+                    'is_individual' => false,
+                    'position' => $position,
+                ],
+            );
 
             // The generic detector already read the page's products — warm the
             // picker catalog so the immediately-following GET is instant.
@@ -145,7 +170,12 @@ class ShopController extends ApiController
                 Cache::put($this->catalogKey($id), $detectedProducts, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
             }
 
-            return $this->success((new ShopBrandResource($map[$id]))->resolve());
+            // The connection's payload is a static marker (FOUND-25) — the
+            // observer's payload-dirty gate won't fire for a brand add after the
+            // first connect, so purge + preset-resolve explicitly, once.
+            $this->refresher->refresh($connection);
+
+            return $this->success((new ShopBrandResource($brandRow->fresh('products')->toBrandArray()))->resolve());
         });
     }
 
@@ -156,15 +186,17 @@ class ShopController extends ApiController
         $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
-            $map = $this->brandMap($user);
-            if (! isset($map[$id])) {
+            $connection = $this->connectionFor($user);
+            $brand = $connection ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first() : null;
+            if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
 
-            $map[$id]['discountCode'] = trim((string) $validated['discountCode']);
-            $this->writeConnection($user, $map);
+            $brand->update(['discount_code' => trim((string) $validated['discountCode'])]);
+            $connection = $this->writeConnection($user, self::MARKER);
+            $this->refresher->refresh($connection);
 
-            return $this->success((new ShopBrandResource($map[$id]))->resolve());
+            return $this->success((new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve());
         });
     }
 
@@ -174,11 +206,22 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user, $id) {
-            $map = $this->brandMap($user);
-            unset($map[$id]);
-            $this->writeConnection($user, $map);
+            $connection = $this->connectionFor($user);
+            if ($connection) {
+                $brand = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
+                if ($brand) {
+                    // Explicit child delete (not just relying on the DB's ON DELETE
+                    // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
+                    // codebase, and keeps this deterministic on SQLite in tests,
+                    // which doesn't enforce FK cascade.
+                    ShopProduct::where('brand_id', $brand->id)->delete();
+                    $brand->delete();
+                }
+            }
+            $connection = $this->writeConnection($user, self::MARKER);
+            $this->refresher->refresh($connection);
 
-            return $this->success(['brands' => ShopBrandResource::collection(array_values($map))->resolve()]);
+            return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
     }
 
@@ -231,27 +274,48 @@ class ShopController extends ApiController
         $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
-            $map = $this->brandMap($user);
-            if (! isset($map[$id])) {
+            $connection = $this->connectionFor($user);
+            $brand = $connection
+                ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->with('products')->first()
+                : null;
+            if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
 
             // Prefer the catalog the picker just warmed; only re-scrape if it
             // has gone cold (a save long after the picker was opened).
             $catalog = Cache::get($this->catalogKey($id))
-                ?? $this->providerProducts($map[$id]);
+                ?? $this->providerProducts($brand->toBrandArray());
             $all = collect($catalog)->keyBy('productId');
-            $map[$id]['products'] = collect($validated['productIds'])
+            $selected = collect($validated['productIds'])
                 ->map(fn (string $pid) => $all->get($pid))
                 ->filter()
-                ->values()
-                ->all();
-            $this->writeConnection($user, $map);
+                ->values();
+
+            // Rebuild the product rows wholesale — mirrors the old
+            // whole-array-replace semantics of the JSONB `products` write.
+            // Transactional (MenuFetchJob::persist() precedent): the old single
+            // JSONB write was atomic by nature, so the delete+reinsert here must
+            // be too — a mid-loop failure must not leave a partial product set.
+            DB::connection('pgsql')->transaction(function () use ($brand, $selected) {
+                ShopProduct::where('brand_id', $brand->id)->delete();
+                foreach ($selected as $index => $productData) {
+                    ShopProduct::create([
+                        'brand_id' => $brand->id,
+                        'product_id' => (string) ($productData['productId'] ?? ''),
+                        'position' => $index,
+                        'data' => $productData,
+                    ]);
+                }
+            });
+
+            $connection = $this->writeConnection($user, self::MARKER);
+            $this->refresher->refresh($connection);
             // Invalidate the picker catalog so a subsequent GET re-scrapes the
             // store instead of serving the pre-selection snapshot for up to 10 min.
             Cache::forget($this->catalogKey($id));
 
-            return $this->success((new ShopBrandResource($map[$id]))->resolve());
+            return $this->success((new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve());
         });
     }
 
@@ -260,7 +324,7 @@ class ShopController extends ApiController
     // rendering. Returns null when no brand has products.
     public function selection(Request $request): JsonResponse
     {
-        $primary = ShopPayload::fromArray($this->readConnection($this->currentUser($request)))->primaryWithProducts();
+        $primary = ShopPayload::fromArray($this->brandMap($this->currentUser($request)))->primaryWithProducts();
 
         $selection = $primary ? [
             'url' => $primary['url'],
@@ -275,7 +339,23 @@ class ShopController extends ApiController
     // DELETE /api/platforms/shop — clear all brands.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetConnection($this->currentUser($request));
+        $user = $this->currentUser($request);
+
+        // Drop brand/product rows BEFORE the soft-delete so nothing is left
+        // hanging off the tombstoned connection row (they'd otherwise orphan
+        // until the 30-day hard-delete purge). Explicit child delete (not just
+        // the DB's ON DELETE CASCADE) — see removeBrand() for why.
+        $connection = $this->connectionFor($user);
+        if ($connection) {
+            $brandIds = ShopBrand::where('connection_id', $connection->id)->pluck('id');
+            ShopProduct::whereIn('brand_id', $brandIds)->delete();
+            ShopBrand::where('connection_id', $connection->id)->delete();
+        }
+        // forgetConnection() soft-deletes the connection row, which fires the
+        // observer's deleted() → unconditional cache refresh — so unlike the
+        // other mutations (which only touch child rows) no explicit refresh is
+        // needed here.
+        $this->forgetConnection($user);
 
         return $this->success(['brands' => []]);
     }
@@ -296,32 +376,51 @@ class ShopController extends ApiController
         }
 
         return $this->withConnectionLock($user, function () use ($user, $product) {
-            $map = $this->brandMap($user);
-            $brand = $map[self::INDIVIDUAL_BRAND_ID] ?? [
-                'id' => self::INDIVIDUAL_BRAND_ID,
-                'provider' => ShopProviderDetector::PROVIDER_GENERIC,
-                'url' => '',
-                'sourceUrl' => '',
-                'name' => null,
-                'currency' => $product['currency'] ?? null,
-                'favicon' => null,
-                'logo' => null,
-                'discountCode' => '',
-                'individual' => true,
-                'products' => [],
-            ];
+            $connection = $this->writeConnection($user, self::MARKER);
+
+            $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
+            $individual = ShopBrand::firstOrCreate(
+                ['connection_id' => $connection->id, 'brand_id' => self::INDIVIDUAL_BRAND_ID],
+                [
+                    'provider' => ShopProviderDetector::PROVIDER_GENERIC,
+                    'url' => '',
+                    'source_url' => '',
+                    'currency' => $product['currency'] ?? null,
+                    'discount_code' => '',
+                    'is_individual' => true,
+                    'position' => ($maxPosition === null ? -1 : $maxPosition) + 1,
+                ],
+            );
+
+            $productId = $product['productId'] ?? null;
 
             // Newest first, de-duped by productId, capped.
-            $brand['products'] = collect($brand['products'] ?? [])
-                ->reject(fn ($p) => ($p['productId'] ?? null) === $product['productId'])
+            $ordered = ShopProduct::where('brand_id', $individual->id)
+                ->orderBy('position')
+                ->get()
+                ->reject(fn (ShopProduct $p) => $p->product_id === $productId)
+                ->map(fn (ShopProduct $p) => $p->data)
                 ->prepend($product)
                 ->take(self::MAX_INDIVIDUAL_PRODUCTS)
-                ->values()
-                ->all();
-            $map[self::INDIVIDUAL_BRAND_ID] = $brand;
-            $this->writeConnection($user, $map);
+                ->values();
 
-            return $this->success((new ShopBrandResource($map[self::INDIVIDUAL_BRAND_ID]))->resolve());
+            // Transactional rebuild — see setProducts() for why (mid-loop
+            // failure must not leave a partial product set).
+            DB::connection('pgsql')->transaction(function () use ($individual, $ordered) {
+                ShopProduct::where('brand_id', $individual->id)->delete();
+                foreach ($ordered as $index => $productData) {
+                    ShopProduct::create([
+                        'brand_id' => $individual->id,
+                        'product_id' => (string) ($productData['productId'] ?? ''),
+                        'position' => $index,
+                        'data' => $productData,
+                    ]);
+                }
+            });
+
+            $this->refresher->refresh($connection);
+
+            return $this->success((new ShopBrandResource($individual->fresh('products')->toBrandArray()))->resolve());
         });
     }
 
@@ -332,25 +431,23 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user, $productId) {
-            $map = $this->brandMap($user);
-            $brand = $map[self::INDIVIDUAL_BRAND_ID] ?? null;
-            if ($brand === null) {
+            $connection = $this->connectionFor($user);
+            $individual = $connection
+                ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', self::INDIVIDUAL_BRAND_ID)->first()
+                : null;
+            if (! $individual) {
                 return $this->error('Product not found.', 404);
             }
 
-            $brand['products'] = collect($brand['products'] ?? [])
-                ->reject(fn ($p) => ($p['productId'] ?? null) === $productId)
-                ->values()
-                ->all();
+            ShopProduct::where('brand_id', $individual->id)->where('product_id', $productId)->delete();
 
-            if ($brand['products'] === []) {
-                unset($map[self::INDIVIDUAL_BRAND_ID]);
-            } else {
-                $map[self::INDIVIDUAL_BRAND_ID] = $brand;
+            if (ShopProduct::where('brand_id', $individual->id)->doesntExist()) {
+                $individual->delete();
             }
-            $this->writeConnection($user, $map);
+            $connection = $this->writeConnection($user, self::MARKER);
+            $this->refresher->refresh($connection);
 
-            return $this->success(['brands' => ShopBrandResource::collection(array_values($map))->resolve()]);
+            return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
     }
 
@@ -449,13 +546,21 @@ class ShopController extends ApiController
     }
 
     /**
-     * The stored brand map (id => brand), or empty. Brands stored before the
-     * provider field existed are Shopify (the only provider back then) —
-     * ShopPayload applies that default and preserves every other brand key verbatim.
+     * The stored brand map (id => brand), or empty. FOUND-25: reads the
+     * relational site.shop_brands/site.shop_products child tables (formerly
+     * a single JSONB map on the connection's payload).
      */
     private function brandMap(User $user): array
     {
-        return ShopPayload::fromArray($this->readConnection($user))->toArray();
+        $connection = $this->connectionFor($user);
+        if (! $connection) {
+            return [];
+        }
+
+        return $connection->shopBrands()->with('products')->get()
+            ->keyBy('brand_id')
+            ->map(fn (ShopBrand $b) => $b->toBrandArray())
+            ->all();
     }
 
     /** Brands as a plain ordered list. */

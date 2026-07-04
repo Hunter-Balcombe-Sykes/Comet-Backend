@@ -53,7 +53,12 @@ class PublicIntegrationController extends ApiController
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')
-            ->get(['platform', 'resource_id', 'payload', 'last_refreshed_at'])
+            // FOUND-25: shop brands live in the relational child tables now —
+            // eager load so PublicIntegrationConnectionResource can build the
+            // brand-keyed map without an N+1. `id` is required for the relation
+            // to hydrate (it wasn't previously selected).
+            ->with(['shopBrands.products'])
+            ->get(['id', 'platform', 'resource_id', 'payload', 'last_refreshed_at'])
             ->groupBy('platform')
             ->map(fn ($rows) => PublicIntegrationConnectionResource::collection($rows->values())->resolve())
             ->toArray();

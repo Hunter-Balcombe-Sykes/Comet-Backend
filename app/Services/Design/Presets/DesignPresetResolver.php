@@ -104,9 +104,15 @@ class DesignPresetResolver
         // bare DB::transaction()) because BaseModel forces pgsql regardless of
         // the default connection config.
         return DB::connection('pgsql')->transaction(function () use ($user, $site, $siteId) {
+            // Eager-load shopBrands: OutsideWebsitesFactor reads each shop
+            // connection's brand rows (FOUND-25) via this SAME collection, not
+            // its own query. Without this, that property access would lazy-load
+            // per shop connection — an N+1 that also trips Model::preventLazyLoading
+            // outside production whenever the user has 2+ active connections.
             $connections = IntegrationConnection::query()
                 ->where('user_id', $user->id)
                 ->active()
+                ->with('shopBrands')
                 ->get();
 
             /** @var Collection<string, Collection<int, DesignKitContribution>> $existing */

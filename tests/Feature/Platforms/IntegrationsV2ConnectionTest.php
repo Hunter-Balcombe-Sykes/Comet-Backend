@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\GenericShopScraper;
@@ -51,7 +52,9 @@ it('detects a WooCommerce store from the URL alone and stores its provider', fun
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
     expect($conn)->not->toBeNull();
-    expect($conn->payload['store-example']['provider'])->toBe('woocommerce');
+    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
+    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'store-example')->value('provider'))
+        ->toBe('woocommerce');
 });
 
 it('falls through to the generic JSON-LD provider and warms its catalog', function () {

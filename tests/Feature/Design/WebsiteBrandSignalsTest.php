@@ -4,6 +4,7 @@ use App\Jobs\Design\AnalyzeConnectionWebsitesJob;
 use App\Jobs\Design\AnalyzePreviousWebsiteJob;
 use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
@@ -144,6 +145,32 @@ function wbsSeedConnection(User $user, array $payload, string $platform): string
     ]);
 
     return $id;
+}
+
+/**
+ * FOUND-25: shop brands are relational site.shop_brands rows now, not a
+ * payload map — seed a 'shop' connection (static marker payload) plus one
+ * ShopBrand row per entry. Each entry: ['id' => 'b1', 'url' => '...',
+ * 'styleAnalysis' => [...] (optional, null when omitted)].
+ *
+ * @param  list<array{id:string, url:string, styleAnalysis?: array}>  $brands
+ */
+function wbsSeedShopConnection(User $user, array $brands): string
+{
+    $connId = wbsSeedConnection($user, ['storage' => 'relational'], 'shop');
+
+    foreach ($brands as $i => $brand) {
+        ShopBrand::create([
+            'connection_id' => $connId,
+            'brand_id' => $brand['id'],
+            'provider' => 'shopify',
+            'url' => $brand['url'],
+            'style_analysis' => $brand['styleAnalysis'] ?? null,
+            'position' => $i,
+        ]);
+    }
+
+    return $connId;
 }
 
 function wbsSeedWorkplace(string $siteId, ?string $url, ?array $analysis): void
@@ -385,11 +412,11 @@ it('applies the mode across outside websites: 4 dark + 1 light -> dark', functio
             'styleAnalysis' => wbsAnalysis("https://l{$i}.test", null, ['bg' => 'dark']),
         ], 'custom');
     }
-    // Shop connection: brand-keyed map, one dark + one warm brand.
-    wbsSeedConnection($user, [
-        'b1' => ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'nb-architekt'])],
-        'b2' => ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
-    ], 'shop');
+    // Shop connection: relational brand rows (FOUND-25), one dark + one warm brand.
+    wbsSeedShopConnection($user, [
+        ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'nb-architekt'])],
+        ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
+    ]);
 
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
@@ -506,9 +533,9 @@ it('fills missing styleAnalysis for custom links and shop brands, then converges
     Queue::fake();
     $user = createTenant('analyses-fill');
     $linkId = wbsSeedConnection($user, ['kind' => 'link', 'url' => 'https://site1.test'], 'custom');
-    $shopId = wbsSeedConnection($user, [
-        'b1' => ['id' => 'b1', 'url' => 'https://store.test'],
-    ], 'shop');
+    $shopId = wbsSeedShopConnection($user, [
+        ['id' => 'b1', 'url' => 'https://store.test'],
+    ]);
 
     // Worker fake keyed on the scanned target inside the request body.
     Http::fake(function ($request) {
@@ -525,8 +552,9 @@ it('fills missing styleAnalysis for custom links and shop brands, then converges
 
     $link = IntegrationConnection::query()->find($linkId);
     $shop = IntegrationConnection::query()->find($shopId);
+    $brand = ShopBrand::where('connection_id', $shopId)->where('brand_id', 'b1')->firstOrFail();
     expect($link->payload['styleAnalysis']['signals']['bg']['tier'])->toBe('dark')
-        ->and($shop->payload['b1']['styleAnalysis']['signals']['bg']['tier'])->toBe('warm_light')
+        ->and($brand->fresh()->style_analysis['signals']['bg']['tier'])->toBe('warm_light')
         ->and(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($link->fresh()))->toBeFalse()
         ->and(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($shop->fresh()))->toBeFalse();
 });
@@ -544,16 +572,16 @@ it('treats a v1 styleAnalysis as needing re-analysis', function () {
 // ── AnalyzeConnectionWebsitesJob per-brand checkpoint + self-continue (LIFE-1) ──
 
 it('checkpoints each shop brand immediately so a mid-run failure keeps prior progress', function () {
-    // Fake the queue so the b1 checkpoint's own IntegrationConnectionObserver
-    // dispatch (payload changed → AnalyzeConnectionWebsitesJob re-fires) doesn't
-    // run for real mid-test and clobber b2 with a genuine (SSRF-rejected)
-    // analysis before our own loop gets to it.
+    // FOUND-25: each brand is checked out to its own site.shop_brands row now,
+    // so a checkpoint write is a plain single-row update() — it does not touch
+    // the parent IntegrationConnection, so (unlike the pre-FOUND-25 shared
+    // JSONB payload) there's no risk of it re-triggering the observer mid-run.
     Queue::fake();
     $user = createTenant('life1-checkpoint');
-    $shopId = wbsSeedConnection($user, [
-        'b1' => ['id' => 'b1', 'url' => 'https://b1.test'],
-        'b2' => ['id' => 'b2', 'url' => 'https://b2.test'],
-    ], 'shop');
+    $shopId = wbsSeedShopConnection($user, [
+        ['id' => 'b1', 'url' => 'https://b1.test'],
+        ['id' => 'b2', 'url' => 'https://b2.test'],
+    ]);
 
     $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
     $analyzer->shouldReceive('analyze')->once()->with('https://b1.test')
@@ -568,9 +596,10 @@ it('checkpoints each shop brand immediately so a mid-run failure keeps prior pro
         // test is that b1's write already landed before this happened.
     }
 
-    $shop = IntegrationConnection::query()->find($shopId);
-    expect($shop->payload['b1']['styleAnalysis']['ok'] ?? null)->toBeTrue()
-        ->and($shop->payload['b2']['styleAnalysis'] ?? null)->toBeNull();
+    $b1 = ShopBrand::where('connection_id', $shopId)->where('brand_id', 'b1')->firstOrFail();
+    $b2 = ShopBrand::where('connection_id', $shopId)->where('brand_id', 'b2')->firstOrFail();
+    expect($b1->style_analysis['ok'] ?? null)->toBeTrue()
+        ->and($b2->style_analysis ?? null)->toBeNull();
 });
 
 it('caps analyses per run at the budget and self-continues with a delayed follow-up', function () {

@@ -3,6 +3,7 @@
 namespace App\Jobs\Design;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\WebsiteStyleAnalyzer;
@@ -12,16 +13,19 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Fills missing styleAnalysis snapshots for a user's outside-connected
 // websites — one per custom link, one per shop brand — feeding the
-// OutsideWebsitesFactor's mode vote. Each payload write is a normal update()
-// so IntegrationConnectionObserver refires: analyses now match their URLs, so
-// no re-dispatch (converges), and the resolve job is queued by the same
-// observer pass.
+// OutsideWebsitesFactor's mode vote. Custom-link analyses are a normal
+// payload update() so IntegrationConnectionObserver refires: analyses now
+// match their URLs, so no re-dispatch (converges), and the resolve job is
+// queued by the same observer pass. Shop-brand analyses (FOUND-25) write
+// directly to the brand's own site.shop_brands.style_analysis column instead
+// — each brand is its own row now, not a shared JSONB map, so there's no
+// cross-brand clobber risk and no observer refire needed to converge (the
+// dispatching controller explicitly refreshes the cache/presets already).
 //
 // ShouldBeUniqueUntilProcessing (not plain ShouldBeUnique) per user coalesces
 // bursts (e.g. several links added back-to-back) AND lets this job re-dispatch
@@ -81,19 +85,20 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
         if (! in_array((string) $connection->platform, OutsideWebsitesFactor::SOURCE_PLATFORMS, true)) {
             return false;
         }
-        $payload = is_array($connection->payload) ? $connection->payload : [];
 
         if ($connection->platform === 'custom') {
+            $payload = is_array($connection->payload) ? $connection->payload : [];
+
             return self::entryNeedsAnalysis($payload);
         }
 
-        foreach ($payload as $brand) {
-            if (is_array($brand) && self::entryNeedsAnalysis($brand)) {
-                return true;
-            }
-        }
-
-        return false;
+        // shop: brand rows are the source of truth (FOUND-25) — the
+        // connection's payload is just the static relational-storage marker.
+        // Queried fresh (not the possibly-stale eager-loaded relation) so a
+        // caller checking right after a child-row write sees it.
+        return $connection->shopBrands()->get()->contains(
+            fn (ShopBrand $b) => self::brandNeedsAnalysis($b),
+        );
     }
 
     /** @param array<string, mixed> $entry */
@@ -107,6 +112,20 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
 
         // URL mismatch OR analyzer-version mismatch → stale. The version
         // clause makes a VERSION bump re-sweep every stored analysis.
+        return ! is_array($analysis)
+            || ($analysis['url'] ?? null) !== $url
+            || ($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION;
+    }
+
+    /** Does this shop brand carry a URL lacking its current, matching styleAnalysis? */
+    private static function brandNeedsAnalysis(ShopBrand $brand): bool
+    {
+        $url = trim((string) $brand->url);
+        if ($url === '') {
+            return false;
+        }
+        $analysis = $brand->style_analysis;
+
         return ! is_array($analysis)
             || ($analysis['url'] ?? null) !== $url
             || ($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION;
@@ -137,9 +156,8 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
                 break;
             }
 
-            $payload = is_array($connection->payload) ? $connection->payload : [];
-
             if ($connection->platform === 'custom') {
+                $payload = is_array($connection->payload) ? $connection->payload : [];
                 if (self::entryNeedsAnalysis($payload)) {
                     $payload['styleAnalysis'] = $analyzer->analyze(trim((string) $payload['url']));
                     $connection->update(['payload' => $payload]);
@@ -149,41 +167,28 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
                 continue;
             }
 
-            // shop: brand-keyed map — analyze each brand entry missing one,
-            // checkpointing after EVERY brand (not once at the end of the
-            // connection) so a mid-connection failure — or simply running out
-            // of budget partway through a many-brand connection — keeps
-            // whatever was already analyzed instead of losing it.
-            foreach ($payload as $key => $brand) {
+            // shop: each brand is its own site.shop_brands row (FOUND-25), not a
+            // shared JSONB map — analyze each brand missing one, checkpointing
+            // after EVERY brand (not once at the end of the connection) so a
+            // mid-connection failure — or simply running out of budget partway
+            // through a many-brand connection — keeps whatever was already
+            // analyzed instead of losing it. No lock/merge needed here (unlike
+            // the pre-FOUND-25 shared-payload version): style_analysis is its
+            // own column on its own row, so a concurrent brand edit elsewhere
+            // can't clobber it and vice versa.
+            foreach ($connection->shopBrands()->get() as $brand) {
                 if ($budget <= 0) {
                     break;
                 }
-                if (! is_array($brand) || ! self::entryNeedsAnalysis($brand)) {
+                if (! self::brandNeedsAnalysis($brand)) {
                     continue;
                 }
 
                 // SEM-2: analyze() is a slow HTTP round-trip (up to ~80s) — it
                 // must run OUTSIDE any row lock, or a concurrent dashboard save
                 // to this connection would block for the full call.
-                $analysis = $analyzer->analyze(trim((string) $brand['url']));
-
-                // Short locked read-modify-write: re-read the row under
-                // lockForUpdate so a concurrent write between our initial read
-                // (above) and now isn't clobbered — merge just this brand's
-                // styleAnalysis into whatever payload is fresh on the row.
-                DB::connection('pgsql')->transaction(function () use ($connection, $key, $analysis) {
-                    $fresh = IntegrationConnection::query()->whereKey($connection->id)->lockForUpdate()->first();
-                    if ($fresh === null) {
-                        return;
-                    }
-                    $freshPayload = $fresh->payload;
-                    $freshPayload[$key]['styleAnalysis'] = $analysis;
-                    $fresh->update(['payload' => $freshPayload]);
-                    // Keep the in-memory $connection in sync so the loop's next
-                    // iteration (entryNeedsAnalysis on this same object) and the
-                    // self-continue check below both see the saved state.
-                    $connection->setRawAttributes($fresh->getAttributes(), true);
-                });
+                $analysis = $analyzer->analyze(trim((string) $brand->url));
+                $brand->update(['style_analysis' => $analysis]);
 
                 $budget--;
             }

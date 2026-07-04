@@ -2,6 +2,7 @@
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
@@ -236,5 +237,6 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
     expect($conn)->not->toBeNull();
-    expect(count($conn->payload))->toBe(5);
+    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
+    expect(ShopBrand::where('connection_id', $conn->id)->where('is_individual', false)->count())->toBe(5);
 });

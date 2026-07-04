@@ -12,13 +12,16 @@ use Illuminate\Support\Collection;
 
 // Bottom-of-hierarchy factor: the "outside connected websites" — every shop
 // brand's store URL + every custom link the user attached, each analyzed once
-// at add time (AnalyzeConnectionWebsitesJob stores a styleAnalysis in the
-// payload). Per signal, the MODE across all analyzed sites wins (e.g. 4 dark
-// backgrounds + 1 light → dark); a tie means no confident conclusion → no
-// contribution for that column. No accent and no logo grabbing here — snapped
-// tiers only. Recomputed on every resolve, so adding/removing any website
-// reapplies the aggregate — filtered from the resolver-supplied active
-// connections, no query of its own.
+// at add time (AnalyzeConnectionWebsitesJob stores a styleAnalysis — in the
+// connection's payload for custom links, in the brand's own row for shop
+// brands post-FOUND-25). Per signal, the MODE across all analyzed sites wins
+// (e.g. 4 dark backgrounds + 1 light → dark); a tie means no confident
+// conclusion → no contribution for that column. No accent and no logo
+// grabbing here — snapped tiers only. Recomputed on every resolve, so
+// adding/removing any website reapplies the aggregate — filtered from the
+// resolver-supplied active connections, no query of its own: DesignPresetResolver
+// eager-loads shopBrands on that SAME collection, so reading it here is a plain
+// in-memory relation access, not a per-connection lazy load.
 class OutsideWebsitesFactor implements SiteDesignFactor
 {
     public const SOURCE = 'outside-websites:styles';
@@ -85,9 +88,8 @@ class OutsideWebsitesFactor implements SiteDesignFactor
 
         $analyses = [];
         foreach ($connections as $connection) {
-            $payload = is_array($connection->payload) ? $connection->payload : [];
-
             if ($connection->platform === 'custom') {
+                $payload = is_array($connection->payload) ? $connection->payload : [];
                 $analysis = $payload['styleAnalysis'] ?? null;
                 if ($this->usable($analysis)) {
                     $analyses[] = $analysis;
@@ -96,12 +98,12 @@ class OutsideWebsitesFactor implements SiteDesignFactor
                 continue;
             }
 
-            // shop: payload is a brand-keyed map; each brand entry may carry
-            // its own styleAnalysis.
-            foreach ($payload as $brand) {
-                $analysis = is_array($brand) ? ($brand['styleAnalysis'] ?? null) : null;
-                if ($this->usable($analysis)) {
-                    $analyses[] = $analysis;
+            // shop: each connected brand's styleAnalysis lives in its own
+            // site.shop_brands row now (FOUND-25), not a payload map — the
+            // connection's payload is just the static relational marker.
+            foreach ($connection->shopBrands as $brand) {
+                if ($this->usable($brand->style_analysis)) {
+                    $analyses[] = $brand->style_analysis;
                 }
             }
         }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
@@ -372,12 +373,14 @@ it('shopify addBrand returns the canonical brand object shape', function () {
 
 it('shopify brands list strips unknown per-brand keys', function () {
     $user = platformContractUser('sh2');
-    seedPlatformConnection($user, 'shop', [
-        'brand-1' => [
-            'id' => 'brand-1', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
-            'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'products' => [],
-            '_internalRef' => 'secret', // must be stripped
-        ],
+    // FOUND-25: brands are relational rows now — fixed columns mean there is no
+    // "unknown key" to leak, but ShopBrandResource must still shape the row into
+    // exactly this contract (no internal columns like source_url/fetch_mode).
+    $conn = seedPlatformConnection($user, 'shop', ['storage' => 'relational']);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
+        'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
+        'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
     ]);
 
     actingAsUser($user)->getJson('/api/platforms/shopify/brands')

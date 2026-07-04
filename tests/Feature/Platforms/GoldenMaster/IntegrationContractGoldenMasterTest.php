@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Core\Site\ShopBrand;
+
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
@@ -495,10 +497,15 @@ it('freezes the apple-podcast selection contract', function () {
 
 it('freezes the shop brands list contract', function () {
     $user = gmUser('gmshop');
-    gmSeed($user, 'shop', ['brand-1' => [
-        'id' => 'brand-1', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
-        'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'products' => [], '_leak' => 'x',
-    ]]);
+    // FOUND-25: brands are relational site.shop_brands rows now — fixed
+    // columns mean there's no stray key to leak, but ShopBrandResource must
+    // still shape the row into exactly this contract.
+    $conn = gmSeed($user, 'shop', ['storage' => 'relational']);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
+        'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
+        'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
+    ]);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
