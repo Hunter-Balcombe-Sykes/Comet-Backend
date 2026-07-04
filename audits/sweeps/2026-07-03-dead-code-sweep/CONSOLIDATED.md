@@ -59,14 +59,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
-- P3 Low: 0 of 3 complete
+- P2 Medium: 2 of 2 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SLOP-1** · P2 — Identical event-sort `usort` closures copy-pasted between EventbriteScraper and HumanitixScraper
+- [x] **#SLOP-1** · P2 — Identical event-sort `usort` closures copy-pasted between EventbriteScraper and HumanitixScraper
     - **Where:** app/Services/Platforms/EventbriteScraper.php:107-121, app/Services/Platforms/HumanitixScraper.php:135-149
     - **Affects:** Any future fix to event date ordering — a bug fix applied to one scraper silently leaves the other with the old (possibly wrong) behavior.
     - **Effort:** S (~0.5–1h)
@@ -113,7 +113,7 @@
         });
         ```
 
-- [ ] **#SLOP-2** · P2 — `dispatchImageJob` and `dispatchLogoJob` are near-identical copies of the same inline/queue/fallback dispatch pattern
+- [x] **#SLOP-2** · P2 — `dispatchImageJob` and `dispatchLogoJob` are near-identical copies of the same inline/queue/fallback dispatch pattern
     - **Where:** app/Services/Media/MediaUploadService.php:379-424 (`dispatchImageJob`), :454-502 (`dispatchLogoJob`)
     - **Affects:** Any future fix to the dispatch/fallback contract (e.g. a race condition, a retry-policy change) — patched in one method, the other method silently keeps the old behavior.
     - **Effort:** S (~0.5–1h)
@@ -179,7 +179,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-3** · P3 — Commented-out code left in `PruneNotifications`
+- [x] **#SLOP-3** · P3 — Commented-out code left in `PruneNotifications`
     - **Where:** app/Console/Commands/PruneNotifications.php:24-25
     - **Affects:** Developers reading the prune logic — the dead line misleads about whether policy-update notifications get special retention treatment.
     - **Effort:** S (~0.5–1h)
@@ -194,7 +194,7 @@
         // $q->where('type', '!=', 'policy_update');
         ```
 
-- [ ] **#SLOP-4** · P3 — Restating and decorative section-header comments in `UserCustomerController`
+- [x] **#SLOP-4** · P3 — Restating and decorative section-header comments in `UserCustomerController`
     - **Where:** app/Http/Controllers/Api/User/Customers/UserCustomerController.php:142, :149, :163
     - **Affects:** Developers reading the controller — the comments add scan noise without adding meaning beyond the method name/code they sit above.
     - **Effort:** S (~0.5–1h)
@@ -216,7 +216,8 @@
         public function restore(Request $request, Customer $customer): JsonResponse
         ```
 
-- [ ] **#SLOP-5** · P3 — Decorative section-divider comments in Platforms scrapers
+- [x] **#SLOP-5** · P3 — Decorative section-divider comments in Platforms scrapers
+    - **Resolution:** LEFT AS-IS — intentional convention. The `// ── Label ──` divider is used consistently across **6 files** in `app/Services/Platforms/` (GoogleBusinessAutoSync ×7, EventsCatalog ×2, AppleSearch, HumanitixScraper, ShopifyScraper, WooCommerceScraper), so it's an established local convention, not stray noise — deleting only these three would make the folder inconsistent. Per Josh's guidance, not applied.
     - **Where:** app/Services/Platforms/AppleSearch.php:81, app/Services/Platforms/EventsCatalog.php:217, :302
     - **Affects:** Maintainers reading the files — one-line visual dividers with no navigational value beyond what a blank line already gives.
     - **Effort:** S (~0.5–1h)
@@ -278,13 +279,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SEM-1** · P3 — Purge audit entry stores the pseudonymised email instead of the resolved original
+- [x] **#SEM-1** · P3 — Purge audit entry stores the pseudonymised email instead of the resolved original
     - **Where:** app/Services/User/AccountDeletionService.php:468 (snapshot capture), 516 (real-email resolution), 554-565 (audit create)
     - **Affects:** Forensic readability of the `EVENT_PURGED` audit row. The real email remains fully recoverable from the earlier `EVENT_CONFIRMED` row (via `restoreEmailFromAuditSnapshot`/`resolveDeletedAccountEmail`), so no data is lost — but the final "purged" receipt itself records `deleted+{id}@partna.au` rather than the real address it had every opportunity to record correctly.
     - **Effort:** S (~0.5–1h)

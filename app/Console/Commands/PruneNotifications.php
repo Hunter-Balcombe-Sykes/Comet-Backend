@@ -21,9 +21,6 @@ class PruneNotifications extends Command
             ->whereNotNull('ends_at')
             ->where('ends_at', '<', $cutoff);
 
-        // Optional: keep policy updates longer
-        // $q->where('type', '!=', 'policy_update');
-
         $count = (clone $q)->count();
 
         if ($this->option('dry-run')) {

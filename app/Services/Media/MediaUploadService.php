@@ -375,26 +375,27 @@ class MediaUploadService
     }
 
     /**
-     * Image dispatch is best-effort and NEVER throws — failed dispatch leaves
-     * the media row in PENDING and surfaces via the processing_state poll. This
-     * asymmetry with video is deliberate: image jobs are tiny and retry-safe,
-     * video jobs are expensive and the user is better served by a 503 + rollback.
+     * Dispatch a media-processing job best-effort with a synchronous fallback,
+     * and NEVER throw — a failed dispatch leaves the row PENDING and surfaces via
+     * the processing_state poll. Runs inline (dispatchSync) in local/testing or
+     * when queue.default is sync; otherwise queues, falling back to dispatchSync
+     * if the queue push itself throws. $args is the job's named-constructor arg
+     * map, spread as named arguments (PHP 8.1+) so each job's distinct signature
+     * still binds; $label only tunes the log wording.
      */
-    private function dispatchImageJob(string $imageId, string $originalPath, string $basePath): void
+    private function dispatchWithSyncFallback(string $jobClass, array $args, string $label): void
     {
         $queueConnection = (string) config('queue.default', 'sync');
         $processInline = in_array(app()->environment(), ['local', 'testing'], true)
             || $queueConnection === 'sync';
 
+        $imageId = $args['imageId'] ?? null;
+
         if ($processInline) {
             try {
-                ProcessImageVariantsJob::dispatchSync(
-                    originalPath: $originalPath,
-                    imageId: $imageId,
-                    basePath: $basePath,
-                );
+                $jobClass::dispatchSync(...$args);
             } catch (Throwable $e) {
-                Log::error('Inline image variant processing failed.', [
+                Log::error("Inline {$label} processing failed.", [
                     'image_id' => $imageId, 'error' => $e->getMessage(),
                 ]);
             }
@@ -403,28 +404,35 @@ class MediaUploadService
         }
 
         try {
-            ProcessImageVariantsJob::dispatch(
-                originalPath: $originalPath,
-                imageId: $imageId,
-                basePath: $basePath,
-            );
+            $jobClass::dispatch(...$args);
         } catch (Throwable $e) {
-            Log::error('Queue dispatch failed for image; trying synchronous fallback.', [
+            Log::error("Queue dispatch failed for {$label}; trying synchronous fallback.", [
                 'image_id' => $imageId, 'error' => $e->getMessage(),
             ]);
             try {
-                ProcessImageVariantsJob::dispatchSync(
-                    originalPath: $originalPath,
-                    imageId: $imageId,
-                    basePath: $basePath,
-                );
+                $jobClass::dispatchSync(...$args);
             } catch (Throwable $syncError) {
                 report($syncError);
-                Log::error('Synchronous image variant processing also failed.', [
+                Log::error("Synchronous {$label} processing also failed.", [
                     'image_id' => $imageId, 'error' => $syncError->getMessage(),
                 ]);
             }
         }
+    }
+
+    /**
+     * Image dispatch is best-effort and NEVER throws — failed dispatch leaves
+     * the media row in PENDING and surfaces via the processing_state poll. This
+     * asymmetry with video is deliberate: image jobs are tiny and retry-safe,
+     * video jobs are expensive and the user is better served by a 503 + rollback.
+     */
+    private function dispatchImageJob(string $imageId, string $originalPath, string $basePath): void
+    {
+        $this->dispatchWithSyncFallback(ProcessImageVariantsJob::class, [
+            'originalPath' => $originalPath,
+            'imageId' => $imageId,
+            'basePath' => $basePath,
+        ], 'image variant');
     }
 
     /**
@@ -451,58 +459,18 @@ class MediaUploadService
     }
 
     /**
-     * Logo dispatch — mirrors dispatchImageJob (best-effort, inline in local/testing,
-     * sync fallback on queue failure). Never throws: a dispatch failure leaves the
-     * row PENDING and surfaces via the processing_state poll.
+     * Logo dispatch — same best-effort contract as dispatchImageJob (inline in
+     * local/testing, sync fallback on queue failure, never throws). Adds the
+     * siteId arg the background-removal logo pipeline needs.
      */
     private function dispatchLogoJob(string $mediaId, string $originalPath, string $basePath, string $siteId): void
     {
-        $queueConnection = (string) config('queue.default', 'sync');
-        $processInline = in_array(app()->environment(), ['local', 'testing'], true)
-            || $queueConnection === 'sync';
-
-        if ($processInline) {
-            try {
-                ProcessLogoVariantsJob::dispatchSync(
-                    originalPath: $originalPath,
-                    imageId: $mediaId,
-                    basePath: $basePath,
-                    siteId: $siteId,
-                );
-            } catch (Throwable $e) {
-                Log::error('Inline logo processing failed.', [
-                    'image_id' => $mediaId, 'error' => $e->getMessage(),
-                ]);
-            }
-
-            return;
-        }
-
-        try {
-            ProcessLogoVariantsJob::dispatch(
-                originalPath: $originalPath,
-                imageId: $mediaId,
-                basePath: $basePath,
-                siteId: $siteId,
-            );
-        } catch (Throwable $e) {
-            Log::error('Queue dispatch failed for logo; trying synchronous fallback.', [
-                'image_id' => $mediaId, 'error' => $e->getMessage(),
-            ]);
-            try {
-                ProcessLogoVariantsJob::dispatchSync(
-                    originalPath: $originalPath,
-                    imageId: $mediaId,
-                    basePath: $basePath,
-                    siteId: $siteId,
-                );
-            } catch (Throwable $syncError) {
-                report($syncError);
-                Log::error('Synchronous logo processing also failed.', [
-                    'image_id' => $mediaId, 'error' => $syncError->getMessage(),
-                ]);
-            }
-        }
+        $this->dispatchWithSyncFallback(ProcessLogoVariantsJob::class, [
+            'originalPath' => $originalPath,
+            'imageId' => $mediaId,
+            'basePath' => $basePath,
+            'siteId' => $siteId,
+        ], 'logo');
     }
 
     /**

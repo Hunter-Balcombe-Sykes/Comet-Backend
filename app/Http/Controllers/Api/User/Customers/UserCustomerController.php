@@ -139,14 +139,13 @@ class UserCustomerController extends ApiController
         return $this->success(['customer' => new CustomerResource($customer->fresh())]);
     }
 
-    // Archive Soft Delete
     public function destroy(Request $request, Customer $customer)
     {
         $pro = $this->currentUser($request);
         $this->authorizeForUser($pro, 'delete', $customer);
 
         if (! $customer->trashed()) {
-            $customer->delete(); // soft delete (archive)
+            $customer->delete();
         }
 
         $confirmationService = app(ConfirmationPreferenceService::class);
@@ -160,7 +159,6 @@ class UserCustomerController extends ApiController
         return $this->success(['archived' => true]);
     }
 
-    // Restore (un-archive)
     public function restore(Request $request, Customer $customer): JsonResponse
     {
         $pro = $this->currentUser($request);

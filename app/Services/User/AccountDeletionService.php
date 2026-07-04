@@ -549,12 +549,15 @@ class AccountDeletionService
         }
 
         // Direct create (not logAuditEvent) — the professional row was just
-        // force-deleted, so user_id must be NULL to satisfy the FK.
-        // Snapshots taken at the top of purge() preserve identity for forensics.
+        // force-deleted, so user_id must be NULL to satisfy the FK. The handle
+        // snapshot is the top-of-purge value (handles are never pseudonymised);
+        // the email uses the audit-resolved pre-pseudonymisation address so this
+        // PURGED receipt records the real address, not the "deleted+{id}@" placeholder
+        // that primary_email already holds by this point (SEM-1).
         UserDeletionAuditEntry::create([
             'user_id' => null,
             'professional_handle_snapshot' => $handleSnapshot,
-            'professional_email_snapshot' => $emailSnapshot,
+            'professional_email_snapshot' => $lookupEmail ?? $emailSnapshot,
             'event' => UserDeletionAuditEntry::EVENT_PURGED,
             'actor_type' => UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
             // Ledger of R2 video paths for the orphan sweep (P1-08). Null when

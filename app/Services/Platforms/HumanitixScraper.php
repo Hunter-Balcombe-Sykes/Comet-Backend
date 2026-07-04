@@ -132,21 +132,7 @@ class HumanitixScraper extends PlatformScraper
         // now). Carbon::parse because the dates carry the event's LOCAL offset
         // (e.g. "2026-05-15T18:00:00+1000") — string compare vs UTC is wrong.
         $now = now();
-        usort($events, function ($a, $b) {
-            $aDate = $a['startDate'] ?? '';
-            $bDate = $b['startDate'] ?? '';
-            if ($aDate === '' && $bDate === '') {
-                return 0;
-            }
-            if ($aDate === '') {
-                return -1;
-            }
-            if ($bDate === '') {
-                return 1;
-            }
-
-            return Carbon::parse($aDate)->getTimestamp() <=> Carbon::parse($bDate)->getTimestamp();
-        });
+        $this->sortByStartDate($events);
         $upcoming = array_values(array_filter($events, function ($e) use ($now) {
             $compareDate = $e['endDate'] ?? $e['startDate'] ?? null;
             if (empty($compareDate)) {

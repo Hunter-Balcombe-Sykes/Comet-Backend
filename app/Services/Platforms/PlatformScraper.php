@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use Illuminate\Support\Carbon;
+
 // Shared base for the test-mode platform scrapers. Holds the one browser
 // user-agent they all present, plus the generic HTML-extraction helpers
 // (og: meta tags, favicon/logo discovery, JSON-LD flattening, URL
@@ -240,5 +242,30 @@ abstract class PlatformScraper
         }
 
         return null;
+    }
+
+    // Sort scraped events soonest-first, in place. Events with an empty/missing
+    // startDate sort first (preserving their pre-extraction order); the rest by
+    // Carbon-parsed timestamp. Carbon::parse is required because the dates carry
+    // each event's LOCAL timezone offset — a plain string compare against a UTC
+    // value mis-orders them. Shared by EventbriteScraper and HumanitixScraper,
+    // whose sort closures were byte-for-byte identical.
+    protected function sortByStartDate(array &$events): void
+    {
+        usort($events, function ($a, $b) {
+            $aDate = $a['startDate'] ?? '';
+            $bDate = $b['startDate'] ?? '';
+            if ($aDate === '' && $bDate === '') {
+                return 0;
+            }
+            if ($aDate === '') {
+                return -1;
+            }
+            if ($bDate === '') {
+                return 1;
+            }
+
+            return Carbon::parse($aDate)->getTimestamp() <=> Carbon::parse($bDate)->getTimestamp();
+        });
     }
 }

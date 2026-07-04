@@ -104,21 +104,7 @@ class EventbriteScraper extends PlatformScraper
         // Events with a missing/empty startDate sort first (matching old behaviour)
         // and are never passed to Carbon::parse.
         $now = now();
-        usort($events, function ($a, $b) {
-            $aDate = $a['startDate'] ?? '';
-            $bDate = $b['startDate'] ?? '';
-            if ($aDate === '' && $bDate === '') {
-                return 0;
-            }
-            if ($aDate === '') {
-                return -1;
-            }
-            if ($bDate === '') {
-                return 1;
-            }
-
-            return Carbon::parse($aDate)->getTimestamp() <=> Carbon::parse($bDate)->getTimestamp();
-        });
+        $this->sortByStartDate($events);
         $upcoming = array_values(array_filter(
             $events,
             function ($e) use ($now) {
