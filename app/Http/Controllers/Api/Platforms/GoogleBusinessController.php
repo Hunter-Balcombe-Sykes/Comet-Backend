@@ -12,6 +12,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -27,7 +28,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
 
     protected function platform(): string
     {
-        return 'google-business';
+        return Platform::GoogleBusiness->value;
     }
 
     protected function resourceClass(): string
@@ -163,7 +164,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
     public function synced(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
         $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
 
         // Pre-load all connections keyed by "platform|resource_id" so shapeFinding
@@ -190,7 +191,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         $user = $this->currentUser($request);
         $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
 
-        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
         $gbp = GoogleBusinessPayload::fromArray($gb?->payload);
         $payload = $gbp->toArray();
         $findings = $gbp->syncFindings();
@@ -256,7 +257,7 @@ class GoogleBusinessController extends SingleSelectionPlatformController
             'label' => $label,
             'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
             'foundUrl' => $foundUrl,
-            'removePath' => $platform === 'online-ordering'
+            'removePath' => $platform === Platform::OnlineOrdering->value
                 ? '/platforms/online-ordering/entries/'.$row->resource_id
                 : '/platforms/'.$platform,
         ];

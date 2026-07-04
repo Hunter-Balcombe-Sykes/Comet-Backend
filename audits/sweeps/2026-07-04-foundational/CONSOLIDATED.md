@@ -58,7 +58,7 @@
 ## Progress
 
 - P0 Before pilot: 8 of 9 complete
-- P1 Important spines: 0 of 4 complete
+- P1 Important spines: 2 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
 
@@ -258,7 +258,8 @@
 
 ## P1 — Important extensibility spines (fix at next platform/section add)
 
-- [ ] **#FOUND-5** · P1 · **Plan: Sonnet** — Platform route `defaults('platform', ...)` strings are hand-typed ~36 times with no registry validation
+- [x] **#FOUND-5** · P1 · **Plan: Sonnet** — Platform route `defaults('platform', ...)` strings are hand-typed ~36 times with no registry validation
+    - **✅ IMPLEMENTED (2026-07-05):** File is `routes/api/platforms.php` (the finding's `integrations.php` is stale — renamed in `7fcc31a0`/`b4419f7c`). FOUND-21's registry-driven route loop had already single-sourced most defaults from `$slug`; the ~30 remaining hand-typed literals lived only in the 8 `Bespoke`-shape platform groups (youtube/apple-music/apple-podcast/bandcamp/vimeo/youtube-music + fresha/square). Deduped each group to a local `$platform` (`$musicPlatform`/`$podcastPlatform` for the shared apple closure) and — the real safety net — added `RouteDefaultsCoverageTest` asserting **every** route's `platform` default resolves in `PlatformRegistry`, so a mistyped slug fails at CI instead of silently 404-ing at request time. A full registry-driven generator for the bespoke groups was judged scope-creep into FOUND-21's settled territory (they carry extra non-standard routes). Zero behavior change. Independent Sonnet review PASS, full suite 3135 passed. No migration. Branch `audit-fix/foundational-prepilot-2026-07-04`.
     - **Where:** `routes/api/integrations.php` (every `->defaults('platform', '<slug>')`)
     - **Affects:** Every route registered for a platform; a typo in one occurrence silently 404s or misroutes that specific action with no boot-time warning.
     - **Effort:** S (~0.5–1h)
@@ -274,7 +275,8 @@
         Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', 'youtube-music');
         ```
 
-- [ ] **#FOUND-11** · P1 · **Plan: Sonnet** — Platform identifier strings are bare literals scattered across queries, jobs, and dispatch arrays with no enum or registry
+- [x] **#FOUND-11** · P1 · **Plan: Sonnet** — Platform identifier strings are bare literals scattered across queries, jobs, and dispatch arrays with no enum or registry
+    - **✅ IMPLEMENTED (2026-07-05):** Added a string-backed `App\Services\Platforms\Registry\Platform` enum plus `PlatformEnumSyncTest` asserting every case value is a registered `PlatformRegistry` key — so the enum **cannot drift** from the registry. Deliberately NOT a full 52-way mirror (that would be the very parallel-source anti-pattern this lens hunts); the principled scope is *every platform slug referenced by identity in code*. Converted every bare platform-string literal in query / write / identity-comparison / `platform()`-getter contexts across ~22 files to `Platform::X->value` (byte-identical). Two independent review rounds progressively widened coverage; **Josh's gate call was to complete it** rather than defer part — all 11 identity slugs are covered (`google-business`, `online-ordering`, `fresha`, `square`, `reservations`, `custom`, `booking`, `opentable`, `resdiary`, `nowbookit`, `instagram`), including `GoogleBusinessAutoSync`'s reservation/booking recipe const-arrays + write recipes (clean because all slugs are registry-backed). Non-identity uses correctly left as literals (`category`/`provider`/`Log` context/URL-path/Fresha-GraphQL `web`/validation-message/Apify rate-budget keys). `uber-eats`/`doordash` deliberately untouched — owned by #FOUND-23 (next unit), and not registry-registered. Final independent Sonnet review PASS (exhaustive per-slug sweep confirmed clean of identity sites), full suite 3135 passed. No migration. Same branch.
     - **Where:** `app/Jobs/Platforms/GoogleBusinessEnrichJob.php` (`->where('platform', 'google-business')`), `app/Jobs/Platforms/EnrichLinkCardJob.php` (`public string $platform`), `app/Jobs/Platforms/MenuFetchJob.php` (`'uber-eats'`, `'doordash'` array keys)
     - **Affects:** Any rename or typo of a platform key — a mismatch is a silent zero-row query or a rate-limiter key miss, with no compiler check.
     - **Effort:** M (~2–4h)

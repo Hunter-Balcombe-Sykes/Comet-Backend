@@ -11,6 +11,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Registry\Platform;
 use Throwable;
 
 // Seeds Reservations / Online-ordering / Social connections from a Google
@@ -32,9 +33,11 @@ class GoogleBusinessAutoSync
 {
     private const MAX_ORDERING = 10;
 
-    private const RESERVATION_PLATFORMS = ['opentable', 'resdiary', 'nowbookit', 'reservations'];
+    private const RESERVATION_PLATFORMS = [
+        Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value, Platform::Reservations->value,
+    ];
 
-    private const BOOKING_PLATFORMS = ['fresha', 'square', 'booking'];
+    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value, Platform::Booking->value];
 
     public function __construct(
         private readonly OpenTableService $openTable,
@@ -161,21 +164,21 @@ class GoogleBusinessAutoSync
 
         foreach ($candidates as $url) {
             if ($this->openTable->isOpenTableUrl($url) && ($rid = $this->openTable->parseRid($url)) !== null) {
-                return ['platform' => 'opentable', 'resourceId' => 'opentable', 'payload' => [
+                return ['platform' => Platform::OpenTable->value, 'resourceId' => Platform::OpenTable->value, 'payload' => [
                     'url' => $url, 'rid' => $rid, 'name' => $businessName,
                     'embedUrl' => $this->openTable->embedUrl($rid, $this->openTable->hostOf($url)),
                     'source' => 'google-business',
                 ]];
             }
             if ($this->resDiary->isResDiaryUrl($url) && ($embed = $this->resDiary->embedUrl($url)) !== null) {
-                return ['platform' => 'resdiary', 'resourceId' => 'resdiary', 'payload' => [
+                return ['platform' => Platform::Resdiary->value, 'resourceId' => Platform::Resdiary->value, 'payload' => [
                     'url' => $url, 'microsite' => $this->resDiary->parseMicrosite($url),
                     'name' => $this->resDiary->nameFromUrl($url) ?? $businessName,
                     'embedUrl' => $embed, 'source' => 'google-business',
                 ]];
             }
             if ($this->nowBookit->isNowBookitUrl($url) && ($ids = $this->nowBookit->parseIds($url)) !== null) {
-                return ['platform' => 'nowbookit', 'resourceId' => 'nowbookit', 'payload' => [
+                return ['platform' => Platform::Nowbookit->value, 'resourceId' => Platform::Nowbookit->value, 'payload' => [
                     'url' => $url, 'accountId' => $ids['accountId'], 'venueId' => $ids['venueId'],
                     'name' => $this->nowBookit->nameFromUrl($url) ?? $businessName,
                     'embedUrl' => $this->nowBookit->embedUrl($ids['accountId'], $ids['venueId']),
@@ -189,7 +192,7 @@ class GoogleBusinessAutoSync
             return null;
         }
 
-        return ['platform' => 'reservations', 'resourceId' => 'reservations', 'payload' => [
+        return ['platform' => Platform::Reservations->value, 'resourceId' => Platform::Reservations->value, 'payload' => [
             'provider' => 'custom', 'url' => $url,
             'name' => $this->clean(data_get($reservation, 'provider')) ?? $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
@@ -219,7 +222,7 @@ class GoogleBusinessAutoSync
             }
 
             $label = match ($write['platform']) {
-                'fresha' => 'Fresha', 'square' => 'Square', default => $write['payload']['name'] ?? 'Booking',
+                Platform::Fresha->value => 'Fresha', Platform::Square->value => 'Square', default => $write['payload']['name'] ?? 'Booking',
             };
             if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
                 return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
@@ -254,18 +257,18 @@ class GoogleBusinessAutoSync
         }
 
         $provider = $this->detector->detectFor('booking', $url);
-        if ($provider === 'fresha') {
-            return ['platform' => 'fresha', 'resourceId' => 'fresha', 'payload' => [
+        if ($provider === Platform::Fresha->value) {
+            return ['platform' => Platform::Fresha->value, 'resourceId' => Platform::Fresha->value, 'payload' => [
                 'url' => $url, 'selection' => null, 'source' => 'google-business',
             ]];
         }
-        if ($provider === 'square') {
-            return ['platform' => 'square', 'resourceId' => 'square', 'payload' => [
+        if ($provider === Platform::Square->value) {
+            return ['platform' => Platform::Square->value, 'resourceId' => Platform::Square->value, 'payload' => [
                 'url' => $url, 'source' => 'google-business',
             ]];
         }
 
-        return ['platform' => 'booking', 'resourceId' => 'booking', 'payload' => [
+        return ['platform' => Platform::Booking->value, 'resourceId' => Platform::Booking->value, 'payload' => [
             'provider' => 'custom', 'url' => $url, 'name' => $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
         ]];
@@ -360,7 +363,7 @@ class GoogleBusinessAutoSync
             // an N-store enrichment into 2N+1 round-trips.
             $existingOrdering = IntegrationConnection::query()
                 ->where('user_id', $userId)
-                ->where('platform', 'online-ordering')
+                ->where('platform', Platform::OnlineOrdering->value)
                 ->get();
             $existingCount = $existingOrdering->count();
             // Key by storeKey for O(1) duplicate detection.
@@ -392,7 +395,7 @@ class GoogleBusinessAutoSync
                 $pickupUrl = $this->modeUrl($group, 'pickup');
                 $deliveryUrl = $this->modeUrl($group, 'delivery');
 
-                $this->write($userId, 'online-ordering', $rid, [
+                $this->write($userId, Platform::OnlineOrdering->value, $rid, [
                     'id' => $rid,
                     'provider' => 'custom',
                     'url' => $repUrl,
@@ -415,7 +418,7 @@ class GoogleBusinessAutoSync
                 $existingStoreKeys[$storeKey] = true;
                 // Online-ordering is multi-entry — every new store is just added (no
                 // conflict concept), so each is a 'seeded' finding.
-                $findings[] = $this->seededFinding('online-ordering', $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
+                $findings[] = $this->seededFinding(Platform::OnlineOrdering->value, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
             }
 
             // Ordering links changed → (re)derive the shared menu from them.
@@ -467,7 +470,7 @@ class GoogleBusinessAutoSync
     {
         return IntegrationConnection::query()
             ->where('user_id', $userId)
-            ->where('platform', 'online-ordering')
+            ->where('platform', Platform::OnlineOrdering->value)
             ->get()
             ->contains(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey);
     }
@@ -553,9 +556,9 @@ class GoogleBusinessAutoSync
             return null;
         }
 
-        if ($this->has($userId, 'instagram')) {
-            return $this->conflictFinding('instagram', 'instagram', 'social', 'Instagram', $url, [
-                'remove' => ['instagram'], 'instagram' => ['username' => $username],
+        if ($this->has($userId, Platform::Instagram->value)) {
+            return $this->conflictFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url, [
+                'remove' => [Platform::Instagram->value], 'instagram' => ['username' => $username],
             ]);
         }
 
@@ -563,7 +566,7 @@ class GoogleBusinessAutoSync
             return null;   // no Apify token / budget exhausted — nothing seeded, no card
         }
 
-        return $this->seededFinding('instagram', 'instagram', 'social', 'Instagram', $url);
+        return $this->seededFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url);
     }
 
     /**
@@ -579,7 +582,7 @@ class GoogleBusinessAutoSync
         // Pending placeholder tagged source so the synced step + undo can find it;
         // InstagramConnectJob preserves that tag when it writes the scrape result.
         $connection = IntegrationConnection::updateOrCreate(
-            ['user_id' => $userId, 'platform' => 'instagram', 'resource_id' => 'instagram'],
+            ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
             [
                 'payload' => ['source' => 'google-business'],
                 'is_active' => false,

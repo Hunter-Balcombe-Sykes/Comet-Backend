@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Services\Platforms\Payloads\SelectionPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,7 +22,7 @@ class SquareController extends ApiController
 
     protected function platform(): string
     {
-        return 'square';
+        return Platform::Square->value;
     }
 
     // POST /api/platforms/square/connect
@@ -29,7 +30,7 @@ class SquareController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        if ($this->hasConflictingConnection($user, 'fresha')) {
+        if ($this->hasConflictingConnection($user, Platform::Fresha->value)) {
             return $this->error('Disconnect Fresha before connecting Square — only one booking provider can be active at a time.', 409);
         }
 

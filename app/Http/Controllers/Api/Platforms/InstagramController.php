@@ -11,6 +11,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,7 +27,7 @@ class InstagramController extends ApiController
 
     protected function platform(): string
     {
-        return 'instagram';
+        return Platform::Instagram->value;
     }
 
     // POST /api/platforms/instagram/connect — queue a scrape + mirror job and

@@ -11,6 +11,7 @@ use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -35,7 +36,7 @@ class BookingController extends ApiController
 
     protected function platform(): string
     {
-        return 'booking';
+        return Platform::Booking->value;
     }
 
     // POST /api/platforms/booking/detect — detect the provider for a pasted URL.
@@ -47,10 +48,10 @@ class BookingController extends ApiController
         $provider = $this->detector->detectFor('booking', $validated['url']);
 
         // Known providers run their own connect flow (unchanged endpoints).
-        if ($provider === 'fresha') {
+        if ($provider === Platform::Fresha->value) {
             return $this->success(['provider' => 'fresha', 'next' => 'fresha-picker', 'selection' => null]);
         }
-        if ($provider === 'square') {
+        if ($provider === Platform::Square->value) {
             return $this->success(['provider' => 'square', 'next' => 'square-connect', 'selection' => null]);
         }
 
@@ -112,7 +113,7 @@ class BookingController extends ApiController
      */
     private function statusFor(User $user): array
     {
-        $fresha = $user->integrationConnections()->where('platform', 'fresha')->first();
+        $fresha = $user->integrationConnections()->where('platform', Platform::Fresha->value)->first();
         if ($fresha) {
             $sel = SelectionPayload::fromArray($fresha->payload);
 
@@ -124,7 +125,7 @@ class BookingController extends ApiController
             ];
         }
 
-        $square = $user->integrationConnections()->where('platform', 'square')->first();
+        $square = $user->integrationConnections()->where('platform', Platform::Square->value)->first();
         if ($square) {
             return [
                 'connected' => true,
@@ -150,7 +151,7 @@ class BookingController extends ApiController
     /** Remove every booking-family connection (the single-slot guarantee). */
     private function clearBooking(User $user): void
     {
-        foreach (['fresha', 'square'] as $providerPlatform) {
+        foreach ([Platform::Fresha->value, Platform::Square->value] as $providerPlatform) {
             foreach ($user->integrationConnections()->where('platform', $providerPlatform)->get() as $row) {
                 $row->delete();   // soft-delete; observer purges the sitepage cache
             }

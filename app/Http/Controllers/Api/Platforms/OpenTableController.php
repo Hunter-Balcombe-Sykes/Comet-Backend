@@ -7,6 +7,7 @@ use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,7 +21,7 @@ class OpenTableController extends SingleSelectionPlatformController
 
     protected function platform(): string
     {
-        return 'opentable';
+        return Platform::OpenTable->value;
     }
 
     protected function resourceClass(): string
@@ -64,7 +65,7 @@ class OpenTableController extends SingleSelectionPlatformController
 
         $gb = IntegrationConnection::query()
             ->where('user_id', $user->id)
-            ->where('platform', 'google-business')
+            ->where('platform', Platform::GoogleBusiness->value)
             ->first();
 
         $suggestion = $gb

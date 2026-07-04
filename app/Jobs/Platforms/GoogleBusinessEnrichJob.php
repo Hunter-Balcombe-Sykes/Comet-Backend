@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -67,7 +68,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
     /** Apify actor for the 'platform-connect' rate budget. */
     public function providerRateKey(): string
     {
-        return 'google-business';
+        return Platform::GoogleBusiness->value;
     }
 
     /** @return array<int, object> */
@@ -155,7 +156,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
     {
         return IntegrationConnection::query()
             ->where('user_id', $this->userId)
-            ->where('platform', 'google-business')
+            ->where('platform', Platform::GoogleBusiness->value)
             ->where('place_id', $this->placeId)
             ->first();
     }

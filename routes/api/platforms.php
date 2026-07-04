@@ -108,35 +108,38 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/youtube")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [YoutubeController::class, 'connect'])->defaults('platform', 'youtube');
+            $platform = 'youtube';
+            Route::post('/connect', [YoutubeController::class, 'connect'])->defaults('platform', $platform);
             Route::get('/recent', [YoutubeController::class, 'recent']);
             Route::post('/highlights', [YoutubeController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube');
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
             Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'youtube');
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'youtube');
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'youtube');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     Route::prefix("{$base}/apple")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', 'apple-music');
+            $musicPlatform = 'apple-music';
+            $podcastPlatform = 'apple-podcast';
+            Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', $musicPlatform);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
-            Route::get('/music/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'apple-music');
+            Route::get('/music/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $musicPlatform);
             Route::delete('/music/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'apple-music');
-            Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'apple-music');
-            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', 'apple-podcast');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $musicPlatform);
+            Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $musicPlatform);
+            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform);
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)
-            Route::get('/podcast/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'apple-podcast');
+            Route::get('/podcast/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $podcastPlatform);
             Route::delete('/podcast/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'apple-podcast');
-            Route::get('/podcast/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'apple-podcast');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $podcastPlatform);
+            Route::get('/podcast/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $podcastPlatform);
             Route::delete('/music', [AppleController::class, 'forgetMusic']);
             Route::delete('/podcast', [AppleController::class, 'forgetPodcast']);
             Route::delete('/', [AppleController::class, 'forget']);
@@ -146,28 +149,30 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/bandcamp")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [BandcampController::class, 'connect'])->defaults('platform', 'bandcamp');
+            $platform = 'bandcamp';
+            Route::post('/connect', [BandcampController::class, 'connect'])->defaults('platform', $platform);
             Route::get('/recent', [BandcampController::class, 'recent']);
             Route::post('/highlights', [BandcampController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'bandcamp');
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
             Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'bandcamp');
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'bandcamp');
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'bandcamp');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     // Vimeo — YouTube-style: connect + recent-uploads picker + curated highlights.
     Route::prefix("{$base}/vimeo")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [VimeoController::class, 'connect'])->defaults('platform', 'vimeo');
+            $platform = 'vimeo';
+            Route::post('/connect', [VimeoController::class, 'connect'])->defaults('platform', $platform);
             Route::get('/recent', [VimeoController::class, 'recent']);
             Route::post('/highlights', [VimeoController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'vimeo');
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
             Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'vimeo');
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'vimeo');
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'vimeo');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     // YouTube Music — Vimeo-style: connect + recent-releases picker + curated
@@ -175,14 +180,15 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/youtube-music")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', 'youtube-music');
+            $platform = 'youtube-music';
+            Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', $platform);
             Route::get('/recent', [YoutubeMusicController::class, 'recent']);
             Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', 'youtube-music');
+            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
             Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', 'youtube-music');
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', 'youtube-music');
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', 'youtube-music');
+                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
+            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
+            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     // Events platforms — organiser/host accounts + individually-added events.

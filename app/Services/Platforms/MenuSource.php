@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -220,7 +221,7 @@ class MenuSource
         if (! isset($this->entriesCache[$userId])) {
             $this->entriesCache[$userId] = IntegrationConnection::query()
                 ->where('user_id', $userId)
-                ->where('platform', 'online-ordering')
+                ->where('platform', Platform::OnlineOrdering->value)
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get()

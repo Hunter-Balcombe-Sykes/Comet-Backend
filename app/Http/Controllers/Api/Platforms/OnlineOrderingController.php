@@ -11,6 +11,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -36,7 +37,7 @@ class OnlineOrderingController extends ApiController
 
     protected function platform(): string
     {
-        return 'online-ordering';
+        return Platform::OnlineOrdering->value;
     }
 
     // GET /api/platforms/online-ordering/entries

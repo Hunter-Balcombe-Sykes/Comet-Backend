@@ -13,6 +13,7 @@ use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -29,7 +30,7 @@ class ReservationsController extends ApiController
 
     // Keyless reservation providers — each stores under its own platform key and
     // renders an iframe widget. Reservations is single-slot across the whole family.
-    private const KEYLESS_PROVIDERS = ['opentable', 'resdiary', 'nowbookit'];
+    private const KEYLESS_PROVIDERS = [Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value];
 
     public function __construct(
         private readonly ProviderDetector $detector,
@@ -39,7 +40,7 @@ class ReservationsController extends ApiController
 
     protected function platform(): string
     {
-        return 'reservations';
+        return Platform::Reservations->value;
     }
 
     // POST /api/platforms/reservations/detect — detect the provider for a URL.
@@ -98,7 +99,7 @@ class ReservationsController extends ApiController
     public function suggestion(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
         $suggestion = $gb
             ? $this->openTable->suggestionFromGoogleBusiness(GoogleBusinessPayload::fromArray($gb->payload)->toArray())
             : null;

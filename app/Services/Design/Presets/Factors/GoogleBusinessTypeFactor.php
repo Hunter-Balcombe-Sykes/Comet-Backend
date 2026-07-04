@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Design\Presets\CategoryStylePresets;
 use App\Services\Design\Presets\DesignFactor;
 use App\Services\Design\Presets\FactorMode;
+use App\Services\Platforms\Registry\Platform;
 
 // One-shot factor: a Google Business connection's declared type (Places API
 // primaryTypeDisplayName, e.g. "Italian restaurant", "Barber shop") classifies
@@ -21,7 +22,7 @@ class GoogleBusinessTypeFactor implements DesignFactor
 {
     public const SOURCE = 'google-business:type';
 
-    public const INTEGRATION = 'google-business';
+    public const INTEGRATION = Platform::GoogleBusiness->value;
 
     // Ordered specific-before-generic: 'barber' MUST precede 'bar' or
     // "Barber shop" would match the generic 'bar' keyword first and

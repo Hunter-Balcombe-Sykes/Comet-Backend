@@ -14,6 +14,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -57,7 +58,7 @@ class FreshaController extends ApiController
 
     protected function platform(): string
     {
-        return 'fresha';
+        return Platform::Fresha->value;
     }
 
     // The per-user Fresha connection payload is { url, selection } — the connected
@@ -73,7 +74,7 @@ class FreshaController extends ApiController
         $user = $this->currentUser($request);
 
         // Fresha + Square are mutually exclusive booking providers (XOR).
-        if ($this->hasConflictingConnection($user, 'square')) {
+        if ($this->hasConflictingConnection($user, Platform::Square->value)) {
             return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
         }
 

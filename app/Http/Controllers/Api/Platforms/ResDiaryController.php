@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
+use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\ResDiaryService;
 use Illuminate\Http\JsonResponse;
 
@@ -17,7 +18,7 @@ class ResDiaryController extends SingleSelectionPlatformController
 
     protected function platform(): string
     {
-        return 'resdiary';
+        return Platform::Resdiary->value;
     }
 
     protected function resourceClass(): string

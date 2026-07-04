@@ -10,6 +10,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\WebsiteStyleAnalyzer;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Console\Command;
 
 // Backfill/re-sweep for stored brand-signal analyses: queues previous-website
@@ -77,7 +78,7 @@ class BackfillWebsiteAnalysesCommand extends Command
             foreach ($outsideConnections()->get() as $connection) {
                 $payload = is_array($connection->payload) ? $connection->payload : [];
                 $changed = false;
-                if ($connection->platform === 'custom') {
+                if ($connection->platform === Platform::Custom->value) {
                     if ($this->stripFailedAnalysis($payload)) {
                         $changed = true;
                     }

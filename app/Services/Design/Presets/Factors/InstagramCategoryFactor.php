@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Design\Presets\CategoryStylePresets;
 use App\Services\Design\Presets\DesignFactor;
 use App\Services\Design\Presets\FactorMode;
+use App\Services\Platforms\Registry\Platform;
 
 // One-shot factor: an Instagram connection's declared business category
 // (payload.businessCategory, scraped from the account's Facebook Page
@@ -25,7 +26,7 @@ class InstagramCategoryFactor implements DesignFactor
 {
     public const SOURCE = 'instagram:category';
 
-    public const INTEGRATION = 'instagram';
+    public const INTEGRATION = Platform::Instagram->value;
 
     // Ordered specific-before-generic: 'barber' MUST precede 'bar'.
     private const KEYWORD_BUCKETS = [

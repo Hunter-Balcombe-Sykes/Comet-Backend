@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Services\Platforms\NowBookitService;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 
 // NowBookit — connect by booking link; the keyless NowBookit booking widget
@@ -16,7 +17,7 @@ class NowBookitController extends SingleSelectionPlatformController
 
     protected function platform(): string
     {
-        return 'nowbookit';
+        return Platform::Nowbookit->value;
     }
 
     protected function resourceClass(): string

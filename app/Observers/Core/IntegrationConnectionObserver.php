@@ -6,6 +6,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Facades\Log;
 
 // Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
@@ -69,7 +70,7 @@ class IntegrationConnectionObserver
      */
     public function updated(IntegrationConnection $connection): void
     {
-        if ($connection->platform !== 'instagram') {
+        if ($connection->platform !== Platform::Instagram->value) {
             return;
         }
 
@@ -103,7 +104,7 @@ class IntegrationConnectionObserver
     private function cleanupMirroredMedia(IntegrationConnection $connection): void
     {
         $folder = InstagramPayload::fromArray($connection->payload)->folder;
-        if ($connection->platform === 'instagram' && $folder) {
+        if ($connection->platform === Platform::Instagram->value && $folder) {
             DeleteMirroredMediaJob::dispatch($folder);
         }
     }

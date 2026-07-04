@@ -11,6 +11,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -32,7 +33,7 @@ class CustomLinksController extends ApiController
 
     protected function platform(): string
     {
-        return 'custom';
+        return Platform::Custom->value;
     }
 
     // GET /api/platforms/custom/links — every attached link, ordered.

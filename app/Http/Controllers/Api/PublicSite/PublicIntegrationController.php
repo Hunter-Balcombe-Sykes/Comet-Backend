@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -49,7 +50,7 @@ class PublicIntegrationController extends ApiController
             // Dashboard-only categories never reach the public sitepage. The
             // Resource also strips their payload to {} (empty allowlist), but
             // excluding them here keeps the rows off the wire entirely.
-            ->whereNotIn('platform', ['booking', 'reservations', 'online-ordering'])
+            ->whereNotIn('platform', [Platform::Booking->value, Platform::Reservations->value, Platform::OnlineOrdering->value])
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')

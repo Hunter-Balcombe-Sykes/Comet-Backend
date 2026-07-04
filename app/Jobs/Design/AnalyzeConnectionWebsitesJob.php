@@ -7,6 +7,7 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\WebsiteStyleAnalyzer;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -86,7 +87,7 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
             return false;
         }
 
-        if ($connection->platform === 'custom') {
+        if ($connection->platform === Platform::Custom->value) {
             $payload = is_array($connection->payload) ? $connection->payload : [];
 
             return self::entryNeedsAnalysis($payload);
@@ -156,7 +157,7 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
                 break;
             }
 
-            if ($connection->platform === 'custom') {
+            if ($connection->platform === Platform::Custom->value) {
                 $payload = is_array($connection->payload) ? $connection->payload : [];
                 if (self::entryNeedsAnalysis($payload)) {
                     $payload['styleAnalysis'] = $analyzer->analyze(trim((string) $payload['url']));

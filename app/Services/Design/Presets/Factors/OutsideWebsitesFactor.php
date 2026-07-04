@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Design\Presets\SiteDesignFactor;
 use App\Services\Design\Presets\StyleTiers;
 use App\Services\Design\WebsiteStyleAnalyzer;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Collection;
 
 // Bottom-of-hierarchy factor: the "outside connected websites" — every shop
@@ -27,7 +28,7 @@ class OutsideWebsitesFactor implements SiteDesignFactor
     public const SOURCE = 'outside-websites:styles';
 
     /** Platforms whose connections carry outside-website URLs. */
-    public const SOURCE_PLATFORMS = ['custom', 'shop'];
+    public const SOURCE_PLATFORMS = [Platform::Custom->value, 'shop'];
 
     public function key(): string
     {
@@ -88,7 +89,7 @@ class OutsideWebsitesFactor implements SiteDesignFactor
 
         $analyses = [];
         foreach ($connections as $connection) {
-            if ($connection->platform === 'custom') {
+            if ($connection->platform === Platform::Custom->value) {
                 $payload = is_array($connection->payload) ? $connection->payload : [];
                 $analysis = $payload['styleAnalysis'] ?? null;
                 if ($this->usable($analysis)) {

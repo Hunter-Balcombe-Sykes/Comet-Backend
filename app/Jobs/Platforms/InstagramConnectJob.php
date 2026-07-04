@@ -7,6 +7,7 @@ use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Platforms\Registry\Platform;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -102,7 +103,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
     /** Apify actor for the 'platform-connect' rate budget. */
     public function providerRateKey(): string
     {
-        return 'instagram';
+        return Platform::Instagram->value;
     }
 
     /** @return array<int, object> */
