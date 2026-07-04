@@ -71,7 +71,7 @@ abstract class EventsPlatformController extends ApiController
         }
 
         // Re-adding an already-connected page keeps its per-event hides.
-        $existingRow = $this->matchAccountRow($user, 'url', $url);
+        $existingRow = $this->matchAccountByCanonical($user, $url);
         $hidden = EventsAccountPayload::fromArray($existingRow?->payload)->hiddenEventIds();
 
         $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden);

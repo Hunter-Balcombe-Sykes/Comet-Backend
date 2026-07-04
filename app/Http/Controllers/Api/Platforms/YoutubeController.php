@@ -63,7 +63,7 @@ class YoutubeController extends SingleSelectionPlatformController
 
         // Re-adding an already-connected channel keeps that account's chosen
         // highlights; a new channel starts with none.
-        $highlights = $this->preserveHighlights($user, 'handle', $handle);
+        $highlights = $this->preserveHighlights($user, $handle);
 
         $selection = [
             'handle' => $handle,

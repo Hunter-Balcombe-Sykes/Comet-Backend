@@ -67,7 +67,7 @@ class YoutubeMusicController extends SingleSelectionPlatformController
 
         // Re-adding an already-connected channel keeps that account's chosen
         // highlights; a new channel starts with none.
-        $highlights = $this->preserveHighlights($user, 'channelId', $channelId);
+        $highlights = $this->preserveHighlights($user, $channelId);
 
         return $this->connected($user, [
             'url' => $url,

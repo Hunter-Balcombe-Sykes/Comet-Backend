@@ -509,6 +509,7 @@ function setupSitesTable(): void
         place_id TEXT NULL,
         refresh_etag TEXT NULL,
         refresh_last_modified TEXT NULL,
+        canonical_key TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
@@ -517,12 +518,26 @@ function setupSitesTable(): void
     // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
     // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
     // already-created table within a run).
-    foreach (['refresh_etag', 'refresh_last_modified'] as $vCol) {
+    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key'] as $vCol) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
         } catch (Throwable $e) {
             // already exists / unsupported — ignore
         }
+    }
+
+    // FOUND-14 — DB-level dedupe guarantee: one active account row per
+    // (user, platform, canonical_key). NULL canonical_key (single-selection
+    // default / event-* / link-* rows) is excluded by the partial predicate.
+    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
+    // name (not the table name) — an index must live in the same attached
+    // database as its table.
+    try {
+        DB::connection('pgsql')->statement('CREATE UNIQUE INDEX IF NOT EXISTS site.idx_platform_connections_canonical
+            ON platform_connections (user_id, platform, canonical_key)
+            WHERE canonical_key IS NOT NULL AND deleted_at IS NULL');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
     }
 
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
