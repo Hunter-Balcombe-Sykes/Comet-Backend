@@ -19,6 +19,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // (`*_source`) for back-compat. `rating` (👍 percent) + `rating_count` +
 // `badges` are DoorDash-only — Uber Eats exposes none per item. Items are
 // rebuilt wholesale on every scrape.
+// `badges` stays JSONB by design (reviewed 2026-07-04, audit #FOUND-13) — DoorDash
+// display copy with no query/filter usage anywhere in the codebase; revisit only
+// if a real filtering need emerges.
 class MenuItem extends BaseModel
 {
     use HasUuids;
