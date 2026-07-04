@@ -245,11 +245,7 @@ class DataExportZipWriter
 
     private function csvNameFor(string $sectionName): string
     {
-        return match ($sectionName) {
-            'customers' => 'customers.csv',
-            'enquiries' => 'enquiries.csv',
-            default => str_replace('.', '_', $sectionName).'.csv',
-        };
+        return str_replace('.', '_', $sectionName).'.csv';
     }
 
     /**

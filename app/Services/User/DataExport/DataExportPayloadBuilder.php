@@ -6,6 +6,7 @@ use App\Models\Core\User\User;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 // V2: Pure builder. Assembles the full data-export payload (Ring 1 + 2 of the
@@ -56,57 +57,20 @@ class DataExportPayloadBuilder
      */
     public function build(string $userId): array
     {
-        $professional = $this->loadUser($userId);
-        $lookupEmail = $this->resolveDeletedAccountEmail($professional);
-        $siteId = DB::connection('pgsql')
-            ->table('site.sites')
-            ->where('user_id', $userId)
-            ->value('id');
+        $out = [];
+        foreach ($this->stream($userId) as $section) {
+            // $section['name'] is dot-delimited for nested groups (e.g. 'audit.handle_change_log');
+            // Arr::set treats each dot as a nesting level, so this reconstructs the exact
+            // nested shape the old hand-written build() built by hand — from stream()'s own
+            // output, not a second independently-maintained list.
+            Arr::set(
+                $out,
+                $section['name'],
+                $section['kind'] === 'value' ? $section['value'] : $this->collect($section['rows'])
+            );
+        }
 
-        return [
-            'metadata' => $this->metadata($professional),
-            'profile' => $this->profile($professional),
-            'site' => $this->site($userId),
-            // Pre-account history — joined by email_lc, persists even if the user never finished signup.
-            'waitlist' => $this->collect($this->streamWaitlistSignups($lookupEmail)),
-            'media' => ['site_media' => $this->collect($this->streamMedia($userId))],
-            // Per-site design variables (column-per-var, all nullable).
-            'design_kit' => $this->collect($this->streamDesignKit($siteId)),
-            'integrations' => $this->collect($this->streamIntegrations($userId)),
-            'customers' => $this->collect($this->streamCustomers($userId)),
-            'services' => $this->collect($this->streamServices($userId)),
-            'service_categories' => $this->collect($this->streamServiceCategories($userId)),
-            'enquiries' => $this->collect($this->streamEnquiries($userId)),
-            'lead_submissions' => $this->collect($this->streamLeadSubmissions($userId)),
-            // In-app feedback submissions filed by the user.
-            'feedback' => $this->collect($this->streamFeedback($userId)),
-            // Moderation cases involving the user (reported against them or filed by them).
-            'content_reports' => $this->collect($this->streamContentReports($userId, $lookupEmail)),
-            // Lookup email is the pre-pseudonymisation original; covers owned, global, and cross-pro rows.
-            'email_subscriptions' => $this->collect($this->streamEmailSubscriptions($userId, $lookupEmail)),
-            // Dashboard messages sent specifically to this user — body text is user-specific personal data.
-            'notifications' => [
-                'messages' => $this->collect($this->streamNotifications($userId)),
-                'receipts' => $this->collect($this->streamNotificationReceipts($userId)),
-            ],
-            'ui_preferences' => [
-                'confirmation_preferences' => $this->collect($this->streamConfirmationPreferences($userId)),
-            ],
-            'notification_preferences' => [
-                'category_preferences' => $this->collect($this->streamNotificationPreferences($userId)),
-                'staff_policy_overrides' => $this->collect($this->streamNotificationPolicies($userId)),
-            ],
-            'auth' => [
-                'factor_events' => $this->collect($this->streamAuthFactorEvents($professional->auth_user_id)),
-            ],
-            'audit' => [
-                'data_export_audit' => $this->collect($this->streamAudit($userId)),
-                'handle_change_log' => $this->collect($this->streamHandleChangeLog($userId)),
-                'handle_aliases' => $this->collect($this->streamHandleAliases($userId)),
-                'subdomain_aliases' => $this->collect($this->streamSubdomainAliases($userId)),
-                'deletion_audit' => $this->collect($this->streamDeletionAudit($userId)),
-            ],
-        ];
+        return $out;
     }
 
     /**
@@ -118,6 +82,9 @@ class DataExportPayloadBuilder
      * auth, audit, media) the descriptor's 'name' uses dotted form (e.g.
      * 'audit.handle_change_log'); the writer reassembles the group structure
      * when emitting JSON, preserving the order each group is first encountered.
+     *
+     * This is the ONLY place sections are enumerated (FOUND-1) — sectionDescriptors()
+     * below is the single manifest both this method and build() derive from.
      */
     public function stream(string $userId): Generator
     {
@@ -128,174 +95,77 @@ class DataExportPayloadBuilder
             ->where('user_id', $userId)
             ->value('id');
 
-        yield ['name' => 'metadata', 'kind' => 'value', 'value' => $this->metadata($professional)];
-        yield ['name' => 'profile', 'kind' => 'value', 'value' => $this->profile($professional)];
-        yield ['name' => 'site', 'kind' => 'value', 'value' => $this->site($userId)];
+        foreach ($this->sectionDescriptors($professional, $lookupEmail, $siteId) as $section) {
+            if ($section['kind'] === 'value') {
+                yield ['name' => $section['name'], 'kind' => 'value', 'value' => ($section['resolve'])()];
+            } else {
+                yield [
+                    'name' => $section['name'],
+                    'kind' => 'rows',
+                    'rows' => ($section['resolve'])(),
+                    'csv_columns' => $section['csv_columns'] ?? null,
+                ];
+            }
+        }
+    }
 
-        // Pre-account waitlist signup (joined by email_lc, no user_id FK).
-        yield [
-            'name' => 'waitlist',
-            'kind' => 'rows',
-            'rows' => $this->streamWaitlistSignups($lookupEmail),
-            'csv_columns' => ['id', 'name', 'email', 'phone', 'applicant_type', 'applicant_type_other', 'industry', 'industry_other', 'pilot_program_opt_in', 'number_of_team_members', 'consent_source', 'last_submitted_at', 'created_at', 'updated_at'],
-        ];
+    /**
+     * Single source of truth for every GDPR export section: name, whether it's a
+     * scalar 'value' or a 'rows' generator, how to resolve it, and its CSV column
+     * allow-list (if any). Adding a new exportable section means adding ONE entry
+     * here — both build() and stream() automatically pick it up. This directly
+     * closes FOUND-1: previously build() and stream() each hand-enumerated the
+     * same ~26 sections independently, so a missed edit to one silently omitted
+     * a section from that entry point.
+     *
+     * @return array<int, array{name: string, kind: 'value'|'rows', resolve: \Closure, csv_columns?: ?array<string>}>
+     */
+    private function sectionDescriptors(User $professional, ?string $lookupEmail, ?string $siteId): array
+    {
+        $userId = $professional->id;
 
-        yield [
-            'name' => 'media.site_media',
-            'kind' => 'rows',
-            'rows' => $this->streamMedia($userId),
-            'csv_columns' => null,
-        ];
-
-        // Per-site design variables (all nullable; null means the code-side default applies).
-        yield [
-            'name' => 'design_kit',
-            'kind' => 'rows',
-            'rows' => $this->streamDesignKit($siteId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'integrations',
-            'kind' => 'rows',
-            'rows' => $this->streamIntegrations($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'customers',
-            'kind' => 'rows',
-            'rows' => $this->streamCustomers($userId),
-            'csv_columns' => ['id', 'email', 'phone', 'full_name', 'source', 'notes', 'created_at'],
-        ];
-
-        yield [
-            'name' => 'services',
-            'kind' => 'rows',
-            'rows' => $this->streamServices($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'service_categories',
-            'kind' => 'rows',
-            'rows' => $this->streamServiceCategories($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'enquiries',
-            'kind' => 'rows',
-            'rows' => $this->streamEnquiries($userId),
-            'csv_columns' => ['id', 'name', 'email', 'phone', 'subject', 'message', 'created_at'],
-        ];
-
-        yield [
-            'name' => 'lead_submissions',
-            'kind' => 'rows',
-            'rows' => $this->streamLeadSubmissions($userId),
-            'csv_columns' => null,
-        ];
-
-        // In-app feedback submissions. ip_hash and user_agent are technical fingerprints — excluded.
-        yield [
-            'name' => 'feedback',
-            'kind' => 'rows',
-            'rows' => $this->streamFeedback($userId),
-            'csv_columns' => null,
-        ];
-
-        // Moderation cases where the user is the reported party, and signals they filed as reporter.
-        yield [
-            'name' => 'content_reports',
-            'kind' => 'rows',
-            'rows' => $this->streamContentReports($userId, $lookupEmail),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'email_subscriptions',
-            'kind' => 'rows',
-            'rows' => $this->streamEmailSubscriptions($userId, $lookupEmail),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'notifications.messages',
-            'kind' => 'rows',
-            'rows' => $this->streamNotifications($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'notifications.receipts',
-            'kind' => 'rows',
-            'rows' => $this->streamNotificationReceipts($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'ui_preferences.confirmation_preferences',
-            'kind' => 'rows',
-            'rows' => $this->streamConfirmationPreferences($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'notification_preferences.category_preferences',
-            'kind' => 'rows',
-            'rows' => $this->streamNotificationPreferences($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'notification_preferences.staff_policy_overrides',
-            'kind' => 'rows',
-            'rows' => $this->streamNotificationPolicies($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'auth.factor_events',
-            'kind' => 'rows',
-            'rows' => $this->streamAuthFactorEvents($professional->auth_user_id),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'audit.data_export_audit',
-            'kind' => 'rows',
-            'rows' => $this->streamAudit($userId),
-            'csv_columns' => null,
-        ];
-
-        // Handle rename history — survives hard-delete via ON DELETE SET NULL, so disclose pre-deletion.
-        yield [
-            'name' => 'audit.handle_change_log',
-            'kind' => 'rows',
-            'rows' => $this->streamHandleChangeLog($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'audit.handle_aliases',
-            'kind' => 'rows',
-            'rows' => $this->streamHandleAliases($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'audit.subdomain_aliases',
-            'kind' => 'rows',
-            'rows' => $this->streamSubdomainAliases($userId),
-            'csv_columns' => null,
-        ];
-
-        yield [
-            'name' => 'audit.deletion_audit',
-            'kind' => 'rows',
-            'rows' => $this->streamDeletionAudit($userId),
-            'csv_columns' => null,
+        return [
+            ['name' => 'metadata', 'kind' => 'value', 'resolve' => fn () => $this->metadata($professional)],
+            ['name' => 'profile', 'kind' => 'value', 'resolve' => fn () => $this->profile($professional)],
+            ['name' => 'site', 'kind' => 'value', 'resolve' => fn () => $this->site($userId)],
+            [
+                'name' => 'waitlist',
+                'kind' => 'rows',
+                'resolve' => fn () => $this->streamWaitlistSignups($lookupEmail),
+                'csv_columns' => ['id', 'name', 'email', 'phone', 'applicant_type', 'applicant_type_other', 'industry', 'industry_other', 'pilot_program_opt_in', 'number_of_team_members', 'consent_source', 'last_submitted_at', 'created_at', 'updated_at'],
+            ],
+            ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($userId)],
+            ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
+            ['name' => 'integrations', 'kind' => 'rows', 'resolve' => fn () => $this->streamIntegrations($userId)],
+            [
+                'name' => 'customers',
+                'kind' => 'rows',
+                'resolve' => fn () => $this->streamCustomers($userId),
+                'csv_columns' => ['id', 'email', 'phone', 'full_name', 'source', 'notes', 'created_at'],
+            ],
+            ['name' => 'services', 'kind' => 'rows', 'resolve' => fn () => $this->streamServices($userId)],
+            ['name' => 'service_categories', 'kind' => 'rows', 'resolve' => fn () => $this->streamServiceCategories($userId)],
+            [
+                'name' => 'enquiries',
+                'kind' => 'rows',
+                'resolve' => fn () => $this->streamEnquiries($userId),
+                'csv_columns' => ['id', 'name', 'email', 'phone', 'subject', 'message', 'created_at'],
+            ],
+            ['name' => 'lead_submissions', 'kind' => 'rows', 'resolve' => fn () => $this->streamLeadSubmissions($userId)],
+            ['name' => 'feedback', 'kind' => 'rows', 'resolve' => fn () => $this->streamFeedback($userId)],
+            ['name' => 'content_reports', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentReports($userId, $lookupEmail)],
+            ['name' => 'email_subscriptions', 'kind' => 'rows', 'resolve' => fn () => $this->streamEmailSubscriptions($userId, $lookupEmail)],
+            ['name' => 'notifications.messages', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotifications($userId)],
+            ['name' => 'notifications.receipts', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationReceipts($userId)],
+            ['name' => 'ui_preferences.confirmation_preferences', 'kind' => 'rows', 'resolve' => fn () => $this->streamConfirmationPreferences($userId)],
+            ['name' => 'notification_preferences.category_preferences', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationPreferences($userId)],
+            ['name' => 'notification_preferences.staff_policy_overrides', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationPolicies($userId)],
+            ['name' => 'auth.factor_events', 'kind' => 'rows', 'resolve' => fn () => $this->streamAuthFactorEvents($professional->auth_user_id)],
+            ['name' => 'audit.data_export_audit', 'kind' => 'rows', 'resolve' => fn () => $this->streamAudit($userId)],
+            ['name' => 'audit.handle_change_log', 'kind' => 'rows', 'resolve' => fn () => $this->streamHandleChangeLog($userId)],
+            ['name' => 'audit.handle_aliases', 'kind' => 'rows', 'resolve' => fn () => $this->streamHandleAliases($userId)],
+            ['name' => 'audit.subdomain_aliases', 'kind' => 'rows', 'resolve' => fn () => $this->streamSubdomainAliases($userId)],
+            ['name' => 'audit.deletion_audit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDeletionAudit($userId)],
         ];
     }
 
