@@ -22,6 +22,7 @@ it('returns sort_order 0 for an empty set', function () {
         "services:{$this->userId}",
         function (int $next) use (&$captured) {
             $captured = $next;
+
             // Return a minimal model stub to satisfy the return type
             return new Service;
         },
@@ -49,6 +50,7 @@ it('returns max+1 for a non-empty set', function () {
         "services:{$this->userId}",
         function (int $next) use (&$captured) {
             $captured = $next;
+
             return new Service;
         },
     );

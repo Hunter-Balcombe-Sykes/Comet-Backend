@@ -6,8 +6,8 @@ use App\Services\Design\Scan\BrandScanClient;
 use App\Services\Design\Scan\BrandScanException;
 use App\Services\Design\Scan\EvidenceConclusions;
 use App\Services\Design\Scan\ScreenshotSampler;
-use App\Services\Http\SafeUrlFetcher;
 use App\Services\Http\SafeUrlException;
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\Log;
 
 /**

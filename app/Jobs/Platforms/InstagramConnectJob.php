@@ -172,6 +172,32 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         $picSrc = $scraper->profilePicUrl($profile);
         $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
 
+        // Reclaim stale mirrors of a media type no longer present this run (e.g. a
+        // prior reel + its cover when the account now leads with a photo, or a
+        // removed profile pic). The folder is stable per connection
+        // (created_at-derived) and the filenames are fixed, so a reconnect
+        // overwrites the live files in place — only the *complement* below (the
+        // fixed names NOT re-written this run) can linger. Deleting them here,
+        // in-job and AFTER the writes, is race-free: unlike a separately-queued
+        // delete it can never run after a fresh re-mirror and wipe it. $images is
+        // non-empty only when photo.jpg was written; Storage::delete on an absent
+        // key is a safe no-op.
+        $written = array_filter([
+            $images ? "{$folder}/photo.jpg" : null,
+            $videoUrl ? "{$folder}/reel.mp4" : null,
+            $videoPoster ? "{$folder}/reel-cover.jpg" : null,
+            $profilePic ? "{$folder}/profile.jpg" : null,
+        ]);
+        $stale = array_values(array_diff([
+            "{$folder}/photo.jpg",
+            "{$folder}/reel.mp4",
+            "{$folder}/reel-cover.jpg",
+            "{$folder}/profile.jpg",
+        ], $written));
+        if ($stale) {
+            Storage::disk('media')->delete($stale);
+        }
+
         $selection = [
             'username' => $this->username,
             'fullName' => data_get($profile, 'fullName'),

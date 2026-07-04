@@ -22,6 +22,12 @@ use Illuminate\Support\Facades\DB;
 // platforms — intentional.
 class MenuSource
 {
+    // Per-instance entries cache: avoids repeated DB queries when a single request
+    // calls multiple public methods (e.g. MenuController::show calls resolveAll
+    // then links for the same user). Keyed by user id (string) so the cache is
+    // still correct when the service is shared across contexts in tests.
+    private array $entriesCache = [];
+
     // host pattern → platform, in content-priority order (Uber Eats wins).
     private const PLATFORMS = [
         'uber-eats' => '~(^|\.)ubereats\.com$~',
@@ -200,21 +206,30 @@ class MenuSource
      * non-empty string `url`. Soft-deleted rows are excluded by the model scope;
      * online-ordering rows share sort_order 0, so created_at is the recency key.
      *
+     * Memoized per user-id for the lifetime of this instance: MenuController::show
+     * calls both resolveAll() and links() in one request, which would otherwise
+     * double-query the same table. Safe because this service is read-only — no
+     * path through MenuSource mutates online-ordering rows.
+     *
      * @return Collection<int, array<string,mixed>>
      */
     private function entries(User|string $user): Collection
     {
-        $userId = $user instanceof User ? $user->id : $user;
+        $userId = (string) ($user instanceof User ? $user->id : $user);
 
-        return IntegrationConnection::query()
-            ->where('user_id', $userId)
-            ->where('platform', 'online-ordering')
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->get()
-            ->map(fn (IntegrationConnection $r) => CardPayload::fromArray($r->payload)->toArray())
-            ->filter(fn (array $p) => is_string($p['url'] ?? null) && $p['url'] !== '')
-            ->values();
+        if (! isset($this->entriesCache[$userId])) {
+            $this->entriesCache[$userId] = IntegrationConnection::query()
+                ->where('user_id', $userId)
+                ->where('platform', 'online-ordering')
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get()
+                ->map(fn (IntegrationConnection $r) => CardPayload::fromArray($r->payload)->toArray())
+                ->filter(fn (array $p) => is_string($p['url'] ?? null) && $p['url'] !== '')
+                ->values();
+        }
+
+        return $this->entriesCache[$userId];
     }
 
     /**

@@ -1273,6 +1273,9 @@ return [
             // HEADs, so a generous cap; bounds the batch when many videos miss cache.
             'youtube_thumbnails' => [
                 'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 10),
+                // 'hq' verdicts re-probe on this cadence (maxres may appear post-upload);
+                // 'maxres' verdicts keep the long CACHE_DAYS TTL (never regresses). 6h default.
+                'hq_recheck_ttl_seconds' => (int) env('PARTNA_REFRESH_YTIMG_HQ_RECHECK_TTL', 21600),
             ],
             // Google Places media — BILLED per call. Keep the concurrent burst tight.
             'google_places' => [

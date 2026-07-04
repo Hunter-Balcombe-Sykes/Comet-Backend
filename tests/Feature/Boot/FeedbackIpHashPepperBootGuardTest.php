@@ -1,5 +1,7 @@
 <?php
 
+use App\Services\Feedback\FeedbackService;
+
 // LIFE-2c — Production boot guard for FEEDBACK_IP_HASH_PEPPER.
 //
 // The guard is a source-structure assertion: invoking the full
@@ -30,8 +32,8 @@ it('FeedbackService::hashIp() returns null and does not throw when pepper is emp
     // Non-prod environment — should soft-degrade to null, no exception.
     app()->detectEnvironment(fn () => 'testing');
 
-    $service = new \App\Services\Feedback\FeedbackService;
-    $method = new \ReflectionMethod($service, 'hashIp');
+    $service = new FeedbackService;
+    $method = new ReflectionMethod($service, 'hashIp');
     $method->setAccessible(true);
 
     $result = $method->invoke($service, '192.168.1.1');
@@ -41,8 +43,8 @@ it('FeedbackService::hashIp() returns null and does not throw when pepper is emp
 it('FeedbackService::hashIp() produces a 64-char SHA256 hash when pepper is set', function () {
     config(['partna.feedback.ip_hash_pepper' => 'test-pepper']);
 
-    $service = new \App\Services\Feedback\FeedbackService;
-    $method = new \ReflectionMethod($service, 'hashIp');
+    $service = new FeedbackService;
+    $method = new ReflectionMethod($service, 'hashIp');
     $method->setAccessible(true);
 
     $result = $method->invoke($service, '203.0.113.1');

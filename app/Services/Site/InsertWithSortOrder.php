@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\DB;
 class InsertWithSortOrder
 {
     /**
-     * @param Builder $maxQuery  WHERE-only builder scoping the max(sort_order) lookup
-     * @param string  $lockKey   advisory lock key, e.g. "services:{$pro->id}"
-     * @param Closure $create    fn (int $nextSortOrder): Model — builds and persists the row
+     * @param  Builder  $maxQuery  WHERE-only builder scoping the max(sort_order) lookup
+     * @param  string  $lockKey  advisory lock key, e.g. "services:{$pro->id}"
+     * @param  Closure  $create  fn (int $nextSortOrder): Model — builds and persists the row
      */
     public static function run(Builder $maxQuery, string $lockKey, Closure $create): Model
     {

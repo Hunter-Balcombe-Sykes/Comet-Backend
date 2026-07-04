@@ -21,9 +21,9 @@ class SiteCacheInvalidator
 {
     /**
      * @param  \Closure|Site|null  $site  Pass a Closure (() => ?Site) for lazy resolution —
-     *   the Closure is evaluated inside the try/catch, so relation-load errors (e.g. missing
-     *   table in tests) are swallowed just like touch() failures.
-     * @param  string  $reason   Mutation verb for the log (e.g. 'create', 'update', 'delete').
+     *                                    the Closure is evaluated inside the try/catch, so relation-load errors (e.g. missing
+     *                                    table in tests) are swallowed just like touch() failures.
+     * @param  string  $reason  Mutation verb for the log (e.g. 'create', 'update', 'delete').
      * @param  array<string, mixed>  $context  Callsite fields for the log (model id, tenant id).
      */
     public function touchSite(\Closure|Site|null $site, string $reason, array $context = []): void

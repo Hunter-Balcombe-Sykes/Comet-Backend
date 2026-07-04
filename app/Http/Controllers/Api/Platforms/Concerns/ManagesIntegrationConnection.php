@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Platforms\Concerns;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -211,7 +212,7 @@ trait ManagesIntegrationConnection
      */
     protected function withConnectionLock(User $user, callable $callback, ?string $suffix = null): JsonResponse
     {
-        $key = "platforms:{$this->platform()}:lock:{$user->id}".($suffix !== null ? ":{$suffix}" : '');
+        $key = CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id, $suffix);
 
         try {
             return Cache::lock($key, 10)->block(5, $callback);

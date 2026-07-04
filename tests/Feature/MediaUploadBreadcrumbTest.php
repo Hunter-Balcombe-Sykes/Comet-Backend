@@ -9,13 +9,13 @@
  * a GC tool query logs for orphan detection without PII leakage.
  */
 
+use App\Models\Core\User\User;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\MediaUploadService;
 use App\Services\Media\VideoVariantService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -66,7 +66,7 @@ it('emits media.original_stored with media_id, disk, and path when an image is s
         'updated_at' => $now,
     ]);
 
-    $pro = App\Models\Core\User\User::query()->with('site')->findOrFail($proId);
+    $pro = User::query()->with('site')->findOrFail($proId);
     $site = $pro->site;
 
     $file = UploadedFile::fake()->image('photo.jpg', 100, 100);

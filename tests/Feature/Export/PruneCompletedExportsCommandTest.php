@@ -29,11 +29,11 @@ it('deletes the R2 artifact and nulls file columns when a row is older than the 
     Storage::disk('media')->put($path, 'zip-bytes');
 
     $audit = createDataExportAudit([
-        'status'          => DataExportAudit::STATUS_COMPLETED,
-        'file_path'       => $path,
+        'status' => DataExportAudit::STATUS_COMPLETED,
+        'file_path' => $path,
         'file_size_bytes' => 1024,
-        'file_sha256'     => hash('sha256', 'zip-bytes'),
-        'created_at'      => now()->subDays(31)->toDateTimeString(),
+        'file_sha256' => hash('sha256', 'zip-bytes'),
+        'created_at' => now()->subDays(31)->toDateTimeString(),
     ]);
 
     $this->artisan('gdpr:prune-completed-exports')->assertSuccessful();
@@ -55,10 +55,10 @@ it('leaves rows newer than the retention window untouched', function () {
     Storage::disk('media')->put($path, 'zip-bytes');
 
     $audit = createDataExportAudit([
-        'file_path'       => $path,
+        'file_path' => $path,
         'file_size_bytes' => 512,
-        'file_sha256'     => 'abc123',
-        'created_at'      => now()->subDays(10)->toDateTimeString(),
+        'file_sha256' => 'abc123',
+        'created_at' => now()->subDays(10)->toDateTimeString(),
     ]);
 
     $this->artisan('gdpr:prune-completed-exports')->assertSuccessful();
@@ -76,9 +76,9 @@ it('does not delete or null anything in --dry-run mode', function () {
     Storage::disk('media')->put($path, 'zip-bytes');
 
     $audit = createDataExportAudit([
-        'file_path'       => $path,
+        'file_path' => $path,
         'file_size_bytes' => 256,
-        'created_at'      => now()->subDays(40)->toDateTimeString(),
+        'created_at' => now()->subDays(40)->toDateTimeString(),
     ]);
 
     $this->artisan('gdpr:prune-completed-exports', ['--dry-run' => true])->assertSuccessful();
@@ -94,10 +94,10 @@ it('does not delete or null anything in --dry-run mode', function () {
 it('nulls file columns even when the R2 file is already gone', function () {
     // Simulate a row whose R2 file was deleted externally (R2 outage recovery, etc.)
     $audit = createDataExportAudit([
-        'file_path'       => 'exports/ghost/export.zip', // does NOT exist on disk
+        'file_path' => 'exports/ghost/export.zip', // does NOT exist on disk
         'file_size_bytes' => 999,
-        'file_sha256'     => 'deadbeef',
-        'created_at'      => now()->subDays(35)->toDateTimeString(),
+        'file_sha256' => 'deadbeef',
+        'created_at' => now()->subDays(35)->toDateTimeString(),
     ]);
 
     // Must not throw even though Storage::disk()->exists() returns false.
@@ -111,9 +111,9 @@ it('nulls file columns even when the R2 file is already gone', function () {
 it('skips rows where file_path is already null (already pruned)', function () {
     // A row that was previously pruned should not be re-processed.
     $audit = createDataExportAudit([
-        'file_path'       => null,
+        'file_path' => null,
         'file_size_bytes' => null,
-        'created_at'      => now()->subDays(60)->toDateTimeString(),
+        'created_at' => now()->subDays(60)->toDateTimeString(),
     ]);
 
     // No assertion beyond assertSuccessful — mainly verifying no crash.
@@ -129,7 +129,7 @@ it('respects a custom --days override', function () {
     Storage::disk('media')->put($path, 'zip-bytes');
 
     $audit = createDataExportAudit([
-        'file_path'  => $path,
+        'file_path' => $path,
         'created_at' => now()->subDays(16)->toDateTimeString(),
     ]);
 

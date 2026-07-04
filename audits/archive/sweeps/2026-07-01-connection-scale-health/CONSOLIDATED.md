@@ -43,8 +43,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 3 of 7 complete  (SCALE-3, SCALE-4, OBS-1)
-- P3 Low: 0 of 4 complete
+- P2 Medium: 7 of 7 complete  (SCALE-3, SCALE-4, OBS-1, CCH-1, CCH-2, CACHE-1, JOB-2)
+- P3 Low: 4 of 4 complete  (CCH-3, SCALE-5, SHOP-1, CCH-4)
 
 ---
 
@@ -138,7 +138,8 @@
     - **Technical:** Runs every 15 min, `foreach ($menus as $menu) MenuFetchJob::dispatch(...)` up to 200 rows; each `MenuFetchJob` makes two Apify actor calls with a 600s timeout. `ShouldBeUnique` dedups per user, but 200 distinct users = 200 concurrent actor runs. During a vendor outage this re-fires up to ~800 runs/hour for the 6-hour window.
     - **Plain English:** Every 15 minutes the system re-phones up to 200 restaurants whose menus failed, all at once, each call slow and metered. On a bad day at the menu provider it keeps doing this for hours.
 
-- [ ] **#CCH-1** · P2 — `withConnectionLock` mutex lives on the default Redis connection, not `cache_locks`
+- [x] **#CCH-1** · P2 — `withConnectionLock` mutex lives on the default Redis connection, not `cache_locks`
+    - **✅ Resolved (no code change — premise stale):** The default cache store is `redis` (config/cache.php:18) and that store sets `lock_connection => cache_locks` (config/cache.php:80), so `Cache::lock()` already places the mutex on the dedicated `cache_locks` Redis DB and survives a data-store `Cache::flush()`. The finding's suggested `Cache::store('cache_locks')->lock()` is a functional no-op in prod and would break tests under `CACHE_STORE=array` (forces redis over the ArrayLock path). Verified against config + Laravel lock semantics; independent review concurred. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php:160
     - **Affects:** Every platform-controller write serialised through the lock (Apple, YouTube, Vimeo, Bandcamp, Shop, Events, Fresha visibility, Custom Links).
     - **Effort:** S (~0.5–1h)
@@ -155,7 +156,8 @@
     - **Technical:** Nightwatch alerts only on thrown/failed exceptions and auto-detected slow jobs — a bare `Log::warning` is an invisible breadcrumb. Verified inconsistency: in `GoogleBusinessService`, siblings `resolvePhotoUrls`/`streetViewPano` **do** call `report($e)`, but `fetchPlaceDetails` (the billed Place-Details call) only warns and returns null → `FetchUnavailableException` → `status='unavailable'`, no alert. A shape error in `recordFailure` means a stored payload lost a required key (data corruption) yet only warns.
     - **Plain English:** Several of these failure points write a quiet note in a logbook nobody watches instead of pulling the alarm. A Google outage would silently stale every business card — and nobody gets paged until users complain.
 
-- [ ] **#CACHE-1** · P2 — Menu persisted as a full delete-then-reinsert (rebuild-on-write)
+- [x] **#CACHE-1** · P2 — Menu persisted as a full delete-then-reinsert (rebuild-on-write)
+    - **✅ Resolved (accept + document + guard test):** Kept the wholesale rebuild. `persist()` only runs when `handle()`'s unchanged-skip gate misses (URL match + `fetch_status='ok'` + per-platform settlement) — it is not a hot path — and there is no stable per-item identity to diff on (`ue_external_id` was dropped; `menu_items.id` is a fresh UUID each scrape; the menu is dashboard-only and read fresh, so UUID churn is invisible to consumers). Added an explanatory comment at the delete block + a guard test asserting category/item names, counts, and platform-link counts are identical across two forced rebuilds with identical scraper output. A heuristic name-based row-diff was rejected as fragile for a rarely-run path. Independent review concurred. 2026-07-03.
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:176-225
     - **Affects:** Write load on `site.menu_items` / `site.menu_categories`.
     - **Effort:** M (~2–4h)
@@ -164,7 +166,8 @@
     - **Plain English:** Every menu change erases the whole whiteboard and rewrites it, even if one dish changed. Fine occasionally; wasteful when menus churn (Google Business sync, batch imports).
     - **10k re-tier:** thousands of menus × 100–200 items → millions of avoidable row mutations across a day's link maintenance.
 
-- [ ] **#CCH-2** · P2 — YouTube thumbnail-verdict cache: no single-flight lock + up to 30-day stale verdict
+- [x] **#CCH-2** · P2 — YouTube thumbnail-verdict cache: no single-flight lock + up to 30-day stale verdict
+    - **✅ Resolved:** Split the verdict TTL — `'maxres'` keeps the long ~30-day TTL (never regresses once published), `'hq'` re-probes on a short recheck TTL (new `partna.refresh.host_limits.youtube_thumbnails.hq_recheck_ttl_seconds`, 6h default, env `PARTNA_REFRESH_YTIMG_HQ_RECHECK_TTL`). Single-flight via `rememberLocked` deliberately NOT added: Plan 4's `pooledHead()` already batches miss probes in one `Http::pool` round and the `platform-refresh` RateLimiter paces jobs per provider, so cross-job duplicate (unbilled) HEADs to `i.ytimg.com` are bounded; a per-id lock would serialize probes and negate the pool. Independent review concurred. 2026-07-03.
     - **Where:** app/Services/Platforms/YoutubeThumbnailResolver.php:102-130
     - **Affects:** Every YouTube/YouTube-Music refresh; end-user thumbnail quality.
     - **Effort:** S (~0.5–1h)
@@ -172,7 +175,8 @@
     - **Technical:** Video IDs are global, so a cron batch refreshing many users who follow the same channel fires concurrent HEAD probes to `i.ytimg.com` on each expiry (Category 1). A first-scrape `'hq'` verdict is then trusted for the full 30-day jittered TTL even after YouTube generates the HD thumbnail hours later.
     - **Plain English:** When the "does this video have an HD thumbnail?" note expires, everyone re-asks YouTube at once; and if the first answer was "not yet," we keep showing the low-res version for a month even after HD appears.
 
-- [ ] **#JOB-2** · P2 — Instagram reconnect orphans the previous mirrored R2 media (no cleanup path)
+- [x] **#JOB-2** · P2 — Instagram reconnect orphans the previous mirrored R2 media (no cleanup path)
+    - **✅ Resolved (root-cause fix in the connect job — premise corrected):** On verifying against current code, the "unbounded growth on every reconnect" premise was **overstated**: the R2 folder is `platforms/instagram/{created_at→timestamp}`, which is **stable per connection** (created_at is immutable across `updateOrCreate`), and the mirror filenames are **fixed** (`photo.jpg`, `reel.mp4`, `reel-cover.jpg`, `profile.jpg`) — so a reconnect *overwrites* live files, it does not accumulate. The only real orphan is the **complement**: files of a media *type* no longer present (e.g. a prior reel when the account now leads with a photo). Both originally-suggested fixes (controller-side dispatch OR broadening the observer) were **rejected as racy** — because old_folder == new_folder, a separately-queued `DeleteMirroredMediaJob` can (on retry / concurrent worker) run *after* the re-mirror and wipe fresh media. Fix instead reclaims the complement **in-job, after the writes** (`InstagramConnectJob::handle()`): delete the fixed-name paths not (re)written this run. Race-free (happens-after the writes, same job) and window-free (never deletes a path it just wrote). 3 new tests. Owner approved the approach; independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/InstagramController.php (updateOrCreate → `payload => []`) · app/Observers/Core/IntegrationConnectionObserver.php (updated() only handles folder→folder)
     - **Affects:** R2 storage cost — old images/reels accumulate permanently on every reconnect.
     - **Effort:** S (~0.5–1h)
@@ -184,7 +188,8 @@
 
 ## P3 — Polish / cleanup
 
-- [ ] **#SCALE-5** · P3 — Repeated per-request queries on connection rows (all bounded, harmless today)
+- [x] **#SCALE-5** · P3 — Repeated per-request queries on connection rows (all bounded, harmless today)
+    - **✅ Resolved (4 of 5 sites; 1 correctly skipped):** Eager-load-once + in-memory keyBy/groupBy/memoize at: `GoogleBusinessController::synced` (keyBy `platform|resource_id` — collision-free per the `(user_id,platform,resource_id) WHERE deleted_at IS NULL` unique index + SoftDeletes scope); `MenuSource::entries()` (per-request memo keyed by user_id; all callers read-only); `EventsCatalog::selection()` (single `whereIn('platform')->groupBy` replacing 5 per-platform queries — filters + order verified identical); `GoogleBusinessAutoSync::seedOrdering` (`$existingCount` + `$existingStoreKeys` map replacing per-iteration `count()`/`hasStoreKey()` — cap timing + in-batch dedup verified). **Skipped** `IntegrationConnectionObserver::purge` — a static user_id→subdomain cache would persist across Horizon jobs and serve a stale subdomain after a handle rename (staleness risk > 1–2 saved queries). Independent review confirmed all four behavior-equivalent. 2026-07-03.
     - **Where:** GoogleBusinessController.php:145 (synced N+1) · IntegrationConnectionObserver.php:86 (User+site lookup per event) · MenuSource.php:198 (`entries()` re-run ×4) · EventsCatalog.php:98-143 (`rowsFor` ×5) · GoogleBusinessAutoSync.php:352 (`hasStoreKey` get-then-filter)
     - **Affects:** Connection-pool churn on menu/events/GB paths under viral cache-miss traffic.
     - **Effort:** S (~0.5–1h)
@@ -192,7 +197,8 @@
     - **Technical:** Each site loads < 50 rows (per-user data is small — inside the audit's own N+1 drop threshold), so this is a micro-optimisation, not a scale blocker; worth doing when these paths are touched.
     - **Plain English:** A few "walk back to the filing cabinet" round-trips that are cheap because the files are thin. Tidy them up opportunistically.
 
-- [ ] **#SHOP-1** · P3 — Shop catalog cache: stale-after-save + a cache that's written but never read *(verify Shop is live)*
+- [x] **#SHOP-1** · P3 — Shop catalog cache: stale-after-save + a cache that's written but never read *(verify Shop is live)*
+    - **✅ Resolved (Shop confirmed live):** ShopController's product-picker routes (`brandProducts`, `setProducts`, `catalog`) are registered/live in routes/api/integrations.php — this is the display-Shop platform card (link a store, showcase products), NOT the stripped Shopify/Stripe commerce. `brandProducts` now uses `Cache::remember` (true read-through — a warm catalog short-circuits the live scrape; TTL + key unchanged), and `setProducts` now `Cache::forget($this->catalogKey($id))` after the write so the picker doesn't serve a stale catalog for the ~10-min TTL. Same key helper both sides (verified). Independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php (`setProducts`, `brandProducts`, `providerProducts`)
     - **Affects:** Dashboard product-picker freshness (if the Shop/product feature ships).
     - **Effort:** S (~0.5–1h)
@@ -201,13 +207,15 @@
     - **Plain English:** After you change your product list the picker can show the old one for ten minutes; and the "cache" the code keeps is written but never read, so every picker open re-scrapes the store for nothing.
     - **Note:** Commerce was stripped 2026-05-22 — confirm the Shop product-picker is a shipping surface before spending effort here.
 
-- [ ] **#CCH-3** · P3 — Connection-lock key built by ad-hoc string concatenation
+- [x] **#CCH-3** · P3 — Connection-lock key built by ad-hoc string concatenation
+    - **✅ Resolved:** Added `CacheKeyGenerator::platformConnectionLock($platform, $userId, $suffix)` (byte-identical to the former inline concat, so no in-flight lock name changes) and called it in `withConnectionLock`. Done in one pass with #CCH-1 (same code site). Unit test locks the key shape. 2026-07-03.
     - **Where:** ManagesIntegrationConnection.php (withConnectionLock) — `"platforms:{$this->platform()}:lock:{$user->id}"...`
     - **Affects:** Future lock-inspection / cross-platform coordination code (drift risk).
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add `CacheKeyGenerator::platformConnectionLock(...)` and call it here (single source of truth, consistent with `CacheLockService`).
 
-- [ ] **#CCH-4** · P3 — Per-card refresh cooldown TTL is unjittered
+- [x] **#CCH-4** · P3 — Per-card refresh cooldown TTL is unjittered
+    - **✅ Resolved:** Wrapped the 12s cooldown in `JitteredTtl::applyJitter` (RefreshController) → an int in [10,14]s, so multi-pod cooldowns don't expire in lockstep after a synchronized deploy/restart. Independent review PASS. 2026-07-03.
     - **Where:** app/Http/Controllers/Api/Platforms/RefreshController.php (`Cache::add(..., 12)`)
     - **Affects:** Multi-pod synchronized cooldown expiry after a deploy/restart (minor UX throttle only).
     - **Effort:** S (~0.5–1h)

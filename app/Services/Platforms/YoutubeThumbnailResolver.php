@@ -88,9 +88,19 @@ class YoutubeThumbnailResolver
             $response = $responses[$id] ?? null;
             $hasMaxres = $response instanceof Response && $response->status() === 200;
 
-            // Jittered TTL (integer seconds — DateTimeInterface bypasses jitter) so
-            // the whole batch's verdicts don't expire in the same second 30 days on.
-            Cache::put($this->cacheKey($id), $hasMaxres ? 'maxres' : 'hq', self::applyJitter(self::CACHE_DAYS * 86400));
+            // maxres never regresses once published → cache long. 'hq' may become
+            // 'maxres' hours later (YouTube generates maxres post-upload), so re-probe
+            // it on a short recheck TTL instead of pinning hqdefault for 30 days.
+            // NOTE: single-flight via CacheLockService::rememberLocked is intentionally
+            // NOT used here — Plan 4's pooledHead() already batches the miss probes in one
+            // Http::pool round and the platform-refresh RateLimiter paces jobs per provider,
+            // so cross-job duplicate HEADs to i.ytimg.com are unbilled and bounded; a
+            // per-id rememberLocked would serialize probes and negate that pool.
+            $ttl = $hasMaxres
+                ? self::CACHE_DAYS * 86400
+                : (int) config('partna.refresh.host_limits.youtube_thumbnails.hq_recheck_ttl_seconds', 21600);
+
+            Cache::put($this->cacheKey($id), $hasMaxres ? 'maxres' : 'hq', self::applyJitter($ttl));
             $result[$id] = $hasMaxres ? $this->maxresUrl($id) : $this->hqUrl($id);
         }
 

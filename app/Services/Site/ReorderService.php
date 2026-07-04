@@ -14,10 +14,10 @@ use Illuminate\Support\Facades\DB;
 class ReorderService
 {
     /**
-     * @param string[]     $ids          desired leading order
-     * @param Builder      $scopeQuery   WHERE-only builder; cloned internally per use
-     * @param string       $lockKey      pg advisory lock key, e.g. "blocks-links:{$site->id}"
-     * @param Closure|null $afterCommit  runs after the transaction commits (e.g. fn () => $site->touch())
+     * @param  string[]  $ids  desired leading order
+     * @param  Builder  $scopeQuery  WHERE-only builder; cloned internally per use
+     * @param  string  $lockKey  pg advisory lock key, e.g. "blocks-links:{$site->id}"
+     * @param  Closure|null  $afterCommit  runs after the transaction commits (e.g. fn () => $site->touch())
      */
     public function reorder(array $ids, Builder $scopeQuery, string $lockKey, ?Closure $afterCommit = null): void
     {

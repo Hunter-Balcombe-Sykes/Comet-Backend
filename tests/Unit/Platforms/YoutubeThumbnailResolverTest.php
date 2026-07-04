@@ -84,3 +84,31 @@ it('returns an entry for every requested id and dedupes repeated ids', function 
     // Deduped: two distinct ids ⇒ exactly two probes, not three.
     Http::assertSentCount(2);
 });
+
+it('caches hq verdicts with a short recheck TTL, not the 30-day maxres TTL', function () {
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.hq_recheck_ttl_seconds', 21600);
+    Http::fake(['i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 404)]);
+
+    Cache::spy();
+
+    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-hq-1']);
+
+    // 21600s × [0.8, 1.2] = [17280, 25920] — well under 30 days (2,592,000s).
+    Cache::shouldHaveReceived('put')->withArgs(
+        fn ($k, $v, $ttl) => $v === 'hq' && is_int($ttl) && $ttl < 30000,
+    )->once();
+});
+
+it('caches maxres verdicts with the long CACHE_DAYS TTL', function () {
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.hq_recheck_ttl_seconds', 21600);
+    Http::fake(['i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 200)]);
+
+    Cache::spy();
+
+    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-max-1']);
+
+    // 30 × 86400 × [0.8, 1.2] = [2,073,600, 3,110,400].
+    Cache::shouldHaveReceived('put')->withArgs(
+        fn ($k, $v, $ttl) => $v === 'maxres' && is_int($ttl) && $ttl > 2000000,
+    )->once();
+});

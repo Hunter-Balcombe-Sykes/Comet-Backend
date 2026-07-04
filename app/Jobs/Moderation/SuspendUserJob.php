@@ -63,5 +63,4 @@ class SuspendUserJob implements ShouldQueue
             $this->markCompleted($entry);
         });
     }
-
 }

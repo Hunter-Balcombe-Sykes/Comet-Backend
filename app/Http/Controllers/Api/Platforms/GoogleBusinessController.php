@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Rules\PlatformInRegistry;
 use App\Services\Accounts\AccountCapabilities;
@@ -13,6 +14,7 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -164,8 +166,14 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
         $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
 
+        // Pre-load all connections keyed by "platform|resource_id" so shapeFinding
+        // can look up each seeded row in O(1) instead of issuing a DB query per finding.
+        $connections = $user->integrationConnections()
+            ->get()
+            ->keyBy(fn ($r) => $r->platform.'|'.$r->resource_id);
+
         $synced = collect($findings)
-            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f) : null)
+            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f, $connections) : null)
             ->filter()
             ->values()
             ->all();
@@ -211,10 +219,11 @@ class GoogleBusinessController extends SingleSelectionPlatformController
      * Shape one recorded finding for the modal, re-deriving live status. Returns
      * null when a seeded row was since removed (so it drops off the list).
      *
+     * @param  Collection<string, IntegrationConnection>  $connections  pre-loaded keyed by "platform|resource_id"
      * @param  array<string,mixed>  $finding
      * @return array<string,mixed>|null
      */
-    private function shapeFinding(User $user, array $finding): ?array
+    private function shapeFinding(User $user, array $finding, Collection $connections): ?array
     {
         $platform = (string) ($finding['platform'] ?? '');
         $category = (string) ($finding['category'] ?? 'other');
@@ -233,10 +242,10 @@ class GoogleBusinessController extends SingleSelectionPlatformController
         }
 
         // Seeded — drop if the user already removed it; else derive synced/syncing.
-        $row = $user->integrationConnections()
-            ->where('platform', $platform)
-            ->where('resource_id', (string) ($finding['resourceId'] ?? ''))
-            ->first();
+        // Use the pre-loaded collection keyed by "platform|resource_id" to avoid a
+        // DB query per finding.
+        $resourceId = (string) ($finding['resourceId'] ?? '');
+        $row = $connections->get($platform.'|'.$resourceId);
         if ($row === null) {
             return null;
         }

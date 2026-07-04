@@ -22,7 +22,7 @@ function sanitize(string $output): string
 }
 
 it('strips /tmp/ absolute paths from ffmpeg output', function () {
-    $raw = "/tmp/partna-video-abc123.mp4: Invalid data found when processing input";
+    $raw = '/tmp/partna-video-abc123.mp4: Invalid data found when processing input';
 
     $result = sanitize($raw);
 
@@ -31,7 +31,7 @@ it('strips /tmp/ absolute paths from ffmpeg output', function () {
 });
 
 it('strips /var/ paths from ffmpeg output', function () {
-    $raw = "Error reading /var/folders/abc/xyz/T/partna-abc.mp4: No such file";
+    $raw = 'Error reading /var/folders/abc/xyz/T/partna-abc.mp4: No such file';
 
     $result = sanitize($raw);
 

@@ -126,7 +126,7 @@ it('audit scope maps reference no dead paths', function () {
     sort($dead);
 
     expect($dead)->toBeEmpty(
-        "codebase_chunks() in scripts/audit/audit.sh references paths that no longer exist "
+        'codebase_chunks() in scripts/audit/audit.sh references paths that no longer exist '
         ."(the lens scans nothing for them). Remove/rename each, and the matching lens .md scope-group:\n - "
         .implode("\n - ", $dead),
     );
@@ -177,8 +177,8 @@ it('every feature namespace is covered by an audit scope map', function () {
     sort($uncovered);
 
     expect($uncovered)->toBeEmpty(
-        "These directories get zero audit sweep coverage — add each to the right lens chunk in "
-        ."codebase_chunks() (scripts/audit/audit.sh) + its .md scope-group, or add a justified "
+        'These directories get zero audit sweep coverage — add each to the right lens chunk in '
+        .'codebase_chunks() (scripts/audit/audit.sh) + its .md scope-group, or add a justified '
         ."\$coverageExempt entry:\n - ".implode("\n - ", $uncovered),
     );
 });
@@ -196,7 +196,7 @@ it('audit lenses reference no stale file paths', function () {
     sort($stale);
 
     expect($stale)->toBeEmpty(
-        "Audit lens/prompt prose names file paths that no longer exist — the lens is stale and "
+        'Audit lens/prompt prose names file paths that no longer exist — the lens is stale and '
         ."audits code that's been moved or removed. Fix or drop each reference:\n - "
         .implode("\n - ", $stale),
     );

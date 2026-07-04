@@ -46,15 +46,15 @@ class EventsCatalog
         // bound before instantiation are captured by the closures correctly.
         $this->adapters = [
             'eventbrite' => [
-                'eventUrl'     => fn (string $u) => $this->eventbrite->normalizeEventUrl($u),
-                'fetchEvent'   => fn (string $u) => $this->eventbrite->fetchSingleEvent($u),
-                'accountUrl'   => fn (string $u) => $this->eventbrite->normalizeOrgUrl($u),
+                'eventUrl' => fn (string $u) => $this->eventbrite->normalizeEventUrl($u),
+                'fetchEvent' => fn (string $u) => $this->eventbrite->fetchSingleEvent($u),
+                'accountUrl' => fn (string $u) => $this->eventbrite->normalizeOrgUrl($u),
                 'fetchAccount' => fn (string $u) => $this->eventbrite->fetchEvents($u),
             ],
             'humanitix' => [
-                'eventUrl'     => fn (string $u) => $this->humanitix->normalizeEventUrl($u),
-                'fetchEvent'   => fn (string $u) => $this->humanitix->fetchSingleEvent($u),
-                'accountUrl'   => fn (string $u) => $this->humanitix->resolveHostUrl($u),
+                'eventUrl' => fn (string $u) => $this->humanitix->normalizeEventUrl($u),
+                'fetchEvent' => fn (string $u) => $this->humanitix->fetchSingleEvent($u),
+                'accountUrl' => fn (string $u) => $this->humanitix->resolveHostUrl($u),
                 'fetchAccount' => fn (string $u) => $this->humanitix->fetchEvents($u),
             ],
         ];
@@ -121,9 +121,26 @@ class EventsCatalog
         // provider only requires a descriptor — no edit here.
         $eventPlatforms = $this->detector->providersFor('events');
 
+        // Eager-load all rows for every relevant platform in one query, then split
+        // in memory. Without this, rowsFor() runs once per platform per loop pass
+        // (2 platforms × 2 loops + custom = 5 DB round-trips → 1).
+        $allPlatforms = [...$eventPlatforms, self::CUSTOM_PLATFORM];
+        $byPlatform = $user->integrationConnections()
+            ->whereIn('platform', $allPlatforms)
+            ->orderBy('sort_order')
+            ->orderBy('created_at')
+            ->get()
+            ->groupBy('platform');
+
         // Organiser/host accounts (eventbrite + humanitix) + their upcoming events.
         foreach ($eventPlatforms as $platform) {
-            foreach ($this->accountRows($user, $platform) as $row) {
+            $platformRows = $byPlatform->get($platform, collect());
+            $rows = $platformRows->filter(
+                fn (IntegrationConnection $r) => ! str_starts_with($r->resource_id, 'event-')
+                    && ! str_starts_with($r->resource_id, 'link-'),
+            )->values();
+
+            foreach ($rows as $row) {
                 $account = EventsAccountPayload::fromArray($row->payload);
                 $upcoming = $this->dropElapsed(EventsPayload::withIds($account->upcoming()));
                 $accounts[] = [
@@ -149,8 +166,13 @@ class EventsCatalog
         }
 
         // Standalone events: eventbrite/humanitix singles + custom cards.
-        foreach ([...$eventPlatforms, self::CUSTOM_PLATFORM] as $platform) {
-            foreach ($this->eventRows($user, $platform) as $row) {
+        foreach ($allPlatforms as $platform) {
+            $platformRows = $byPlatform->get($platform, collect());
+            $rows = $platformRows->filter(
+                fn (IntegrationConnection $r) => str_starts_with($r->resource_id, 'event-'),
+            )->values();
+
+            foreach ($rows as $row) {
                 $standalone = StandaloneEventPayload::fromArray($row->payload);
                 $id = $standalone->id();
                 $events[] = [
