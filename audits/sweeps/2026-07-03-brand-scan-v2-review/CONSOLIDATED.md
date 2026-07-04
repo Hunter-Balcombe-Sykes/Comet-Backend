@@ -288,7 +288,8 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-1** · P2 — `SiteMedia::$fillable` includes `site_id`, the tenant-establishing FK, with no current-exploit path
+- [x] **#SEC-1** · P2 — `SiteMedia::$fillable` includes `site_id`, the tenant-establishing FK, with no current-exploit path
+    - **Fixed (2026-07-04, commit `d82015b6`):** Dropped `site_id` from `$fillable`; switched all 3 write paths + 4 auth skeletons to `->site()->associate($site)`. NOTE — the finding's "no-behavior-change, just remove the line" premise was wrong: `create()` and `new Model([])` both route through `$fillable`, so a bare removal silently 500s every media write (`site_id` NOT NULL) and 403s the skeleton authorization (`SitePolicy` reads the raw `site_id`). `associate()` sets the FK through the relationship, bypassing mass-assignment while keeping trusted paths working. Guard test added; independent Opus review PASS; full suite green (3024 passed).
     - **Where:** app/Models/Core/Site/SiteMedia.php:118-137
     - **Affects:** Defense-in-depth for every media write path. Not currently exploitable — verified below — but a future refactor that mass-assigns from request data would silently break tenant isolation.
     - **Effort:** M (~2–4h)
@@ -1095,8 +1096,8 @@
 
 ## Deferred — do NOT run this pass; surface at completion
 
-**Fix-flow instruction:** #SEC-1, #TEST-1, and #TEST-3 are intentionally deferred by Josh (2026-07-03). Do NOT plan, implement, or tick their checkboxes this run — skip them wherever they appear (their finding entries above; they are deliberately in no bundle and not in Standalone). Their checkboxes stay `[ ]`, so the folder will NOT auto-archive — that is intended. When every other bundle + #SEC-3 is complete, end the run by printing a **"Deferred — start deliberately"** block that lists the three below with their reasons, then STOP (do not run `archive-done.sh`).
+**Fix-flow instruction:** #SEC-1, #TEST-1, and #TEST-3 are intentionally deferred by Josh (2026-07-03). Do NOT plan, implement, or tick their checkboxes this run — skip them wherever they appear (their finding entries above; they are deliberately in no bundle and not in Standalone). Their checkboxes stay `[ ]`, so the folder will NOT auto-archive — that is intended. When every other bundle + #SEC-3 is complete, end the run by printing a **"Deferred — start deliberately"** block that lists the three below with their reasons, then STOP (do not run `archive-done.sh`). **(Update 2026-07-04: #SEC-1 has since been started deliberately and completed — see below. #TEST-1 and #TEST-3 remain deferred, so the folder still does not auto-archive.)**
 
-- **#SEC-1** — not exploitable today (site_id is server-derived at every creation site), but the fix (drop `site_id` from `$fillable`) silently breaks 5+ `new SiteMedia([...])` / `SiteMedia::create([...])` call sites unless each sets site_id explicitly. Blast radius > the theoretical bug — plan it deliberately with review.
+- **#SEC-1** — ✅ **DONE 2026-07-04 (commit `d82015b6`)** — started deliberately with a plan + independent Opus review, exactly as this note advised. *(Original deferral reason: not exploitable today — site_id is server-derived at every creation site — but the fix drops `site_id` from `$fillable`, which silently breaks 5+ `new SiteMedia([...])` / `SiteMedia::create([...])` call sites unless each sets site_id explicitly. Blast radius > the theoretical bug — plan it deliberately with review.)*
 - **#TEST-1** — `DesignPresetResolver` core-resolution test suite · L (~1–2d) autonomous test-writing — run in a dedicated session where the spend can be watched.
 - **#TEST-3** — `EvidenceConclusions` confidence-engine test suite · L (~1–2d), same reason as TEST-1.
