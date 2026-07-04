@@ -58,11 +58,6 @@ it('PATCH /me writes credentials to core.user_credentials, not to about JSONB', 
     expect($rows[0]->sort_order)->toBe(0);
     expect($rows[1]->title)->toBe('Advanced Cut');
     expect($rows[1]->sort_order)->toBe(1);
-
-    // Legacy about column does NOT store credentials (stripped before fill).
-    $fresh = $user->fresh();
-    $about = $fresh->about ?? [];
-    expect(array_key_exists('credentials', $about))->toBeFalse();
 });
 
 it('PATCH /me replaces existing credentials on the second call (delete-and-reinsert)', function () {
@@ -159,10 +154,6 @@ it('PATCH /me writes experience to core.user_experience', function () {
     expect($rows[0]->organisation)->toBe('Salon A');
     expect($rows[0]->start_year)->toBe('2020-01');
     expect($rows[0]->end_year)->toBeNull();
-
-    // Legacy about column does NOT store experience.
-    $about = $user->fresh()->about ?? [];
-    expect(array_key_exists('experience', $about))->toBeFalse();
 });
 
 it('PATCH /me omitting credentials key does not clear existing credentials', function () {

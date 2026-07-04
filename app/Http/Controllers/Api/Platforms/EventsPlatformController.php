@@ -125,7 +125,7 @@ abstract class EventsPlatformController extends ApiController
             return $this->error('You can add up to '.self::MAX_STANDALONE_EVENTS.' individual events.', 422);
         }
 
-        $this->writeConnection($user, $payload, $rid);
+        $this->writeConnection($user, $payload, $rid, resourceKind: 'event');
 
         return $this->success(['selection' => $this->selectionData($user)]);
     }
@@ -296,7 +296,7 @@ abstract class EventsPlatformController extends ApiController
     protected function eventRows(User $user)
     {
         return $this->connectionsFor($user)->filter(
-            fn (IntegrationConnection $row) => str_starts_with($row->resource_id, 'event-'),
+            fn (IntegrationConnection $row) => $row->resource_kind === 'event',
         )->values();
     }
 }

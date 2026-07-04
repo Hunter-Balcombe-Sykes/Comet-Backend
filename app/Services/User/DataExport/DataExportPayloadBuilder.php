@@ -194,9 +194,9 @@ class DataExportPayloadBuilder
         $row = $p->toArray();
         unset($row['auth_user_id'], $row['deletion_token_hash']);
 
-        // Attach credentials and experience from child tables (FOUND-5).
-        // The legacy about JSONB column is retained but may be empty; the
-        // child tables are now the canonical source of truth.
+        // Attach credentials and experience from child tables (FOUND-5). The
+        // legacy about JSONB column was dropped (FOUND-37) — aboutPayload()
+        // is the sole source of truth.
         $row['about'] = $p->aboutPayload();
 
         return [

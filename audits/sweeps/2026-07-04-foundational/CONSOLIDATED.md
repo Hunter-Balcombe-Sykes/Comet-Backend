@@ -57,7 +57,7 @@
 
 ## Progress
 
-- P0 Before pilot: 2 of 9 complete
+- P0 Before pilot: 7 of 9 complete
 - P1 Important spines: 0 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
@@ -164,7 +164,8 @@
         'productIds.*' => ['string', 'max:50'],
         ```
 
-- [ ] **#FOUND-34** · P0 · **Plan: Sonnet** — Row-type is encoded as a string prefix on `resource_id` (`event-`, `link-`) instead of a discriminator column
+- [x] **#FOUND-34** · P0 · **Plan: Sonnet** — Row-type is encoded as a string prefix on `resource_id` (`event-`, `link-`) instead of a discriminator column
+    - **✅ IMPLEMENTED (2026-07-04):** Added nullable `resource_kind` on `site.platform_connections` (backfilled `event`/`link` from the `resource_id` prefix, `CHECK`-guarded to `event`/`link`/NULL). Every `str_starts_with($r->resource_id, 'event-'/'link-')` read swapped to `$r->resource_kind === …`, including the shared `ManagesIntegrationConnection::accountRows()` trait — so all platforms are covered at once. Write sites stamp the kind only for event/link rows; account/single-selection/online-ordering rows stay NULL (stamp-only-if-non-null, so refresh/enrich paths can't clobber it). New `ResourceKindColumnWriteTest`; independent Sonnet review PASS, full suite 3125 passed. Migration `20260704150000` created but **unapplied** (deploy-ordering — see FOUND-37). Branch `audit-fix/foundational-prepilot-2026-07-04`.
     - **Where:** `app/Services/Platforms/EventsCatalog.php` (`accountRows()`, `eventRows()`)
     - **Affects:** Any code branching on `resource_id` prefix; a new row kind needs every prefix-check site updated.
     - **Effort:** M (~2–4h)
@@ -179,7 +180,8 @@
         )->values();
         ```
 
-- [ ] **#FOUND-35** · P0 · **Plan: Sonnet** — Social link `handle` stays in `settings` JSONB while `platform`/`category` were already promoted to real columns
+- [x] **#FOUND-35** · P0 · **Plan: Sonnet** — Social link `handle` stays in `settings` JSONB while `platform`/`category` were already promoted to real columns
+    - **✅ IMPLEMENTED (2026-07-04):** Added nullable `handle` column on `site.blocks` (backfilled from `settings->>'handle'`, `block_group='links'` only), mirroring the existing `platform`/`category` promotion (`20260701170000`). Expand-only: the column is dual-written alongside `settings['handle']` (settings NOT stripped, so nothing downstream breaks — a later contract migration can strip it). Updated `Block::$fillable`, `LinkBlockFieldBuilder` (social mode), and `BackfillSocialLinksCommand` (+ stale docblock). Handle-column write test added. Independent Sonnet review PASS, full suite 3125 passed. Migration `20260704150000` (unapplied). Same branch.
     - **Where:** `app/Console/Commands/BackfillSocialLinksCommand.php`
     - **Affects:** Any future feature needing to search/filter/uniqueness-constrain a link block's handle.
     - **Effort:** M (~2–4h, DB migration)
@@ -192,7 +194,8 @@
         // settings JSONB. handle stays in settings as it has no dedicated column.
         ```
 
-- [ ] **#FOUND-36** · P0 · **Plan: Sonnet** — MenuSource loads every online-ordering row for a user and filters `url` in PHP instead of a column
+- [x] **#FOUND-36** · P0 · **Plan: Sonnet** — MenuSource loads every online-ordering row for a user and filters `url` in PHP instead of a column
+    - **⏭️ DEFERRED — documented (2026-07-04):** `url` is filtered in exactly one in-memory place (`MenuSource::entries()`), over ≤`MAX_ENTRIES` (10) online-ordering rows per user; a repo-wide sweep found no other reader and no DB filter/index/uniqueness need today. Left as-is per the finding body ("otherwise leave as-is"); the decision is pinned in an inline comment at the read site so it isn't re-litigated without a real query need. No schema change. Josh confirmed defer at the gate.
     - **Where:** `app/Services/Platforms/MenuSource.php` (`entries()`), `app/Services/Platforms/Payloads/CardPayload.php` (`url()`)
     - **Affects:** Menu resolution for users with online-ordering links. Current per-user cardinality is small (typically 1–2 links), so this is low urgency today, but the pattern will not hold up if this feature grows to allow many saved ordering links.
     - **Effort:** M (~2–4h, DB migration)
@@ -211,7 +214,8 @@
             ->values();
         ```
 
-- [ ] **#FOUND-37** · P0 · **Plan: Sonnet** — `core.users.about` JSONB column is now dead weight following the completed credentials/experience extraction
+- [x] **#FOUND-37** · P0 · **Plan: Sonnet** — `core.users.about` JSONB column is now dead weight following the completed credentials/experience extraction
+    - **✅ IMPLEMENTED (2026-07-04):** Dropped the dead `core.users.about` JSONB column + its `'about' => 'array'` cast + the strip/collapse logic in `UserSelfController` and `StaffUserController::update()` (the original unstripped `$about` still feeds `SyncUserAboutService` → credentials/experience child tables). Cleaned 4 stale references (`AccountDeletionService::pseudonymiseAccountPii()`, `UserObserver::PUBLIC_PROFILE_USER_FIELDS`, `DataExportPayloadBuilder` comment, three test schemas). Repo-wide grep confirmed zero remaining readers of the column (all hits were `aboutPayload()` child-table reads). **Bonus:** this also removes a latent Postgres `23502 not_null_violation` — the column is `NOT NULL` in prod but `TEXT NULL` in the SQLite test schema, so any `PATCH /api/me` carrying an `about` key would 500 on real Postgres while CI stayed green (the schema-drift trap CLAUDE.md documents). Independent Sonnet review PASS, full suite 3125 passed. Migration `20260704150000` created but **unapplied** — the `DROP COLUMN` is not backward-compatible with currently-deployed code, so it must be applied to dev Supabase *after* the merge deploys (merge → deploy → apply). Same branch.
     - **Where:** `app/Http/Controllers/Api/User/Account/UserSelfController.php` (`update()`), `app/Http/Resources/UserDashboardResource.php`, `app/Models/Core/User/User.php` (`'about' => 'array'` cast)
     - **Affects:** Schema clarity — a nullable JSONB column that always resolves to `null` after validation is confusing debt, not active risk.
     - **Effort:** S (~0.5–1h, DB migration)
@@ -235,7 +239,8 @@
         'about' => (object) $this->aboutPayload(),
         ```
 
-- [ ] **#FOUND-49** · P0 · **Plan: Sonnet** — The booking section's `platform` field stays in `settings` JSONB while related fields have already been promoted
+- [x] **#FOUND-49** · P0 · **Plan: Sonnet** — The booking section's `platform` field stays in `settings` JSONB while related fields have already been promoted
+    - **⏭️ DEFERRED — documented (2026-07-04):** booking `settings.platform` has exactly one reader (`SitepageDataResolverService::getBooking()`) and no validation rule at all (unlike the config-backed `category`/`platform` link promotion) — promoting an unvalidated, single-read field to a column with no second consumer is premature schema surface. Left as-is; the decision is pinned in an inline comment at the read site. No schema change. Josh's 2026-07-04 triage originally wanted this batched in, but chose defer at the gate after seeing the single-reader / no-validation evidence.
     - **Where:** `supabase/migrations/20260701170000_promote_block_settings_columns.sql`
     - **Affects:** `SitepageDataResolverService::getBooking` must extract the value via JSON path.
     - **Effort:** S (~0.5–1h, DB migration)

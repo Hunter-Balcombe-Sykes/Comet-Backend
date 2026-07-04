@@ -228,12 +228,11 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
         ->and($site->unpublished_at)->not->toBeNull();
 });
 
-it('pseudonymises professionals public_contact and about PII at confirm time', function () {
+it('pseudonymises professionals public_contact and bio PII at confirm time', function () {
     $rawToken = 'raw-token-'.Str::random(54);
     $pro = seedRequestedUser($rawToken, [
         'public_contact_email' => 'public@example.com',
         'public_contact_number' => '+61400111222',
-        'about' => '{"headline":"Test bio"}',
         'bio' => 'I am a real person',
     ]);
 
@@ -245,8 +244,6 @@ it('pseudonymises professionals public_contact and about PII at confirm time', f
     expect($pro->public_contact_email)->toBeNull()
         ->and($pro->public_contact_number)->toBeNull()
         ->and($pro->bio)->toBeNull();
-    // about cast as array — empty array after scrub
-    expect($pro->about)->toBe([]);
 });
 
 it('rolls back the entire confirmation when pseudonymisation fails — status, audit row, and PII all reverted', function () {

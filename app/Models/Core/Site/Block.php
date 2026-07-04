@@ -37,6 +37,7 @@ class Block extends BaseModel
         'live_check_enabled',
         'category',
         'platform',
+        'handle',
     ];
 
     protected $casts = [

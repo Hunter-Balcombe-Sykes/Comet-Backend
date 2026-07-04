@@ -72,24 +72,15 @@ class UserSelfController extends ApiController
 
         $validated = $request->validated();
 
-        // Strip credentials/experience from the validated payload before fill()
-        // so the legacy about JSON column never re-accumulates them. They are
-        // written to child tables by SyncUserAboutService instead (FOUND-5).
+        // 'about' has no backing column (FOUND-37) — it only feeds SyncUserAboutService,
+        // which writes the credentials/experience child tables. Must never reach fill().
         $about = $validated['about'] ?? null;
-        if (is_array($about)) {
-            unset($validated['about']['credentials'], $validated['about']['experience']);
-            // If about is now empty after stripping, collapse to null so the column
-            // is cleared rather than persisting an empty object.
-            if ($validated['about'] === []) {
-                $validated['about'] = null;
-            }
-        }
+        unset($validated['about']);
 
         DB::transaction(function () use ($professional, $validated, $about): void {
             $professional->fill($validated);
             $professional->save();
 
-            // Sync credentials/experience from the original (pre-strip) about payload.
             if (is_array($about)) {
                 $this->aboutSync->sync($professional, $about);
             }

@@ -51,7 +51,6 @@ class User extends BaseModel
         'handle',
         'display_name',
         'bio',
-        'about',
         'country_code',
         'timezone',
         'account_type',
@@ -89,7 +88,6 @@ class User extends BaseModel
 
     protected $casts = [
         'onboarding_step' => 'integer',
-        'about' => 'array',
         'account_type' => AccountType::class,
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

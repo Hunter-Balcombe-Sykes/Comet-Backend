@@ -351,7 +351,6 @@ function setupUsersTable(): void
         account_type TEXT NULL,
         status TEXT NULL,
         bio TEXT NULL,
-        about TEXT NULL,
         country_code TEXT NULL,
         timezone TEXT NULL,
         onboarding_step INTEGER NULL,
@@ -510,6 +509,7 @@ function setupSitesTable(): void
         refresh_etag TEXT NULL,
         refresh_last_modified TEXT NULL,
         canonical_key TEXT NULL,
+        resource_kind TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
@@ -518,7 +518,7 @@ function setupSitesTable(): void
     // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
     // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
     // already-created table within a run).
-    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key'] as $vCol) {
+    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind'] as $vCol) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
         } catch (Throwable $e) {
@@ -802,6 +802,7 @@ function setupBlocksTable(): void
         live_check_enabled INTEGER NULL DEFAULT 0,
         category TEXT NULL,
         platform TEXT NULL,
+        handle TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL

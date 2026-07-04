@@ -136,8 +136,8 @@ class EventsCatalog
         foreach ($eventPlatforms as $platform) {
             $platformRows = $byPlatform->get($platform, collect());
             $rows = $platformRows->filter(
-                fn (IntegrationConnection $r) => ! str_starts_with($r->resource_id, 'event-')
-                    && ! str_starts_with($r->resource_id, 'link-'),
+                fn (IntegrationConnection $r) => $r->resource_kind !== 'event'
+                    && $r->resource_kind !== 'link',
             )->values();
 
             foreach ($rows as $row) {
@@ -169,7 +169,7 @@ class EventsCatalog
         foreach ($allPlatforms as $platform) {
             $platformRows = $byPlatform->get($platform, collect());
             $rows = $platformRows->filter(
-                fn (IntegrationConnection $r) => str_starts_with($r->resource_id, 'event-'),
+                fn (IntegrationConnection $r) => $r->resource_kind === 'event',
             )->values();
 
             foreach ($rows as $row) {
@@ -251,7 +251,9 @@ class EventsCatalog
             return $this->fail('You can add up to '.self::MAX_EVENTS.' individual events per platform.', 422);
         }
 
-        $this->writeRow($user, $platform, $rid, $payload);
+        // Covers both the direct-event path and the events-custom fallback
+        // (storeCustom below also routes through here) — both are 'event-*' rows.
+        $this->writeRow($user, $platform, $rid, $payload, resourceKind: 'event');
 
         return ['ok' => true, 'selection' => $this->selection($user)];
     }
@@ -283,19 +285,27 @@ class EventsCatalog
      * Direct model upsert — fires IntegrationConnectionObserver (sitepage cache
      * purge). Ownership is inherent (scoped to the authed user); the route's
      * EnforcePendingDeletionReadOnly handles the pending-deletion guard.
+     *
+     * $resourceKind stamps resource_kind (FOUND-34) only when non-null — account
+     * rows (storeAccount) omit it so the column stays NULL for those rows.
      */
-    private function writeRow(User $user, string $platform, string $resourceId, array $payload): void
+    private function writeRow(User $user, string $platform, string $resourceId, array $payload, ?string $resourceKind = null): void
     {
+        $values = [
+            'payload' => $payload,
+            'is_active' => true,
+            'last_refreshed_at' => now(),
+            'last_refresh_status' => 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ];
+        if ($resourceKind !== null) {
+            $values['resource_kind'] = $resourceKind;
+        }
+
         IntegrationConnection::updateOrCreate(
             ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $resourceId],
-            [
-                'payload' => $payload,
-                'is_active' => true,
-                'last_refreshed_at' => now(),
-                'last_refresh_status' => 'ok',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
+            $values,
         );
     }
 
@@ -316,19 +326,19 @@ class EventsCatalog
             ->get();
     }
 
-    /** Account rows = anything that isn't a standalone 'event-' or 'link-' row. */
+    /** Account rows = anything that isn't a standalone 'event' or 'link' resource_kind row. */
     private function accountRows(User $user, string $platform)
     {
         return $this->rowsFor($user, $platform)->filter(
-            fn (IntegrationConnection $r) => ! str_starts_with($r->resource_id, 'event-')
-                && ! str_starts_with($r->resource_id, 'link-'),
+            fn (IntegrationConnection $r) => $r->resource_kind !== 'event'
+                && $r->resource_kind !== 'link',
         )->values();
     }
 
     private function eventRows(User $user, string $platform)
     {
         return $this->rowsFor($user, $platform)->filter(
-            fn (IntegrationConnection $r) => str_starts_with($r->resource_id, 'event-'),
+            fn (IntegrationConnection $r) => $r->resource_kind === 'event',
         )->values();
     }
 

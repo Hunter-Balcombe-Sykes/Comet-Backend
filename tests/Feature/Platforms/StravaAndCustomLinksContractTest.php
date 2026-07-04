@@ -107,6 +107,7 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
         'user_id' => $user->id,
         'platform' => 'custom',
         'resource_id' => 'link-abc123def456',
+        'resource_kind' => 'link',
         'payload' => [
             'kind' => 'link',
             'url' => 'https://acme.example',
@@ -137,6 +138,7 @@ it('custom/links emits nulls for absent optional fields', function () {
         'user_id' => $user->id,
         'platform' => 'custom',
         'resource_id' => 'link-000000000000',
+        'resource_kind' => 'link',
         'payload' => [
             'kind' => 'link',
             'url' => 'https://minimal.example',

@@ -28,7 +28,8 @@ class UserObserver
      * so the Redis cache key rolls forward AND CloudflareCachePurgeJob fires.
      *
      * Sources: IndividualProfileResource (handle, display_name) +
-     * SitepageDataResolverService::getBio (bio, about). first_name + last_name
+     * SitepageDataResolverService::getBio (bio; credentials/experience read
+     * from child tables via aboutPayload() — see FOUND-37). first_name + last_name
      * are included because display_name accessors typically derive from them
      * and editing one without the composite is a realistic flow.
      *
@@ -40,7 +41,6 @@ class UserObserver
         'first_name',
         'last_name',
         'bio',
-        'about',
     ];
 
     public function __construct(

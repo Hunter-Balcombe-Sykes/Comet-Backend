@@ -225,6 +225,9 @@ class MenuSource
                 ->orderByDesc('id')
                 ->get()
                 ->map(fn (IntegrationConnection $r) => CardPayload::fromArray($r->payload)->toArray())
+                // FOUND-36 (documented-defer): `url` is filtered here only, over ≤MAX_ENTRIES (10)
+                // online-ordering rows per user — no DB filter/index/uniqueness need exists today.
+                // Revisit only if a second reader needs to query by url.
                 ->filter(fn (array $p) => is_string($p['url'] ?? null) && $p['url'] !== '')
                 ->values();
         }

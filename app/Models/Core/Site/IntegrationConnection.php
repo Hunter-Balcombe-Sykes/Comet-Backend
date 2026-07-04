@@ -40,6 +40,7 @@ class IntegrationConnection extends BaseModel
         'platform',
         'resource_id',
         'canonical_key',
+        'resource_kind',
         'payload',
         'sort_order',
         'is_active',

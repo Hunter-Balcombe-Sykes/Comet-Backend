@@ -17,7 +17,9 @@ use InvalidArgumentException;
  *   - platform           = promoted column (column only — not in settings)
  *   - category           = promoted column (column only — not in settings)
  *   - live_check_enabled = promoted column (read from top-level request field)
- *   - settings           = user settings + {handle} JSONB tag only
+ *   - handle             = promoted column (FOUND-35) — dual-written alongside
+ *                          settings.handle until the settings key is stripped
+ *   - settings           = user settings + {handle} JSONB tag only (dual-write)
  *
  * Custom mode produces:
  *   - url                = as supplied
@@ -80,6 +82,8 @@ class LinkBlockFieldBuilder
                 'platform' => $normalized['platform_key'],
                 'category' => $requestedCategory ?: ($registry['default_category'] ?? 'other'),
                 'live_check_enabled' => $liveCheckEnabled,
+                // FOUND-35: dual-write the column alongside settings.handle above.
+                'handle' => $normalized['handle'],
                 'settings' => $settings,
             ];
         }

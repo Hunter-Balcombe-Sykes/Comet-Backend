@@ -264,7 +264,6 @@ class AccountDeletionService
             'public_contact_email' => null,
             'public_contact_number' => null,
             'bio' => null,
-            'about' => (object) [], // empty JSON object — satisfies the jsonb_typeof = 'object' constraint
             'location_street_address' => null,
             'location_postcode' => null,
             'location_city' => null,

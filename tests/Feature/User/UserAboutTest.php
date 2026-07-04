@@ -31,29 +31,6 @@ function makeAboutUser(array $attrs = []): User
     ], $attrs));
 }
 
-it('persists a full about payload and reads it back as an array', function () {
-    $pro = makeAboutUser();
-
-    // Test still exercises the legacy about column directly (the column is retained).
-    $pro->about = [
-        'credentials' => [
-            ['title' => 'Advanced Colourist', 'issuer' => 'Toni & Guy', 'year' => 2019],
-        ],
-        'experience' => [
-            ['role' => 'Senior Stylist', 'place' => 'Rokstar', 'start' => '2021-03', 'end' => null, 'description' => 'Led colour team.'],
-        ],
-    ];
-    $pro->save();
-
-    $fresh = User::query()->where('id', $pro->id)->first();
-
-    expect($fresh->about)->toBeArray();
-    expect($fresh->about['credentials'][0]['title'])->toBe('Advanced Colourist');
-    expect($fresh->about['credentials'][0]['year'])->toBe(2019);
-    expect($fresh->about['experience'][0]['start'])->toBe('2021-03');
-    expect($fresh->about['experience'][0]['end'])->toBeNull();
-});
-
 it('exposes about through UserDashboardResource', function () {
     // FOUND-5: UserDashboardResource now reads from child tables via aboutPayload(),
     // not from the legacy about JSONB. Seed a credential row instead.
@@ -87,20 +64,4 @@ it('returns an object that JSON-encodes as the aboutPayload shape when about has
     $array = (new UserDashboardResource($pro->fresh()))->toArray(request());
 
     expect(json_encode($array['about']))->toBe('{"credentials":[],"experience":[]}');
-});
-
-it('fill() accepts about from validated Request payload', function () {
-    // Simulates what the controller does: $professional->fill($request->validated())
-    $pro = makeAboutUser();
-
-    $pro->fill([
-        'display_name' => 'Renamed',
-        'about' => [
-            'credentials' => [['title' => 'New Cert']],
-        ],
-    ])->save();
-
-    $fresh = $pro->fresh();
-    expect($fresh->display_name)->toBe('Renamed');
-    expect($fresh->about['credentials'][0]['title'])->toBe('New Cert');
 });

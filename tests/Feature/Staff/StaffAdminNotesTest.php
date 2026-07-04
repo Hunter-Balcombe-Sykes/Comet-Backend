@@ -25,7 +25,6 @@ beforeEach(function () {
         account_type TEXT NULL,
         status TEXT,
         admin_notes TEXT,
-        about TEXT,
         deleted_at TEXT,
         created_at TEXT,
         updated_at TEXT

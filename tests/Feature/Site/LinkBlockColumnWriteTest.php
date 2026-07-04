@@ -205,3 +205,45 @@ it('staff update fills category column from top-level field (Phase 2)', function
     expect($fresh->settings['highlight'] ?? null)->toBeTrue();
     expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
 });
+
+// ---------------------------------------------------------------------------
+// User controller — PATCH with platform+handle: FOUND-35 handle column write
+//
+// handle is dual-written (column + settings.handle) — the settings key strip
+// is a later contract migration, out of scope here.
+// ---------------------------------------------------------------------------
+
+it('PATCH with platform+handle sets the handle column (FOUND-35 — dual-write with settings)', function () {
+    $pro = createTenant('colwrite-handle');
+
+    $blockId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => $blockId,
+        'user_id' => $pro->id,
+        'site_id' => $pro->site->id,
+        'block_group' => 'links',
+        'block_type' => 'link',
+        'title' => 'My Instagram',
+        'url' => 'https://instagram.com/oldhandle',
+        'platform' => 'instagram',
+        'sort_order' => 0,
+        'is_active' => 1,
+        'category' => 'social',
+        'handle' => 'oldhandle',
+        'live_check_enabled' => 0,
+        'settings' => json_encode(['handle' => 'oldhandle']),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    actingAsUser($pro)
+        ->patchJson("/api/links/{$blockId}", ['platform' => 'instagram', 'handle' => 'newhandle'])
+        ->assertOk();
+
+    $fresh = Block::query()->findOrFail($blockId);
+
+    // Column populated (FOUND-35).
+    expect($fresh->handle)->toBe('newhandle');
+    // Dual-write: settings.handle still carries the same value.
+    expect($fresh->settings['handle'] ?? null)->toBe('newhandle');
+});

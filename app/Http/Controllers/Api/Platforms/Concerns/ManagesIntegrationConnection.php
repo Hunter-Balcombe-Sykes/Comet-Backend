@@ -72,8 +72,13 @@ trait ManagesIntegrationConnection
      * Omitted (null) on every other call site (highlights saves, tile refreshes,
      * single-selection writes) so those updates never clobber an already-stored
      * canonical_key back to NULL.
+     *
+     * $resourceKind stamps the resource_kind discriminator column (FOUND-34) —
+     * 'event' / 'link' for standalone rows, omitted (null) for account rows —
+     * mirroring canonical_key's stamp-only-if-not-null contract so an already-stored
+     * value is never clobbered back to NULL by an unrelated update.
      */
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null): IntegrationConnection
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null): IntegrationConnection
     {
         // Determine create vs. update before the upsert so the correct ability fires.
         $existing = $this->connectionFor($user, $resourceId);
@@ -105,6 +110,10 @@ trait ManagesIntegrationConnection
         if ($canonicalKey !== null) {
             $values['canonical_key'] = $canonicalKey;
         }
+        // Same stamp-only-if-not-null contract for resource_kind (FOUND-34).
+        if ($resourceKind !== null) {
+            $values['resource_kind'] = $resourceKind;
+        }
 
         return IntegrationConnection::updateOrCreate(
             [
@@ -122,8 +131,11 @@ trait ManagesIntegrationConnection
      * before the slow enrichment fetch runs (JOB-1). EnrichLinkCardJob flips the
      * status to 'ok' once it has upgraded the display fields. Policy-gated exactly
      * like writeConnection (create vs update ability resolved before the upsert).
+     *
+     * $resourceKind stamps resource_kind only when non-null — same contract as
+     * writeConnection (FOUND-34).
      */
-    protected function writePendingLinkCard(User $user, array $payload, ?string $resourceId = null): IntegrationConnection
+    protected function writePendingLinkCard(User $user, array $payload, ?string $resourceId = null, ?string $resourceKind = null): IntegrationConnection
     {
         $existing = $this->connectionFor($user, $resourceId);
         if ($existing) {
@@ -137,20 +149,25 @@ trait ManagesIntegrationConnection
             $this->authorizeForUser($user, 'create', $skeleton);
         }
 
+        $values = [
+            'payload' => $payload,
+            'is_active' => true,
+            'last_refreshed_at' => null,
+            'last_refresh_status' => 'pending',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ];
+        if ($resourceKind !== null) {
+            $values['resource_kind'] = $resourceKind;
+        }
+
         return IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'platform' => $this->platform(),
                 'resource_id' => $resourceId ?? $this->defaultResourceId(),
             ],
-            [
-                'payload' => $payload,
-                'is_active' => true,
-                'last_refreshed_at' => null,
-                'last_refresh_status' => 'pending',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
+            $values,
         );
     }
 
@@ -275,8 +292,8 @@ trait ManagesIntegrationConnection
     protected function accountRows(User $user)
     {
         return $this->connectionsFor($user)->filter(
-            fn (IntegrationConnection $row) => ! str_starts_with($row->resource_id, 'event-')
-                && ! str_starts_with($row->resource_id, 'link-'),
+            fn (IntegrationConnection $row) => $row->resource_kind !== 'event'
+                && $row->resource_kind !== 'link',
         )->values();
     }
 

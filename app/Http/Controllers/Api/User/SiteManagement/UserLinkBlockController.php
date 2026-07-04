@@ -133,7 +133,9 @@ class UserLinkBlockController extends ApiController
                 $normalized
             ));
         } else {
-            // Strip the social-mode-only keys before fill — they're not Block columns.
+            // Strip the social-mode-only keys before fill — 'platform' is never set
+            // on this legacy path, and 'handle' (FOUND-35: now a Block column) must
+            // only be written via the normalizer above, never as a raw passthrough.
             unset($data['platform'], $data['handle']);
             // Phase 2: category + live_check_enabled are top-level columns; fill()
             // maps them directly. Any settings the client sends no longer carries

@@ -131,28 +131,6 @@ it('touches parent site when a public-visible field changes', function (string $
     app(UserObserver::class)->updated($pro);
 })->with(['handle', 'display_name', 'first_name', 'last_name', 'bio']);
 
-it('touches parent site when about JSONB changes', function () {
-    Queue::fake();
-
-    $site = Mockery::mock(Site::class);
-    $site->shouldReceive('touch')->once();
-
-    // `about` is cast to array, so raw attributes hold the JSON string (matches
-    // what Eloquent reads from Postgres). The assignment below sets the typed
-    // value and `syncChanges` records the diff.
-    $pro = new User;
-    $pro->setRawAttributes([
-        'id' => (string) Str::uuid(),
-        'about' => json_encode(['credentials' => []]),
-    ]);
-    $pro->syncOriginal();
-    $pro->about = ['credentials' => [['title' => 'New cert']]];
-    $pro->syncChanges();
-    $pro->setRelation('site', $site);
-
-    app(UserObserver::class)->updated($pro);
-});
-
 it('survives a null site relation when a public field changes', function () {
     Queue::fake();
 

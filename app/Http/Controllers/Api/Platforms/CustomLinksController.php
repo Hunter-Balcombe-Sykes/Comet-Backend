@@ -62,7 +62,7 @@ class CustomLinksController extends ApiController
                 return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
             }
 
-            $this->writePendingLinkCard($user, $payload, $rid);
+            $this->writePendingLinkCard($user, $payload, $rid, resourceKind: 'link');
             EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
 
             return $this->success([
@@ -133,7 +133,7 @@ class CustomLinksController extends ApiController
     private function linkRows(User $user)
     {
         return $this->connectionsFor($user)->filter(
-            fn (IntegrationConnection $row) => str_starts_with($row->resource_id, 'link-'),
+            fn (IntegrationConnection $row) => $row->resource_kind === 'link',
         )->values();
     }
 

@@ -639,6 +639,8 @@ class SitepageDataResolverService
             $settings = is_array($section->settings) ? $section->settings : [];
             $bookingUrl = trim((string) ($settings['booking_url'] ?? ''));
 
+            // FOUND-49 (documented-defer): settings.platform read here ONLY — one reader,
+            // no validation rule, no query need. Promote to a column if a second reader appears.
             $platform = is_string($settings['platform'] ?? null)
                 ? strtolower(trim((string) $settings['platform']))
                 : null;

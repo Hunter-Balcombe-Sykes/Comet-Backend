@@ -22,6 +22,7 @@ it('lists a stored custom link with its full card shape', function () {
     $user = customLinksUser('clink');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'link-abc',
+        'resource_kind' => 'link',
         'payload' => ['kind' => 'link', 'url' => 'https://acme.test', 'name' => 'Acme',
             'description' => 'Best', 'favicon' => 'https://f.ico', 'logo' => 'https://l.png'],
         'is_active' => true, 'last_refresh_status' => 'ok',

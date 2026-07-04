@@ -14,7 +14,8 @@ use InvalidArgumentException;
  * `settings.handle` (when extractable), and the `category` column.
  *
  * Phase 2: writes to the promoted columns (platform, category) instead of
- * settings JSONB. handle stays in settings as it has no dedicated column.
+ * settings JSONB. handle is dual-written to its own column (FOUND-35) and to
+ * settings.handle — the settings key is stripped in a later contract migration.
  *
  * Idempotent — safe to re-run. Skips rows that already have both platform
  * and category columns set. Rows with a known social icon_key get full platform
@@ -128,10 +129,12 @@ class BackfillSocialLinksCommand extends Command
                         }
 
                         if ($platformKey !== null && isset($normalized)) {
-                            // Phase 2: write platform to the column; keep handle in settings.
+                            // Phase 2: write platform to the column; dual-write handle
+                            // to its own column (FOUND-35) and to settings.handle.
                             $block->platform = $platformKey;
                             if ($normalized['handle'] !== null) {
                                 $settings['handle'] = $normalized['handle'];
+                                $block->handle = $normalized['handle'];
                                 $stats['tagged_with_handle']++;
                             } else {
                                 $stats['tagged_url_only']++;
