@@ -172,8 +172,8 @@ it('maps pickup and delivery platforms from the typed ordering links', function 
     expect($plan['contentSource'])->toBe('uber-eats');     // UE preferred for content
     expect($plan['pickupPlatform'])->toBe('doordash');
     expect($plan['deliveryPlatform'])->toBe('uber-eats');
-    expect($plan['ddUrl'])->toBe('https://www.doordash.com/store/ollies-1');
-    expect($plan['ueUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc');
+    expect($plan['storeUrls']['doordash'])->toBe('https://www.doordash.com/store/ollies-1');
+    expect($plan['storeUrls']['uber-eats'])->toBe('https://www.ubereats.com/au/store/ollies/abc');
 });
 
 // ── Read-time order-link computation ──────────────────────────────────

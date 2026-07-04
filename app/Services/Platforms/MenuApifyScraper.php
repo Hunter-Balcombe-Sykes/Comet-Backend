@@ -16,35 +16,19 @@ use Throwable;
 // GoogleBusinessApifyScraper uses (run-sync-get-dataset-items, 201 on success,
 // config('services.apify.token')).
 //
-// Actors (captured live; UE re-captured 2026-06-23 on the memo23 switch):
-//   Uber Eats → memo23~uber-eats-scraper — one store object with a flattened
-//       `menuItems` list ({ name, description, section, price (dollars), imageUrl })
-//       grouped here by `section` into categories; store-level title / image /
-//       ratingValue / reviewCount / currencyCode / supportedDiningModes. Proxy-
-//       hardened (~97.7% success) — replaced natanielsantos, which bot-blocked a
-//       large fraction of stores. No per-item id or modifiers in the flattened
-//       list (cross-mode price fusion matches on name).
-//   DoorDash  → dz_omar~doordash-scraper — one store object with menu_categories[]
-//       → items[] of { item_id, name, description, price_cents, image_url,
-//       rating_pct, rating_count, badges[] }. Needs an `address` (locale) input;
-//       store-level rating / num_ratings / currency / cover image. Free actor.
+// Per-platform actor id, host pattern, and scrape/map logic live in
+// config('partna.menu.platforms') + one MenuPlatformDriver class per platform
+// (FOUND-23 registry) — this class is generic plumbing only: retries, concurrent
+// pooled fetches across pickup/delivery modes, and per-mode price fusion. Adding
+// a platform is a config entry + a driver class; nothing here changes.
 //
-// Normalized output:
+// Normalized output (per MenuPlatformDriver::mapItems):
 //   [ 'store' => [ name, rating, reviewCount, currency, logo ],
 //     'categories' => [ [ 'name' => …, 'items' => [ [
 //        externalId, name, description, price, image,
 //        rating, ratingCount, badges (DD only) ] … ] ] ] ]
 class MenuApifyScraper
 {
-    // owner~name form for the Apify API path.
-    private const ACTORS = [
-        // memo23 — proxy-hardened (Crawlee + Firefox fingerprint + residential
-        // proxies), ~97.7% success. Replaced natanielsantos (bot-blocked on a
-        // large fraction of stores, e.g. DOC Pizza Carlton failed every run).
-        'uber-eats' => 'memo23~uber-eats-scraper',
-        'doordash' => 'dz_omar~doordash-scraper',
-    ];
-
     // These actors scrape WAF-protected pages and intermittently return an empty
     // result even for a valid, open store (the scrape gets bot-blocked on a large
     // fraction of runs) — so retry an empty / transient miss a few times before
@@ -55,13 +39,7 @@ class MenuApifyScraper
     // MenuFetchJob timeout.
     private const ATTEMPT_TIMEOUT = 60;
 
-    // DoorDash results are location-specific; with no consumer address the actor
-    // defaults to Chicago, IL (wrong country). A valid AU locale keeps results
-    // Australian even when the store sits in another AU city — the specific store
-    // URL still resolves and its menu returns regardless of delivery range.
-    private const DOORDASH_FALLBACK_ADDRESS = 'Melbourne VIC, Australia';
-
-    /** Lazily-built per-platform driver map — populated once on first use. */
+    /** Lazily-built per-platform driver map (config slug => MenuPlatformDriver instance) — populated once on first use. */
     private ?array $drivers = null;
 
     /**
@@ -73,7 +51,7 @@ class MenuApifyScraper
      */
     public function fetch(string $storeUrl, string $platform, ?string $userId = null, ?string $address = null): ?array
     {
-        $actor = self::ACTORS[$platform] ?? null;
+        $actor = $this->actorFor($platform);
         $token = config('services.apify.token');
         if ($actor === null || ! $token) {
             return null;
@@ -129,7 +107,7 @@ class MenuApifyScraper
         // One scrape target per (platform, mode) URL — key "platform|mode".
         $targets = [];
         foreach ($links as $platform => $link) {
-            if (! isset(self::ACTORS[$platform])) {
+            if ($this->actorFor($platform) === null) {
                 continue;
             }
             $pickupUrl = $link['pickupUrl'] ?? null;
@@ -189,7 +167,7 @@ class MenuApifyScraper
         // Fuse each platform's mode menus into the per-mode-priced shape.
         $out = [];
         foreach ($links as $platform => $link) {
-            if (! isset(self::ACTORS[$platform])) {
+            if ($this->actorFor($platform) === null) {
                 continue;
             }
             $single = $menus[$platform.'|single'] ?? null;
@@ -212,10 +190,24 @@ class MenuApifyScraper
         return $out;
     }
 
+    /** Apify actor id (owner~name) for a menu platform, or null when unknown (FOUND-23 registry). */
+    private function actorFor(string $platform): ?string
+    {
+        return config('partna.menu.platforms.'.$platform.'.actor');
+    }
+
+    /** This platform's scrape driver, or null when unknown. Memoized on first use. */
+    private function driverFor(string $platform): ?MenuPlatformDriver
+    {
+        $this->drivers ??= array_map(fn (array $m) => app($m['driver']), config('partna.menu.platforms'));
+
+        return $this->drivers[$platform] ?? null;
+    }
+
     /** Apify run-sync endpoint for a platform's actor. */
     private function actorUrl(string $platform): string
     {
-        return 'https://api.apify.com/v2/acts/'.self::ACTORS[$platform].'/run-sync-get-dataset-items';
+        return 'https://api.apify.com/v2/acts/'.$this->actorFor($platform).'/run-sync-get-dataset-items';
     }
 
     /**
@@ -235,7 +227,7 @@ class MenuApifyScraper
 
             return null;
         }
-        $menu = ($this->driver($platform)['mapItems'])($items);
+        $menu = $this->driverFor($platform)->mapItems($items);
 
         return $menu['categories'] === [] ? null : $menu;
     }
@@ -419,7 +411,7 @@ class MenuApifyScraper
             'first_keys' => is_array($items[0] ?? null) ? array_keys($items[0]) : gettype($items[0] ?? null),
         ]);
 
-        $menu = ($this->driver($platform)['mapItems'])($items);
+        $menu = $this->driverFor($platform)->mapItems($items);
 
         // Mapped to nothing (unexpected shape / all-empty rows) — treat as a
         // retryable miss rather than a real menu.
@@ -428,269 +420,15 @@ class MenuApifyScraper
             : ['menu' => $menu, 'retryable' => false];
     }
 
-    /** Per-platform scrape driver. Adding platform #3 = one entry here. */
-    private function driver(string $platform): ?array
-    {
-        $this->drivers ??= [
-            'uber-eats' => [
-                'actor' => self::ACTORS['uber-eats'],
-                'buildInput' => fn (string $url, ?string $address): array => ['startUrls' => [['url' => $url]]],
-                'mapItems' => fn (array $items): array => $this->mapUberEats($items),
-            ],
-            'doordash' => [
-                'actor' => self::ACTORS['doordash'],
-                'buildInput' => fn (string $url, ?string $address): array => [
-                    'startUrls' => [['url' => $url]],
-                    'address' => $this->cleanString($address) ?? self::DOORDASH_FALLBACK_ADDRESS,
-                    'fetchReviews' => false,
-                ],
-                'mapItems' => fn (array $items): array => $this->mapDoorDash($items),
-            ],
-        ];
-
-        return $this->drivers[$platform] ?? null;
-    }
-
     /**
-     * Actor input. Uber Eats (memo23): startUrls[{url}]. DoorDash (dz_omar):
-     * startUrls[{url}] + a consumer `address` (locale) — fetchReviews off (we
-     * don't surface reviews).
+     * Actor input for one store scrape, from the platform's driver — Uber Eats
+     * (memo23): startUrls[{url}]. DoorDash (dz_omar): startUrls[{url}] + a
+     * consumer `address` (locale) — fetchReviews off (we don't surface reviews).
      *
      * @return array<string,mixed>
      */
     private function input(string $storeUrl, string $platform, ?string $address): array
     {
-        $d = $this->driver($platform);
-
-        return $d === null ? [] : ($d['buildInput'])($storeUrl, $address);
-    }
-
-    /**
-     * Uber Eats (memo23): one store object with a flattened `menuItems` list,
-     * each item carrying its `section` (its category), name, description, dollar
-     * `price`, and `imageUrl`. We group the items by section into categories,
-     * preserving first-seen order. The flattened list has no per-item id, so
-     * externalId is null (cross-mode price fusion falls back to name-matching).
-     * Store: title / image / ratingValue / reviewCount / currencyCode.
-     *
-     * @param  list<mixed>  $items
-     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
-     */
-    private function mapUberEats(array $items): array
-    {
-        $store = is_array($items[0] ?? null) ? $items[0] : [];
-
-        // Group the flattened items by section, preserving first-seen order.
-        $bySection = [];
-        $order = [];
-        foreach ((array) data_get($store, 'menuItems', []) as $item) {
-            $itemName = $this->titleCase($this->cleanString(data_get($item, 'name')));
-            if ($itemName === null) {
-                continue;
-            }
-            $section = $this->cleanString(data_get($item, 'section')) ?? 'Menu';
-            if (! isset($bySection[$section])) {
-                $bySection[$section] = [];
-                $order[] = $section;
-            }
-            $price = data_get($item, 'price');
-            $bySection[$section][] = [
-                'externalId' => null,
-                'name' => $itemName,
-                'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
-                'price' => is_numeric($price) ? round((float) $price, 2) : null,
-                'image' => $this->safeUrl(data_get($item, 'imageUrl')),
-                'rating' => null,
-                'ratingCount' => null,
-                'badges' => null,
-            ];
-        }
-
-        $categories = [];
-        foreach ($order as $section) {
-            if ($bySection[$section] !== []) {
-                $categories[] = ['name' => $section, 'items' => $bySection[$section]];
-            }
-        }
-
-        $rating = data_get($store, 'ratingValue');
-        $reviews = data_get($store, 'reviewCount');
-
-        return [
-            'store' => [
-                'name' => $this->cleanString(data_get($store, 'title')) ?? $this->cleanString(data_get($store, 'shopName')),
-                'rating' => is_numeric($rating) ? round((float) $rating, 2) : null,
-                'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
-                'currency' => $this->cleanString(data_get($store, 'currencyCode')) ?? 'AUD',
-                'logo' => $this->safeUrl(data_get($store, 'image')),
-            ],
-            'categories' => $categories,
-        ];
-    }
-
-    /**
-     * DoorDash (dz_omar): one store object with menu_categories[] → items[].
-     * Item price is in cents; image_url / rating_pct / rating_count / badges are
-     * per item. `featured_items` is skipped — it re-lists items already in the
-     * categories.
-     *
-     * @param  list<mixed>  $items
-     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}
-     */
-    private function mapDoorDash(array $items): array
-    {
-        $store = is_array($items[0] ?? null) ? $items[0] : [];
-
-        $categories = [];
-        foreach ((array) data_get($store, 'menu_categories', []) as $category) {
-            if (! is_array($category)) {
-                continue;
-            }
-            $name = $this->cleanString(data_get($category, 'category_name'))
-                ?? $this->cleanString(data_get($category, 'name'))
-                ?? 'Menu';
-            $catItems = [];
-            foreach ((array) data_get($category, 'items', []) as $item) {
-                $itemName = $this->titleCase($this->cleanString(data_get($item, 'name')));
-                if ($itemName === null) {
-                    continue;
-                }
-                $cents = data_get($item, 'price_cents');
-                $price = is_numeric($cents)
-                    ? round(((int) $cents) / 100, 2)
-                    : $this->parsePrice(data_get($item, 'price_display'));
-                $ratingPct = data_get($item, 'rating_pct');
-                $ratingCount = data_get($item, 'rating_count');
-                $catItems[] = [
-                    'externalId' => $this->cleanString((string) data_get($item, 'item_id')),
-                    'name' => $itemName,
-                    'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
-                    'price' => $price,
-                    'image' => $this->safeUrl(data_get($item, 'image_url')),
-                    'rating' => is_numeric($ratingPct) ? round((float) $ratingPct, 2) : null,
-                    'ratingCount' => is_numeric($ratingCount) ? (int) $ratingCount : null,
-                    'badges' => $this->badges(data_get($item, 'badges')),
-                ];
-            }
-            if ($catItems !== []) {
-                $categories[] = ['name' => $name, 'items' => $catItems];
-            }
-        }
-
-        $rating = data_get($store, 'rating');
-        $reviews = data_get($store, 'num_ratings');
-
-        return [
-            'store' => [
-                'name' => $this->cleanString(data_get($store, 'name')),
-                'rating' => is_numeric($rating) ? round((float) $rating, 2) : null,
-                'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
-                'currency' => $this->cleanString(data_get($store, 'currency')) ?? 'AUD',
-                'logo' => $this->safeUrl(data_get($store, 'cover_square_image'))
-                    ?? $this->safeUrl(data_get($store, 'cover_image'))
-                    ?? $this->safeUrl(data_get($store, 'header_image')),
-            ],
-            'categories' => $categories,
-        ];
-    }
-
-    /**
-     * DoorDash badges → normalized [{ text, type? }]. The element shape isn't
-     * fixed (a quiet store returns none), so extract defensively: a plain string,
-     * or a { text|name|label, type } object.
-     *
-     * @return list<array{text:string, type?:string}>|null
-     */
-    private function badges(mixed $badges): ?array
-    {
-        if (! is_array($badges) || $badges === []) {
-            return null;
-        }
-        $out = [];
-        foreach ($badges as $badge) {
-            if (is_string($badge)) {
-                $text = $this->cleanString($badge);
-            } else {
-                $text = $this->cleanString(data_get($badge, 'text'))
-                    ?? $this->cleanString(data_get($badge, 'name'))
-                    ?? $this->cleanString(data_get($badge, 'label'));
-            }
-            if ($text === null) {
-                continue;
-            }
-            $type = is_array($badge) ? $this->cleanString(data_get($badge, 'type')) : null;
-            $out[] = array_filter(['text' => $text, 'type' => $type], fn ($v) => $v !== null);
-        }
-
-        return $out === [] ? null : $out;
-    }
-
-    /**
-     * Best-effort price → dollars float. DoorDash sends "A$15.30" display strings
-     * as a fallback when price_cents is absent; also tolerates plain numerics.
-     */
-    private function parsePrice(mixed $value): ?float
-    {
-        if (is_string($value)) {
-            return preg_match('~([0-9]+(?:\.[0-9]+)?)~', str_replace(',', '', $value), $m) === 1
-                ? round((float) $m[1], 2)
-                : null;
-        }
-        if (is_int($value)) {
-            return round($value / 100, 2);
-        }
-        if (is_float($value)) {
-            return round($value, 2);
-        }
-
-        return null;
-    }
-
-    /** A trimmed http/https URL, or null — drops javascript:/data:/relative etc. */
-    private function safeUrl(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $url = trim($value);
-
-        return preg_match('~^https?://~i', $url) === 1 ? $url : null;
-    }
-
-    /** A non-empty trimmed string, or null. */
-    private function cleanString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $s = trim($value);
-
-        return $s !== '' ? $s : null;
-    }
-
-    /** Title Case — first letter of every word uppercase, rest lowercase. */
-    private function titleCase(?string $s): ?string
-    {
-        if ($s === null) {
-            return null;
-        }
-
-        return ucwords(strtolower($s));
-    }
-
-    /** Sentence case — first letter of each sentence uppercase, rest lowercase. */
-    private function sentenceCase(?string $s): ?string
-    {
-        if ($s === null) {
-            return null;
-        }
-
-        $lower = strtolower($s);
-
-        return preg_replace_callback(
-            '/(^|\.\s+|!\s+|\?\s+)([a-z])/u',
-            fn (array $m) => $m[1].strtoupper($m[2]),
-            $lower,
-        ) ?? $lower;
+        return $this->driverFor($platform)?->buildInput($storeUrl, $address) ?? [];
     }
 }

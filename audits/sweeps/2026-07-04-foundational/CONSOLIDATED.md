@@ -58,7 +58,7 @@
 ## Progress
 
 - P0 Before pilot: 8 of 9 complete
-- P1 Important spines: 2 of 4 complete
+- P1 Important spines: 3 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
 
@@ -302,7 +302,8 @@
         ) {
         ```
 
-- [ ] **#FOUND-23** · P1 · **Plan: Opus** — Adding a third food-delivery platform requires editing 5+ locations across the Menu subsystem's Services and Jobs layers
+- [x] **#FOUND-23** · P1 · **Plan: Opus** — Adding a third food-delivery platform requires editing 5+ locations across the Menu subsystem's Services and Jobs layers
+    - **✅ IMPLEMENTED (2026-07-05):** Extracted the menu-scraping platform list to a single `config('partna.menu.platforms')` registry (declarative data — actor id, host regex, driver class; key order = merge priority) + per-platform strategy classes (`UberEatsMenuDriver`/`DoorDashMenuDriver` implementing `MenuPlatformDriver::buildInput()`/`mapItems()`, sharing a `NormalizesMenuData` trait). `MenuApifyScraper` (deleted the `ACTORS` const AND the separate `driver()` map — the two-maps-must-stay-in-sync smell), `MenuMerger`, `MenuSource`, and `MenuFetchJob` (generalized `handle()`'s ~6 `ueUrl`/`ddUrl`-shaped spots to an N-platform loop over registry slugs) all read the one list. Behavior **byte-identical** for the 2 live platforms — mapping bodies moved verbatim (diffed), same actor ids/host patterns/merge order, golden-master menu test unchanged + green. Design is **config:cache-safe**: behavior lives in classes *named by* config (closures in config fatal under `config:cache`), not literal closures. **Stale premise the Opus plan caught:** "zero migration" was false — 7 DB `CHECK` constraints hardcoded `('uber-eats','doordash')`. Per Josh's gate call, **DROPPED all 7** (migration `20260704170000`) so `config('partna.menu.platforms')` is the single source of truth — the CHECKs were a redundant DB mirror (the FOUND-48/50 hardcoded-enum-in-CHECK anti-pattern); app-layer validation via the registry-driven write path replaces them. **Adding a menu platform is now one config entry + one driver class, zero migration** — proven by a new `MenuPlatformRegistryTest` wiring a fake 3rd platform (`menulog`) through all four files purely by config. No new enum (config keys are the canonical menu-slug source; reconciles with FOUND-11, which left these two slugs to this unit). Migration `20260704170000` created but **unapplied** (safe either deploy order — dropping CHECKs only loosens). Independent Sonnet review PASS (behavior-preservation verified by diffing every moved body). Full suite 3139 passed. Branch `audit-fix/foundational-prepilot-2026-07-04`.
     - **Where:** `app/Services/Platforms/MenuApifyScraper.php` (`ACTORS` constant, `driver()`), `app/Services/Platforms/MenuMerger.php` (`PLATFORMS` constant), `app/Services/Platforms/MenuSource.php` (`PLATFORMS` constant), `app/Jobs/Platforms/MenuFetchJob.php` (`handle()`, `persist()`)
     - **Affects:** Any engineer adding Menulog, Deliveroo, or a third aggregator to the newest, most-actively-developed part of the codebase.
     - **Effort:** L (~1–2d)

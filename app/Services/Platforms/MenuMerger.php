@@ -42,7 +42,15 @@ class MenuMerger
 
     // The platforms we union, in content-priority order (Uber Eats wins ties on
     // display fields). Drives both the spine choice and the platforms[] order.
-    private const PLATFORMS = ['uber-eats', 'doordash'];
+    // FOUND-23: sourced from config('partna.menu.platforms') (registry key order
+    // IS the priority order) instead of a hardcoded list — memoized per instance.
+    private ?array $platforms = null;
+
+    /** @return list<string> */
+    private function platforms(): array
+    {
+        return $this->platforms ??= array_keys(config('partna.menu.platforms'));
+    }
 
     /**
      * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $platformMenus  slug-keyed menus
@@ -52,20 +60,20 @@ class MenuMerger
      */
     public function merge(array $platformMenus, string $contentSource, array $storeLinks = []): array
     {
-        // Normalize to a full PLATFORMS-keyed map; absent keys become null.
+        // Normalize to a full platforms-keyed map; absent keys become null.
         $menus = [];
-        foreach (self::PLATFORMS as $p) {
+        foreach ($this->platforms() as $p) {
             $menus[$p] = $platformMenus[$p] ?? null;
         }
 
         $canonical = $menus[$contentSource] ?? ['store' => [], 'categories' => []];
-        $otherPlatforms = array_values(array_filter(self::PLATFORMS, fn ($p) => $p !== $contentSource));
+        $otherPlatforms = array_values(array_filter($this->platforms(), fn ($p) => $p !== $contentSource));
 
         // Ghost platforms: connected (store link present) but this run's scrape
         // returned nothing. They're attached to every dish so the platform never
         // vanishes on a flaky scrape (see class doc, LINK-DRIVEN AVAILABILITY).
         $ghostPlatforms = [];
-        foreach (self::PLATFORMS as $platform) {
+        foreach ($this->platforms() as $platform) {
             if ($menus[$platform] === null && isset($storeLinks[$platform])) {
                 $ghostPlatforms[$platform] = $storeLinks[$platform];
             }
@@ -155,12 +163,12 @@ class MenuMerger
      */
     private function fuse(array $versions, array $storeLinks, array $ghostPlatforms = []): array
     {
-        // platforms[] — one entry per platform this dish is on, in PLATFORMS order
+        // platforms[] — one entry per platform this dish is on, in registry order
         // (Uber Eats first). A platform appears when either its scrape carried this
         // dish, OR it's a connected-but-unscraped ghost (null prices, urls still
         // route) so it never disappears on a flaky scrape.
         $platforms = [];
-        foreach (self::PLATFORMS as $platform) {
+        foreach ($this->platforms() as $platform) {
             $source = $versions[$platform] ?? null;
             if (is_array($source)) {
                 $platforms[] = $this->platformEntry($platform, $source, $storeLinks[$platform] ?? null);
@@ -171,7 +179,7 @@ class MenuMerger
 
         $aggregates = $this->aggregates($platforms);
 
-        // Display fields use PLATFORMS order (UE wins ties) regardless of which
+        // Display fields use registry order (UE wins ties) regardless of which
         // platform is the content source. Only mergeStore() uses canonical-first
         // order. These two priority orders intentionally differ.
         return [
@@ -191,10 +199,10 @@ class MenuMerger
         ];
     }
 
-    /** First non-empty string value across PLATFORMS order. */
+    /** First non-empty string value across registry order. */
     private function pick(array $versions, string $field): ?string
     {
-        foreach (self::PLATFORMS as $p) {
+        foreach ($this->platforms() as $p) {
             $val = $this->str($versions[$p][$field] ?? null);
             if ($val !== null) {
                 return $val;
@@ -204,10 +212,10 @@ class MenuMerger
         return null;
     }
 
-    /** First non-null raw value across PLATFORMS order. */
+    /** First non-null raw value across registry order. */
     private function pickRaw(array $versions, string $field): mixed
     {
-        foreach (self::PLATFORMS as $p) {
+        foreach ($this->platforms() as $p) {
             if (isset($versions[$p]) && array_key_exists($field, $versions[$p]) && $versions[$p][$field] !== null) {
                 return $versions[$p][$field];
             }
@@ -337,10 +345,10 @@ class MenuMerger
         ];
     }
 
-    /** Canonical platform first, then the remaining PLATFORMS in their defined order. */
+    /** Canonical platform first, then the remaining registry platforms in their defined order. */
     private function priorityOrder(string $contentSource): array
     {
-        return array_values(array_unique([$contentSource, ...self::PLATFORMS]));
+        return array_values(array_unique([$contentSource, ...$this->platforms()]));
     }
 
     /**

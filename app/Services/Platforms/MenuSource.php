@@ -29,11 +29,16 @@ class MenuSource
     // still correct when the service is shared across contexts in tests.
     private array $entriesCache = [];
 
-    // host pattern → platform, in content-priority order (Uber Eats wins).
-    private const PLATFORMS = [
-        'uber-eats' => '~(^|\.)ubereats\.com$~',
-        'doordash' => '~(^|\.)doordash\.com$~',
-    ];
+    // slug => host_pattern, in content-priority order (Uber Eats wins). Lazily
+    // built from config('partna.menu.platforms') (FOUND-23 registry) — memoized
+    // per instance since it never changes mid-request.
+    private ?array $hostPatterns = null;
+
+    /** @return array<string,string> slug => host_pattern, registry order */
+    private function hostPatterns(): array
+    {
+        return $this->hostPatterns ??= array_map(fn (array $m) => $m['host_pattern'], config('partna.menu.platforms'));
+    }
 
     /**
      * The platform + store URL to scrape, or null when the user has no
@@ -47,7 +52,7 @@ class MenuSource
     public function resolve(User|string $user): ?array
     {
         $entries = $this->entries($user);
-        foreach (array_keys(self::PLATFORMS) as $platform) {
+        foreach (array_keys(config('partna.menu.platforms')) as $platform) {
             $match = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === $platform);
             if (is_array($match)) {
                 return ['platform' => $platform, 'storeUrl' => $this->normalize((string) $match['url'])];
@@ -58,32 +63,45 @@ class MenuSource
     }
 
     /**
-     * The full scrape plan for a user's menu, or null when neither Uber Eats nor
-     * DoorDash is connected:
-     *   - contentSource    — platform whose structure is canonical (UE preferred)
-     *   - ueUrl / ddUrl    — normalized store URL per platform (null if absent)
+     * The full scrape plan for a user's menu, or null when no registry platform
+     * (Uber Eats / DoorDash) is connected:
+     *   - contentSource    — platform whose structure is canonical (highest
+     *                        registry-priority connected platform wins; UE first)
+     *   - storeUrls        — slug-keyed normalized store URL per registry platform
+     *                        (null for a platform with no connected link)
      *   - pickupPlatform   — platform (uber-eats/doordash) pricing pickup, taken
      *                        from the newest pickup-typed ordering link that is one
      *                        of those two (null when none is)
      *   - deliveryPlatform — same, for delivery
      *   - address          — city/state locale for DoorDash (city + state only; never the full street)
      *
-     * @return array{contentSource:string, ueUrl:?string, ddUrl:?string, pickupPlatform:?string, deliveryPlatform:?string, address:?string}|null
+     * @return array{contentSource:string, storeUrls:array<string,?string>, pickupPlatform:?string, deliveryPlatform:?string, address:?string}|null
      */
     public function resolveAll(User|string $user): ?array
     {
         $entries = $this->entries($user);
 
-        $ue = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === 'uber-eats');
-        $dd = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === 'doordash');
-        if (! is_array($ue) && ! is_array($dd)) {
+        // Newest matching entry per registry platform, in priority order.
+        $firsts = [];
+        foreach (array_keys(config('partna.menu.platforms')) as $slug) {
+            $firsts[$slug] = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === $slug);
+        }
+        $present = array_filter($firsts, 'is_array');
+        if ($present === []) {
             return null;
         }
 
+        $storeUrls = [];
+        foreach (array_keys(config('partna.menu.platforms')) as $slug) {
+            $storeUrls[$slug] = isset($present[$slug]) ? $this->normalize((string) $present[$slug]['url']) : null;
+        }
+
         return [
-            'contentSource' => is_array($ue) ? 'uber-eats' : 'doordash',
-            'ueUrl' => is_array($ue) ? $this->normalize((string) $ue['url']) : null,
-            'ddUrl' => is_array($dd) ? $this->normalize((string) $dd['url']) : null,
+            // array_filter preserves key order, so the first key is the
+            // highest-priority connected platform — identical to the old
+            // UE-preferred ternary.
+            'contentSource' => array_key_first($present),
+            'storeUrls' => $storeUrls,
             'pickupPlatform' => $this->modePlatform($entries, 'pickup'),
             'deliveryPlatform' => $this->modePlatform($entries, 'delivery'),
             'address' => $this->address($user),
@@ -284,7 +302,7 @@ class MenuSource
             return null;
         }
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        foreach (self::PLATFORMS as $platform => $pattern) {
+        foreach ($this->hostPatterns() as $platform => $pattern) {
             if (preg_match($pattern, $host) === 1) {
                 return $platform;
             }

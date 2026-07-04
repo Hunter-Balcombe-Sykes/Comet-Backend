@@ -4,6 +4,8 @@ use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
+use App\Services\Platforms\DoorDashMenuDriver;
+use App\Services\Platforms\UberEatsMenuDriver;
 
 // Canonical block-type registry — block_group => allowed block_types. Single
 // source of truth for the section/link type split. The 'sections' list is
@@ -757,6 +759,29 @@ return [
             'url_path_extractor' => '#^/([a-zA-Z0-9_-]{3,25})/?$#',
             'handle_location' => 'path',
             'default_category' => 'streaming',
+        ],
+    ],
+
+    // Menu-scraping platform registry (FOUND-23). ONE entry per online-ordering
+    // platform whose menu we scrape. Key ORDER is content/merge priority (Uber Eats
+    // wins display-field ties and is the preferred spine). Adding a platform = one
+    // entry here + one MenuPlatformDriver class — MenuSource, MenuMerger,
+    // MenuApifyScraper and MenuFetchJob all read this list, none hardcode a slug.
+    // config('partna.menu.platforms') is now the SINGLE source of truth for valid
+    // menu platforms — the DB CHECK constraints that used to hardcode this list were
+    // dropped (20260704170000); app-layer validation via this registry replaces them.
+    'menu' => [
+        'platforms' => [
+            'uber-eats' => [
+                'actor' => 'memo23~uber-eats-scraper',
+                'host_pattern' => '~(^|\.)ubereats\.com$~',
+                'driver' => UberEatsMenuDriver::class,
+            ],
+            'doordash' => [
+                'actor' => 'dz_omar~doordash-scraper',
+                'host_pattern' => '~(^|\.)doordash\.com$~',
+                'driver' => DoorDashMenuDriver::class,
+            ],
         ],
     ],
 

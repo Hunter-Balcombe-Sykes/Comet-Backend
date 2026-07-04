@@ -99,29 +99,37 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     {
         $plan = $source->resolveAll($this->userId);
 
-        // No Uber Eats / DoorDash link → clear any existing menu.
+        // No connected menu-platform link (registry-driven, FOUND-23) → clear any existing menu.
         if ($plan === null) {
             Menu::query()->where('user_id', $this->userId)->delete();
 
             return;
         }
 
+        // Registry platform slugs in content-priority order (Uber Eats first).
+        $slugs = array_keys(config('partna.menu.platforms'));
+
         $existing = Menu::query()->where('user_id', $this->userId)->with('platformLinks')->first();
         $existingLinks = $existing?->platformLinks->keyBy('platform') ?? collect();
 
-        // Skip the scrape when both store URLs are unchanged, the last fetch
-        // succeeded, EVERY connected platform last scraped 'ok', and this isn't a
-        // forced refresh — links recompute at read time, so there's nothing to do.
-        // A platform that's connected but last came back 'unavailable' (a flaky /
-        // bot-blocked scrape) is NOT settled, so we re-scrape to recover it rather
-        // than leaving the menu permanently single-platform.
+        // Skip the scrape when EVERY registry platform's store URL is unchanged
+        // and settled, the last fetch succeeded, and this isn't a forced refresh —
+        // links recompute at read time, so there's nothing to do. A platform
+        // that's connected but last came back 'unavailable' (a flaky / bot-blocked
+        // scrape) is NOT settled, so we re-scrape to recover it rather than
+        // leaving the menu permanently missing that platform.
+        $allSettled = true;
+        foreach ($slugs as $s) {
+            $urlUnchanged = ($existingLinks->get($s)?->store_url) === $plan['storeUrls'][$s];
+            if (! $urlUnchanged || ! $this->platformSettled($existingLinks, $s, $plan['storeUrls'][$s])) {
+                $allSettled = false;
+                break;
+            }
+        }
         if (! $this->force
             && $existing
             && $existing->fetch_status === 'ok'
-            && ($existingLinks->get('uber-eats')?->store_url) === $plan['ueUrl']
-            && ($existingLinks->get('doordash')?->store_url) === $plan['ddUrl']
-            && $this->platformSettled($existingLinks, 'uber-eats', $plan['ueUrl'])
-            && $this->platformSettled($existingLinks, 'doordash', $plan['ddUrl'])) {
+            && $allSettled) {
             return;
         }
 
@@ -139,7 +147,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         // Upsert the per-platform store URLs; a disconnected platform (null URL)
         // drops its link row so the skip-comparison sees "not connected".
-        foreach (['uber-eats' => $plan['ueUrl'], 'doordash' => $plan['ddUrl']] as $platform => $url) {
+        foreach ($plan['storeUrls'] as $platform => $url) {
             if ($url === null) {
                 $menu->platformLinks()->where('platform', $platform)->delete();
 
@@ -153,53 +161,44 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         // Per-platform consolidated store links (one store's pickup + delivery rows
         // already collapsed) — the scrape targets AND each item's modes/url source.
+        // Already slug-keyed to only the CONNECTED platforms; fetchStores() self-guards.
         $storeLinks = $source->storeLinks($this->userId);
-        $ueLink = $storeLinks['uber-eats'] ?? null;
-        $ddLink = $storeLinks['doordash'] ?? null;
 
         // Scrape every connected platform across BOTH modes CONCURRENTLY (one
         // Http::pool round inside fetchStores) and fuse per-mode prices per dish.
-        $links = array_filter(['uber-eats' => $ueLink, 'doordash' => $ddLink]);
-        $menus = $scraper->fetchStores($links, $this->userId, $plan['address']);
-        $ueMenu = $menus['uber-eats'] ?? null;
-        $ddMenu = $menus['doordash'] ?? null;
+        $menus = $scraper->fetchStores($storeLinks, $this->userId, $plan['address']);
 
         $now = now();
 
         // Per-platform sync status, independent of the merge outcome — only for
         // connected platforms (those with a store link).
-        $statuses = [
-            'uber-eats' => ['link' => $ueLink, 'menu' => $ueMenu],
-            'doordash' => ['link' => $ddLink, 'menu' => $ddMenu],
-        ];
-        foreach ($statuses as $platform => $r) {
-            if ($r['link'] === null) {
-                continue;
-            }
+        foreach ($storeLinks as $platform => $link) {
             MenuPlatformLink::updateOrCreate(
                 ['menu_id' => $menu->id, 'platform' => $platform],
-                ['synced_at' => $now, 'status' => $r['menu'] ? 'ok' : 'unavailable'],
+                ['synced_at' => $now, 'status' => ($menus[$platform] ?? null) !== null ? 'ok' : 'unavailable'],
             );
         }
 
-        // Nothing usable from EITHER platform — keep the last menu, mark
+        // Nothing usable from ANY connected platform — keep the last menu, mark
         // unavailable so the dashboard stops polling. A manual refresh retries.
-        if ($ueMenu === null && $ddMenu === null) {
+        if (array_filter($menus) === []) {
             $menu->forceFill(['fetch_status' => 'unavailable', 'last_fetched_at' => $now])->save();
 
             return;
         }
 
-        // Canonical structure prefers Uber Eats, but falls back to whichever
-        // platform actually returned a menu. The union appends the other
+        // Canonical structure prefers the highest-priority registry platform that
+        // actually returned a menu (Uber Eats first). The union appends the other
         // platform's items either way; a connected platform that returned nothing
         // is still attached to every dish as a ghost (see MenuMerger).
-        $contentSource = $ueMenu !== null ? 'uber-eats' : 'doordash';
-        $merged = $merger->merge(
-            ['uber-eats' => $ueMenu, 'doordash' => $ddMenu],
-            $contentSource,
-            $storeLinks,
-        );
+        $contentSource = $slugs[0];
+        foreach ($slugs as $s) {
+            if (($menus[$s] ?? null) !== null) {
+                $contentSource = $s;
+                break;
+            }
+        }
+        $merged = $merger->merge($menus, $contentSource, $storeLinks);
 
         $this->persist($menu, $contentSource, $merged, $now);
     }
