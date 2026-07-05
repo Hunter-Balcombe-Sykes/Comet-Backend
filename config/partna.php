@@ -16,7 +16,7 @@ use App\Services\Platforms\UberEatsMenuDriver;
 $blockTypes = [
     'links' => ['link'],
     'sections' => [
-        'gallery', 'services', 'booking', 'contacts_collection', 'sitepage_analytics',
+        'gallery', 'services', 'booking', 'contacts_collection',
         'barbershop_info', 'documents', 'newsletter', 'contact',
         'public_contact', 'workplace', 'credentials', 'experience', 'bio',
     ],
@@ -842,7 +842,7 @@ return [
             // 'sections' rejects any re-packing that would momentarily shift
             // an existing row's sort_order onto another's. Placing new block
             // types at the tail keeps existing rows at their stored indices.
-            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'sitepage_analytics', 'barbershop_info', 'documents', 'newsletter', 'contact', 'credentials', 'experience', 'bio'],
+            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'barbershop_info', 'documents', 'newsletter', 'contact', 'credentials', 'experience', 'bio'],
             'default_sections' => ['services', 'gallery'],
             'is_published' => true,
             'allowed_theme_count' => 3,

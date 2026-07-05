@@ -17,7 +17,7 @@ use Illuminate\Support\ServiceProvider;
 // Binds the SectionVisibilityRegistry singleton and registers every section type's
 // visibility rule. Single place a section visibility rule is declared. Mirrors
 // PlatformRegistryServiceProvider. Section types with no data requirement
-// (contacts_collection, sitepage_analytics, barbershop_info, newsletter, bio) get
+// (contacts_collection, barbershop_info, newsletter, bio) get
 // no rule and default to visible.
 class SectionVisibilityServiceProvider extends ServiceProvider
 {

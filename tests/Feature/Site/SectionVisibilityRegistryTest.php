@@ -18,7 +18,7 @@ it('registers a rule for every requirement-bearing section type', function () {
 it('returns null for requirement-free section types', function () {
     $registry = app(SectionVisibilityRegistry::class);
 
-    foreach (['contacts_collection', 'sitepage_analytics', 'barbershop_info', 'newsletter', 'bio'] as $type) {
+    foreach (['contacts_collection', 'barbershop_info', 'newsletter', 'bio'] as $type) {
         expect($registry->get($type))->toBeNull();
     }
 });
