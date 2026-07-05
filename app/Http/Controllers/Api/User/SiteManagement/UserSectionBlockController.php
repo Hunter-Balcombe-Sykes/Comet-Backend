@@ -144,10 +144,10 @@ class UserSectionBlockController extends ApiController
         $isPublishing = $nextIsLive && ! $currentlyIsLive;
 
         // Keep setup requirements tied to publishing Live state.
-        // For countdown, pass through the incoming settings — its requirement
-        // (a valid timeline) lives in the payload itself, not in an external
-        // resource, so first-time publish with timeline + live in the same
-        // request must see the pending values, not the pre-save stored ones.
+        // For settings-driven types (contact), pass through the incoming settings —
+        // the requirement (a valid notification_email) lives in the payload itself,
+        // not in an external resource, so first-time publish with settings + live in
+        // the same request must see the pending values, not the pre-save stored ones.
         if ($isPublishing) {
             [$canBeVisible, $reason] = $this->visibilityService->checkVisibilityRequirements(
                 (string) $pro->id,
@@ -195,7 +195,7 @@ class UserSectionBlockController extends ApiController
             }
 
             // Re-evaluate is_enabled from the post-merge state. Pending settings
-            // (countdown timeline, contact email) are passed through so first-time
+            // (contact email) are passed through so first-time
             // publish where settings + Live arrive together sees the same merged
             // shape that's about to be saved. Public render path filters on
             // is_enabled, so any drift here would silently hide the section.

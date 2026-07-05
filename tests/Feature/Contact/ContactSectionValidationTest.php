@@ -6,7 +6,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Direct form-request validation harness — no DB, no HTTP stack.
- * Same pattern as Newsletter + Countdown validation tests.
+ * Same pattern as the Newsletter validation tests.
  */
 function validateContactUpsert(array $payload): array
 {

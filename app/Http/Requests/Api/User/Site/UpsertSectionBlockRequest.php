@@ -42,10 +42,6 @@ class UpsertSectionBlockRequest extends BaseFormRequest
             'settings.list_key' => ['sometimes', 'nullable', 'string', 'max:40', 'regex:/^[a-z0-9][a-z0-9_-]{0,39}$/'],
         ];
 
-        if ($type === 'countdown') {
-            $rules = array_merge($rules, $this->countdownRules());
-        }
-
         if ($type === 'contact') {
             $rules = array_merge($rules, $this->contactRules());
         }
@@ -96,58 +92,6 @@ class UpsertSectionBlockRequest extends BaseFormRequest
         });
     }
 
-    /**
-     * Countdown-specific settings shape. Timeline is paired (both or neither);
-     * title + per-state copy/CTAs are independent. Kept in its own method to
-     * keep rules() legible as more block types are added.
-     *
-     * @return array<string, array<int, mixed>>
-     */
-    private function countdownRules(): array
-    {
-        $rules = [
-            'settings.title' => ['sometimes', 'nullable', 'string', 'max:80'],
-            'settings.timeline' => ['sometimes', 'array'],
-            // Timeline fields are paired: if either is present, both must be.
-            // `required_with` handles that without `sometimes`; if neither key
-            // is sent, Laravel simply skips these rules (they're nested under
-            // `settings.timeline` which is optional).
-            'settings.timeline.drop_time' => ['required_with:settings.timeline.expiry_time', 'date'],
-            'settings.timeline.expiry_time' => ['required_with:settings.timeline.drop_time', 'date', 'after:settings.timeline.drop_time'],
-            'settings.states' => ['sometimes', 'array'],
-        ];
-
-        // URL scheme allowlist: https?://, absolute path (not protocol-relative //),
-        // or hash anchor. Rejects javascript:, data:, mailto:, and protocol-relative.
-        $urlPattern = '/^(https?:\/\/\S+|\/(?!\/)\S*|#\S*)$/i';
-
-        // Per-state copy + CTA rules: same shape for all three states, so build them
-        // programmatically rather than writing 18 near-identical lines.
-        foreach (['pre_drop', 'live', 'expired'] as $state) {
-            $rules["settings.states.{$state}"] = ['sometimes', 'array'];
-            $rules["settings.states.{$state}.headline"] = ['sometimes', 'nullable', 'string', 'max:80'];
-            $rules["settings.states.{$state}.subtitle"] = ['sometimes', 'nullable', 'string', 'max:200'];
-            $rules["settings.states.{$state}.cta"] = ['sometimes', 'array'];
-            // CTA label + url are paired. Drop `sometimes` so `required_with`
-            // fires when the counterpart IS present but this field is not.
-            $rules["settings.states.{$state}.cta.label"] = [
-                'nullable',
-                'string',
-                'max:40',
-                "required_with:settings.states.{$state}.cta.url",
-            ];
-            $rules["settings.states.{$state}.cta.url"] = [
-                'nullable',
-                'string',
-                'max:2048',
-                "required_with:settings.states.{$state}.cta.label",
-                "regex:{$urlPattern}",
-            ];
-        }
-
-        return $rules;
-    }
-
     protected function prepareForValidation(): void
     {
         $blockType = $this->route('blockType') ?? $this->route('block_type') ?? $this->route('type');
@@ -179,55 +123,5 @@ class UpsertSectionBlockRequest extends BaseFormRequest
                 $this->merge(['settings' => $settings]);
             }
         }
-
-        // Countdown sanitization — title + per-state headline/subtitle/cta.label.
-        // Scoped by block_type to avoid mutating shape-equivalent keys on other
-        // block types (e.g. a future block using a `title` key differently).
-        if ($this->input('block_type') === 'countdown') {
-            $this->sanitizeCountdownSettings();
-        }
-    }
-
-    /**
-     * Strip HTML tags from user-authored string fields in countdown settings.
-     * Mirrors the bio/newsletter pattern: defense-in-depth against a future
-     * renderer that forgets to escape. URLs are NOT stripped — tags in URLs
-     * are invalid anyway, and the scheme-allowlist regex already rejects
-     * dangerous values.
-     */
-    private function sanitizeCountdownSettings(): void
-    {
-        $settings = $this->input('settings', []);
-        if (! is_array($settings)) {
-            return;
-        }
-
-        $clean = static function (mixed $value): mixed {
-            return is_string($value) ? static::cleanString($value) : $value;
-        };
-
-        if (array_key_exists('title', $settings)) {
-            $settings['title'] = $clean($settings['title']);
-        }
-
-        foreach (['pre_drop', 'live', 'expired'] as $state) {
-            if (! isset($settings['states'][$state]) || ! is_array($settings['states'][$state])) {
-                continue;
-            }
-
-            foreach (['headline', 'subtitle'] as $field) {
-                if (array_key_exists($field, $settings['states'][$state])) {
-                    $settings['states'][$state][$field] = $clean($settings['states'][$state][$field]);
-                }
-            }
-
-            if (isset($settings['states'][$state]['cta']) && is_array($settings['states'][$state]['cta'])) {
-                if (array_key_exists('label', $settings['states'][$state]['cta'])) {
-                    $settings['states'][$state]['cta']['label'] = $clean($settings['states'][$state]['cta']['label']);
-                }
-            }
-        }
-
-        $this->merge(['settings' => $settings]);
     }
 }

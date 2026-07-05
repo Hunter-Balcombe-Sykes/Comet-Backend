@@ -17,11 +17,11 @@ beforeEach(function () {
 it('batchCheck issues exactly one SQL query regardless of section count', function () {
     $pro = createBrandTenant('one-query-batch');
 
-    // Build a Block collection with all 9 requirement-bearing types (gallery,
-    // documents, services, booking, countdown, contact, workplace, credentials, experience).
+    // Build a Block collection with all 8 requirement-bearing types (gallery,
+    // documents, services, booking, contact, workplace, credentials, experience).
     // workplace/credentials/experience were added in FOUND-4/5 — portable Eloquent subqueries
-    // that compile on SQLite so the single-query invariant holds for all 9.
-    $types = ['gallery', 'documents', 'services', 'booking', 'countdown', 'contact', 'workplace', 'credentials', 'experience'];
+    // that compile on SQLite so the single-query invariant holds for all 8.
+    $types = ['gallery', 'documents', 'services', 'booking', 'contact', 'workplace', 'credentials', 'experience'];
     $blocks = collect();
     $now = now()->toDateTimeString();
     foreach ($types as $i => $type) {

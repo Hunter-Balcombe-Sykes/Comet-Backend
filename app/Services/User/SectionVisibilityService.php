@@ -24,7 +24,7 @@ class SectionVisibilityService
      *
      * Looks up the rule in the registry; if none is registered for this type (e.g.
      * contacts_collection, newsletter, bio — no data requirement) returns [true, null]
-     * immediately. For types that read their own settings (countdown, contact) the
+     * immediately. For types that read their own settings (contact) the
      * orchestrator loads the stored block (or a skeleton with empty settings) and
      * passes $pendingSettings so a first-publish request that sends settings + live
      * together sees the merged shape before saving.
@@ -32,7 +32,7 @@ class SectionVisibilityService
      * @param  array<string, mixed>|null  $pendingSettings  Incoming-but-not-yet-persisted settings,
      *                                                      merged over stored for types whose
      *                                                      requirement lives in their own payload
-     *                                                      (countdown, contact). Others ignore it.
+     *                                                      (contact). Others ignore it.
      * @return array{0: bool, 1: ?string} [canBeVisible, reason]
      */
     public function checkVisibilityRequirements(
@@ -60,7 +60,7 @@ class SectionVisibilityService
      * block against that shared context.
      *
      * @param  iterable<Block>  $sectionBlocks  Already-loaded blocks; their stored settings are
-     *                                          used for countdown/contact/booking (no DB call).
+     *                                          used for contact/booking (no DB call).
      * @return array<string, array{0: bool, 1: ?string}> Map of block_type → [canBeVisible, reason]
      */
     public function batchCheck(string $userId, string $siteId, iterable $sectionBlocks): array
@@ -140,7 +140,7 @@ class SectionVisibilityService
      * round-trip. Each rule contributes zero or more EXISTS subqueries (keyed by a
      * context alias); they are bundled into ONE SELECT, so we pay one network
      * round-trip instead of N. Rules whose requirement lives in the block's own
-     * settings (countdown, contact) contribute no subquery. Bindings accumulate in
+     * settings (contact) contribute no subquery. Bindings accumulate in
      * select-clause order, matching the placeholder order in the compiled SQL.
      *
      * @param  array<int, string>  $presentTypes
@@ -186,7 +186,7 @@ class SectionVisibilityService
     /**
      * Load the section block for (user, site, type), or a transient skeleton with
      * empty settings when none exists yet (first-publish path). Rules that read the
-     * block's own settings (booking legacy url, countdown, contact) operate on this;
+     * block's own settings (booking legacy url, contact) operate on this;
      * data-source rules ignore it.
      */
     private function loadSectionBlock(string $userId, string $siteId, string $blockType): Block

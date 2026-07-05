@@ -7,7 +7,7 @@ it('registers a rule for every requirement-bearing section type', function () {
 
     $expected = [
         'gallery', 'documents', 'services', 'booking', 'credentials',
-        'experience', 'public_contact', 'workplace', 'countdown', 'contact',
+        'experience', 'public_contact', 'workplace', 'contact',
     ];
     foreach ($expected as $type) {
         expect($registry->get($type))->not->toBeNull("missing rule: {$type}")

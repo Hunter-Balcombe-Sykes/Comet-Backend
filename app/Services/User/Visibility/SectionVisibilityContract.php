@@ -21,7 +21,7 @@ interface SectionVisibilityContract
      * EXISTS subqueries this rule needs, keyed by context alias. Each Builder is
      * wrapped in `exists (...)` and bundled into ONE SELECT round-trip by the
      * service. Return [] for types whose requirement lives entirely in the
-     * block's own settings (countdown, contact).
+     * block's own settings (contact).
      *
      * @return array<string, Builder>
      */

@@ -467,7 +467,6 @@ class AnalyticsQueryService
             'contact' => 'Contact',
             'contacts_collection' => 'Contacts',
             'barbershop_info' => 'Barbershop Info',
-            'countdown' => 'Countdown',
             'sitepage_analytics' => 'Sitepage Analytics',
             default => ucfirst(str_replace('_', ' ', $sectionKey)),
         };
