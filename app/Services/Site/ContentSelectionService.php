@@ -29,8 +29,8 @@ class ContentSelectionService
      * longer resolves (dangling google-photo ref, missing Instagram reel/post).
      *
      * Row shapes:
-     *   upload       → {id, position, kind:'image', type:'upload',       url, badge:null}
-     *   google-photo → {id, position, kind:'image', type:'google-photo', url, badge:'google-business'}
+     *   upload       → {id, mediaId, position, kind:'image', type:'upload',       url, badge:null}
+     *   google-photo → {id, ref, position, kind:'image', type:'google-photo', url, badge:'google-business'}
      *   ig-reel      → {id, position, kind:'video', type:'ig-reel',      url, poster, badge:'instagram'}
      *   ig-post      → {id, position, kind:'image', type:'ig-post',      url, badge:'instagram'}
      *
@@ -62,6 +62,9 @@ class ContentSelectionService
                     }
                     $resolved[] = [
                         'id' => (string) $row->id,
+                        // The site_media id — echoed so the client rebuilds the
+                        // PUT entry directly instead of matching on url.
+                        'mediaId' => (string) $row->media_id,
                         'position' => $row->position,
                         'kind' => 'image',
                         'type' => ContentSelection::TYPE_UPLOAD,
@@ -79,6 +82,9 @@ class ContentSelectionService
                     }
                     $resolved[] = [
                         'id' => (string) $row->id,
+                        // The stable Google photo ref — echoed so the client
+                        // rebuilds the PUT entry directly instead of url-matching.
+                        'ref' => (string) $row->external_ref,
                         'position' => $row->position,
                         'kind' => 'image',
                         'type' => ContentSelection::TYPE_GOOGLE_PHOTO,
