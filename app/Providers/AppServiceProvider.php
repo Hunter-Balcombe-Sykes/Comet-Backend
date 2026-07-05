@@ -28,9 +28,7 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserConfirmationPreference;
-use App\Models\Core\User\UserCredential;
 use App\Models\Core\User\UserDeletionAuditEntry;
-use App\Models\Core\User\UserExperience;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use App\Policies\CasePolicy;
@@ -156,11 +154,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(IntegrationConnection::class, IntegrationConnectionPolicy::class);
         // Menu carries user_id directly — generic owner policy.
         Gate::policy(Menu::class, SitePolicy::class);
-        // FOUND-4/5: workplace card and credential/experience child-table models.
-        // Owned via their parent (Site / User) so they map to the parent's policy.
+        // FOUND-4: workplace card model. Owned via its parent Site so it maps
+        // to the parent's policy.
         Gate::policy(Workplace::class, SitePolicy::class);
-        Gate::policy(UserCredential::class, UserSelfPolicy::class);
-        Gate::policy(UserExperience::class, UserSelfPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.

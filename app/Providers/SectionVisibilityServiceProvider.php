@@ -4,9 +4,7 @@ namespace App\Providers;
 
 use App\Services\User\Visibility\Rules\BookingVisibility;
 use App\Services\User\Visibility\Rules\ContactVisibility;
-use App\Services\User\Visibility\Rules\CredentialsVisibility;
 use App\Services\User\Visibility\Rules\DocumentsVisibility;
-use App\Services\User\Visibility\Rules\ExperienceVisibility;
 use App\Services\User\Visibility\Rules\GalleryVisibility;
 use App\Services\User\Visibility\Rules\PublicContactVisibility;
 use App\Services\User\Visibility\Rules\ServicesVisibility;
@@ -30,8 +28,6 @@ class SectionVisibilityServiceProvider extends ServiceProvider
             $r->register(new DocumentsVisibility);
             $r->register(new ServicesVisibility);
             $r->register(new BookingVisibility);
-            $r->register(new CredentialsVisibility);
-            $r->register(new ExperienceVisibility);
             $r->register(new PublicContactVisibility);
             $r->register(new WorkplaceVisibility);
             $r->register(new ContactVisibility);

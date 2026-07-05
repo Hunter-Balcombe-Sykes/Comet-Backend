@@ -115,31 +115,5 @@ class SectionVisibilityTestCase
             created_at TEXT NULL,
             updated_at TEXT NULL
         )');
-
-        // FOUND-5: credentials/experience promoted from about JSONB to child tables.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_credentials (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NULL,
-            title TEXT NULL,
-            issuer TEXT NULL,
-            year TEXT NULL,
-            description TEXT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NULL,
-            updated_at TEXT NULL
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_experience (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NULL,
-            role TEXT NULL,
-            organisation TEXT NULL,
-            start_year TEXT NULL,
-            end_year TEXT NULL,
-            description TEXT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NULL,
-            updated_at TEXT NULL
-        )');
     }
 }
