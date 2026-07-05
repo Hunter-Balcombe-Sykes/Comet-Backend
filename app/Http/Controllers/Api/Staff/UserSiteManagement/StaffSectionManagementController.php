@@ -15,7 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Staff manages section block visibility (gallery, services, shop, booking, bio) with full control.
+// V2: Staff manages section block visibility (gallery, services, shop, booking) with full control.
 class StaffSectionManagementController extends ApiController
 {
     use ResolveCurrentSite;
@@ -83,17 +83,6 @@ class StaffSectionManagementController extends ApiController
 
             return $block->fresh();
         });
-
-        // Keep professional.bio in sync with the "bio" section text (only when text was sent)
-        if (
-            $blockType === 'bio'
-            && array_key_exists('settings', $data)
-            && is_array($data['settings'])
-            && array_key_exists('text', $data['settings'])
-        ) {
-            $professional->bio = data_get($block->settings, 'text'); // merged + saved value
-            $professional->save();
-        }
 
         return $this->success([
             'section' => new SectionBlockResource($block->fresh())],

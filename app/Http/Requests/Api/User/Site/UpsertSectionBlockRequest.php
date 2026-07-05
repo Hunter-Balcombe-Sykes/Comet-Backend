@@ -18,7 +18,7 @@ class UpsertSectionBlockRequest extends BaseFormRequest
         $textRules = ['sometimes', 'nullable', 'string', 'max:4000'];
 
         // Enforce 200 words for these section types
-        if (in_array($type, ['bio', 'promotional_text'], true)) {
+        if (in_array($type, ['promotional_text'], true)) {
             $textRules[] = new MaxWords(200);
         }
 

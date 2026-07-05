@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Manages site section visibility (gallery, services, shop, booking, bio). Account-type restrictions apply.
+// V2: Manages site section visibility (gallery, services, shop, booking). Account-type restrictions apply.
 class UserSectionBlockController extends ApiController
 {
     use ResolveCurrentSite;
@@ -211,17 +211,6 @@ class UserSectionBlockController extends ApiController
 
             return $block->fresh();
         });
-
-        // Keep professional.bio in sync with the "bio" section text (only when text was sent)
-        if (
-            $blockType === 'bio'
-            && array_key_exists('settings', $data)
-            && is_array($data['settings'])
-            && array_key_exists('text', $data['settings'])
-        ) {
-            $pro->bio = data_get($block->settings, 'text'); // merged + saved value
-            $pro->save();
-        }
 
         return $this->success([
             'section' => new SectionBlockResource($block->fresh()),
