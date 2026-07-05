@@ -53,7 +53,7 @@ final class CategoryStylePresets
             'text_xs' => '0.8rem',
             'weight_regular' => '300',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'forma-djr',
+            'typography_font_family' => 'young-serif',
             'motion_pace' => 'fast',
         ],
         // Soft, elegant, a little luxe.
@@ -63,7 +63,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
-            'typography_font_family' => 'neue-haas-grotesk',
+            'typography_font_family' => 'playfair-display',
             'motion_pace' => 'normal',
         ],
         // Calmer, minimal — muted colour, clean type, unhurried motion.
@@ -73,7 +73,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.6rem',
-            'typography_font_family' => 'helvetica-neue',
+            'typography_font_family' => 'oswald',
             'motion_pace' => 'slow',
         ],
         // Trustworthy, structured, confident.
@@ -83,7 +83,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.4rem',
-            'typography_font_family' => 'neue-haas-grotesk',
+            'typography_font_family' => 'tex-gyre-heros',
             'motion_pace' => 'normal',
         ],
         // Bold, boutique, fashion-forward.
@@ -93,7 +93,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.3rem',
-            'typography_font_family' => 'nb-architekt',
+            'typography_font_family' => 'cooper-hewitt',
             'motion_pace' => 'fast',
         ],
         // Practical, sturdy, high-visibility trade colour.
@@ -103,7 +103,7 @@ final class CategoryStylePresets
             'text_xs' => '0.9rem',
             'weight_regular' => '500',
             'border_radius' => '0.5rem',
-            'typography_font_family' => 'helvetica-neue',
+            'typography_font_family' => 'archivo',
             'motion_pace' => 'normal',
         ],
         // Warm, inviting, relaxed.
@@ -113,7 +113,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1rem',
-            'typography_font_family' => 'forma-djr',
+            'typography_font_family' => 'eb-garamond',
             'motion_pace' => 'slow',
         ],
         // Bold, industrial, high-contrast.
@@ -123,7 +123,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '600',
             'border_radius' => '0.2rem',
-            'typography_font_family' => 'helvetica-neue',
+            'typography_font_family' => 'roboto',
             'motion_pace' => 'fast',
         ],
         // Expressive, distinctive, gallery-like.
@@ -133,7 +133,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.3rem',
-            'typography_font_family' => 'nb-architekt',
+            'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
         ],
         // Approachable, clear, encouraging.
@@ -143,7 +143,7 @@ final class CategoryStylePresets
             'text_xs' => '0.9rem',
             'weight_regular' => '400',
             'border_radius' => '0.8rem',
-            'typography_font_family' => 'helvetica-neue',
+            'typography_font_family' => 'work-sans',
             'motion_pace' => 'normal',
         ],
     ];

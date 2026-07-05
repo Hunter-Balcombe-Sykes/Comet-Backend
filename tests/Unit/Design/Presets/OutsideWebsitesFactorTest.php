@@ -93,8 +93,8 @@ it('reads outside-website analyses from the passed-in collection, not a DB query
             'styleAnalysis' => outsideWbsAnalysis('https://l3.test', ['bg' => 'dark']),
         ]),
         outsideWbsShopConnection($user->id, [
-            ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => outsideWbsAnalysis('https://s1.test', ['bg' => 'dark', 'font' => 'nb-architekt'])],
-            ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => outsideWbsAnalysis('https://s2.test', ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
+            ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => outsideWbsAnalysis('https://s1.test', ['bg' => 'dark', 'font' => 'office-code-pro'])],
+            ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => outsideWbsAnalysis('https://s2.test', ['bg' => 'warm_light', 'font' => 'office-code-pro'])],
         ]),
         // Non-source platform: must be excluded by the in-memory
         // whereIn(SOURCE_PLATFORMS) filter, same as the dropped query's clause.
@@ -106,7 +106,7 @@ it('reads outside-website analyses from the passed-in collection, not a DB query
     $result = (new OutsideWebsitesFactor)->detect($user, $site, $connections);
 
     expect($result)->toBe([
-        'color_bg' => '#151515',                    // 4 dark vs 1 warm_light -> dark
-        'typography_font_family' => 'nb-architekt',  // 2 votes, unopposed
+        'color_bg' => '#151515',                       // 4 dark vs 1 warm_light -> dark
+        'typography_font_family' => 'office-code-pro',  // 2 votes, unopposed
     ]);
 });

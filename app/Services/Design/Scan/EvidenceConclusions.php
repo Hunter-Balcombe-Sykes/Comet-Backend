@@ -654,30 +654,120 @@ class EvidenceConclusions
         return $first === '' ? null : $first;
     }
 
-    /** Closest of our four catalog fonts, by family-name keyword. */
+    /**
+     * Closest of our 17 catalog fonts, by family-name keyword
+     * (docs/design/font-icon-knowledge.md §4 — keep both in sync).
+     *
+     * Ordered specific-before-generic. Two disambiguation guards run first
+     * ('cooper hewitt' before the bare 'cooper' that young-serif claims;
+     * 'cormorant garamond' before the bare 'cormorant' that playfair-display
+     * claims) — every other keyword in the doc's own row order is already
+     * conflict-free. 'serif' / 'sans serif' are the generic catch-alls and
+     * stay last. Keywords are written space-separated (never hyphenated):
+     * firstFamily() already turns '-apple-system' / 'system-ui' into
+     * 'apple system' / 'system ui' before this method ever sees the string.
+     */
     private function fontSlug(string $family): ?string
     {
-        // Ordered specific-before-generic ('neue haas' before 'helvetica' etc.).
         $map = [
-            'neue haas' => 'neue-haas-grotesk', 'haas' => 'neue-haas-grotesk',
-            'suisse' => 'neue-haas-grotesk', 'aktiv' => 'neue-haas-grotesk', 'univers' => 'neue-haas-grotesk',
-            'courier' => 'nb-architekt', 'consolas' => 'nb-architekt',
-            'menlo' => 'nb-architekt', 'architekt' => 'nb-architekt', 'jetbrains' => 'nb-architekt',
-            'space mono' => 'nb-architekt', 'ibm plex mono' => 'nb-architekt',
-            'futura' => 'forma-djr', 'poppins' => 'forma-djr', 'montserrat' => 'forma-djr',
-            'nunito' => 'forma-djr', 'quicksand' => 'forma-djr', 'circular' => 'forma-djr',
-            'gotham' => 'forma-djr', 'proxima' => 'forma-djr', 'dm sans' => 'forma-djr', 'rubik' => 'forma-djr',
-            'brandon' => 'forma-djr', 'avenir' => 'forma-djr', 'sofia' => 'forma-djr',
-            // Serifs map to our warmest sans (we carry no serif).
-            'georgia' => 'forma-djr', 'times' => 'forma-djr', 'playfair' => 'forma-djr',
-            'merriweather' => 'forma-djr', 'garamond' => 'forma-djr', 'crimson' => 'forma-djr',
-            'baskerville' => 'forma-djr', 'lora' => 'forma-djr', 'serif' => 'forma-djr',
-            'helvetica' => 'helvetica-neue', 'arial' => 'helvetica-neue', 'inter' => 'helvetica-neue',
-            'roboto' => 'helvetica-neue', 'open sans' => 'helvetica-neue', 'lato' => 'helvetica-neue',
-            'work sans' => 'helvetica-neue', 'source sans' => 'helvetica-neue', 'noto sans' => 'helvetica-neue',
-            'system ui' => 'helvetica-neue', 'system' => 'helvetica-neue', 'apple system' => 'helvetica-neue',
-            'segoe' => 'helvetica-neue', 'sf pro' => 'helvetica-neue', 'ui sans serif' => 'helvetica-neue',
-            'sans serif' => 'helvetica-neue',
+            // Disambiguation guards — must run before their generic substrings.
+            'cooper hewitt' => 'cooper-hewitt',
+            'cormorant garamond' => 'eb-garamond',
+
+            // Monospace.
+            'office code' => 'office-code-pro', 'source code' => 'office-code-pro',
+            'fira code' => 'office-code-pro', 'fira mono' => 'office-code-pro',
+            'jetbrains' => 'office-code-pro', 'roboto mono' => 'office-code-pro',
+            'ibm plex mono' => 'office-code-pro', 'space mono' => 'office-code-pro',
+            'courier' => 'office-code-pro', 'consolas' => 'office-code-pro',
+            'menlo' => 'office-code-pro', 'monaco' => 'office-code-pro',
+            'mono' => 'office-code-pro', 'monospace' => 'office-code-pro',
+
+            // Didone / high-contrast display serif.
+            'playfair' => 'playfair-display', 'didot' => 'playfair-display',
+            'bodoni' => 'playfair-display', 'abril' => 'playfair-display',
+            'prata' => 'playfair-display', 'cormorant' => 'playfair-display',
+
+            // Old-style (Garalde) serif.
+            'garamond' => 'eb-garamond', 'sabon' => 'eb-garamond',
+            'minion' => 'eb-garamond', 'bembo' => 'eb-garamond', 'caslon' => 'eb-garamond',
+
+            // Transitional serif / generic serif fallback.
+            'baskerville' => 'libre-baskerville', 'georgia' => 'libre-baskerville',
+            'times' => 'libre-baskerville', 'merriweather' => 'libre-baskerville',
+            'lora' => 'libre-baskerville', 'pt serif' => 'libre-baskerville',
+            'source serif' => 'libre-baskerville', 'crimson' => 'libre-baskerville',
+            'charter' => 'libre-baskerville', 'literata' => 'libre-baskerville',
+
+            // Chunky old-style serif.
+            'young serif' => 'young-serif', 'recoleta' => 'young-serif',
+            'windsor' => 'young-serif', 'clearface' => 'young-serif',
+            'souvenir' => 'young-serif', 'cooper' => 'young-serif',
+
+            // Slab serif.
+            'zilla' => 'zilla-slab', 'rockwell' => 'zilla-slab', 'roboto slab' => 'zilla-slab',
+            'arvo' => 'zilla-slab', 'bitter' => 'zilla-slab', 'museo slab' => 'zilla-slab',
+            'josefin slab' => 'zilla-slab', 'clarendon' => 'zilla-slab', 'slab' => 'zilla-slab',
+
+            // Condensed gothic display.
+            'oswald' => 'oswald', 'bebas' => 'oswald', 'anton' => 'oswald',
+            'league gothic' => 'oswald', 'impact' => 'oswald', 'haettenschweiler' => 'oswald',
+            'tungsten' => 'oswald', 'din condensed' => 'oswald',
+            'barlow condensed' => 'oswald', 'roboto condensed' => 'oswald',
+
+            // Deco display sans.
+            'ostrich' => 'ostrich-sans', 'josefin' => 'ostrich-sans',
+
+            // Brutalist geometric sans.
+            'reglo' => 'reglo', 'druk' => 'reglo', 'eurostile' => 'reglo',
+            'microgramma' => 'reglo', 'agency' => 'reglo',
+
+            // Handwritten script.
+            'caveat' => 'caveat', 'dancing script' => 'caveat', 'pacifico' => 'caveat',
+            'satisfy' => 'caveat', 'kalam' => 'caveat', 'indie flower' => 'caveat',
+            'shadows into light' => 'caveat', 'amatic' => 'caveat', 'permanent marker' => 'caveat',
+            'lobster' => 'caveat', 'great vibes' => 'caveat', 'sacramento' => 'caveat', 'cursive' => 'caveat',
+
+            // Rounded geometric sans.
+            'quicksand' => 'quicksand', 'nunito' => 'quicksand', 'comfortaa' => 'quicksand',
+            'varela' => 'quicksand', 'baloo' => 'quicksand', 'fredoka' => 'quicksand',
+            'rubik' => 'quicksand', 'vag' => 'quicksand',
+
+            // Contemporary geometric sans.
+            'gotham' => 'cooper-hewitt', 'montserrat' => 'cooper-hewitt', 'proxima' => 'cooper-hewitt',
+            'futura' => 'cooper-hewitt', 'avenir' => 'cooper-hewitt', 'poppins' => 'cooper-hewitt',
+            'dm sans' => 'cooper-hewitt', 'raleway' => 'cooper-hewitt', 'manrope' => 'cooper-hewitt',
+            'jost' => 'cooper-hewitt', 'urbanist' => 'cooper-hewitt', 'sora' => 'cooper-hewitt',
+            'circular' => 'cooper-hewitt',
+
+            // Techno-humanist sans.
+            'm plus' => 'mplus', 'mplus' => 'mplus', 'zen kaku' => 'mplus',
+            'noto sans jp' => 'mplus', 'din' => 'mplus',
+
+            // Grotesque sans (American gothic lineage).
+            'archivo' => 'archivo', 'franklin' => 'archivo', 'trade gothic' => 'archivo',
+            'barlow' => 'archivo', 'public sans' => 'archivo', 'libre franklin' => 'archivo',
+            'oscine' => 'archivo',
+
+            // Helvetica-clone grotesque.
+            'helvetica' => 'tex-gyre-heros', 'neue haas' => 'tex-gyre-heros', 'haas' => 'tex-gyre-heros',
+            'nimbus' => 'tex-gyre-heros', 'arial' => 'tex-gyre-heros', 'univers' => 'tex-gyre-heros',
+            'aktiv' => 'tex-gyre-heros', 'suisse' => 'tex-gyre-heros', 'swiss 721' => 'tex-gyre-heros',
+            'akzidenz' => 'tex-gyre-heros',
+
+            // Neo-grotesque / system UI sans.
+            'roboto' => 'roboto', 'noto sans' => 'roboto', 'inter' => 'roboto',
+            'san francisco' => 'roboto', 'sf pro' => 'roboto', 'apple system' => 'roboto',
+            'system ui' => 'roboto', 'segoe' => 'roboto', 'ubuntu' => 'roboto', 'ibm plex sans' => 'roboto',
+
+            // Humanist grotesque / generic sans fallback.
+            'work sans' => 'work-sans', 'open sans' => 'work-sans', 'lato' => 'work-sans',
+            'source sans' => 'work-sans', 'pt sans' => 'work-sans', 'karla' => 'work-sans',
+            'mulish' => 'work-sans', 'assistant' => 'work-sans', 'figtree' => 'work-sans',
+
+            // Generic catch-alls — must stay last.
+            'serif' => 'libre-baskerville',
+            'sans serif' => 'work-sans',
         ];
         foreach ($map as $keyword => $slug) {
             if (str_contains($family, $keyword)) {
