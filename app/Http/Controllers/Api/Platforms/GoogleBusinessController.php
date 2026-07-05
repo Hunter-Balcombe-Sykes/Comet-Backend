@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
+use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
@@ -22,8 +25,11 @@ use Illuminate\Support\Collection;
 // Place Details snapshot (rating, reviews, hours, phone, website, …); the
 // refresh cron keeps that snapshot current. Link connects stay the honest
 // URL-parse subset: name + coordinates + keyless map embed.
-class GoogleBusinessController extends SingleSelectionPlatformController
+class GoogleBusinessController extends ApiController
 {
+    use ManagesIntegrationConnection;
+    use ResolveCurrentUser;
+
     public function __construct(private readonly GoogleBusinessService $service) {}
 
     protected function platform(): string
@@ -133,7 +139,18 @@ class GoogleBusinessController extends SingleSelectionPlatformController
 
         $this->maybeAdoptGoogleName($user, $place['name'] ?? null);
 
-        return $this->connected($user, $place);
+        $this->writeConnection($user, $place);
+        $resource = $this->resourceClass();
+
+        return $this->success((new $resource($place))->resolve());
+    }
+
+    // DELETE /api/platforms/google-business — clear every connection.
+    public function forget(Request $request): JsonResponse
+    {
+        $this->forgetAllConnections($this->currentUser($request));
+
+        return $this->success(['selection' => null]);
     }
 
     // Business Partna accounts treat the Google Business name as their public

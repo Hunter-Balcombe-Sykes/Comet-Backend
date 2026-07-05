@@ -168,7 +168,7 @@ class GenericPlatformController extends ApiController
 
     // GET /api/platforms/{platform}/selection — the first connected account's
     // selection (or null), hydrated through the descriptor's typed payload DTO.
-    // accountRows()->first() matches SingleSelectionPlatformController exactly for
+    // accountRows()->first() matches the deleted single-selection base exactly for
     // both single- and multi-account platforms (the single row is stored under
     // resource_id = <slug>, which accountRows() includes).
     public function selection(Request $request): JsonResponse
