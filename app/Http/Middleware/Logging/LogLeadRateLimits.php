@@ -19,7 +19,8 @@ use Throwable;
 //     Write happens in terminate() — after fastcgi_finish_request() — so DB hiccups can't turn a
 //     429 into a 500.
 //   - Auto-retry bursts (browsers that fire 2-3 retries on a single rate-limit hit) must produce
-//     a single analytics row (LIFE-2). A 10-second Redis SETNX keyed by (ip_hash, subdomain)
+//     a single analytics row (LIFE-2). A config-driven Redis SETNX (default 10s, CFG-5:
+//     partna.analytics.lead_rate_limit_dedup_seconds) keyed by (ip_hash, subdomain)
 //     short-circuits duplicates without blocking genuinely distinct submissions.
 //   - The stored Referer is origin + path only, capped at 512 chars (SEC-3). Query strings from
 //     marketing tools routinely embed subscriber emails / UTM PII — keeping only origin + path
@@ -27,8 +28,6 @@ use Throwable;
 class LogLeadRateLimits
 {
     use HashesClientData;
-
-    private const DEDUP_TTL_SECONDS = 10;
 
     public function handle(Request $request, Closure $next)
     {
@@ -50,9 +49,11 @@ class LogLeadRateLimits
             $ipHash = $this->hashIp($request->ip());
 
             // Dedup auto-retry bursts. Cache::add is atomic SETNX — returns false if the key
-            // already exists, meaning we already logged this source in the last 10s.
+            // already exists, meaning we already logged this source within the dedup window.
+            // CFG-5: window is config-driven so it's tunable without a redeploy.
+            $dedupSeconds = (int) config('partna.analytics.lead_rate_limit_dedup_seconds', 10);
             $dedupKey = "partna:rate-limit-logged:{$ipHash}:".($subdomain ?? 'unknown');
-            if (! Cache::add($dedupKey, 1, self::DEDUP_TTL_SECONDS)) {
+            if (! Cache::add($dedupKey, 1, $dedupSeconds)) {
                 return;
             }
 
@@ -67,12 +68,25 @@ class LogLeadRateLimits
                 'form_started_at_ms' => null,
             ]);
         } catch (Throwable $e) {
-            // Breadcrumb only — Nightwatch will surface repeated failures via its
-            // log-channel aggregation, but a single failure does not page.
+            // Breadcrumb only — Log::warning does NOT reach Nightwatch (it alerts on
+            // exceptions/reports and auto-detected slow routes/jobs, never on log queries).
             Log::warning('lead.rate_limit_log_failed', [
                 'exception' => $e->getMessage(),
                 'path' => $request->path(),
             ]);
+
+            // OBS-2: report() is what actually pages. Throttled to one per minute via the
+            // isolated cache_locks connection (mirrors IdempotencyKey::logFailOpen) so a
+            // sustained analytics.lead_submissions outage can't flood Nightwatch with a
+            // report per 429; report anyway if the throttle layer is itself unreachable.
+            try {
+                $lock = Cache::lock('lead.rate_limit_log_failed:report', 60);
+                if ($lock->get()) {
+                    report($e);
+                }
+            } catch (Throwable) {
+                report($e);
+            }
         }
     }
 

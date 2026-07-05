@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response as IlluminateResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
@@ -135,6 +136,7 @@ it('swallows DB exceptions in terminate() and logs a warning breadcrumb', functi
     DB::connection('pgsql')->statement('DROP TABLE analytics.lead_submissions');
 
     Log::spy();
+    Exceptions::fake();
 
     // Must not throw — the response was already flushed before terminate fired.
     $this->middleware->terminate(makeLeadRequest(), new IlluminateResponse('throttled', 429));
@@ -144,4 +146,25 @@ it('swallows DB exceptions in terminate() and logs a warning breadcrumb', functi
             && array_key_exists('exception', $ctx)
             && array_key_exists('path', $ctx))
         ->once();
+
+    // OBS-2: Log::warning is breadcrumb-only — report() is what actually pages Nightwatch.
+    Exceptions::assertReportedCount(1);
+});
+
+// --- OBS-2: report() is throttled to one per window, not once per request ---
+
+it('throttles report() to once per window across repeated analytics-write failures', function () {
+    // Drop the analytics table so every insert throws — different IPs so the
+    // LIFE-2 dedup cache doesn't short-circuit terminate() before the DB write.
+    DB::connection('pgsql')->statement('DROP TABLE analytics.lead_submissions');
+
+    Log::spy();
+    Exceptions::fake();
+
+    $this->middleware->terminate(makeLeadRequest(['ip' => '203.0.113.10']), new IlluminateResponse('throttled', 429));
+    $this->middleware->terminate(makeLeadRequest(['ip' => '198.51.100.20']), new IlluminateResponse('throttled', 429));
+    $this->middleware->terminate(makeLeadRequest(['ip' => '198.51.100.21']), new IlluminateResponse('throttled', 429));
+
+    // Three separate failures, but only the first acquires the report-throttle lock.
+    Exceptions::assertReportedCount(1);
 });

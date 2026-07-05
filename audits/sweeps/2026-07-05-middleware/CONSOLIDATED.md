@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
-- P2 Medium: 6 of 20 complete
-- P3 Low: 3 of 13 complete
+- P2 Medium: 7 of 20 complete
+- P3 Low: 4 of 13 complete
 
 ---
 
@@ -326,7 +326,7 @@
         }
         ```
 
-- [ ] **#OBS-2** · P2 — Lead rate-limit analytics insert catches Throwable with only Log::warning — comment incorrectly claims Nightwatch surfaces this
+- [x] **#OBS-2** · P2 — Lead rate-limit analytics insert catches Throwable with only Log::warning — comment incorrectly claims Nightwatch surfaces this
     - **Where:** app/Http/Middleware/Logging/LogLeadRateLimits.php:66-72
     - **Affects:** Abuse-monitoring pipeline — a sustained `analytics.lead_submissions` write failure produces zero alerts.
     - **Effort:** S (~0.5–1h)
@@ -607,7 +607,7 @@
         $res = Http::timeout(5)->get($jwksUrl);
         ```
 
-- [ ] **#CFG-5** · P3 — Rate-limit dedup TTL hardcoded in LogLeadRateLimits
+- [x] **#CFG-5** · P3 — Rate-limit dedup TTL hardcoded in LogLeadRateLimits
     - **Where:** app/Http/Middleware/Logging/LogLeadRateLimits.php:37
     - **Affects:** Abuse-monitoring analytics — the auto-retry dedup window is locked at 10 seconds.
     - **Effort:** S (~0.5–1h)

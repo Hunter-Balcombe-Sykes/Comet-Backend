@@ -1661,6 +1661,11 @@ return [
     ],
 
     'analytics' => [
+        // CFG-5: LogLeadRateLimits dedup window — auto-retry bursts (browsers firing 2-3
+        // retries on one rate-limit hit) within this many seconds collapse into one
+        // analytics.lead_submissions row, keyed by (ip_hash, subdomain).
+        'lead_rate_limit_dedup_seconds' => (int) env('PARTNA_ANALYTICS_LEAD_RATE_LIMIT_DEDUP_SECONDS', 10),
+
         // Section-key → display label for the analytics "top sections" chart. Add a new
         // skeleton section here — no code deploy needed. Unknown keys fall back to a
         // humanized version of the raw key in AnalyticsQueryService::sectionTitle().
