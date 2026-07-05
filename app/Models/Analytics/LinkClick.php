@@ -33,6 +33,18 @@ class LinkClick extends BaseModel
         'utm_source',
         'utm_medium',
         'utm_campaign',
+        // v2 (skeleton sitepages): destination + geo/device fields. link_block_id,
+        // user_id, site_id are relationship/tenancy FKs — deliberately excluded
+        // from mass-assignment.
+        'url',
+        'platform',
+        'product_id',
+        'product_title',
+        'section_key',
+        'label',
+        'country_code',
+        'region_code',
+        'device_type',
     ];
 
     protected $casts = [

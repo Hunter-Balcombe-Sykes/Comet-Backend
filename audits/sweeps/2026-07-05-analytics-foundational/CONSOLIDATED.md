@@ -75,7 +75,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -195,7 +195,7 @@
         ];
         ```
 
-- [ ] **#FOUND-4** · P2 — Analytics write models omit v2 columns from `$fillable`, a silent-write trap for the next developer who uses `::create()`
+- [x] **#FOUND-4** · P2 — Analytics write models omit v2 columns from `$fillable`, a silent-write trap for the next developer who uses `::create()`
     - **Where:** app/Models/Analytics/LinkClick.php:26-36, app/Models/Analytics/SiteVisit.php:26-38
     - **Affects:** Any future code that writes via `LinkClick::create()` / `SiteVisit::create()` / mass-assignment instead of the query-builder `insertOrIgnore()` path the current writer uses.
     - **Effort:** S (~0.5–1h)
@@ -236,7 +236,7 @@
         ];
         ```
 
-- [ ] **#FOUND-5** · P2 — `RecordAnalyticsEventJob::failed()` logs a payload key that doesn't exist, so every permanently-dropped analytics event logs `event_type: unknown`
+- [x] **#FOUND-5** · P2 — `RecordAnalyticsEventJob::failed()` logs a payload key that doesn't exist, so every permanently-dropped analytics event logs `event_type: unknown`
     - **Where:** app/Jobs/Analytics/RecordAnalyticsEventJob.php:54-62
     - **Affects:** Nightwatch/log-based diagnosis of permanently-failed analytics ingest jobs (pageview/click/section_view/session_ping) — every occurrence loses the one field that would say which kind of event was dropped.
     - **Effort:** S (~0.5–1h)

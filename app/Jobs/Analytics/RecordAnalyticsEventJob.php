@@ -56,7 +56,10 @@ class RecordAnalyticsEventJob implements ShouldQueue
         report($e);
         Log::error('Analytics event permanently dropped', [
             'job' => static::class,
-            'event_type' => $this->payload['event_type'] ?? 'unknown',
+            // payload is AnalyticsEvent::toArray(), whose key is 'type' (not 'event_type').
+            'event_type' => $this->payload['type'] ?? 'unknown',
+            'site_id' => $this->payload['site_id'] ?? null,
+            'user_id' => $this->payload['user_id'] ?? null,
             'error' => $e->getMessage(),
         ]);
     }
