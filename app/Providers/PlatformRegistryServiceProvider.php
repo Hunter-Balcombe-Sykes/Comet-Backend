@@ -3,9 +3,6 @@
 namespace App\Providers;
 
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Controllers\Api\Platforms\NowBookitController;
-use App\Http\Controllers\Api\Platforms\OpenTableController;
-use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
@@ -61,7 +58,10 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\Strategies\Connect\DeezerConnect;
+use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
+use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\PinterestConnect;
+use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\StravaConnect;
@@ -237,6 +237,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class)->payload(SelectionPayload::class));
+            // Connect strategies (FOUND-24) — parse-fail messages are the frozen
+            // 422 contract, copied verbatim from the deleted controllers.
+            $r->get('nowbookit')->connect(fn () => new NowBookitConnect(app(NowBookitService::class)), 'Enter a NowBookit booking link (nowbookit.com/...).');
+            $r->get('resdiary')->connect(fn () => new ResDiaryConnect(app(ResDiaryService::class)), 'Enter a ResDiary booking link (resdiary.com/...).');
+            $r->get('opentable')->connect(fn () => new OpenTableConnect(app(OpenTableService::class)), 'Enter an OpenTable restaurant link (opentable.com.au/...).');
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
             // Booking: fresha host (mirrors the fresha connect regex), then Square (squareup.com / *.square.site).
@@ -308,20 +313,23 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/deezer/twitch/pinterest/strava are now fully registry-driven
-            // (FOUND-24) — null controller routes connect through GenericPlatformController
-            // + the descriptor's ConnectStrategy (registered above). Strava is the one
-            // platform whose READS also moved here (Task 4) — its stored payload now
-            // hydrates through FeedPayload instead of the deleted StravaController.
+            // spotify/soundcloud/deezer/twitch/pinterest/strava/nowbookit/resdiary/opentable
+            // are now fully registry-driven (FOUND-24) — null controller routes connect
+            // through GenericPlatformController + the descriptor's ConnectStrategy
+            // (registered above). Strava is the one platform whose READS also moved here
+            // (Task 4) — its stored payload hydrates through FeedPayload instead of the
+            // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
+            // (routes/api/platforms.php) — it reads across platforms (Google Business),
+            // which this generic shape has no seam for.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
-            $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, OpenTableController::class, false);
-            $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, ResDiaryController::class, false);
-            $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, NowBookitController::class, false);
+            $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
+            $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
+            $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);
 
             return $r;
         });

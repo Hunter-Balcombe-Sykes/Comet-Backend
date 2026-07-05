@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Requests\Platforms\PlatformConnectRequest;
-use App\Http\Resources\Platforms\OpenTableConnectionResource;
+use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -11,49 +11,15 @@ use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// OpenTable — connect by restaurant link; the rid is read from the URL and the
-// keyless reservation widget embeds live availability + booking (no scraping,
-// no auth). OpenTable WAF-blocks our servers, so slug-only links (/r/<slug>)
-// that don't carry the rid are rejected with a nudge to the profile link.
-class OpenTableController extends SingleSelectionPlatformController
+// OpenTable's one bespoke endpoint. connect/selection/forget are registry-driven
+// (OpenTableConnect strategy + GenericPlatformController); this survives because
+// it reads ACROSS platforms (the Google Business connection), which the generic
+// shape has no seam for.
+class OpenTableController extends ApiController
 {
+    use ResolveCurrentUser;
+
     public function __construct(private readonly OpenTableService $service) {}
-
-    protected function platform(): string
-    {
-        return Platform::OpenTable->value;
-    }
-
-    protected function resourceClass(): string
-    {
-        return OpenTableConnectionResource::class;
-    }
-
-    // POST /api/platforms/opentable/connect
-    public function connect(PlatformConnectRequest $request): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $url = $request->validated()['url'];
-
-        if (! $this->service->isOpenTableUrl($url)) {
-            return $this->error('Enter an OpenTable restaurant link (opentable.com.au/...).', 422);
-        }
-
-        $rid = $this->service->parseRid($url);
-        if ($rid === null) {
-            return $this->error("That link doesn't include the restaurant id. Use the profile link with the number — opentable.com.au/restaurant/profile/123456.", 422);
-        }
-
-        return $this->connected($user, [
-            'url' => $url,
-            'rid' => $rid,
-            'name' => $this->service->nameFromUrl($url),
-            'embedUrl' => $this->service->embedUrl($rid, $this->service->hostOf($url)),
-            // A manual (re)connect un-tags a Google-Business-seeded row so it drops
-            // out of the connect modal's "Automatically Synced" undo list.
-            'source' => 'manual',
-        ]);
-    }
 
     // GET /api/platforms/opentable/suggestion
     // The OpenTable profile link (with the rid) already harvested from the

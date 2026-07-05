@@ -89,7 +89,6 @@ it('has no raw stored-payload access in the migrated read-path files (DTO-mediat
         'app/Http/Controllers/Api/Platforms/ReservationsController.php',
         'app/Http/Controllers/Api/Platforms/OnlineOrderingController.php',
         'app/Http/Controllers/Api/Platforms/CustomLinksController.php',
-        'app/Http/Controllers/Api/Platforms/OpenTableController.php',
         'app/Jobs/Platforms/InstagramConnectJob.php',
         'app/Jobs/Platforms/GoogleBusinessEnrichJob.php',
         'app/Observers/Core/IntegrationConnectionObserver.php',
