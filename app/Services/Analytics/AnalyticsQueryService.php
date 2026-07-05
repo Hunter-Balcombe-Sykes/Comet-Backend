@@ -34,36 +34,59 @@ class AnalyticsQueryService
     ";
 
     /**
-     * Referrer/source CASE — maps utm_source + referrer URL into a fixed set
-     * of human-readable labels. Order matters (Instagram check before Facebook
-     * etc. would be wrong if domain patterns overlap).
+     * Referrer/source map — SINGLE source of truth for the SQL CASE built by
+     * sourceCase() below. label => match-SQL predicate (raw SQL fragment used
+     * inside a WHEN ... THEN). Order is evaluation order: Instagram before
+     * Facebook etc. would be wrong if domain patterns overlap, so this must
+     * stay ordered exactly as it was in the original hand-written CASE.
+     * 'Direct Link' (empty/null referrer) and 'Other' (ELSE) are structural —
+     * not data-driven — and are appended by sourceCase() itself.
      */
-    private const SOURCE_CASE = "
-        CASE
-            WHEN COALESCE(utm_source,'') ILIKE 'instagram%' OR COALESCE(referrer,'') ILIKE '%instagram.com%' OR COALESCE(referrer,'') ILIKE '%l.instagram.com%' THEN 'Instagram'
-            WHEN COALESCE(utm_source,'') ILIKE 'facebook%'  OR COALESCE(referrer,'') ILIKE '%facebook.com%'  OR COALESCE(referrer,'') ILIKE '%lm.facebook.com%'  OR COALESCE(referrer,'') ILIKE '%l.facebook.com%' THEN 'Facebook'
-            WHEN COALESCE(utm_source,'') ILIKE 'tiktok%'    OR COALESCE(referrer,'') ILIKE '%tiktok.com%'    THEN 'TikTok'
-            WHEN COALESCE(utm_source,'') ILIKE 'youtube%'   OR COALESCE(referrer,'') ILIKE '%youtube.com%'   OR COALESCE(referrer,'') ILIKE '%youtu.be%' THEN 'YouTube'
-            WHEN COALESCE(utm_source,'') ILIKE 'twitter%'   OR COALESCE(utm_source,'') ILIKE 'x%'          OR COALESCE(referrer,'') ILIKE '%twitter.com%' OR COALESCE(referrer,'') ILIKE '%t.co%' OR COALESCE(referrer,'') ILIKE '%x.com%' THEN 'X (Twitter)'
-            WHEN COALESCE(utm_source,'') ILIKE 'linkedin%'  OR COALESCE(referrer,'') ILIKE '%linkedin.com%' THEN 'LinkedIn'
-            WHEN COALESCE(utm_source,'') ILIKE 'snapchat%'  OR COALESCE(referrer,'') ILIKE '%snapchat.com%' OR COALESCE(referrer,'') ILIKE '%sc.link%' THEN 'Snapchat'
-            WHEN COALESCE(utm_source,'') ILIKE 'pinterest%' OR COALESCE(referrer,'') ILIKE '%pinterest.%'  THEN 'Pinterest'
-            WHEN COALESCE(utm_source,'') ILIKE 'reddit%'    OR COALESCE(referrer,'') ILIKE '%reddit.com%'   THEN 'Reddit'
-            WHEN COALESCE(utm_source,'') ILIKE 'google%'    OR COALESCE(referrer,'') ILIKE '%google.%'      THEN 'Organic (Google)'
-            WHEN COALESCE(utm_source,'') ILIKE 'bing%'      OR COALESCE(referrer,'') ILIKE '%bing.com%'     THEN 'Organic (Bing)'
-            WHEN COALESCE(utm_source,'') ILIKE 'duckduckgo%' OR COALESCE(referrer,'') ILIKE '%duckduckgo.com%' THEN 'Organic (DuckDuckGo)'
-            WHEN COALESCE(utm_source,'') ILIKE 'yahoo%'     OR COALESCE(referrer,'') ILIKE '%search.yahoo.com%' THEN 'Organic (Yahoo)'
-            WHEN referrer IS NULL OR referrer = '' THEN 'Direct Link'
-            ELSE 'Other'
-        END
-    ";
+    private const REFERRER_SOURCES = [
+        'Instagram' => "COALESCE(utm_source,'') ILIKE 'instagram%' OR COALESCE(referrer,'') ILIKE '%instagram.com%' OR COALESCE(referrer,'') ILIKE '%l.instagram.com%'",
+        'Facebook' => "COALESCE(utm_source,'') ILIKE 'facebook%' OR COALESCE(referrer,'') ILIKE '%facebook.com%' OR COALESCE(referrer,'') ILIKE '%lm.facebook.com%' OR COALESCE(referrer,'') ILIKE '%l.facebook.com%'",
+        'TikTok' => "COALESCE(utm_source,'') ILIKE 'tiktok%' OR COALESCE(referrer,'') ILIKE '%tiktok.com%'",
+        'YouTube' => "COALESCE(utm_source,'') ILIKE 'youtube%' OR COALESCE(referrer,'') ILIKE '%youtube.com%' OR COALESCE(referrer,'') ILIKE '%youtu.be%'",
+        'X (Twitter)' => "COALESCE(utm_source,'') ILIKE 'twitter%' OR COALESCE(utm_source,'') ILIKE 'x%' OR COALESCE(referrer,'') ILIKE '%twitter.com%' OR COALESCE(referrer,'') ILIKE '%t.co%' OR COALESCE(referrer,'') ILIKE '%x.com%'",
+        'LinkedIn' => "COALESCE(utm_source,'') ILIKE 'linkedin%' OR COALESCE(referrer,'') ILIKE '%linkedin.com%'",
+        'Snapchat' => "COALESCE(utm_source,'') ILIKE 'snapchat%' OR COALESCE(referrer,'') ILIKE '%snapchat.com%' OR COALESCE(referrer,'') ILIKE '%sc.link%'",
+        'Pinterest' => "COALESCE(utm_source,'') ILIKE 'pinterest%' OR COALESCE(referrer,'') ILIKE '%pinterest.%'",
+        'Reddit' => "COALESCE(utm_source,'') ILIKE 'reddit%' OR COALESCE(referrer,'') ILIKE '%reddit.com%'",
+        'Organic (Google)' => "COALESCE(utm_source,'') ILIKE 'google%' OR COALESCE(referrer,'') ILIKE '%google.%'",
+        'Organic (Bing)' => "COALESCE(utm_source,'') ILIKE 'bing%' OR COALESCE(referrer,'') ILIKE '%bing.com%'",
+        'Organic (DuckDuckGo)' => "COALESCE(utm_source,'') ILIKE 'duckduckgo%' OR COALESCE(referrer,'') ILIKE '%duckduckgo.com%'",
+        'Organic (Yahoo)' => "COALESCE(utm_source,'') ILIKE 'yahoo%' OR COALESCE(referrer,'') ILIKE '%search.yahoo.com%'",
+    ];
 
-    /** Stable label order for the referrer breakdown response. */
+    /**
+     * Stable label order for the referrer breakdown response — this is display
+     * order (organics first, then socials, then structural), which differs
+     * from REFERRER_SOURCES' evaluation order above, so it stays a separate
+     * list. Must remain a permutation of array_keys(REFERRER_SOURCES) plus the
+     * two structural labels ('Direct Link', 'Other') — see #FOUND-3 guard test.
+     */
     private const REFERRER_LABELS = [
         'Organic (Google)', 'Organic (Bing)', 'Organic (DuckDuckGo)', 'Organic (Yahoo)',
         'Instagram', 'Facebook', 'TikTok', 'YouTube', 'X (Twitter)', 'LinkedIn',
         'Snapchat', 'Pinterest', 'Reddit', 'Direct Link', 'Other',
     ];
+
+    /**
+     * Rebuilds the referrer/source SQL CASE from REFERRER_SOURCES plus the two
+     * structural clauses (Direct Link, Other) — single source of truth so the
+     * CASE and REFERRER_LABELS can't silently diverge (see #FOUND-3).
+     */
+    private static function sourceCase(): string
+    {
+        $whens = [];
+        foreach (self::REFERRER_SOURCES as $label => $predicate) {
+            $whens[] = "WHEN {$predicate} THEN '{$label}'";
+        }
+        $whens[] = "WHEN referrer IS NULL OR referrer = '' THEN 'Direct Link'";
+        $whens[] = "ELSE 'Other'";
+
+        return "CASE\n".implode("\n", $whens)."\nEND";
+    }
 
     public function visitsAggregate(string $userId, Carbon $from, Carbon $to): stdClass
     {
@@ -193,11 +216,13 @@ class AnalyticsQueryService
      */
     public function referrers(string $userId, Carbon $from, Carbon $to): array
     {
+        $case = self::sourceCase();
+
         $raw = DB::table('analytics.site_visits')
             ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw(self::SOURCE_CASE.' as source, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors')
-            ->groupByRaw(self::SOURCE_CASE)
+            ->selectRaw("{$case} as source, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors")
+            ->groupByRaw($case)
             ->orderByDesc('visitors')
             ->get()
             ->keyBy('source');
@@ -441,30 +466,10 @@ class AnalyticsQueryService
 
     private function sectionTitle(string $sectionKey): string
     {
-        return match ($sectionKey) {
-            // Skeleton sitepage sections (v2 tracker keys).
-            'home' => 'Home',
-            'shop' => 'Shop',
-            'music' => 'Music',
-            'podcast' => 'Podcast',
-            'watch' => 'Watch',
-            'book' => 'Book',
-            'events' => 'Events',
-            'document' => 'Document',
-            'subscribe' => 'Subscribe',
-            'socials' => 'Socials',
-            'links' => 'Links',
-            'about' => 'About',
-            // Legacy block-era keys.
-            'gallery' => 'Gallery of Work',
-            'services' => 'Services & Pricing',
-            'booking' => 'Booking',
-            'documents' => 'File Preview',
-            'newsletter' => 'Newsletter',
-            'contact' => 'Contact',
-            'contacts_collection' => 'Contacts',
-            'barbershop_info' => 'Barbershop Info',
-            default => ucfirst(str_replace('_', ' ', $sectionKey)),
-        };
+        // Single source in config/partna.php analytics.section_titles — a new section
+        // type is a config edit, not a code change. Unknown keys humanize the raw key.
+        $titles = config('partna.analytics.section_titles', []);
+
+        return $titles[$sectionKey] ?? ucfirst(str_replace('_', ' ', $sectionKey));
     }
 }

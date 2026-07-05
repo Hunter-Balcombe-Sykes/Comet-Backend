@@ -75,7 +75,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 2 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -125,7 +125,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#FOUND-2** · P2 — `sectionTitle()` is a hand-maintained match expression that a new skeleton section requires a code deploy to update
+- [x] **#FOUND-2** · P2 — `sectionTitle()` is a hand-maintained match expression that a new skeleton section requires a code deploy to update
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:442-469
     - **Affects:** The "top sections" chart on the professional analytics dashboard — labels for skeleton sitepage sections.
     - **Effort:** S (~0.5–1h)
@@ -166,7 +166,7 @@
         }
         ```
 
-- [ ] **#FOUND-3** · P2 — `SOURCE_CASE` and `REFERRER_LABELS` are two hand-synced constants that will silently drift
+- [x] **#FOUND-3** · P2 — `SOURCE_CASE` and `REFERRER_LABELS` are two hand-synced constants that will silently drift
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:41-59 (`SOURCE_CASE`), :62-66 (`REFERRER_LABELS`)
     - **Affects:** The referrer breakdown chart on the professional analytics dashboard.
     - **Effort:** S (~0.5–1h)

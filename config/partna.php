@@ -1641,4 +1641,20 @@ return [
             'breach_warning_min' => 120,
         ],
     ],
+
+    'analytics' => [
+        // Section-key → display label for the analytics "top sections" chart. Add a new
+        // skeleton section here — no code deploy needed. Unknown keys fall back to a
+        // humanized version of the raw key in AnalyticsQueryService::sectionTitle().
+        'section_titles' => [
+            // Skeleton sitepage sections (v2 tracker keys).
+            'home' => 'Home', 'shop' => 'Shop', 'music' => 'Music', 'podcast' => 'Podcast',
+            'watch' => 'Watch', 'book' => 'Book', 'events' => 'Events', 'document' => 'Document',
+            'subscribe' => 'Subscribe', 'socials' => 'Socials', 'links' => 'Links', 'about' => 'About',
+            // Legacy block-era keys.
+            'gallery' => 'Gallery of Work', 'services' => 'Services & Pricing', 'booking' => 'Booking',
+            'documents' => 'File Preview', 'newsletter' => 'Newsletter', 'contact' => 'Contact',
+            'contacts_collection' => 'Contacts', 'barbershop_info' => 'Barbershop Info',
+        ],
+    ],
 ];
