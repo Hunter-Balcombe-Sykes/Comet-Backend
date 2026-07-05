@@ -18,7 +18,7 @@ $blockTypes = [
     'sections' => [
         'gallery', 'services', 'booking', 'contacts_collection',
         'barbershop_info', 'documents', 'newsletter', 'contact',
-        'public_contact', 'workplace', 'credentials', 'experience', 'bio',
+        'public_contact', 'workplace',
     ],
 ];
 
@@ -836,13 +836,14 @@ return [
     */
     'account_type_defaults' => [
         'individual' => [
-            // NOTE: 'bio' MUST sit at the end of the list. syncAllowedSections
-            // iterates this array and writes sort_order = index, and a unique
-            // index on (site_id, block_group, sort_order) where block_group =
-            // 'sections' rejects any re-packing that would momentarily shift
-            // an existing row's sort_order onto another's. Placing new block
-            // types at the tail keeps existing rows at their stored indices.
-            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'barbershop_info', 'documents', 'newsletter', 'contact', 'credentials', 'experience', 'bio'],
+            // NOTE: new block types MUST be appended at the end of the list.
+            // syncAllowedSections iterates this array and writes sort_order =
+            // index, and a unique index on (site_id, block_group, sort_order)
+            // where block_group = 'sections' rejects any re-packing that would
+            // momentarily shift an existing row's sort_order onto another's.
+            // Placing new block types at the tail keeps existing rows at
+            // their stored indices.
+            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'barbershop_info', 'documents', 'newsletter', 'contact'],
             'default_sections' => ['services', 'gallery'],
             'is_published' => true,
             'allowed_theme_count' => 3,

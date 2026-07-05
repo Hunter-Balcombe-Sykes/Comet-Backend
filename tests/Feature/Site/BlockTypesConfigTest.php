@@ -6,7 +6,7 @@ it('exposes block_types keyed by group, matching the CHECK enum', function () {
     $sections = [
         'gallery', 'services', 'booking', 'contacts_collection',
         'barbershop_info', 'documents', 'newsletter', 'contact',
-        'public_contact', 'workplace', 'credentials', 'experience', 'bio',
+        'public_contact', 'workplace',
     ];
 
     expect(config('partna.block_types.links'))->toBe(['link']);

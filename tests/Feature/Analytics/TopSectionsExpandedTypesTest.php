@@ -7,8 +7,8 @@ use Illuminate\Support\Str;
 // the dashboard's `top_sections` JSON aggregate honours. The ingest controller
 // already reads `partna.section_block_types` from config; this test pins the
 // expected member list and asserts the click controller writes a row when the
-// section block is `bio` or `documents` (previously rejected by a hardcoded
-// 4-type filter in UserAnalyticsController). It also pins the
+// section block is `newsletter` or `documents` (previously rejected by a
+// hardcoded 4-type filter in UserAnalyticsController). It also pins the
 // section_block_types config contents against accidental shrinkage.
 
 beforeEach(function (): void {
@@ -17,29 +17,29 @@ beforeEach(function (): void {
     setupLinkClicksTable();
 });
 
-it('exposes bio + documents in the section_block_types config', function (): void {
+it('exposes newsletter + documents in the section_block_types config', function (): void {
     $types = collect(config('partna.section_block_types', []))
         ->map(fn ($t) => strtolower((string) $t))
         ->values()
         ->all();
 
-    expect($types)->toContain('bio', 'documents', 'gallery', 'services', 'booking');
+    expect($types)->toContain('newsletter', 'documents', 'gallery', 'services', 'booking');
 });
 
-it('records a click on a bio section block', function (): void {
-    $tenant = createBrandTenant('expanded-bio');
+it('records a click on a newsletter section block', function (): void {
+    $tenant = createBrandTenant('expanded-newsletter');
     $block = createLinkBlockFor($tenant, [
         'block_group' => 'sections',
-        'block_type' => 'bio',
+        'block_type' => 'newsletter',
         'title' => null,
         'url' => null,
     ]);
 
     $response = $this->withHeaders([
         'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-        'Origin' => 'https://expanded-bio.'.config('partna.public_domain'),
+        'Origin' => 'https://expanded-newsletter.'.config('partna.public_domain'),
     ])->postJson('/api/public/analytics/clicks', [
-        'subdomain' => 'expanded-bio',
+        'subdomain' => 'expanded-newsletter',
         'block_id' => $block->id,
         'visitor_id' => (string) Str::uuid(),
     ]);

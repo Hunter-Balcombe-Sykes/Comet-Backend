@@ -55,11 +55,11 @@ it('reorders sections owned by the authenticated professional', function () {
     $pro = createBrandTenant('reorder-a');
     $gallery = seedSectionBlock($pro, 'gallery', 0);
     $shop = seedSectionBlock($pro, 'shop', 1);
-    $bio = seedSectionBlock($pro, 'bio', 2);
+    $newsletter = seedSectionBlock($pro, 'newsletter', 2);
 
-    callSectionReorder($pro, [$bio, $gallery, $shop]);
+    callSectionReorder($pro, [$newsletter, $gallery, $shop]);
 
-    expect((int) DB::table('site.blocks')->where('id', $bio)->value('sort_order'))->toBe(0);
+    expect((int) DB::table('site.blocks')->where('id', $newsletter)->value('sort_order'))->toBe(0);
     expect((int) DB::table('site.blocks')->where('id', $gallery)->value('sort_order'))->toBe(1);
     expect((int) DB::table('site.blocks')->where('id', $shop)->value('sort_order'))->toBe(2);
 });
@@ -68,13 +68,13 @@ it('preserves sections not in the ids list at the end of the order', function ()
     $pro = createBrandTenant('reorder-b');
     $gallery = seedSectionBlock($pro, 'gallery', 0);
     $shop = seedSectionBlock($pro, 'shop', 1);
-    $bio = seedSectionBlock($pro, 'bio', 2);
+    $newsletter = seedSectionBlock($pro, 'newsletter', 2);
     $contact = seedSectionBlock($pro, 'contact', 3);
 
     // Only specify two ids — the others must follow in their original order.
-    callSectionReorder($pro, [$bio, $gallery]);
+    callSectionReorder($pro, [$newsletter, $gallery]);
 
-    expect((int) DB::table('site.blocks')->where('id', $bio)->value('sort_order'))->toBe(0);
+    expect((int) DB::table('site.blocks')->where('id', $newsletter)->value('sort_order'))->toBe(0);
     expect((int) DB::table('site.blocks')->where('id', $gallery)->value('sort_order'))->toBe(1);
     expect((int) DB::table('site.blocks')->where('id', $shop)->value('sort_order'))->toBe(2);
     expect((int) DB::table('site.blocks')->where('id', $contact)->value('sort_order'))->toBe(3);

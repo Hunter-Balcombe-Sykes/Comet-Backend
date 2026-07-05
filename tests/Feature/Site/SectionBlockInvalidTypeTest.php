@@ -11,7 +11,7 @@ beforeEach(function () {
     tenantHelpersEnsureTables();
     setupBlocksTable();
     shimPgAdvisoryLockForSqlite();
-    Config::set('partna.section_block_types', ['bio', 'newsletter']);
+    Config::set('partna.section_block_types', ['newsletter', 'contact']);
 });
 
 it('returns 422 when upsert is called with an unrecognised blockType', function () {
@@ -51,9 +51,9 @@ it('returns 422 body shape consistent with other error responses (message key pr
 it('allows upsert for a valid blockType (sanity: 200/201 not 422)', function () {
     $pro = createTenant('section-block-valid-a');
 
-    // bio is in the allowed list — must not be rejected as invalid.
+    // newsletter is in the allowed list — must not be rejected as invalid.
     $response = actingAsUser($pro)
-        ->putJson('/api/sections/bio', ['publication_state' => 'draft']);
+        ->putJson('/api/sections/newsletter', ['publication_state' => 'draft']);
 
     expect($response->status())->toBeIn([200, 201]);
 });
@@ -65,6 +65,15 @@ it('remove() for a valid-but-absent blockType returns success, not 422 or 403', 
     $pro = createTenant('section-block-owner-a');
 
     actingAsUser($pro)
-        ->deleteJson('/api/sections/bio') // valid type
+        ->deleteJson('/api/sections/newsletter') // valid type
         ->assertSuccessful(); // 200, not 422/403
+});
+
+it('rejects bio now that it has been removed from the section allowlist', function () {
+    $pro = createTenant('section-block-bio-dead');
+
+    actingAsUser($pro)
+        ->putJson('/api/sections/bio', ['publication_state' => 'draft'])
+        ->assertStatus(422)
+        ->assertJsonStructure(['message', 'errors']);
 });

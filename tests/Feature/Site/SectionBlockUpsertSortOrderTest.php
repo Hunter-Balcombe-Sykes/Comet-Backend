@@ -112,13 +112,13 @@ function callUpsert(User $pro, string $blockType, array $extra = [], ?UserSectio
 
 it('gap-safe regression (SEM-8): upsert assigns sort_order 2 not 1 after a hard-delete gap', function () {
     // Allow any section type in the upsert() allowlist check.
-    Config::set('partna.section_block_types', ['bio', 'newsletter', 'contacts_collection']);
+    Config::set('partna.section_block_types', ['services', 'newsletter', 'contacts_collection']);
 
     $pro = createBrandTenant('upsert-gap-a');
     $siteId = $pro->site->id;
 
-    // Seed TWO section blocks: bio at sort_order 0, newsletter at sort_order 1.
-    seedSectionBlockForUpsertTest($pro, 'bio', 0);
+    // Seed TWO section blocks: services at sort_order 0, newsletter at sort_order 1.
+    seedSectionBlockForUpsertTest($pro, 'services', 0);
     seedSectionBlockForUpsertTest($pro, 'newsletter', 1);
 
     // Hard-delete the row at sort_order 0, leaving one live row at sort_order 1.
@@ -128,7 +128,7 @@ it('gap-safe regression (SEM-8): upsert assigns sort_order 2 not 1 after a hard-
     DB::table('site.blocks')
         ->where('user_id', $pro->id)
         ->where('site_id', $siteId)
-        ->where('block_type', 'bio')
+        ->where('block_type', 'services')
         ->delete();
 
     // Upsert a third, not-yet-existing section type via the syncless controller.

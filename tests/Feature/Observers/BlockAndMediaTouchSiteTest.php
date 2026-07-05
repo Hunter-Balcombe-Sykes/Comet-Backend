@@ -65,7 +65,7 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
     Block::create([
         'user_id' => $fixture['pro_id'],
         'site_id' => $fixture['site_id'],
-        'block_type' => 'bio',
+        'block_type' => 'newsletter',
         'block_group' => 'sections',
         'sort_order' => 0,
         'is_active' => true,
