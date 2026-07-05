@@ -17,7 +17,6 @@ class UserPublicResource extends ApiResource
             'account_type' => $this->account_type?->value,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
-            'bio' => $this->bio,
             'public_contact_number' => $this->public_contact_number,
             'public_contact_email' => $this->public_contact_email,
             'location_city' => $this->location_city,

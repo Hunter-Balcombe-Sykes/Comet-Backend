@@ -50,7 +50,6 @@ class User extends BaseModel
     protected $fillable = [
         'handle',
         'display_name',
-        'bio',
         'country_code',
         'timezone',
         'account_type',

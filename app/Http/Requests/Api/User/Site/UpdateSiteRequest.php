@@ -29,17 +29,6 @@ class UpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        $settings = $this->input('settings');
-        if (is_array($settings)) {
-            foreach (['hero_title', 'hero_subtitle', 'primary_button_text', 'bio_text'] as $field) {
-                if (! array_key_exists($field, $settings) || ! is_string($settings[$field])) {
-                    continue;
-                }
-                $settings[$field] = static::cleanString($settings[$field]);
-            }
-            $merge['settings'] = $settings;
-        }
-
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -54,11 +43,6 @@ class UpdateSiteRequest extends BaseFormRequest
             // Non-design settings — design moved to site.design_kits, all
             // settings.design.* paths are rejected outright.
             'settings' => ['sometimes', 'array'],
-            'settings.hero_title' => ['sometimes', 'string', 'max:100'],
-            'settings.hero_subtitle' => ['sometimes', 'string', 'max:200'],
-            'settings.primary_button_text' => ['sometimes', 'string', 'max:50'],
-            'settings.primary_button_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
-            'settings.bio_text' => ['sometimes', 'nullable', 'string', 'max:500'],
             // settings.design.* is dead — reject any incoming key under it.
             'settings.design' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],

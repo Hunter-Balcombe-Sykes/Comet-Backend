@@ -18,7 +18,6 @@ class UserStaffResource extends ApiResource
             'partna_url' => $this->partna_url,
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
-            'bio' => $this->bio,
             'phone' => $this->phone,
             'primary_email' => $this->primary_email,
             'country_code' => $this->country_code,

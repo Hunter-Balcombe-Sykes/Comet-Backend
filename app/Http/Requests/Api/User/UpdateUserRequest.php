@@ -15,7 +15,6 @@ class UpdateUserRequest extends BaseFormRequest
         return [
             // keep handle out of this endpoint (handle changes should be a dedicated flow)
             'display_name' => ['sometimes', 'required', 'string', 'max:255'],
-            'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],
 
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -51,7 +50,6 @@ class UpdateUserRequest extends BaseFormRequest
     {
         $this->normalizePhones(['phone', 'public_contact_number']);
         $this->lowercaseEmails(['primary_email', 'public_contact_email']);
-        $this->cleanText(['bio']);
 
         $merge = [];
 

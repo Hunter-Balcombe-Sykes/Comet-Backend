@@ -88,15 +88,13 @@ it('promoted columns win over residual JSONB value during dual-write', function 
         'subdomain' => 'example',
         'skeleton_id' => 'skeleton-1',
         'is_published' => true,
-        'settings' => ['booking_mode' => 'manual', 'hero_title' => 'Old'],
+        'settings' => ['booking_mode' => 'manual'],
     ]);
     $site->id = '33333333-3333-3333-3333-333333333333';
     $site->booking_mode = 'none';
-    $site->hero_title = 'New';
 
     $array = (new SiteResource($site))->resolve();
 
     expect($array['booking_mode'])->toBe('none')
-        ->and($array['settings']->booking_mode)->toBe('none')
-        ->and($array['settings']->hero_title)->toBe('New');
+        ->and($array['settings']->booking_mode)->toBe('none');
 });

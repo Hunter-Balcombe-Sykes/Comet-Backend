@@ -33,7 +33,6 @@ class StaffSiteResource extends ApiResource
                 'handle' => $this->handle,
                 'display_name' => $this->display_name,
                 'account_type' => $this->account_type,
-                'bio' => $this->bio,
                 'location_street_address' => $this->location_street_address,
                 'location_city' => $this->location_city,
                 'location_state' => $this->location_state,

@@ -191,12 +191,12 @@ it('refuses to publish a site whose professional has no display name', function 
 
 it('merges settings PATCH-style, preserving unknown keys and stripping the dead design path', function () {
     $pro = makeSiteOwner(siteOverrides: [
-        'settings' => json_encode(['keep_me' => 'yes', 'hero_title' => 'old']),
+        'settings' => json_encode(['keep_me' => 'yes', 'booking_mode' => 'manual']),
     ]);
 
     app(UpdateSiteAction::class)->execute($pro, [
         'settings' => [
-            'hero_title' => 'new',     // promoted key — goes to column, stripped from JSONB
+            'booking_mode' => 'none', // promoted key — goes to column, stripped from JSONB
             'extra' => 'z',            // unknown key — must survive in JSONB
             'design' => ['accent' => '#fff'], // dead path — must be stripped
         ],
@@ -211,7 +211,7 @@ it('merges settings PATCH-style, preserving unknown keys and stripping the dead 
         'extra' => 'z',
     ])->and($settings)->not->toHaveKey('design');
 
-    // Phase 2 strip: hero_title is a promoted key → column only, not in JSONB.
-    expect($settings)->not->toHaveKey('hero_title');
-    expect($row->hero_title)->toBe('new');
+    // Phase 2 strip: booking_mode is a promoted key → column only, not in JSONB.
+    expect($settings)->not->toHaveKey('booking_mode');
+    expect($row->booking_mode)->toBe('none');
 });

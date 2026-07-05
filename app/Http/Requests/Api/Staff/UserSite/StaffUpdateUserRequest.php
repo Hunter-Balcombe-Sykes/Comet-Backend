@@ -15,7 +15,6 @@ class StaffUpdateUserRequest extends BaseFormRequest
             'display_name' => ['sometimes', 'required', 'string', 'max:255'],
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],
 
             'primary_email' => ['sometimes', 'required', 'email:rfc', 'max:255'],
             'phone' => ['sometimes', 'required', ...$this->phoneRule()],
@@ -43,7 +42,6 @@ class StaffUpdateUserRequest extends BaseFormRequest
     {
         $this->normalizePhones(['phone', 'public_contact_number']);
         $this->lowercaseEmails(['primary_email', 'public_contact_email']);
-        $this->cleanText(['bio']);
 
         $merge = [];
 

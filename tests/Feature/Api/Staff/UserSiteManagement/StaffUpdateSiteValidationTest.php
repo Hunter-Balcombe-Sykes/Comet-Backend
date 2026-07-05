@@ -79,7 +79,7 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
 
     patchStaffSite($staff, $pro, [
         'skeleton_id' => 'skeleton-2',
-        'settings' => ['hero_title' => 'Hello'],
+        'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))

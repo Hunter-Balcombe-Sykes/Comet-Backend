@@ -18,16 +18,11 @@ class SiteResource extends ApiResource
     {
         $settings = is_array($this->settings) ? $this->settings : [];
 
-        // FOUND-16: the 10 promoted columns are the source of truth. Re-merge
+        // FOUND-16: the 5 promoted columns are the source of truth. Re-merge
         // the non-null ones into the settings object so the response shape is
         // identical before/after the JSONB strip. !== null keeps booleans like
         // show_branding=false while omitting unset keys (absent, not null).
         $promoted = array_filter([
-            'hero_title' => $this->hero_title,
-            'hero_subtitle' => $this->hero_subtitle,
-            'primary_button_text' => $this->primary_button_text,
-            'primary_button_url' => $this->primary_button_url,
-            'bio_text' => $this->bio_text,
             'show_branding' => $this->show_branding,
             'charlie_enabled' => $this->charlie_enabled,
             'services_auto_sync_enabled' => $this->services_auto_sync_enabled,

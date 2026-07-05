@@ -41,11 +41,6 @@ class Site extends BaseModel
      * (hoist) and SiteResource (re-merge for byte-identical responses).
      */
     public const PROMOTED_SETTINGS_KEYS = [
-        'hero_title',
-        'hero_subtitle',
-        'primary_button_text',
-        'primary_button_url',
-        'bio_text',
         'show_branding',
         'charlie_enabled',
         'services_auto_sync_enabled',
@@ -66,13 +61,8 @@ class Site extends BaseModel
         'unpublished_at',
         'settings',
         'moderation_state',
-        // FOUND-16: 10 promoted columns (were settings.* sub-keys). Columns are
+        // FOUND-16: 5 promoted columns (were settings.* sub-keys). Columns are
         // the source of truth; UpdateSiteAction hoists them out of settings.
-        'hero_title',
-        'hero_subtitle',
-        'primary_button_text',
-        'primary_button_url',
-        'bio_text',
         'show_branding',
         'charlie_enabled',
         'services_auto_sync_enabled',

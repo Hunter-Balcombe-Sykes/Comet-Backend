@@ -102,7 +102,7 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
     actingAsUser($pro)
         ->patchJson('/api/site', [
             'skeleton_id' => 'skeleton-3',
-            'settings' => ['hero_title' => 'Hello'],
+            'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 

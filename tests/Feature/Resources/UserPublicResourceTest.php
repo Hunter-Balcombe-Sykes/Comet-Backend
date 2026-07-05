@@ -12,7 +12,6 @@ it('returns display_name and partna_url, no PII', function () {
         'handle_lc' => 'evo',
         'display_name' => 'Evo',
         'partna_url' => 'https://evo.partna.au',
-        'bio' => 'Hair and beauty',
         'public_contact_number' => null,
         'public_contact_email' => 'shop@evo.example',
         'location_city' => 'Sydney',

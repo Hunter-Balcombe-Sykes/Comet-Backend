@@ -59,7 +59,7 @@ class UpdateSiteAction
             // straggler resurfaced via a write race it dies here.
             unset($merged['design']);
 
-            // FOUND-16: hoist the 10 promoted keys out of settings JSONB into
+            // FOUND-16: hoist the promoted keys out of settings JSONB into
             // typed columns. We extract from $merged (post-PATCH) so only keys
             // the client actually sent are written — columns the request didn't
             // touch keep their existing DB value. The client still SENDS these

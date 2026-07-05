@@ -33,7 +33,6 @@ function setupAllSiteDataTable(): void
         handle TEXT NULL,
         display_name TEXT NULL,
         account_type TEXT NULL,
-        bio TEXT NULL,
         location_street_address TEXT NULL,
         location_city TEXT NULL,
         location_state TEXT NULL,
@@ -54,12 +53,11 @@ function seedAllSiteData(array $overrides = []): array
         'user_id' => $userId,
         'subdomain' => 'alpha',
         'skeleton_id' => 'skeleton-2',
-        'site_settings' => json_encode(['hero_title' => 'Hello']),
+        'site_settings' => json_encode(['booking_mode' => 'manual']),
         'is_published' => 1,
         'handle' => 'alpha',
         'display_name' => 'Alpha Pro',
         'account_type' => 'individual',
-        'bio' => 'A short bio.',
         'blocks' => json_encode([['block_type' => 'link', 'title' => 'My link']]),
     ], $overrides));
 
@@ -79,7 +77,7 @@ it('returns site data for a given subdomain', function () {
         ->and($body['site']['site']['id'])->toBe($siteId)
         ->and($body['site']['site']['subdomain'])->toBe('alpha')
         ->and($body['site']['site']['skeleton_id'])->toBe('skeleton-2')
-        ->and($body['site']['site']['settings'])->toBe(['hero_title' => 'Hello'])
+        ->and($body['site']['site']['settings'])->toBe(['booking_mode' => 'manual'])
         ->and($body['site']['professional']['handle'])->toBe('alpha')
         ->and($body['site']['professional']['display_name'])->toBe('Alpha Pro')
         ->and($body['site']['blocks'])->toBe([['block_type' => 'link', 'title' => 'My link']]);

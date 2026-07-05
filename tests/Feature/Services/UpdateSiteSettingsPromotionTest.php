@@ -1,6 +1,6 @@
 <?php
 
-// FOUND-16 Phase 2: verifies that UpdateSiteAction hoists the 10 promoted
+// FOUND-16 Phase 2: verifies that UpdateSiteAction hoists the 5 promoted
 // settings.* keys into their typed columns AND strips them from the settings
 // JSONB. Columns are the sole write target after migration 20260701200000.
 
@@ -25,16 +25,11 @@ afterEach(function () {
     Carbon::setTestNow();
 });
 
-it('hoists the 10 settings.* keys into typed columns and strips them from JSONB', function () {
+it('hoists the 5 settings.* keys into typed columns and strips them from JSONB', function () {
     $pro = createTenant('promote-owner');
 
     app(UpdateSiteAction::class)->execute($pro, [
         'settings' => [
-            'hero_title' => 'Hi',
-            'hero_subtitle' => 'Sub',
-            'primary_button_text' => 'Book',
-            'primary_button_url' => 'https://example.com/book',
-            'bio_text' => 'About me',
             'show_branding' => false,
             'charlie_enabled' => true,
             'services_auto_sync_enabled' => true,
@@ -46,27 +41,17 @@ it('hoists the 10 settings.* keys into typed columns and strips them from JSONB'
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
 
     // Columns are the sole write target (Phase 2 — strip active).
-    expect($row->hero_title)->toBe('Hi')
-        ->and($row->hero_subtitle)->toBe('Sub')
-        ->and($row->primary_button_text)->toBe('Book')
-        ->and($row->primary_button_url)->toBe('https://example.com/book')
-        ->and($row->bio_text)->toBe('About me')
-        ->and((int) $row->show_branding)->toBe(0)
+    expect((int) $row->show_branding)->toBe(0)
         ->and((int) $row->charlie_enabled)->toBe(1)
         ->and((int) $row->services_auto_sync_enabled)->toBe(1)
         ->and($row->booking_mode)->toBe('none')
         ->and($row->manual_booking_url)->toBe('https://example.com/manual');
 
-    // Phase 2 strip: the 10 keys must NOT appear in the settings JSONB.
+    // Phase 2 strip: the 5 keys must NOT appear in the settings JSONB.
     // The views re-inject from columns (migration 20260701200000), so the
     // wire is byte-identical — but the physical JSONB no longer carries them.
     $settings = json_decode($row->settings, true) ?? [];
     expect($settings)->not->toHaveKey('booking_mode')
-        ->and($settings)->not->toHaveKey('hero_title')
-        ->and($settings)->not->toHaveKey('hero_subtitle')
-        ->and($settings)->not->toHaveKey('primary_button_text')
-        ->and($settings)->not->toHaveKey('primary_button_url')
-        ->and($settings)->not->toHaveKey('bio_text')
         ->and($settings)->not->toHaveKey('show_branding')
         ->and($settings)->not->toHaveKey('charlie_enabled')
         ->and($settings)->not->toHaveKey('services_auto_sync_enabled')
@@ -76,12 +61,12 @@ it('hoists the 10 settings.* keys into typed columns and strips them from JSONB'
 it('leaves unmentioned columns untouched when only some keys are sent', function () {
     $pro = createTenant('promote-partial');
 
-    // First write — set hero_title and booking_mode
+    // First write — set show_branding and booking_mode
     app(UpdateSiteAction::class)->execute($pro, [
-        'settings' => ['hero_title' => 'First', 'booking_mode' => 'manual'],
+        'settings' => ['show_branding' => false, 'booking_mode' => 'manual'],
     ]);
 
-    // Second write — only change booking_mode; hero_title column must keep 'First'
+    // Second write — only change booking_mode; show_branding column must keep false
     $pro->refresh()->load('site');
     app(UpdateSiteAction::class)->execute($pro, [
         'settings' => ['booking_mode' => 'none'],
@@ -89,5 +74,5 @@ it('leaves unmentioned columns untouched when only some keys are sent', function
 
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
     expect($row->booking_mode)->toBe('none')
-        ->and($row->hero_title)->toBe('First');
+        ->and((int) $row->show_branding)->toBe(0);
 });

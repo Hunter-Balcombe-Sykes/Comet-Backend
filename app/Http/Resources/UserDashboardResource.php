@@ -23,7 +23,6 @@ class UserDashboardResource extends ApiResource
             'custom_domain_primary' => (bool) ($this->site?->custom_domain_primary ?? false),
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
-            'bio' => $this->bio,
             'phone' => $this->phone,
             'primary_email' => $this->primary_email,
             'country_code' => $this->country_code,

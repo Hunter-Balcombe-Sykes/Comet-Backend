@@ -25,17 +25,6 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        $settings = $this->input('settings');
-        if (is_array($settings)) {
-            foreach (['hero_title', 'hero_subtitle', 'primary_button_text', 'bio_text'] as $field) {
-                if (! array_key_exists($field, $settings) || ! is_string($settings[$field])) {
-                    continue;
-                }
-                $settings[$field] = static::cleanString($settings[$field]);
-            }
-            $merge['settings'] = $settings;
-        }
-
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -74,11 +63,6 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'is_published' => ['sometimes', 'boolean'],
 
             // Non-design settings — allowlist specific keys with validation.
-            'settings.hero_title' => ['sometimes', 'string', 'max:100'],
-            'settings.hero_subtitle' => ['sometimes', 'string', 'max:200'],
-            'settings.primary_button_text' => ['sometimes', 'string', 'max:50'],
-            'settings.primary_button_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
-            'settings.bio_text' => ['sometimes', 'nullable', 'string', 'max:500'],
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
