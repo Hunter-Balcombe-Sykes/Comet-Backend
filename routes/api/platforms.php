@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\AppleController;
-use App\Http\Controllers\Api\Platforms\BandcampController;
 use App\Http\Controllers\Api\Platforms\BookingController;
 use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
@@ -126,21 +125,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/music', [AppleController::class, 'forgetMusic']);
             Route::delete('/podcast', [AppleController::class, 'forgetPodcast']);
             Route::delete('/', [AppleController::class, 'forget']);
-        });
-
-    // Bandcamp — Apple-style: connect + recent picker + curated highlights.
-    Route::prefix("{$base}/bandcamp")
-        ->middleware($middleware)
-        ->group(function () {
-            $platform = 'bandcamp';
-            Route::post('/connect', [BandcampController::class, 'connect'])->defaults('platform', $platform);
-            Route::get('/recent', [BandcampController::class, 'recent']);
-            Route::post('/highlights', [BandcampController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
-            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     // Events platforms — organiser/host accounts + individually-added events.

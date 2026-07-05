@@ -57,6 +57,7 @@ use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
+use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\DeezerConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
@@ -86,6 +87,7 @@ use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\Strategies\Highlights\BandcampHighlights;
 use App\Services\Platforms\Strategies\Highlights\VimeoHighlights;
 use App\Services\Platforms\Strategies\Highlights\YoutubeHighlights;
 use App\Services\Platforms\Strategies\Highlights\YoutubeMusicHighlights;
@@ -224,6 +226,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('bandcamp')->fetch(fn () => new BandcampFetch(
                 app(BandcampScraper::class),
             ));
+            // Connect + highlights strategies (FOUND-24, Task 9, last picker platform) —
+            // moved verbatim from the deleted BandcampController.
+            $r->get('bandcamp')->connect(fn () => new BandcampConnect(app(BandcampScraper::class)), 'Enter your Bandcamp page URL (yourname.bandcamp.com).');
+            $r->get('bandcamp')->highlights(fn () => new BandcampHighlights(app(BandcampScraper::class)));
             $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
@@ -352,6 +358,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
+            $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
