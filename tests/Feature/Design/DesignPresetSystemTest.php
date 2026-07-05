@@ -61,7 +61,7 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
         ->and($layer['text_xs'])->toBe('0.8rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
-        ->and($layer['typography_font_family'])->toBe('forma-djr')
+        ->and($layer['typography_font_family'])->toBe('young-serif')
         ->and($layer['motion_pace'])->toBe('fast');
 });
 
