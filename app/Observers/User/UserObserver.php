@@ -27,11 +27,9 @@ class UserObserver
      * of these advances `sites.updated_at` (via `touchParentSiteIfPublicFieldChanged`)
      * so the Redis cache key rolls forward AND CloudflareCachePurgeJob fires.
      *
-     * Sources: IndividualProfileResource (handle, display_name) +
-     * SitepageDataResolverService::getBio (bio; credentials/experience read
-     * from child tables via aboutPayload() — see FOUND-37). first_name + last_name
-     * are included because display_name accessors typically derive from them
-     * and editing one without the composite is a realistic flow.
+     * Source: IndividualProfileResource (handle, display_name). first_name +
+     * last_name are included because display_name accessors typically derive
+     * from them and editing one without the composite is a realistic flow.
      *
      * @var list<string>
      */
@@ -40,7 +38,6 @@ class UserObserver
         'display_name',
         'first_name',
         'last_name',
-        'bio',
     ];
 
     public function __construct(
@@ -116,7 +113,7 @@ class UserObserver
     /**
      * When a public-visible User field changes, bump the parent site's
      * `updated_at`. SiteObserver::saved then handles Redis invalidation and
-     * dispatches CloudflareCachePurgeJob — without this, bio/display_name/etc.
+     * dispatches CloudflareCachePurgeJob — without this, display_name/etc.
      * edits stay invisible at the edge until the §28.8 5-minute subrequest
      * cache and the 60s Redis key expire.
      */

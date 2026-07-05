@@ -129,15 +129,15 @@ it('touches parent site when a public-visible field changes', function (string $
     $pro->setRelation('site', $site);
 
     app(UserObserver::class)->updated($pro);
-})->with(['handle', 'display_name', 'first_name', 'last_name', 'bio']);
+})->with(['handle', 'display_name', 'first_name', 'last_name']);
 
 it('survives a null site relation when a public field changes', function () {
     Queue::fake();
 
     $pro = new User;
-    $pro->setRawAttributes(['id' => (string) Str::uuid(), 'bio' => 'old']);
+    $pro->setRawAttributes(['id' => (string) Str::uuid(), 'display_name' => 'old']);
     $pro->syncOriginal();
-    $pro->bio = 'new';
+    $pro->display_name = 'new';
     $pro->syncChanges();
     $pro->setRelation('site', null);
 

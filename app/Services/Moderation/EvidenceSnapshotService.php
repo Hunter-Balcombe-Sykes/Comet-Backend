@@ -62,7 +62,6 @@ class EvidenceSnapshotService
             'user_id' => $site->user_id,
             'handle' => $site->user?->handle ?? null,
             'display_name' => $site->user?->display_name ?? null,
-            'bio' => $site->user?->bio ?? null,
             'block_count' => $site->blocks?->count() ?? 0,
             'block_types' => $site->blocks?->pluck('block_type')->all() ?? [],
         ];

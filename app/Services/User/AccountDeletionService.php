@@ -263,7 +263,6 @@ class AccountDeletionService
             'last_name' => null,
             'public_contact_email' => null,
             'public_contact_number' => null,
-            'bio' => null,
             'location_street_address' => null,
             'location_postcode' => null,
             'location_city' => null,
@@ -723,7 +722,7 @@ class AccountDeletionService
 
                 // Redact PII keys; leave case-integrity fields (site_id, block_count,
                 // block_types, content_hash, captured_at, user_id) intact.
-                foreach (['handle', 'display_name', 'bio', 'site_subdomain'] as $piiKey) {
+                foreach (['handle', 'display_name', 'site_subdomain'] as $piiKey) {
                     if (array_key_exists($piiKey, $payload)) {
                         $payload[$piiKey] = '[redacted]';
                     }

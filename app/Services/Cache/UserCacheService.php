@@ -95,7 +95,6 @@ class UserCacheService
                 'handle' => $pro->handle,
                 'handle_lc' => $pro->handle_lc,
                 'display_name' => $pro->display_name,
-                'bio' => $pro->bio,
                 'country_code' => $pro->country_code,
                 'timezone' => $pro->timezone,
                 'status' => $pro->status,

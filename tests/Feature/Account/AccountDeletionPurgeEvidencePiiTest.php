@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
-// PRIV-4: evidence payload PII (handle, display_name, bio, site_subdomain) must be
+// PRIV-4: evidence payload PII (handle, display_name, site_subdomain) must be
 // tombstoned when the reported user purges their account. moderation.evidence has no
 // FK to core.users, so forceDelete's cascade never reaches it — this test verifies
 // AccountDeletionService::purgeReportedUserEvidencePii() fills that gap.
@@ -46,9 +46,8 @@ function seedEvidenceRow(string $caseId, string $userId): string
             'user_id' => $userId,
             'handle' => 'jsmith',
             'display_name' => 'John Smith',
-            'bio' => 'Personal trainer based in Melbourne.',
             'block_count' => 3,
-            'block_types' => ['bio', 'services', 'contact'],
+            'block_types' => ['gallery', 'services', 'contact'],
             'captured_at' => '2026-06-01T00:00:00+00:00',
         ], JSON_THROW_ON_ERROR),
         'content_hash' => hash('sha256', 'stable-hash-input'),
@@ -137,13 +136,12 @@ it('tombstones PII keys in content_snapshot evidence when reported user is purge
     // (a) PII keys are tombstoned.
     expect($payload['handle'])->toBe('[redacted]');
     expect($payload['display_name'])->toBe('[redacted]');
-    expect($payload['bio'])->toBe('[redacted]');
     expect($payload['site_subdomain'])->toBe('[redacted]');
 
     // (a) Case-integrity / non-PII fields are retained.
     expect($payload['site_id'])->not->toBeNull()->not->toBe('[redacted]');
     expect($payload['block_count'])->toBe(3);
-    expect($payload['block_types'])->toBe(['bio', 'services', 'contact']);
+    expect($payload['block_types'])->toBe(['gallery', 'services', 'contact']);
     expect($payload['user_id'])->toBe($userId); // opaque UUID — kept for case linkage
 
     // (a) content_hash is NOT recomputed — original hash is tamper-evidence of redaction.

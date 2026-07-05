@@ -56,7 +56,6 @@ class UserBootstrapService
                 $professional = new User([
                     'handle' => $data['handle'],
                     'display_name' => $data['display_name'],
-                    'bio' => null,
                     'country_code' => $data['country_code'] ?? null,
                     'timezone' => $data['timezone'] ?? null,
                     // Defaults to Partna; the signup account-type step may send

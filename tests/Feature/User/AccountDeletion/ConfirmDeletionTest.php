@@ -228,12 +228,11 @@ it('unpublishes the site immediately when deletion is confirmed', function () {
         ->and($site->unpublished_at)->not->toBeNull();
 });
 
-it('pseudonymises professionals public_contact and bio PII at confirm time', function () {
+it('pseudonymises professionals public_contact PII at confirm time', function () {
     $rawToken = 'raw-token-'.Str::random(54);
     $pro = seedRequestedUser($rawToken, [
         'public_contact_email' => 'public@example.com',
         'public_contact_number' => '+61400111222',
-        'bio' => 'I am a real person',
     ]);
 
     $service = new AccountDeletionService;
@@ -242,8 +241,7 @@ it('pseudonymises professionals public_contact and bio PII at confirm time', fun
     $pro->refresh();
 
     expect($pro->public_contact_email)->toBeNull()
-        ->and($pro->public_contact_number)->toBeNull()
-        ->and($pro->bio)->toBeNull();
+        ->and($pro->public_contact_number)->toBeNull();
 });
 
 it('rolls back the entire confirmation when pseudonymisation fails — status, audit row, and PII all reverted', function () {
