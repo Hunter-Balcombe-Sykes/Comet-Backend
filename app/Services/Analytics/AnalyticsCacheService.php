@@ -156,4 +156,73 @@ class AnalyticsCacheService
             'conversions' => $this->queries->conversions($proId, $from, $to),
         ];
     }
+
+    /**
+     * Staff-view counterpart to summary() — same AnalyticsQueryService reads as the
+     * professional's own dashboard (FOUND-1: the old controller's inline `site.blocks`
+     * INNER JOIN silently dropped every v2 url-based click). Narrower payload (no
+     * breakdowns/top_sections/conversions) matching the staff view's actual UI needs.
+     *
+     * @return array<string, mixed>
+     */
+    public function staffSummary(User $professional, Site $site, Carbon $from, Carbon $to): array
+    {
+        $version = (int) Cache::get(CacheKeyGenerator::analyticsSummaryVersion($professional->id), 0);
+        $cacheKey = CacheKeyGenerator::staffAnalyticsSummary(
+            $professional->id,
+            $from->toDateString(),
+            $to->toDateString(),
+        ).":v{$version}";
+
+        // 60s TTL — byte-identical staff cache-key contract to the legacy controller (CACHE-3 guard).
+        return $this->cacheLock->rememberLocked($cacheKey, 60, fn () => $this->composeStaff($professional, $site, $from, $to));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function composeStaff(User $professional, Site $site, Carbon $from, Carbon $to): array
+    {
+        $proId = $professional->id;
+        $visitsAgg = $this->queries->visitsAggregate($proId, $from, $to);
+        $clicksAgg = $this->queries->clicksAggregate($proId, $from, $to);
+        $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
+        $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);
+        $ctr = $totalVisits > 0 ? round(($totalClicks / $totalVisits) * 100, 2) : 0.0;
+
+        return [
+            'range' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'professional' => [
+                'id' => (string) $professional->id,
+                'handle' => $professional->handle,
+                'display_name' => $professional->display_name,
+            ],
+            'site' => [
+                'id' => (string) $site->id,
+                'subdomain' => $site->subdomain,
+                'published' => (bool) $site->is_published,
+            ],
+            'totals' => [
+                'visits' => $totalVisits,
+                'unique_visitors' => (int) ($visitsAgg->unique_visitors ?? 0),
+                'clicks' => $totalClicks,
+                'unique_clickers' => (int) ($clicksAgg->unique_clickers ?? 0),
+                'ctr_percent' => $ctr,
+                'last_visit_at' => $visitsAgg->last_visit_at ? Carbon::parse($visitsAgg->last_visit_at)->toISOString() : null,
+                'last_click_at' => $clicksAgg->last_click_at ? Carbon::parse($clicksAgg->last_click_at)->toISOString() : null,
+            ],
+            'charts' => [
+                // Daily granularity only (staff view has no hourly toggle). Now
+                // unique-per-day via visitsByBucket/clicksByBucket, matching the
+                // professional dashboard (was COUNT(*) total-per-day inline) —
+                // intentional parity change.
+                'visits_by_day' => $this->queries->visitsByBucket($proId, $from, $to, false),
+                'clicks_by_day' => $this->queries->clicksByBucket($proId, $from, $to, false),
+            ],
+            // v2 self-describing clicks (url/platform/label/section_key). Replaces the
+            // old site.blocks inner join that dropped every url-based (link_block_id
+            // NULL) click — see FOUND-1.
+            'top_links' => $this->queries->topLinks($proId, $from, $to),
+        ];
+    }
 }
