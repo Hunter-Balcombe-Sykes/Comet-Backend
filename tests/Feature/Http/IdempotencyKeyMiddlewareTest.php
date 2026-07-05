@@ -300,12 +300,19 @@ it('fails open when the cache lookup throws (Redis outage)', function () {
     // WHK-4: the fail-open path now report()s (throttled) so the outage is visible.
     // Intercept so it doesn't hit the real handler (which would call Log::error on the mock).
     Exceptions::fake();
+    // LIFE-2: fail-open logs must carry user_id + request_id so an incident can be
+    // filtered to the affected tenant/request without grepping the whole outage window.
     Log::shouldReceive('warning')
         ->once()
-        ->withArgs(fn (string $msg, array $ctx) => str_contains($msg, 'Idempotency') && ($ctx['stage'] ?? null) === 'lookup');
+        ->withArgs(fn (string $msg, array $ctx) => str_contains($msg, 'Idempotency')
+            && ($ctx['stage'] ?? null) === 'lookup'
+            && ($ctx['user_id'] ?? null) === 'user-1'
+            && ($ctx['request_id'] ?? null) === 'req-abc-123');
 
     $key = '11111111-2222-4333-8444-555555555555';
-    $response = $middleware->handle(idempotentRequest('/api/x', $key), $handler);
+    $request = idempotentRequest('/api/x', $key);
+    $request->headers->set('X-Request-Id', 'req-abc-123');
+    $response = $middleware->handle($request, $handler);
 
     // Handler ran, response returned — no 500 surfaced from the cache outage.
     expect($callCount)->toBe(1);

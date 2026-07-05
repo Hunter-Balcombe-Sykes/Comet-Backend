@@ -903,6 +903,24 @@ return [
         'max_lifetime_seconds' => (int) env('PARTNA_SESSION_MAX_LIFETIME_SECONDS', 30 * 24 * 60 * 60),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Idempotency-Key middleware (App\Http\Middleware\IdempotencyKey)
+    |--------------------------------------------------------------------------
+    | CFG-2: tunable without a redeploy.
+    */
+    'idempotency' => [
+        // 24h response cache — how long a completed response stays replayable.
+        'ttl_seconds' => (int) env('PARTNA_IDEMPOTENCY_TTL_SECONDS', 86_400),
+
+        // Distributed lock TTL — sized for slow synchronous handlers (mail dispatch,
+        // R2 upload). Raise further only if a handler legitimately exceeds 2 min.
+        'lock_seconds' => (int) env('PARTNA_IDEMPOTENCY_LOCK_SECONDS', 120),
+
+        // 256 KB cache body cap (bigger payloads bypass cache).
+        'max_body_bytes' => (int) env('PARTNA_IDEMPOTENCY_MAX_BODY_BYTES', 262_144),
+    ],
+
     // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
     // brand_signup_code) are diverted to a waitlist row instead of creating a
     // Professional. Default false (fail-closed). Read via config() — never env()

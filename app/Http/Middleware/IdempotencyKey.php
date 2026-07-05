@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Cache\Concerns\JitteredTtl;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -13,11 +14,10 @@ use Throwable;
 
 final class IdempotencyKey
 {
-    private const TTL_SEC = 86_400;        // 24h response cache
+    use JitteredTtl;
 
-    private const LOCK_SEC = 120;          // distributed lock TTL — sized for slow synchronous handlers (mail dispatch, R2 upload). Raise further only if a handler legitimately exceeds 2 min.
-
-    private const MAX_BODY_BYTES = 262_144; // 256 KB cache body cap (bigger payloads bypass cache)
+    // TTL_SEC / LOCK_SEC / MAX_BODY_BYTES live in config/partna.php (idempotency.*)
+    // so they're tunable without a redeploy — read via config() at each call site below.
 
     // Headers that must never be cached/replayed — Symfony's HttpKernel::filterResponse
     // sets these at send time (Date) or via prepare() (Content-Length, Transfer-Encoding).
@@ -67,7 +67,7 @@ final class IdempotencyKey
         try {
             $cached = Cache::get($cacheKey);
         } catch (Throwable $e) {
-            $this->logFailOpen($e, 'lookup');
+            $this->logFailOpen($e, 'lookup', $request);
 
             return $next($request);
         }
@@ -80,10 +80,13 @@ final class IdempotencyKey
         // `cache_locks` Redis connection in production (per config/cache.php
         // lock_connection), isolated from data-cache flushes.
         try {
-            $lock = Cache::lock($this->lockKey($version, $userId, $route, $key), self::LOCK_SEC);
+            // distributed lock TTL — sized for slow synchronous handlers (mail dispatch,
+            // R2 upload). Raise further only if a handler legitimately exceeds 2 min.
+            $lockSeconds = (int) config('partna.idempotency.lock_seconds', 120);
+            $lock = Cache::lock($this->lockKey($version, $userId, $route, $key), $lockSeconds);
             $acquired = $lock->get();
         } catch (Throwable $e) {
-            $this->logFailOpen($e, 'lock');
+            $this->logFailOpen($e, 'lock', $request);
 
             return $next($request);
         }
@@ -106,27 +109,32 @@ final class IdempotencyKey
                 if ($this->isValidCacheEntry($rechecked)) {
                     return $this->rebuildResponse($rechecked);
                 }
-            } catch (Throwable) {
-                // Re-check failure is benign — fall through and run the handler.
+            } catch (Throwable $e) {
+                // OBS-1: route through the same fail-open observability as every other
+                // Redis touchpoint below — a sustained outage here was previously silent.
+                // Behavior is unchanged: still fall through and run the handler.
+                $this->logFailOpen($e, 're-check', $request);
             }
 
             $response = $next($request);
 
             if ($this->shouldCache($response)) {
                 try {
-                    // CCH-3: ±20% jitter on the 24h TTL so a burst of same-second writes
-                    // don't all expire on the same tick (matches the caching gold standard).
-                    $jitter = (int) (self::TTL_SEC * 0.2);
+                    // CCH-1: shared JitteredTtl helper (±20% via mt_rand) applied to the
+                    // config-driven TTL, so a burst of same-second writes don't all expire
+                    // on the same tick (matches the caching gold standard used elsewhere —
+                    // SiteCacheService/CacheLockService/ShopController).
+                    $ttl = self::applyJitter((int) config('partna.idempotency.ttl_seconds', 86_400));
                     Cache::put($cacheKey, [
                         'v' => 1, // schema version — bump if the payload shape ever changes
                         'status' => $response->getStatusCode(),
                         'body' => $response->getContent(),
                         'headers' => $this->captureHeaders($response),
-                    ], self::TTL_SEC + random_int(-$jitter, $jitter));
+                    ], $ttl);
                 } catch (Throwable $e) {
                     // Handler already ran — don't lose the response just because
                     // we couldn't cache it. Log and return the live response.
-                    $this->logFailOpen($e, 'store');
+                    $this->logFailOpen($e, 'store', $request);
                 }
             }
 
@@ -141,12 +149,15 @@ final class IdempotencyKey
         }
     }
 
-    private function logFailOpen(Throwable $e, string $stage): void
+    private function logFailOpen(Throwable $e, string $stage, Request $request): void
     {
         Log::warning('Idempotency middleware failing open', [
             'stage' => $stage,
             'reason' => $e->getMessage(),
             'operation' => __METHOD__,
+            // LIFE-2: correlate to a user/request during an incident.
+            'user_id' => $request->attributes->get('supabase_uid'),
+            'request_id' => $request->header('X-Request-Id'),
         ]);
 
         // report() — the Log::warning above is breadcrumb-only. Throttled to one per
@@ -219,7 +230,7 @@ final class IdempotencyKey
         // Cap on body size so an endpoint that accidentally returns a huge
         // payload can't ratchet Redis memory by being called with many keys.
         $body = $response->getContent();
-        if (! is_string($body) || strlen($body) > self::MAX_BODY_BYTES) {
+        if (! is_string($body) || strlen($body) > (int) config('partna.idempotency.max_body_bytes', 262_144)) {
             return false;
         }
 

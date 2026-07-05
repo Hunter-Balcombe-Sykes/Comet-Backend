@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
-- P2 Medium: 4 of 20 complete
-- P3 Low: 1 of 13 complete
+- P2 Medium: 6 of 20 complete
+- P3 Low: 3 of 13 complete
 
 ---
 
@@ -287,7 +287,7 @@
         }
         ```
 
-- [ ] **#LIFE-2** · P2 — IdempotencyKey's fail-open log lacks user and request correlation IDs
+- [x] **#LIFE-2** · P2 — IdempotencyKey's fail-open log lacks user and request correlation IDs
     - **Where:** app/Http/Middleware/IdempotencyKey.php:203-217 (`logFailOpen`)
     - **Affects:** On-call engineers investigating a Redis outage during a traffic spike — the breadcrumb can't be filtered to a specific user or request in Nightwatch during an incident.
     - **Effort:** S (~0.5–1h)
@@ -306,7 +306,7 @@
             ]);
         ```
 
-- [ ] **#OBS-1** · P2 — Idempotency re-check under lock silently swallows all Throwable with zero observability
+- [x] **#OBS-1** · P2 — Idempotency re-check under lock silently swallows all Throwable with zero observability
     - **Where:** app/Http/Middleware/IdempotencyKey.php:196-203
     - **Affects:** Any mutating request that races on the same idempotency key during a Redis blip — the handler can run twice with no breadcrumb and no Nightwatch signal.
     - **Effort:** S (~0.5–1h)
@@ -561,7 +561,7 @@
         ], 423);
         ```
 
-- [ ] **#CFG-2** · P3 — Idempotency cache TTL, lock TTL, and body cap are hardcoded class constants
+- [x] **#CFG-2** · P3 — Idempotency cache TTL, lock TTL, and body cap are hardcoded class constants
     - **Where:** app/Http/Middleware/IdempotencyKey.php:29-33
     - **Affects:** Operators who need to tune idempotency behavior for a new workload — requires a code change and deploy.
     - **Effort:** S (~0.5–1h)
@@ -620,7 +620,7 @@
         private const DEDUP_TTL_SECONDS = 10;
         ```
 
-- [ ] **#CCH-1** · P3 — IdempotencyKey applies TTL jitter manually instead of using the canonical `JitteredTtl` helper
+- [x] **#CCH-1** · P3 — IdempotencyKey applies TTL jitter manually instead of using the canonical `JitteredTtl` helper
     - **Where:** app/Http/Middleware/IdempotencyKey.php (`Cache::put` call in `handle()`)
     - **Affects:** No user impact — functionally equivalent, but a maintainer looking for the codebase's caching-jitter pattern won't find a reference to `JitteredTtl` here.
     - **Effort:** S (~0.5–1h)
