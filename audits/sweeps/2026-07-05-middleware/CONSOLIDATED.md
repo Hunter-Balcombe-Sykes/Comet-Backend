@@ -62,7 +62,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
 - P2 Medium: 9 of 20 complete
-- P3 Low: 5 of 13 complete
+- P3 Low: 6 of 13 complete
 
 ---
 
@@ -578,7 +578,7 @@
         private const MAX_BODY_BYTES = 262_144; // 256 KB cache body cap (bigger payloads bypass cache)
         ```
 
-- [ ] **#CFG-3** · P3 — Public cache `max-age` is hardcoded to 900 seconds
+- [x] **#CFG-3** · P3 — Public cache `max-age` is hardcoded to 900 seconds
     - **Where:** app/Http/Middleware/AddPublicCacheHeaders.php (`handle`, cacheable-prefix branch)
     - **Affects:** CDN cache duration for public sitepage endpoints — tuning it requires a code deploy.
     - **Effort:** S (~0.5–1h)

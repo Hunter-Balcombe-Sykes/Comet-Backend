@@ -1561,6 +1561,10 @@ return [
     ],
 
     'cache' => [
+        // CFG-3: CDN/edge TTL (seconds) for AddPublicCacheHeaders' allow-listed public
+        // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
+        'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
+
         'ttls' => [
             'public_payload' => (int) env('PARTNA_CACHE_TTL_PUBLIC_PAYLOAD', env('CACHE_TTL_PUBLIC_PAYLOAD', 900)),                                 // 15m
             'analytics_short' => (int) env('PARTNA_CACHE_TTL_ANALYTICS_SHORT', env('CACHE_TTL_ANALYTICS_SHORT', 300)),                             // 5m

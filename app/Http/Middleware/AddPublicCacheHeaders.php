@@ -56,7 +56,9 @@ class AddPublicCacheHeaders
         if ($request->isMethod('GET') && $response->isSuccessful()) {
             foreach (self::CACHEABLE_PATH_PREFIXES as $prefix) {
                 if (str_starts_with($path, $prefix)) {
-                    $response->headers->set('Cache-Control', 'public, max-age=900, s-maxage=900'); // 15 min
+                    // CFG-3: CDN/edge TTL is config-driven (default 15 min) — tunable without a redeploy.
+                    $maxAge = (int) config('partna.cache.public_max_age', 900);
+                    $response->headers->set('Cache-Control', "public, max-age={$maxAge}, s-maxage={$maxAge}");
                     // All *-by-slug routes resolve the tenant from the X-Site-Subdomain header,
                     // so CDN/proxies must vary their cache on it to avoid cross-tenant poisoning.
                     $this->mergeVary($response, ['X-Site-Subdomain', 'Accept-Encoding']);

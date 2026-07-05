@@ -3,6 +3,12 @@
 use App\Http\Middleware\AddPublicCacheHeaders;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\TestCase;
+
+// CFG-3: the cacheable branch now reads config('partna.cache.public_max_age'),
+// which needs a booted app container — opt into the framework TestCase like
+// sibling Unit tests that touch config() (e.g. Config/ModerationConfigTest).
+uses(TestCase::class)->in(__FILE__);
 
 it('marks authenticated api responses as private and non-cacheable', function () {
     $request = Request::create('/api/customers', 'GET');
