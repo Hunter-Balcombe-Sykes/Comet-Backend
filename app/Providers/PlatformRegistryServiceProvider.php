@@ -5,11 +5,9 @@ namespace App\Providers;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
-use App\Http\Controllers\Api\Platforms\PinterestController;
 use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Controllers\Api\Platforms\StravaController;
-use App\Http\Controllers\Api\Platforms\TwitchController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
@@ -64,8 +62,10 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\Strategies\Connect\DeezerConnect;
+use App\Services\Platforms\Strategies\Connect\PinterestConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
+use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
@@ -180,12 +180,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('twitch')->fetch(fn () => new TwitchFetch(
                 app(TwitchScraper::class),
             ));
+            // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
+            // contract, copied verbatim from the deleted TwitchController.
+            $r->get('twitch')->connect(fn () => new TwitchConnect(app(TwitchScraper::class)), 'Enter your Twitch channel (twitch.tv/yourname).');
             $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 7). Consumed by Plan 6's registry-driven refresher.
             $r->get('pinterest')->fetch(fn () => new PinterestFetch(
                 app(PinterestScraper::class),
             ));
+            // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
+            // contract, copied verbatim from the deleted PinterestController.
+            $r->get('pinterest')->connect(fn () => new PinterestConnect(app(PinterestScraper::class)), 'Enter your Pinterest profile (pinterest.com/yourname).');
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -298,14 +304,14 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/deezer are now fully registry-driven (FOUND-24) — null
-            // controller routes connect through GenericPlatformController + the descriptor's
-            // ConnectStrategy (registered above).
+            // spotify/soundcloud/deezer/twitch/pinterest are now fully registry-driven
+            // (FOUND-24) — null controller routes connect through GenericPlatformController
+            // + the descriptor's ConnectStrategy (registered above).
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, TwitchController::class, true);
-            $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, PinterestController::class, false);
+            $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
+            $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, OpenTableController::class, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, ResDiaryController::class, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, NowBookitController::class, false);
