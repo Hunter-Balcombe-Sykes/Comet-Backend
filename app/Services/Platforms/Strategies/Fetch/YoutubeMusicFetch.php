@@ -2,16 +2,16 @@
 
 namespace App\Services\Platforms\Strategies\Fetch;
 
-use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\ConditionalContext;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Platforms\YoutubeMusicItems;
 use App\Services\Platforms\YoutubeScraper;
 
 // Re-pulls a YouTube Music artist's uploads feed by stored channelId. Strips the
 // "- Topic" suffix the auto-channels carry; reshapes the RSS videos into music items.
 // Mirrors PlatformRefresher::youtubeMusicPayload EXACTLY (incl. the 12-item fetch +
-// slice and the YoutubeMusicController::musicItems reshape).
+// slice and the YoutubeMusicItems::map reshape).
 final readonly class YoutubeMusicFetch implements FetchStrategy
 {
     public function __construct(private YoutubeScraper $youtube) {}
@@ -34,7 +34,7 @@ final readonly class YoutubeMusicFetch implements FetchStrategy
             throw new FetchUnavailableException('youtube_music_no_releases');
         }
         $cond?->applyTo($connection);
-        $items = YoutubeMusicController::musicItems($feed['videos']);
+        $items = YoutubeMusicItems::map($feed['videos']);
 
         return [
             ...$payload,

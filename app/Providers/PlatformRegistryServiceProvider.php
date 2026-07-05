@@ -67,7 +67,9 @@ use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\StravaConnect;
 use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
+use App\Services\Platforms\Strategies\Connect\YoutubeMusicConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
@@ -84,7 +86,9 @@ use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\Strategies\Highlights\VimeoHighlights;
 use App\Services\Platforms\Strategies\Highlights\YoutubeHighlights;
+use App\Services\Platforms\Strategies\Highlights\YoutubeMusicHighlights;
 use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
@@ -181,12 +185,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube-music')->fetch(fn () => new YoutubeMusicFetch(
                 app(YoutubeScraper::class),
             ));
+            // Connect + highlights strategies (FOUND-24, Task 8) — moved verbatim from
+            // the deleted YoutubeMusicController; parse-fail message is the frozen 422
+            // contract.
+            $r->get('youtube-music')->connect(fn () => new YoutubeMusicConnect(app(YoutubeScraper::class)), 'Enter your YouTube Music artist URL (music.youtube.com/channel/…) or your channel @handle.');
+            $r->get('youtube-music')->highlights(fn () => new YoutubeMusicHighlights(app(YoutubeScraper::class)));
             $r->register(PD::make('vimeo')->label('Vimeo')->category(Cat::Content)->resource(VimeoConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
             $r->get('vimeo')->fetch(fn () => new VimeoFetch(
                 app(VimeoApi::class),
             ));
+            // Connect + highlights strategies (FOUND-24, Task 8) — moved verbatim from
+            // the deleted VimeoController; parse-fail message is the frozen 422 contract.
+            $r->get('vimeo')->connect(fn () => new VimeoConnect(app(VimeoApi::class)), 'Enter your Vimeo profile or channel URL (vimeo.com/yourname).');
+            $r->get('vimeo')->highlights(fn () => new VimeoHighlights(app(VimeoApi::class)));
             $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 6). Consumed by Plan 6's registry-driven refresher.
@@ -328,14 +341,17 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (Task 4) — its stored payload hydrates through FeedPayload instead of the
             // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
             // (routes/api/platforms.php) — it reads across platforms (Google Business),
-            // which this generic shape has no seam for. YouTube (Task 7) is the first
-            // platform whose HighlightsStrategy activates the loop's /recent + /highlights
-            // emission — hasHighlights() was a boot-safe no-op until now.
+            // which this generic shape has no seam for. YouTube (Task 7), Vimeo + YouTube
+            // Music (Task 8) are the platforms whose HighlightsStrategy activates the
+            // loop's /recent + /highlights emission — hasHighlights() was a boot-safe
+            // no-op until then.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
+            $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);
+            $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);

@@ -7,7 +7,7 @@ use App\Services\Http\SafeUrlFetcher;
 // Scrapes a YouTube channel's recent uploads with no API key. Two
 // unauthenticated fetches: the channel page (to resolve the channel's own ID)
 // then the RSS feed (the 15 most-recent uploads — YouTube's hard cap). Extracted
-// from YoutubeController so the controller stays thin and the scrape is reusable.
+// from the youtube connect strategy so it stays thin and the scrape is reusable.
 // Spec: ~/Developer/platform link capabilites/youtube-implementation.md
 class YoutubeScraper extends PlatformScraper
 {

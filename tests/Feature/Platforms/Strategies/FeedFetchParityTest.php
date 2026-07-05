@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\GoogleBusinessService;
@@ -19,6 +18,7 @@ use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
+use App\Services\Platforms\YoutubeMusicItems;
 use App\Services\Platforms\YoutubeScraper;
 
 // gmUser()/gmSeed() are loaded globally by tests/Pest.php:72 (it require_once's
@@ -72,7 +72,7 @@ it('YoutubeFetch throws FetchUnavailableException when no videos (refresher stat
 });
 
 it('YoutubeMusicFetch produces the same success payload as the refresher', function () {
-    // Realistic uploads-feed rows: YoutubeMusicController::musicItems() reads
+    // Realistic uploads-feed rows: YoutubeMusicItems::map() reads
     // $v['videoId'], $v['name'], $v['thumbnail'] (+ link/date) on each video — id-only
     // stubs would make both paths fail identically and prove nothing (and trip PHP 8.2
     // undefined-key warnings).
@@ -93,7 +93,7 @@ it('YoutubeMusicFetch produces the same success payload as the refresher', funct
 
     expect($result)->toEqual($refresherRow->fresh()->payload);
     expect($result['name'])->toBe('Artist'); // "- Topic" stripped
-    expect($result['items'])->toBe(array_slice(YoutubeMusicController::musicItems($videos), 0, 12));
+    expect($result['items'])->toBe(array_slice(YoutubeMusicItems::map($videos), 0, 12));
 });
 
 it('YoutubeMusicFetch throws FetchShapeException when channelId is missing', function () {

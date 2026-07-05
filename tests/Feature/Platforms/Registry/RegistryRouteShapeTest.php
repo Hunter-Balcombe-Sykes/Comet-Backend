@@ -19,7 +19,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->multiAccount())->toBeFalse($key);
     }
 
-    $multiTrue = ['spotify', 'soundcloud', 'deezer', 'twitch', 'youtube'];
+    $multiTrue = ['spotify', 'soundcloud', 'deezer', 'twitch', 'youtube', 'vimeo', 'youtube-music'];
     foreach ($multiTrue as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::MultiAccount, $key);
         expect($registry->get($key)->multiAccount())->toBeTrue($key);
@@ -31,7 +31,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->multiAccount())->toBeFalse($key);
     }
 
-    $bespoke = ['youtube-music', 'vimeo', 'bandcamp', 'apple-music', 'apple-podcast',
+    $bespoke = ['bandcamp', 'apple-music', 'apple-podcast',
         'instagram', 'eventbrite', 'humanitix', 'events-custom', 'fresha', 'square', 'shop',
         'custom', 'booking', 'reservations', 'online-ordering', 'mixcloud', 'tidal'];
     foreach ($bespoke as $key) {

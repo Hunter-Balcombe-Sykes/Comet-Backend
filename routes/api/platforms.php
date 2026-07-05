@@ -19,8 +19,6 @@ use App\Http\Controllers\Api\Platforms\RefreshController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SquareController;
-use App\Http\Controllers\Api\Platforms\VimeoController;
-use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
@@ -138,37 +136,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [BandcampController::class, 'connect'])->defaults('platform', $platform);
             Route::get('/recent', [BandcampController::class, 'recent']);
             Route::post('/highlights', [BandcampController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
-            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
-        });
-
-    // Vimeo — YouTube-style: connect + recent-uploads picker + curated highlights.
-    Route::prefix("{$base}/vimeo")
-        ->middleware($middleware)
-        ->group(function () {
-            $platform = 'vimeo';
-            Route::post('/connect', [VimeoController::class, 'connect'])->defaults('platform', $platform);
-            Route::get('/recent', [VimeoController::class, 'recent']);
-            Route::post('/highlights', [VimeoController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
-            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
-        });
-
-    // YouTube Music — Vimeo-style: connect + recent-releases picker + curated
-    // highlights, fed by the artist channel's uploads RSS.
-    Route::prefix("{$base}/youtube-music")
-        ->middleware($middleware)
-        ->group(function () {
-            $platform = 'youtube-music';
-            Route::post('/connect', [YoutubeMusicController::class, 'connect'])->defaults('platform', $platform);
-            Route::get('/recent', [YoutubeMusicController::class, 'recent']);
-            Route::post('/highlights', [YoutubeMusicController::class, 'highlights']);
             Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
             Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                 ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
