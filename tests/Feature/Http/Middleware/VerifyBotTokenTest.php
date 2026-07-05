@@ -4,6 +4,7 @@ use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaProviderException;
 use App\Services\BotProtection\Providers\FakeProvider;
 use App\Services\BotProtection\VerificationResult;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Route;
@@ -173,4 +174,71 @@ it('shadow + fail_open=false still passes through on provider exception', functi
 
     // Shadow mode must NEVER reject a real user, even with fail_open=false.
     $response->assertOk();
+});
+
+// TEST-3 — circuit_open path: throttledFailReport() dedups BOTH log AND report
+// to once per cooldown window, then fires again once the window resets. Drives
+// the real circuit-open branch (isOpen() === true) rather than mocking Redis::eval
+// — this repo's bot-protection suite uses live Redis (see beforeEach flushdb above).
+it('dedups circuit-open fail-open log+report once per cooldown window, then again after the window resets', function () {
+    Log::spy();
+    Exceptions::fake();
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => true,
+        'partna.bot_protection.circuit_breaker.failure_threshold' => 1,
+    ]);
+    // Trip the breaker so every request below hits the circuit-open branch.
+    app(CircuitBreaker::class)->recordFailure('fake');
+
+    // Three requests inside the same cooldown window — only the first should log/report.
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'bot_protection.fail_open')
+        ->once();
+    Exceptions::assertReportedCount(1);
+
+    // The dedup key carries a TTL — proves the EXPIRE landed in the SAME eval as the
+    // INCR (a TTL is present, not orphaned). This is a same-round-trip check, not a
+    // full crash-atomicity proof (that would need mid-eval fault injection).
+    expect(Redis::ttl('bot_protection:fail_open_logged:fake:circuit_open'))->toBeGreaterThan(0);
+
+    // Simulate cooldown-window expiry (no real sleep) by clearing the dedup key directly.
+    Redis::del('bot_protection:fail_open_logged:fake:circuit_open');
+
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'bot_protection.fail_open')
+        ->twice();
+    Exceptions::assertReportedCount(2);
+});
+
+// TEST-3 (OBS-4 regression tripwire) — provider_error path logs EVERY failure
+// (unconditional, Redis-independent) but throttles only the Nightwatch report()
+// to once per cooldown window. Breaker is NOT open here; the provider throws.
+// This MUST fail if provider_error's log ever gets throttled again.
+it('logs every provider-error fail-open but throttles the report to once per window', function () {
+    Log::spy();
+    Exceptions::fake();
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => true,
+    ]);
+    // Queue two provider exceptions — one per request, both in the same window.
+    app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
+    app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
+
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+    $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok'])->assertOk();
+
+    // Log fires on BOTH requests (unconditional) — this is the regression guard.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg, $ctx = []) => $msg === 'bot_protection.fail_open' && ($ctx['reason'] ?? null) === 'provider_error')
+        ->twice();
+    // report() throttled to once per cooldown window.
+    Exceptions::assertReportedCount(1);
 });

@@ -47,12 +47,26 @@ final class VerifyBotToken
         // (or 503 unavailable when fail_open=false).
         try {
             if ($this->breaker->isOpen($driver)) {
-                $this->logFailOpenOnce($driver, $action, $request, 'circuit_open');
+                $this->throttledFailReport(
+                    "bot_protection:fail_open_logged:{$driver}:circuit_open",
+                    'bot_protection.fail_open',
+                    [
+                        'driver' => $driver, 'reason' => 'circuit_open', 'action' => $action,
+                        'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
+                        'request_id' => $request->header('X-Request-Id'),
+                    ],
+                    "bot_protection fail-open [{$driver}:circuit_open] action={$action}"
+                );
 
                 return $this->failOpenOrReject($failOpen, $mode, $next, $request);
             }
         } catch (Throwable $e) {
-            $this->logBreakerUnavailable($driver, $action, $request);
+            $this->throttledFailReport(
+                "bot_protection:breaker_unavailable_logged:{$driver}",
+                'bot_protection.breaker_unavailable',
+                ['driver' => $driver, 'action' => $action, 'route' => $request->path()],
+                "bot_protection circuit-breaker unavailable [{$driver}] action={$action}"
+            );
 
             return $this->failOpenOrReject($failOpen, $mode, $next, $request);
         }
@@ -64,20 +78,28 @@ final class VerifyBotToken
         try {
             $result = $this->captcha->verify($token, $request->ip(), $action, $timeoutMs);
         } catch (CaptchaProviderException $e) {
-            $this->safelyRecord(fn () => $this->breaker->recordFailure($driver));
-            Log::warning('bot_protection.fail_open', [
-                'driver' => $driver,
-                'reason' => 'provider_error',
-                'action' => $action,
-                'route' => $request->path(),
-                'ip_hash' => $this->hashedIp($request),
-                'request_id' => $request->header('X-Request-Id'),
-            ]);
+            $this->safelyRecord(fn () => $this->breaker->recordFailure($driver), 'record_failure');
+
+            try {
+                // Log EVERY provider failure (Redis-independent, as before) so a vendor outage
+                // is fully visible in logs; throttle only the Nightwatch report() to one per
+                // cooldown window so a sustained outage doesn't flood alerts (OBS-4).
+                Log::warning('bot_protection.fail_open', [
+                    'driver' => $driver, 'reason' => 'provider_error', 'action' => $action,
+                    'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
+                    'request_id' => $request->header('X-Request-Id'),
+                ]);
+                if ($this->firstHitInWindow("bot_protection:fail_open_reported:{$driver}:provider_error")) {
+                    report(new \RuntimeException("bot_protection fail-open [{$driver}:provider_error] action={$action}"));
+                }
+            } catch (Throwable $e) {
+                // Observability must never break a request.
+            }
 
             return $this->failOpenOrReject($failOpen, $mode, $next, $request);
         }
 
-        $this->safelyRecord(fn () => $result->success ? $this->breaker->recordSuccess($driver) : null);
+        $this->safelyRecord(fn () => $result->success ? $this->breaker->recordSuccess($driver) : null, 'record_success');
 
         if ($result->success) {
             return $next($request);
@@ -153,12 +175,20 @@ final class VerifyBotToken
         return $this->unavailable();
     }
 
-    private function safelyRecord(Closure $op): void
+    private function safelyRecord(Closure $op, string $opLabel): void
     {
         try {
             $op();
         } catch (Throwable $e) {
-            // Breaker bookkeeping failures must never break a request.
+            // Breaker bookkeeping failures must never break a request. Still worth a
+            // throttled breadcrumb (not a page — this is best-effort bookkeeping, not
+            // a fail-open decision) so a flapping breaker store doesn't go unnoticed.
+            $this->throttledFailReport(
+                "bot_protection:breaker_record_failed:{$opLabel}",
+                'bot_protection.breaker_record_failed',
+                ['op' => $opLabel, 'reason' => $e->getMessage()],
+                null
+            );
         }
     }
 
@@ -174,49 +204,54 @@ final class VerifyBotToken
         return substr(hash_hmac('sha256', $ip, config('app.key')), 0, 16);
     }
 
-    private function logFailOpenOnce(string $driver, string $action, Request $request, string $reason): void
+    /**
+     * Atomic "first hit in this cooldown window?" check — single Lua round-trip:
+     * INCR then EXPIRE-only-on-first-hit, so a crash between commands can't orphan
+     * the TTL. Returns true at most once per cooldown window per key. Reuses
+     * circuit_breaker.cooldown_seconds as the dedup TTL.
+     * Redis unavailable → false (skip observability; must never break a request).
+     */
+    private function firstHitInWindow(string $dedupKey): bool
     {
-        // Dedup via Redis: log once per cooldown window per driver. If Redis is dead
-        // we already passed-through in the caller; we just skip logging here.
-        // Note: reuses circuit_breaker.cooldown_seconds as the dedup TTL — tuning
-        // cooldown also shifts how often we re-log during an extended outage.
         try {
-            $key = "bot_protection:fail_open_logged:{$driver}:{$reason}";
-            $count = Redis::incr($key);
-            if ($count === 1) {
-                Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
-                Log::warning('bot_protection.fail_open', [
-                    'driver' => $driver, 'reason' => $reason, 'action' => $action,
-                    'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
-                    'request_id' => $request->header('X-Request-Id'),
-                ]);
-                report(new \RuntimeException("bot_protection fail-open [{$driver}:{$reason}] action={$action}"));
-            }
+            $ttl = (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300);
+            $count = Redis::eval(
+                "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return c",
+                1,
+                $dedupKey,
+                $ttl
+            );
+
+            return (int) $count === 1;
         } catch (Throwable $e) {
-            // Silent — observability failure must not break the request.
+            return false;
         }
     }
 
-    private function logBreakerUnavailable(string $driver, string $action, Request $request): void
+    /**
+     * Dedup BOTH the log AND the report() to once per cooldown window per dedup key.
+     * Used where under-logging during an extended outage is acceptable (circuit_open,
+     * breaker_unavailable, breaker-bookkeeping failures). NOT used on the provider_error
+     * path — that logs unconditionally and only throttles the report (OBS-4).
+     *
+     * $reportMessage === null means "throttled warning only, no Nightwatch page" —
+     * used for best-effort bookkeeping failures that don't need paging.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    private function throttledFailReport(string $dedupKey, string $logEvent, array $context, ?string $reportMessage = null): void
     {
-        // Dedup via Redis cooldown window (same pattern as logFailOpenOnce) rather
-        // than a process-static flag. The process-static version under-logs in
-        // long-lived workers (Octane, queue) when Redis flaps — only the first
-        // outage per process boot would log. If Redis is genuinely unavailable
-        // the INCR throws and we silently skip — that matches the "fail-open on
-        // observability failure" principle used everywhere else in this file.
+        if (! $this->firstHitInWindow($dedupKey)) {
+            return;
+        }
+
         try {
-            $key = "bot_protection:breaker_unavailable_logged:{$driver}";
-            $count = Redis::incr($key);
-            if ($count === 1) {
-                Redis::expire($key, (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300));
-                Log::warning('bot_protection.breaker_unavailable', [
-                    'driver' => $driver, 'action' => $action, 'route' => $request->path(),
-                ]);
-                report(new \RuntimeException("bot_protection circuit-breaker unavailable [{$driver}] action={$action}"));
+            Log::warning($logEvent, $context);
+            if ($reportMessage !== null) {
+                report(new \RuntimeException($reportMessage));
             }
         } catch (Throwable $e) {
-            // Silent — observability failure must not break the request.
+            // Observability must never break a request — a fail-open decision is already made.
         }
     }
 }

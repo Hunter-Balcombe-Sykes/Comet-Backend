@@ -31,10 +31,15 @@ class PerTargetReportThrottle
         $handle = strtolower((string) $request->input('target_handle', 'unknown'));
         $key = "moderation:report:ip:{$ipHash}:target:{$type}:{$handle}";
 
-        $count = (int) Redis::incr($key);
-        if ($count === 1) {
-            Redis::expire($key, $window * 60);
-        }
+        // Atomic INCR + first-hit EXPIRE via a single Lua round-trip — a crash
+        // between separate INCR/EXPIRE calls could otherwise leave the key
+        // permanently un-expiring (LIFE-1).
+        $count = (int) Redis::eval(
+            "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return c",
+            1,
+            $key,
+            $window * 60
+        );
 
         if ($count > $cap) {
             return response()->json([

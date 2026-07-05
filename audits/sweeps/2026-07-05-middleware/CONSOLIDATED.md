@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
-- P2 Medium: 0 of 20 complete
-- P3 Low: 0 of 13 complete
+- P2 Medium: 4 of 20 complete
+- P3 Low: 1 of 13 complete
 
 ---
 
@@ -196,7 +196,7 @@
         }
         ```
 
-- [ ] **#TEST-3** · P2 — BotProtection circuit-breaker fail-open log dedup logic is untested
+- [x] **#TEST-3** · P2 — BotProtection circuit-breaker fail-open log dedup logic is untested
     - **Where:** app/Http/Middleware/VerifyBotToken.php (`logFailOpenOnce`, `logBreakerUnavailable`); existing tests/Feature/Security/BotProtectionCoverageTest.php only checks route-level middleware presence, not this runtime behavior
     - **Affects:** Observability of CAPTCHA-provider degradation — if the Redis dedup logic regresses, a sustained outage either floods the logs or (worse) never logs/reports again after the first occurrence in a long-lived worker.
     - **Effort:** S (~0.5–1h)
@@ -271,7 +271,7 @@
             }
         ```
 
-- [ ] **#LIFE-1** · P2 — PerTargetReportThrottle's non-atomic INCR+EXPIRE can leave a rate-limit counter permanently un-expiring
+- [x] **#LIFE-1** · P2 — PerTargetReportThrottle's non-atomic INCR+EXPIRE can leave a rate-limit counter permanently un-expiring
     - **Where:** app/Http/Middleware/Moderation/PerTargetReportThrottle.php (Redis increment block)
     - **Affects:** A user repeatedly reporting the same target — if the process is interrupted between the `INCR` and the `EXPIRE` call (worker kill, timeout), that IP+target key never gets a TTL and is throttled forever until a manual Redis delete.
     - **Effort:** S (~0.5–1h)
@@ -369,7 +369,7 @@
         }
         ```
 
-- [ ] **#OBS-4** · P2 — CAPTCHA provider exception caught with only Log::warning — prolonged provider outage generates zero Nightwatch alerts
+- [x] **#OBS-4** · P2 — CAPTCHA provider exception caught with only Log::warning — prolonged provider outage generates zero Nightwatch alerts
     - **Where:** app/Http/Middleware/VerifyBotToken.php:96-108 (`catch (CaptchaProviderException $e)`)
     - **Affects:** All bot-protected endpoints — a sustained Turnstile/hCaptcha outage fails every request open (or closed, per config) with no operator alert.
     - **Effort:** S (~0.5–1h)
@@ -394,7 +394,7 @@
         }
         ```
 
-- [ ] **#OBS-5** · P2 — Circuit-breaker bookkeeping failures silently swallowed — breaker state can drift with zero visibility
+- [x] **#OBS-5** · P2 — Circuit-breaker bookkeeping failures silently swallowed — breaker state can drift with zero visibility
     - **Where:** app/Http/Middleware/VerifyBotToken.php:145-150 (`safelyRecord`)
     - **Affects:** Bot-protection reliability — if Redis flakes during a success/failure record, the breaker's counters drift with no trace, so it may stay closed when it should trip (or vice versa).
     - **Effort:** S (~0.5–1h)
@@ -714,7 +714,7 @@
         Log::warning('supabase.email_hook.signature_failed', [...]);
         ```
 
-- [ ] **#SLOP-2** · P3 — Duplicate throttled-log-and-report methods inside VerifyBotToken
+- [x] **#SLOP-2** · P3 — Duplicate throttled-log-and-report methods inside VerifyBotToken
     - **Where:** app/Http/Middleware/VerifyBotToken.php (`logFailOpenOnce`, `logBreakerUnavailable`)
     - **Affects:** Developers modifying bot-protection observability — two methods doing the same thing with different string prefixes must be kept in sync manually.
     - **Effort:** S (~0.5–1h)
