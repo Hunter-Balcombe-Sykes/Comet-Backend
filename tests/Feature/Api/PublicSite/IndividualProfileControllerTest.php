@@ -684,6 +684,35 @@ it('bio engine returns BioData when the bio section is live', function () {
     ]);
 });
 
+it('emits publicContact as its own top-level key gated by the public_contact section', function () {
+    $pro = seedIndividualProfile('pubcontact-live');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // Opt-in public contact details live on core.users; the payload only
+    // surfaces them when the dedicated `public_contact` section block is live —
+    // no longer nested under the bio engine.
+    $pro->update(['public_contact_email' => 'hi@example.com', 'public_contact_number' => null]);
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'public_contact',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $res = $this->getJson('/api/public/profiles/pubcontact-live')->assertOk();
+
+    $res->assertJsonPath('data.profile.publicContact.email', 'hi@example.com');
+    $res->assertJsonPath('data.profile.publicContact.phone', null);
+});
+
 it('workplace engine returns WorkplaceData when the workplace section is live', function () {
     // FOUND-4: workplace data now lives in site.workplaces (promoted from settings JSONB).
     $pro = seedIndividualProfile('workplace-live');

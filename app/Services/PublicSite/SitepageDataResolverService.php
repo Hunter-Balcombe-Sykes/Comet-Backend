@@ -411,6 +411,26 @@ class SitepageDataResolverService
     }
 
     /**
+     * Public-contact engine — {email, phone} | null.
+     *
+     * Extracted from getBio() so public contact survives the bio-engine
+     * removal. Gated on the `public_contact` section (its own block type +
+     * PublicContactVisibility rule), NOT on `bio`.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{state: string, data: array{email: string|null, phone: string|null}|null, block_id?: string}
+     */
+    public function getPublicContact(User $pro, Collection $sections): array
+    {
+        return $this->sectionEnvelope($sections, 'public_contact', function () use ($pro): array {
+            return [
+                'email' => trim_or_null($pro->public_contact_email ?? null),
+                'phone' => trim_or_null($pro->public_contact_number ?? null),
+            ];
+        });
+    }
+
+    /**
      * Workplace — business-location card data from site.workplaces (FOUND-4).
      * Promoted from site.sites.settings.workplace JSONB so the table is
      * indexable and the visibility check avoids JSON arrow operators.

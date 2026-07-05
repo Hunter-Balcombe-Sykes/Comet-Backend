@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\DB;
  *       document: DocumentData | null,
  *       newsletter: NewsletterData | null,
  *       contact: ContactData | null,
+ *       publicContact: { email, phone } | null,
  *       workplace: WorkplaceData | null,
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
@@ -89,6 +90,7 @@ class IndividualProfilePayloadBuilder
             'document' => $this->buildDocument($site),
             'newsletter' => $this->buildNewsletter($sections),
             'contact' => $this->buildContact($sections),
+            'publicContact' => $this->buildPublicContact($pro, $sections),
             'workplace' => $this->buildWorkplace($site, $sections),
         ]))->resolve();
     }
@@ -123,6 +125,26 @@ class IndividualProfilePayloadBuilder
             'credentials' => array_values($data['credentials'] ?? []),
             'experience' => array_values($data['experience'] ?? []),
             'publicContact' => $publicContact,
+        ];
+    }
+
+    /**
+     * Public-contact engine — {email, phone} | null. Own top-level wire key;
+     * no longer nested under the (removed) bio engine.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @return array{email: string|null, phone: string|null}|null
+     */
+    private function buildPublicContact(User $pro, Collection $sections): ?array
+    {
+        $data = $this->resolver->getPublicContact($pro, $sections)['data'] ?? null;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        return [
+            'email' => $data['email'] ?? null,
+            'phone' => $data['phone'] ?? null,
         ];
     }
 
