@@ -26,7 +26,6 @@ use Illuminate\Support\Facades\DB;
  *   {
  *     profile: {
  *       handle, displayName, site_id,
- *       bio: BioData | null,
  *       gallery: GalleryImage[],
  *       links: ProfileLink[],
  *       services: ProfileService[],
@@ -44,7 +43,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Each engine field falls back to a stable empty state so skeletons never
  * have to guard on `undefined`:
- *   - object engines (bio, document, newsletter) → null when nothing authored
+ *   - object engines (document, newsletter) → null when nothing authored
  *   - list engines (gallery, links, services) → empty array
  *
  * Booking is a link-engine category (`ProfileLink.category === 'booking'`),
@@ -83,7 +82,6 @@ class IndividualProfilePayloadBuilder
             'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
             'public_config' => $this->buildPublicConfig(),
             // Engine outputs — flat, camelCase, no envelope wrapper.
-            'bio' => $this->buildBio($pro, $sections),
             'gallery' => $this->buildGallery($site, $sections),
             'links' => $this->buildLinks($site, $booking),
             'services' => $this->buildServices($site, $pro->id, $sections),
@@ -93,39 +91,6 @@ class IndividualProfilePayloadBuilder
             'publicContact' => $this->buildPublicContact($pro, $sections),
             'workplace' => $this->buildWorkplace($site, $sections),
         ]))->resolve();
-    }
-
-    /**
-     * Bio engine — BioData | null.
-     *
-     * Returns null when the bio section is not live (block missing, or
-     * is_active/is_enabled false) so skeletons can short-circuit cleanly.
-     * Internal shape uses camelCase keys per spec §5 wire convention.
-     *
-     * @param  Collection<string, Block>  $sections
-     * @return array{text: string, credentials: list<array{title: string, issuer: string, year: string|null}>, experience: list<array{title: string, organisation: string, period: string|null}>}|null
-     */
-    private function buildBio(User $pro, Collection $sections): ?array
-    {
-        $envelope = $this->resolver->getBio($pro, $sections);
-        $data = $envelope['data'] ?? null;
-        if (! is_array($data)) {
-            return null;
-        }
-
-        // Resolver returns the bio shape we want; we just remap the
-        // public_contact snake_case to the wire's camelCase publicContact.
-        $publicContact = is_array($data['public_contact'] ?? null) ? [
-            'email' => $data['public_contact']['email'] ?? null,
-            'phone' => $data['public_contact']['phone'] ?? null,
-        ] : null;
-
-        return [
-            'text' => (string) ($data['text'] ?? ''),
-            'credentials' => array_values($data['credentials'] ?? []),
-            'experience' => array_values($data['experience'] ?? []),
-            'publicContact' => $publicContact,
-        ];
     }
 
     /**

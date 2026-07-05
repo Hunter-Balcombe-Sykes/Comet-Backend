@@ -22,7 +22,7 @@ use stdClass;
  * code-side defaults before passing to the skeleton.
  *
  * Each engine field falls back to a stable empty state:
- *   - object engines (bio, document, newsletter) → null when nothing authored
+ *   - object engines (document, newsletter) → null when nothing authored
  *   - list engines (gallery, links, services) → empty array
  *
  * Booking is a link-engine category, not a separate field — `bucketLinks`
@@ -49,7 +49,6 @@ class IndividualProfileResource extends ApiResource
      *     design_media?: list<array<string, mixed>>,
      *     skeleton_id?: string|null,
      *     public_config?: array<string, mixed>,
-     *     bio?: array<string, mixed>|null,
      *     gallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
      *     services?: list<array<string, mixed>>,
@@ -97,7 +96,6 @@ class IndividualProfileResource extends ApiResource
                 'site_id' => $this->sections['site_id'] ?? null,
 
                 // Engine outputs (phase 8).
-                'bio' => $this->sections['bio'] ?? null,
                 'gallery' => $this->sections['gallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
                 'services' => $this->sections['services'] ?? [],

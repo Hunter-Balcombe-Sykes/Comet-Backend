@@ -365,57 +365,14 @@ class SitepageDataResolverService
         return $rows;
     }
 
-    // ── Bio + credentials + experience ──────────────────────────────────
-
-    /**
-     * @param  Collection<string, Block>  $sections
-     * @return array{state: string, data: array|null, block_id?: string}
-     */
-    public function getBio(User $pro, Collection $sections): array
-    {
-        return $this->sectionEnvelope($sections, 'bio', function () use ($pro): array {
-            // Credentials and experience now live in child tables (FOUND-5).
-            // aboutPayload() calls loadMissing internally, so this is safe whether
-            // or not the relations were eager-loaded by the calling controller.
-            $payload = $pro->aboutPayload();
-
-            // The wire shape for normaliseCredential/normaliseExperience matches
-            // the arrays emitted by aboutPayload(), so run them through the same
-            // normalisers to get trimming and null-collapse for free.
-            $credentials = is_array($payload['credentials']) ? $payload['credentials'] : [];
-            $experience = is_array($payload['experience']) ? $payload['experience'] : [];
-
-            // Public contact opt-in — render the blob only when at
-            // least one of the two fields is set; collapse to null
-            // otherwise so the engine's hasAboutMeContent gate can
-            // treat absence as a single null check.
-            $publicEmail = trim_or_null($pro->public_contact_email ?? null);
-            $publicPhone = trim_or_null($pro->public_contact_number ?? null);
-            $publicContact = ($publicEmail !== null || $publicPhone !== null)
-                ? ['email' => $publicEmail, 'phone' => $publicPhone]
-                : null;
-
-            return [
-                'text' => (string) ($pro->bio ?? ''),
-                'credentials' => array_values(array_filter(array_map(
-                    fn ($row) => $this->normaliseCredential($row),
-                    $credentials,
-                ))),
-                'experience' => array_values(array_filter(array_map(
-                    fn ($row) => $this->normaliseExperience($row),
-                    $experience,
-                ))),
-                'public_contact' => $publicContact,
-            ];
-        });
-    }
+    // ── Public contact ──────────────────────────────────────────────────
 
     /**
      * Public-contact engine — {email, phone} | null.
      *
-     * Extracted from getBio() so public contact survives the bio-engine
-     * removal. Gated on the `public_contact` section (its own block type +
-     * PublicContactVisibility rule), NOT on `bio`.
+     * Public contact was previously computed inside the bio engine; it now has
+     * its own section gate — the `public_contact` block type +
+     * PublicContactVisibility rule, NOT `bio`.
      *
      * @param  Collection<string, Block>  $sections
      * @return array{state: string, data: array{email: string|null, phone: string|null}|null, block_id?: string}
@@ -473,70 +430,6 @@ class SitepageDataResolverService
                 'website' => trim_or_null($workplace->website),
             ];
         });
-    }
-
-    private function normaliseCredential($row): ?array
-    {
-        if (! is_array($row)) {
-            return null;
-        }
-        $title = trim((string) ($row['title'] ?? ''));
-        if ($title === '') {
-            return null;
-        }
-
-        $description = isset($row['description']) && is_string($row['description'])
-            ? trim($row['description'])
-            : '';
-
-        return [
-            'title' => $title,
-            'issuer' => trim((string) ($row['issuer'] ?? '')),
-            'year' => isset($row['year']) && $row['year'] !== '' ? (string) $row['year'] : null,
-            'description' => $description !== '' ? $description : null,
-        ];
-    }
-
-    private function normaliseExperience($row): ?array
-    {
-        if (! is_array($row)) {
-            return null;
-        }
-
-        $title = trim((string) ($row['role'] ?? $row['title'] ?? ''));
-        if ($title === '') {
-            return null;
-        }
-
-        $organisation = trim((string) (
-            $row['place']
-            ?? $row['organisation']
-            ?? $row['organization']
-            ?? ''
-        ));
-
-        $start = isset($row['start']) && $row['start'] !== '' ? (string) $row['start'] : null;
-        $rawEnd = $row['end'] ?? null;
-        $end = is_string($rawEnd) && $rawEnd !== '' ? $rawEnd : null;
-
-        if ($start !== null) {
-            $period = $start.' – '.($end ?? 'Current');
-        } elseif (isset($row['period']) && $row['period'] !== '') {
-            $period = (string) $row['period'];
-        } else {
-            $period = null;
-        }
-
-        $description = isset($row['description']) && is_string($row['description'])
-            ? trim($row['description'])
-            : '';
-
-        return [
-            'title' => $title,
-            'organisation' => $organisation,
-            'period' => $period,
-            'description' => $description !== '' ? $description : null,
-        ];
     }
 
     // ── Document ────────────────────────────────────────────────────────

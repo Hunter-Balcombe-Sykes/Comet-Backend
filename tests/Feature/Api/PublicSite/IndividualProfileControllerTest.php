@@ -136,7 +136,7 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // field. Each engine emits its stable empty state when nothing is live.
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
-        'bio', 'gallery', 'links', 'services', 'document', 'newsletter',
+        'gallery', 'links', 'services', 'document', 'newsletter',
     ]);
     expect($profile)->not->toHaveKey('booking');
     // designMedia is a top-level sibling of designKit, not a profile field.
@@ -146,9 +146,8 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($profile['displayName'])->toBe('Solo Pro');
 
     // Empty-state defaults per spec §3.4 + phase 8:
-    //   - object engines (bio, document, newsletter) → null
+    //   - object engines (document, newsletter) → null
     //   - list engines (gallery, services) → []
-    expect($profile['bio'])->toBeNull();
     expect($profile['gallery'])->toBe([]);
     expect($profile['services'])->toBe([]);
     expect($profile['document'])->toBeNull();
@@ -341,7 +340,6 @@ it('unknown block_type does not appear in the structured response', function () 
     // engine falls back to its stable empty state (null or []) and there's
     // no `blocks[]` array to leak the raw row into.
     expect($profile['gallery'])->toBe([]);
-    expect($profile['bio'])->toBeNull();
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
     expect($profile['services'])->toBe([]);
@@ -622,67 +620,9 @@ it('returns url_hd=null for content-pool video with only optimized variant', fun
     expect($items[0]['url_hd'])->toBeNull();
 });
 
-// ── Phase 8 engines: bio / gallery / links / services / document / newsletter
+// ── Phase 8 engines: gallery / links / services / document / newsletter
 // Each test seeds the minimum storage rows and confirms the projection lands
 // in the right engine field with the right shape (null/[]/object) and key casing.
-
-it('bio engine returns BioData when the bio section is live', function () {
-    $pro = seedIndividualProfile('bio-live');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    // FOUND-5: credentials/experience are now read from child tables — seed there,
-    // NOT in the about JSONB. bio text still lives on core.users.
-    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
-        'bio' => 'Solo Pro story',
-    ]);
-    DB::connection('pgsql')->table('core.user_credentials')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'title' => 'BA',
-        'issuer' => 'Sydney Uni',
-        'year' => '2018',
-        'sort_order' => 0,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    DB::connection('pgsql')->table('core.user_experience')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'role' => 'Stylist',
-        'organisation' => 'Salon A',
-        'start_year' => '2020',
-        'end_year' => null,
-        'sort_order' => 0,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'bio',
-        'block_group' => 'sections',
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'sort_order' => 0,
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $bio = $this->getJson('/api/public/profiles/bio-live')->assertOk()->json('data.profile.bio');
-
-    expect($bio)->toHaveKeys(['text', 'credentials', 'experience']);
-    expect($bio['text'])->toBe('Solo Pro story');
-    expect($bio['credentials'])->toHaveCount(1);
-    expect($bio['credentials'][0])->toMatchArray([
-        'title' => 'BA', 'issuer' => 'Sydney Uni', 'year' => '2018',
-    ]);
-    expect($bio['experience'])->toHaveCount(1);
-    expect($bio['experience'][0])->toMatchArray([
-        'title' => 'Stylist', 'organisation' => 'Salon A', 'period' => '2020 – Current',
-    ]);
-});
 
 it('emits publicContact as its own top-level key gated by the public_contact section', function () {
     $pro = seedIndividualProfile('pubcontact-live');

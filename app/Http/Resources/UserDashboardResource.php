@@ -24,8 +24,6 @@ class UserDashboardResource extends ApiResource
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'bio' => $this->bio,
-            // Reads from child tables via aboutPayload() — not from the legacy about JSONB (FOUND-5).
-            'about' => (object) $this->aboutPayload(),
             'phone' => $this->phone,
             'primary_email' => $this->primary_email,
             'country_code' => $this->country_code,
