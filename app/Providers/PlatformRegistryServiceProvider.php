@@ -67,6 +67,7 @@ use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\StravaConnect;
 use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
@@ -83,6 +84,7 @@ use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
+use App\Services\Platforms\Strategies\Highlights\YoutubeHighlights;
 use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
@@ -167,6 +169,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube')->fetch(fn () => new YoutubeFetch(
                 app(YoutubeScraper::class),
             ));
+            // Connect + highlights strategies (FOUND-24, Task 7) — the first picker
+            // platform migrated onto Task 6's HighlightsStrategy seam. Moved verbatim
+            // from the deleted YoutubeController; parse-fail message is the frozen
+            // 422 contract.
+            $r->get('youtube')->connect(fn () => new YoutubeConnect(app(YoutubeScraper::class)), 'Enter your YouTube channel.');
+            $r->get('youtube')->highlights(fn () => new YoutubeHighlights(app(YoutubeScraper::class)));
             $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -313,18 +321,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/deezer/twitch/pinterest/strava/nowbookit/resdiary/opentable
-            // are now fully registry-driven (FOUND-24) — null controller routes connect
-            // through GenericPlatformController + the descriptor's ConnectStrategy
+            // spotify/soundcloud/deezer/twitch/youtube/pinterest/strava/nowbookit/resdiary/
+            // opentable are now fully registry-driven (FOUND-24) — null controller routes
+            // connect through GenericPlatformController + the descriptor's ConnectStrategy
             // (registered above). Strava is the one platform whose READS also moved here
             // (Task 4) — its stored payload hydrates through FeedPayload instead of the
             // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
             // (routes/api/platforms.php) — it reads across platforms (Google Business),
-            // which this generic shape has no seam for.
+            // which this generic shape has no seam for. YouTube (Task 7) is the first
+            // platform whose HighlightsStrategy activates the loop's /recent + /highlights
+            // emission — hasHighlights() was a boot-safe no-op until now.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
+            $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);

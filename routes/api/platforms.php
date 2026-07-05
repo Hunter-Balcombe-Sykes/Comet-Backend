@@ -20,7 +20,6 @@ use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SquareController;
 use App\Http\Controllers\Api\Platforms\VimeoController;
-use App\Http\Controllers\Api\Platforms\YoutubeController;
 use App\Http\Controllers\Api\Platforms\YoutubeMusicController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -103,20 +102,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
             Route::get('/selection', [InstagramController::class, 'selection']);
             Route::delete('/', [InstagramController::class, 'forget']);
-        });
-
-    Route::prefix("{$base}/youtube")
-        ->middleware($middleware)
-        ->group(function () {
-            $platform = 'youtube';
-            Route::post('/connect', [YoutubeController::class, 'connect'])->defaults('platform', $platform);
-            Route::get('/recent', [YoutubeController::class, 'recent']);
-            Route::post('/highlights', [YoutubeController::class, 'highlights']);
-            Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $platform);
-            Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
-                ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $platform);
-            Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $platform);
-            Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $platform);
         });
 
     Route::prefix("{$base}/apple")
