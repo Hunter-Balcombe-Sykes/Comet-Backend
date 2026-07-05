@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveYoutubeHighlightsRequest;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
+use App\Services\Platforms\Concerns\RefreshesLatestTile;
 use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Http\JsonResponse;

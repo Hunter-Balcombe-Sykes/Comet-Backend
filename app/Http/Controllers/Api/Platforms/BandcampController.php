@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveBandcampHighlightsRequest;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\Concerns\RefreshesLatestTile;
 use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

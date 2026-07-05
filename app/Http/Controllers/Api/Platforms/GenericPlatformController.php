@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
+use App\Http\Requests\Platforms\PlatformHighlightsRequest;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\LinkPayload;
@@ -94,6 +95,66 @@ class GenericPlatformController extends ApiController
         $this->writeConnection($user, $selection);
 
         return $this->success((new $resourceClass($selection))->resolve());
+    }
+
+    // GET /api/platforms/{platform}/recent?account={id} — fresh picker items for
+    // the requested account (first account when no id is given).
+    public function recent(Request $request): JsonResponse
+    {
+        $strategy = $this->descriptor()->highlightsStrategy();
+        abort_if($strategy === null, 404);
+
+        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $identity = $strategy->identity($row?->payload ?? []);
+        if ($identity === null) {
+            return $this->error($strategy->notConnectedMessage(), 404);
+        }
+
+        $items = $strategy->recentItems($identity);
+        if ($items === null) {
+            return $this->error($strategy->loadErrorMessage(), 422);
+        }
+
+        return $this->success([$strategy->responseKey() => $items]);
+    }
+
+    // POST /api/platforms/{platform}/highlights?account={id} — snapshot the
+    // chosen items onto that account's stored selection (empty list clears).
+    // Locked read→mutate→write, mirroring the deleted per-platform controllers.
+    public function highlights(PlatformHighlightsRequest $request): JsonResponse
+    {
+        $descriptor = $this->descriptor();
+        $strategy = $descriptor->highlightsStrategy();
+        abort_if($strategy === null, 404);
+
+        $validated = $request->validated();
+        $user = $this->currentUser($request);
+        $accountId = $request->query('account');
+
+        return $this->withConnectionLock($user, function () use ($user, $descriptor, $strategy, $validated, $accountId): JsonResponse {
+            $row = $this->requestedAccountRow($user, $accountId);
+            $selection = $row?->payload;
+            if (! $row || ! $selection) {
+                return $this->error($strategy->notConnectedMessage(), 404);
+            }
+
+            $identity = $strategy->identity($selection);
+            if ($identity === null) {
+                return $this->error($strategy->notConnectedMessage(), 404);
+            }
+
+            $items = $strategy->recentItems($identity);
+            if ($items === null) {
+                return $this->error($strategy->loadErrorMessage(), 422);
+            }
+
+            $selection = $strategy->apply($selection, $items, $validated[$strategy->requestField()]);
+            $this->writeConnection($user, $selection, $row->resource_id);
+
+            $resourceClass = $descriptor->resourceClass();
+
+            return $this->success(['id' => $row->resource_id, ...(new $resourceClass($selection))->resolve()]);
+        });
     }
 
     /** Canonical per-account key of a freshly-built selection (mirrors the

@@ -8,6 +8,7 @@ use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 use App\Services\Platforms\Strategies\Contracts\Detection;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Platforms\Strategies\Contracts\HighlightsStrategy;
 use App\Services\Platforms\Strategies\Contracts\RefreshStrategy;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
@@ -60,6 +61,9 @@ class PlatformDescriptor
 
     /** @var (Closure(): FetchStrategy)|null Lazily builds the fetch strategy (see fetch()). */
     private ?Closure $fetchFactory = null;
+
+    /** @var (Closure(): HighlightsStrategy)|null Lazily builds the highlights strategy (same rationale as fetch()). */
+    private ?Closure $highlightsFactory = null;
 
     private function __construct(private readonly string $key)
     {
@@ -203,10 +207,31 @@ class PlatformDescriptor
         return $this->connectFactory !== null ? ($this->connectFactory)() : null;
     }
 
-    /** Boot-safe highlights probe — real factory lands with HighlightsStrategy (Task 6). */
+    /**
+     * Attach the strategy that drives this platform's recent-items picker and
+     * curated-highlights save. Same lazy-Closure-factory rationale as fetch()/
+     * connect(): the registry singleton is built at boot (the route loop calls
+     * hasHighlights() while emitting routes), so eagerly resolving a strategy
+     * that wraps a scraper here would bake it in before a test can mock it.
+     */
+    public function highlights(HighlightsStrategy|Closure $strategy): self
+    {
+        $this->highlightsFactory = $strategy instanceof Closure ? $strategy : fn () => $strategy;
+
+        return $this;
+    }
+
+    /** Resolve the highlights strategy fresh (lazy — see highlights()); null when none attached. */
+    public function highlightsStrategy(): ?HighlightsStrategy
+    {
+        return $this->highlightsFactory !== null ? ($this->highlightsFactory)() : null;
+    }
+
+    /** Boot-safe: the route loop calls this while emitting routes — it must
+     *  never resolve the factory (that would eager-load the scraper). */
     public function hasHighlights(): bool
     {
-        return false;
+        return $this->highlightsFactory !== null;
     }
 
     public function connectErrorMessage(): ?string

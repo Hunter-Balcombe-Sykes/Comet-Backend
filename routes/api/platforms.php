@@ -318,6 +318,12 @@ $registerIntegrationRoutes = function (string $base): void {
                     Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                         ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $slug);
                 }
+
+                // Picker platforms: recent + curated highlights, strategy-driven.
+                if ($descriptor->hasHighlights()) {
+                    Route::get('/recent', [GenericPlatformController::class, 'recent'])->defaults('platform', $slug);
+                    Route::post('/highlights', [GenericPlatformController::class, 'highlights'])->defaults('platform', $slug);
+                }
             });
     }
 

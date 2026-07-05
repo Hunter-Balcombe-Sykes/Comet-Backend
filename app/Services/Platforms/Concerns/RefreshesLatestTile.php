@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\Platforms\Concerns;
+namespace App\Services\Platforms\Concerns;
 
 // Shared "most recent" tile construction for the platform controllers. The nested
 // `latest` key is the canonical shape; the flat keys ($flatFields) are the legacy

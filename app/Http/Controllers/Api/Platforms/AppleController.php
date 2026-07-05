@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
-use App\Http\Controllers\Api\Platforms\Concerns\RefreshesLatestTile;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveAppleMusicHighlightsRequest;
@@ -13,6 +12,7 @@ use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\Concerns\RefreshesLatestTile;
 use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
