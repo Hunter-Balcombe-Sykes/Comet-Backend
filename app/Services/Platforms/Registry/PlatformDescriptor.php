@@ -35,7 +35,8 @@ class PlatformDescriptor
 
     private ?Detection $detection = null;
 
-    private ?ConnectStrategy $connectStrategy = null;
+    /** @var (Closure(): ConnectStrategy)|null Lazily builds the connect strategy (same rationale as fetch()). */
+    private ?Closure $connectFactory = null;
 
     private ?string $connectErrorMessage = null;
 
@@ -189,9 +190,9 @@ class PlatformDescriptor
      * the input can't be parsed. The generic controller reads both. The message
      * is part of the frozen API contract, so each platform keeps its exact wording.
      */
-    public function connect(ConnectStrategy $strategy, string $errorMessage): self
+    public function connect(ConnectStrategy|Closure $strategy, string $errorMessage): self
     {
-        $this->connectStrategy = $strategy;
+        $this->connectFactory = $strategy instanceof Closure ? $strategy : fn () => $strategy;
         $this->connectErrorMessage = $errorMessage;
 
         return $this;
@@ -199,7 +200,13 @@ class PlatformDescriptor
 
     public function connectStrategy(): ?ConnectStrategy
     {
-        return $this->connectStrategy;
+        return $this->connectFactory !== null ? ($this->connectFactory)() : null;
+    }
+
+    /** Boot-safe highlights probe — real factory lands with HighlightsStrategy (Task 6). */
+    public function hasHighlights(): bool
+    {
+        return false;
     }
 
     public function connectErrorMessage(): ?string

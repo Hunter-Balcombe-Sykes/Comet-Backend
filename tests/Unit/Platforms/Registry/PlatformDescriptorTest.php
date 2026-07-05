@@ -69,8 +69,8 @@ it('carries a live connect strategy and its error message', function () {
     );
 
     expect($d->connectStrategy())->toBeInstanceOf(ConnectStrategy::class);
-    expect($d->connectStrategy()->normalize('good'))->toBe(['username' => 'good', 'url' => 'https://x.com/good']);
-    expect($d->connectStrategy()->normalize('bad'))->toBeNull();
+    expect($d->connectStrategy()->resolve('good')->selection)->toBe(['username' => 'good', 'url' => 'https://x.com/good']);
+    expect($d->connectStrategy()->resolve('bad')->failed())->toBeTrue();
     expect($d->connectErrorMessage())->toBe('Enter your X handle or profile URL (x.com/yourname).');
 });
 

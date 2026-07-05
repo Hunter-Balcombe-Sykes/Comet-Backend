@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Strategies\Connect;
 
+use App\Services\Platforms\Strategies\Contracts\ConnectResult;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 
 // Default connect: a platform supplies a normalizer closure (its existing
@@ -13,8 +14,10 @@ class UrlConnect implements ConnectStrategy
     /** @param callable(string):(array<string,mixed>|null) $normalizer */
     public function __construct(private $normalizer) {}
 
-    public function normalize(string $input): ?array
+    public function resolve(string $input): ConnectResult
     {
-        return ($this->normalizer)($input);
+        $selection = ($this->normalizer)($input);
+
+        return $selection === null ? ConnectResult::fail() : ConnectResult::ok($selection);
     }
 }

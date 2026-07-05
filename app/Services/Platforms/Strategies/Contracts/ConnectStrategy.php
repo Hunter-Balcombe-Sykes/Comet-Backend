@@ -3,9 +3,10 @@
 namespace App\Services\Platforms\Strategies\Contracts;
 
 // How a platform turns raw user input (URL / handle) into the canonical stored
-// selection array. Returns null when the input is not valid for the platform.
+// selection array — including any upstream fetch. fail() with no message uses
+// the descriptor's connectErrorMessage; fetch-stage failures carry their own
+// message (and 404 where the platform's frozen contract says so).
 interface ConnectStrategy
 {
-    /** @return array<string,mixed>|null */
-    public function normalize(string $input): ?array;
+    public function resolve(string $input): ConnectResult;
 }

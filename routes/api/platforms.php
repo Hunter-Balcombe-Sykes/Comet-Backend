@@ -294,12 +294,9 @@ $registerIntegrationRoutes = function (string $base): void {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($descriptor, $slug, $shape) {
-                // connect: link-only via the generic controller; everything else via
-                // the platform's own controller (carrying the platform default for the
-                // shared PlatformConnectRequest).
-                $connectController = $shape === PlatformRouteShape::LinkOnly
-                    ? GenericPlatformController::class
-                    : $descriptor->connectController();
+                // Null connectController = fully registry-driven (link-only, and
+                // every platform migrated onto a ConnectStrategy).
+                $connectController = $descriptor->connectController() ?? GenericPlatformController::class;
                 Route::post('/connect', [$connectController, 'connect'])->defaults('platform', $slug);
 
                 if ($shape === PlatformRouteShape::SingleSelection) {

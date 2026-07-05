@@ -43,8 +43,10 @@ class GenericPlatformController extends ApiController
         return $platform;
     }
 
-    // POST /api/platforms/{platform}/connect — parse the input via the descriptor's
-    // connect strategy, store the canonical {username,url}, echo it.
+    // POST /api/platforms/{platform}/connect — resolve the input via the
+    // descriptor's connect strategy (parse + any upstream fetch), store the
+    // canonical selection, echo it. Multi-account platforms add an account row
+    // (capped, shop-style); single-selection platforms upsert the one row.
     public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -57,18 +59,50 @@ class GenericPlatformController extends ApiController
         $strategy = $descriptor->connectStrategy();
         abort_if($strategy === null, 404);
 
-        $selection = $strategy->normalize($request->validated()[$descriptor->connectField()]);
-        if ($selection === null) {
-            return $this->error($descriptor->connectErrorMessage() ?? 'Enter a valid link.', 422);
+        $result = $strategy->resolve($request->validated()[$descriptor->connectField()]);
+        if ($result->failed()) {
+            return $this->error($result->error ?? $descriptor->connectErrorMessage() ?? 'Enter a valid link.', $result->status);
         }
 
-        // Round-trip through the typed boundary, then store the canonical shape.
-        $payload = LinkPayload::fromArray($selection)->toArray();
-        $this->writeConnection($user, $payload);
+        $selection = $result->selection;
+
+        // Link-only platforms keep their existing LinkPayload round-trip; every
+        // other archetype stores the strategy's selection verbatim, exactly as
+        // the per-platform controllers did.
+        if ($descriptor->payloadClass() === LinkPayload::class) {
+            $selection = LinkPayload::fromArray($selection)->toArray();
+        }
 
         $resourceClass = $descriptor->resourceClass();
 
-        return $this->success((new $resourceClass($payload))->resolve());
+        if ($descriptor->multiAccount()) {
+            $key = $result->accountKey ?? $this->defaultAccountKey($selection);
+            if ($key !== null) {
+                if ($descriptor->hasHighlights()) {
+                    // Re-adding an already-connected account keeps its curated highlights.
+                    $selection['highlights'] = $this->preserveHighlights($user, $key);
+                }
+                $row = $this->writeAccountConnection($user, $key, $selection);
+                if ($row === null) {
+                    return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+                }
+
+                return $this->success(['id' => $row->resource_id, ...(new $resourceClass($selection))->resolve()]);
+            }
+        }
+
+        $this->writeConnection($user, $selection);
+
+        return $this->success((new $resourceClass($selection))->resolve());
+    }
+
+    /** Canonical per-account key of a freshly-built selection (mirrors the
+     *  deleted single-selection base's default — dedupe + id source). */
+    private function defaultAccountKey(array $selection): ?string
+    {
+        $key = $selection['handle'] ?? $selection['input'] ?? $selection['url'] ?? $selection['link'] ?? null;
+
+        return is_string($key) && trim($key) !== '' ? $key : null;
     }
 
     // GET /api/platforms/{platform}/selection — the first connected account's
