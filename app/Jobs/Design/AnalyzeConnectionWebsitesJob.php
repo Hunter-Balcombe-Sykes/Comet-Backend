@@ -25,8 +25,11 @@ use Throwable;
 // queued by the same observer pass. Shop-brand analyses (FOUND-25) write
 // directly to the brand's own site.shop_brands.style_analysis column instead
 // — each brand is its own row now, not a shared JSONB map, so there's no
-// cross-brand clobber risk and no observer refire needed to converge (the
-// dispatching controller explicitly refreshes the cache/presets already).
+// cross-brand clobber risk. But that column write fires NO observer, so unlike
+// the custom path nothing re-converges the design kit (the add-time controller
+// refresh runs BEFORE the analysis exists, so it isn't the trigger). handle()
+// therefore dispatches ResolveDesignPresetsJob explicitly when it writes any
+// shop analysis this run — otherwise a shop-only user's kit never converges.
 //
 // ShouldBeUniqueUntilProcessing (not plain ShouldBeUnique) per user coalesces
 // bursts (e.g. several links added back-to-back) AND lets this job re-dispatch
@@ -149,6 +152,12 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
 
         $budget = self::MAX_ANALYSES_PER_RUN;
 
+        // Whether we wrote any shop-brand style_analysis this run. Those column
+        // writes fire no observer, so we must dispatch the design-preset resolve
+        // ourselves at the end (the custom path converges via its payload
+        // update() → IntegrationConnectionObserver instead). FOUND-25 regression.
+        $shopAnalyzed = false;
+
         foreach ($connections as $connection) {
             if ($budget <= 0) {
                 Log::info('AnalyzeConnectionWebsitesJob: budget exhausted, remainder deferred.', [
@@ -190,9 +199,19 @@ class AnalyzeConnectionWebsitesJob implements ShouldBeUniqueUntilProcessing, Sho
                 // to this connection would block for the full call.
                 $analysis = $analyzer->analyze(trim((string) $brand->url));
                 $brand->update(['style_analysis' => $analysis]);
+                $shopAnalyzed = true;
 
                 $budget--;
             }
+        }
+
+        // Converge the design kit for the shop lane: the brand-column writes
+        // above fire no observer (unlike the custom path), so without this a
+        // shop-only user's kit never re-resolves until an unrelated later
+        // connection write. ResolveDesignPresetsJob is ShouldBeUnique per user,
+        // so this coalesces with the custom path's observer-driven dispatch.
+        if ($shopAnalyzed) {
+            ResolveDesignPresetsJob::dispatch($this->userId);
         }
 
         // Self-continue: budget ran out but connections still need analysis —

@@ -559,6 +559,45 @@ it('fills missing styleAnalysis for custom links and shop brands, then converges
         ->and(AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($shop->fresh()))->toBeFalse();
 });
 
+it('dispatches a design-preset resolve after writing a shop-only brand analysis (FOUND-25 regression #4)', function () {
+    // Shop-brand style_analysis is a column write with no observer, so — unlike
+    // the custom path (payload update() → IntegrationConnectionObserver →
+    // resolve) — nothing re-converges a shop-ONLY user's design kit. handle()
+    // must dispatch the resolve itself once it writes any shop analysis.
+    Queue::fake();
+    $user = createTenant('shop-only-converge');
+    $shopId = wbsSeedShopConnection($user, [
+        ['id' => 'b1', 'url' => 'https://store.test'],
+    ]);
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldReceive('analyze')->once()->with('https://store.test')
+        ->andReturn(wbsAnalysis('https://store.test', null, ['bg' => 'dark']));
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
+
+    $brand = ShopBrand::where('connection_id', $shopId)->where('brand_id', 'b1')->firstOrFail();
+    expect($brand->style_analysis['ok'] ?? null)->toBeTrue();
+    Queue::assertPushed(ResolveDesignPresetsJob::class, fn ($job) => $job->userId === (string) $user->id);
+});
+
+it('does not dispatch a resolve when no shop analysis was written this run', function () {
+    // Brand already carries a current, url-matching analysis → nothing to write
+    // → the shop-lane resolve must NOT fire (dispatch is conditional on a write).
+    Queue::fake();
+    $user = createTenant('shop-only-noop');
+    wbsSeedShopConnection($user, [
+        ['id' => 'b1', 'url' => 'https://store.test', 'styleAnalysis' => wbsAnalysis('https://store.test', null, ['bg' => 'dark'])],
+    ]);
+
+    $analyzer = Mockery::mock(WebsiteStyleAnalyzer::class);
+    $analyzer->shouldNotReceive('analyze');
+
+    (new AnalyzeConnectionWebsitesJob((string) $user->id))->handle($analyzer);
+
+    Queue::assertNotPushed(ResolveDesignPresetsJob::class);
+});
+
 it('treats a v1 styleAnalysis as needing re-analysis', function () {
     $user = createTenant('needs-v1');
     $id = wbsSeedConnection($user, [
