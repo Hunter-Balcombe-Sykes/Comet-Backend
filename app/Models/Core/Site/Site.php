@@ -68,6 +68,9 @@ class Site extends BaseModel
         'services_auto_sync_enabled',
         'booking_mode',
         'manual_booking_url',
+        // Content Selection: when true, slots 1–2 are reserved for the latest
+        // Instagram reel + post. null == off (mirrors the other toggles above).
+        'content_instagram_auto_enabled',
     ];
 
     protected $casts = [
@@ -83,6 +86,8 @@ class Site extends BaseModel
         'show_branding' => 'boolean',
         'charlie_enabled' => 'boolean',
         'services_auto_sync_enabled' => 'boolean',
+        // null == off; cast so reads/writes are clean booleans.
+        'content_instagram_auto_enabled' => 'boolean',
     ];
 
     public function user(): BelongsTo

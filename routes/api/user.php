@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\User\Account\UserDataExportController;
 use App\Http\Controllers\Api\User\Account\UserDocumentController;
 use App\Http\Controllers\Api\User\Account\UserSelfController;
 use App\Http\Controllers\Api\User\Analytics\UserAnalyticsController;
+use App\Http\Controllers\Api\User\Content\ContentController;
 use App\Http\Controllers\Api\User\Customers\UserCustomerController;
 use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
 use App\Http\Controllers\Api\User\Feedback\FeedbackController;
@@ -214,6 +215,21 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Design-layer singleton images (brand logos + per-integration covers).
         Route::get('/design-media', [UserDesignMediaController::class, 'index']);
         Route::post('/design-media', [UserDesignMediaController::class, 'upload']);
+
+        // Content library + selection (sitepage background picks). Library =
+        // content-pool uploads + referenced Google Business photos; Selection =
+        // ordered list (≤15) of uploads / google photos / Instagram reel+post.
+        Route::get('/content/library', [ContentController::class, 'library']);
+        Route::post('/content/uploads', [ContentController::class, 'storeUpload'])
+            ->middleware('throttle:30,1');
+        Route::delete('/content/uploads/{upload}', [ContentController::class, 'destroyUpload'])
+            ->whereUuid('upload')
+            ->middleware('throttle:30,1');
+        Route::get('/content/selection', [ContentController::class, 'selection']);
+        Route::put('/content/selection', [ContentController::class, 'replaceSelection'])
+            ->middleware('throttle:60,1');
+        Route::put('/content/instagram-auto', [ContentController::class, 'setInstagramAuto'])
+            ->middleware('throttle:30,1');
 
         // Image Gallery (gallery-pool ordering & legacy routes)
         Route::get('/gallery', [UserGalleryController::class, 'index']);

@@ -1,0 +1,467 @@
+<?php
+
+/**
+ * Content Library + Selection backend — the sitepage background picks surface.
+ *
+ * Covers the library endpoint (uploads + google photos), the content upload
+ * create/delete lifecycle, the whole-selection replace (ordering + ≤15 cap +
+ * ig-placement rule), the Instagram-auto toggle (reserve/remove ig slots), the
+ * connect-time hooks (GB auto-seed once, IG flips the flag), and resolve()
+ * dropping a google-photo whose ref vanished.
+ */
+
+use App\Models\Core\Site\ContentSelection;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\User;
+use App\Services\Site\ContentSelectionService;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupMediaTables();
+    setupContentSelectionTable();
+
+    // Observer side-effects (cache-warm / KV-sync / preset-resolve jobs) read
+    // tables we don't provision here; faking the queue makes those dispatches
+    // no-ops. Our own connect hooks run SYNCHRONOUSLY inside saved() (not as
+    // jobs), so they still execute under a faked queue.
+    Queue::fake();
+
+    // A configured public URL so variantUrls() resolves servable URLs.
+    config(['filesystems.disks.media.url' => 'https://cdn.test']);
+});
+
+/**
+ * Create a user + their 1:1 site and return [User, Site].
+ *
+ * @return array{0: User, 1: Site}
+ */
+function contentUserWithSite(string $handle): array
+{
+    $user = User::create([
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'account_type' => 'individual',
+        'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => "{$handle}@example.com",
+    ]);
+
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+        'subdomain' => $handle,
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $site = Site::query()->findOrFail($siteId);
+
+    return [$user->fresh()->load('site'), $site];
+}
+
+/** Insert a ready content-pool upload for $site with one servable webp variant. */
+function contentUpload(Site $site, array $overrides = []): SiteMedia
+{
+    $id = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.site_media')->insert(array_merge([
+        'id' => $id,
+        'site_id' => $site->id,
+        'pool' => SiteMedia::POOL_CONTENT,
+        'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
+        'processing_state' => SiteMedia::PROCESSING_STATE_READY,
+        'is_active' => 1,
+        'alt_text' => 'Content image',
+        'path' => "images/content/{$id}.jpg",
+        'sort_order' => 0,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ], $overrides));
+
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $id,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'media',
+        'path' => "images/content/{$id}_optimized.webp",
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    return SiteMedia::query()->findOrFail($id);
+}
+
+/** Attach an active google-business connection whose payload carries photos. */
+function gbConnectionWithPhotos(User $user, array $photos): IntegrationConnection
+{
+    return IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Test Biz', 'photos' => $photos],
+        'is_active' => true,
+    ]);
+}
+
+/** Attach an active instagram connection with the given mirrored payload. */
+function igConnection(User $user, array $payload = []): IntegrationConnection
+{
+    return IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'payload' => $payload,
+        'is_active' => true,
+    ]);
+}
+
+// ── Library ──────────────────────────────────────────────────────────────────
+
+it('library returns content uploads and google photos', function () {
+    [$user, $site] = contentUserWithSite('lib1');
+    contentUpload($site, ['alt_text' => 'Alpha']);
+    gbConnectionWithPhotos($user, [
+        ['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg'],
+        ['ref' => 'places/A/photos/2', 'url' => 'https://lh3/2.jpg'],
+    ]);
+
+    $res = actingAsUser($user)->getJson('/api/content/library')->assertOk();
+
+    $res->assertJsonCount(1, 'uploads');
+    expect($res->json('uploads.0.alt_text'))->toBe('Alpha');
+    expect($res->json('uploads.0.url'))->toBe('https://cdn.test/images/content/'.basename($res->json('uploads.0.url')));
+
+    $res->assertJsonCount(2, 'googlePhotos');
+    expect($res->json('googlePhotos.0.ref'))->toBe('places/A/photos/1');
+    expect($res->json('googlePhotos.0.url'))->toBe('https://lh3/1.jpg');
+});
+
+it('library returns an empty googlePhotos array when there is no GB connection', function () {
+    [$user] = contentUserWithSite('lib2');
+
+    actingAsUser($user)->getJson('/api/content/library')
+        ->assertOk()
+        ->assertJsonCount(0, 'googlePhotos');
+});
+
+// ── Uploads ──────────────────────────────────────────────────────────────────
+
+it('upload creates a pool=content site_media row', function () {
+    Storage::fake('media');
+    config(['partna.media_disk' => 'media', 'filesystems.disks.media.url' => 'https://cdn.test']);
+
+    [$user] = contentUserWithSite('up1');
+
+    $res = actingAsUser($user)->postJson('/api/content/uploads', [
+        'image' => UploadedFile::fake()->image('bg.jpg', 200, 200),
+        'alt_text' => 'My BG',
+    ])->assertStatus(201);
+
+    expect($res->json('id'))->not->toBeNull();
+
+    $row = SiteMedia::query()->where('id', $res->json('id'))->first();
+    expect($row)->not->toBeNull();
+    expect($row->pool)->toBe(SiteMedia::POOL_CONTENT);
+    expect($row->alt_text)->toBe('My BG');
+});
+
+it('delete removes the upload and any selection row referencing it', function () {
+    [$user, $site] = contentUserWithSite('up2');
+    $media = contentUpload($site);
+
+    // Put the upload into the selection at position 1.
+    ContentSelection::create([
+        'site_id' => $site->id,
+        'position' => 1,
+        'entry_type' => ContentSelection::TYPE_UPLOAD,
+        'media_id' => $media->id,
+    ]);
+
+    actingAsUser($user)->deleteJson("/api/content/uploads/{$media->id}")
+        ->assertOk()
+        ->assertJson(['deleted' => true]);
+
+    expect(SiteMedia::query()->where('id', $media->id)->exists())->toBeFalse(); // soft-deleted
+    expect(ContentSelection::query()->where('media_id', $media->id)->exists())->toBeFalse();
+});
+
+it('delete returns 404 for a non-content or wrong-site upload', function () {
+    [$user, $site] = contentUserWithSite('up3');
+    $galleryMedia = contentUpload($site, ['pool' => SiteMedia::POOL_GALLERY]);
+
+    actingAsUser($user)->deleteJson("/api/content/uploads/{$galleryMedia->id}")
+        ->assertStatus(404);
+});
+
+// ── Selection replace ────────────────────────────────────────────────────────
+
+it('PUT selection persists the ordered entries', function () {
+    [$user, $site] = contentUserWithSite('sel1');
+    $m1 = contentUpload($site);
+    gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/9', 'url' => 'https://lh3/9.jpg']]);
+
+    actingAsUser($user)->putJson('/api/content/selection', [
+        'entries' => [
+            ['type' => 'google-photo', 'ref' => 'places/A/photos/9'],
+            ['type' => 'upload', 'mediaId' => $m1->id],
+        ],
+    ])->assertOk();
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(2);
+    expect($rows[0]->entry_type)->toBe('google-photo');
+    expect($rows[0]->position)->toBe(1);
+    expect($rows[0]->external_ref)->toBe('places/A/photos/9');
+    expect($rows[1]->entry_type)->toBe('upload');
+    expect($rows[1]->position)->toBe(2);
+    expect((string) $rows[1]->media_id)->toBe((string) $m1->id);
+});
+
+it('PUT selection rejects more than 15 entries', function () {
+    [$user, $site] = contentUserWithSite('sel2');
+
+    $entries = [];
+    for ($i = 0; $i < 16; $i++) {
+        $entries[] = ['type' => 'google-photo', 'ref' => "places/A/photos/{$i}"];
+    }
+
+    actingAsUser($user)->putJson('/api/content/selection', ['entries' => $entries])
+        ->assertStatus(422);
+
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(0);
+});
+
+it('PUT selection rejects an instagram row at position 3 when auto is enabled', function () {
+    [$user, $site] = contentUserWithSite('sel3');
+    $site->content_instagram_auto_enabled = true;
+    $site->save();
+    $m1 = contentUpload($site);
+    $m2 = contentUpload($site);
+
+    // Reload so the auth-resolved user carries the current site state (in
+    // production every request loads a fresh User via LoadCurrentUser; the test
+    // fixture holds a site relation captured before the flag flip).
+    actingAsUser($user->fresh()->load('site'))->putJson('/api/content/selection', [
+        'entries' => [
+            ['type' => 'upload', 'mediaId' => $m1->id],
+            ['type' => 'upload', 'mediaId' => $m2->id],
+            ['type' => 'ig-reel'], // position 3 — not allowed while auto is on
+        ],
+    ])->assertStatus(422);
+});
+
+it('PUT selection allows an instagram row at position 1 when auto is enabled', function () {
+    [$user, $site] = contentUserWithSite('sel4');
+    $site->content_instagram_auto_enabled = true;
+    $site->save();
+    $m1 = contentUpload($site);
+
+    actingAsUser($user)->putJson('/api/content/selection', [
+        'entries' => [
+            ['type' => 'ig-reel'],
+            ['type' => 'upload', 'mediaId' => $m1->id],
+        ],
+    ])->assertOk();
+
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(2);
+});
+
+// ── Instagram auto toggle ────────────────────────────────────────────────────
+
+it('instagram-auto enable inserts ig-reel@1 and ig-post@2', function () {
+    [$user, $site] = contentUserWithSite('ig1');
+    igConnection($user, [
+        'images' => ['https://r2/post.jpg'],
+        'videoUrl' => 'https://r2/reel.mp4',
+        'videoPoster' => 'https://r2/poster.jpg',
+    ]);
+
+    actingAsUser($user)->putJson('/api/content/instagram-auto', ['enabled' => true])
+        ->assertOk()
+        ->assertJsonPath('instagramAutoEnabled', true);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(2);
+    expect($rows[0]->entry_type)->toBe('ig-reel');
+    expect($rows[0]->position)->toBe(1);
+    expect($rows[1]->entry_type)->toBe('ig-post');
+    expect($rows[1]->position)->toBe(2);
+
+    expect($site->fresh()->content_instagram_auto_enabled)->toBeTrue();
+});
+
+it('instagram-auto disable removes ig-* rows and compacts positions', function () {
+    [$user, $site] = contentUserWithSite('ig2');
+    igConnection($user, [
+        'images' => ['https://r2/post.jpg'],
+        'videoUrl' => 'https://r2/reel.mp4',
+        'videoPoster' => 'https://r2/poster.jpg',
+    ]);
+    $upload = contentUpload($site);
+
+    // Enable, then add a manual upload at the end.
+    app(ContentSelectionService::class)->setInstagramAuto($site, true);
+    ContentSelection::create([
+        'site_id' => $site->id,
+        'position' => 3,
+        'entry_type' => ContentSelection::TYPE_UPLOAD,
+        'media_id' => $upload->id,
+    ]);
+
+    actingAsUser($user)->putJson('/api/content/instagram-auto', ['enabled' => false])
+        ->assertOk()
+        ->assertJsonPath('instagramAutoEnabled', false);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]->entry_type)->toBe('upload');
+    expect($rows[0]->position)->toBe(1); // compacted from position 3 → 1
+});
+
+it('instagram-auto enable only reserves slots for the kinds the user has', function () {
+    [$user, $site] = contentUserWithSite('ig3');
+    // Reel present, but NO post image.
+    igConnection($user, ['images' => [], 'videoUrl' => 'https://r2/reel.mp4']);
+
+    app(ContentSelectionService::class)->setInstagramAuto($site, true);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]->entry_type)->toBe('ig-reel');
+    expect($rows[0]->position)->toBe(1);
+});
+
+// ── Connect-time hooks ───────────────────────────────────────────────────────
+
+it('GB connect auto-seeds google photos only when the selection is empty', function () {
+    [$user, $site] = contentUserWithSite('hook1');
+
+    // Connecting GB with photos seeds google-photo rows.
+    gbConnectionWithPhotos($user, [
+        ['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg'],
+        ['ref' => 'places/A/photos/2', 'url' => 'https://lh3/2.jpg'],
+    ]);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(2);
+    expect($rows->pluck('entry_type')->unique()->all())->toBe(['google-photo']);
+    expect($rows[0]->external_ref)->toBe('places/A/photos/1');
+});
+
+it('GB connect does NOT seed when the selection already has real content', function () {
+    [$user, $site] = contentUserWithSite('hook2');
+    $upload = contentUpload($site);
+    ContentSelection::create([
+        'site_id' => $site->id,
+        'position' => 1,
+        'entry_type' => ContentSelection::TYPE_UPLOAD,
+        'media_id' => $upload->id,
+    ]);
+
+    gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    // Still just the one upload — no google-photo rows appended.
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]->entry_type)->toBe('upload');
+});
+
+it('IG connect flips the content instagram-auto toggle on', function () {
+    [$user, $site] = contentUserWithSite('hook3');
+    expect($site->content_instagram_auto_enabled)->toBeNull();
+
+    igConnection($user, ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']);
+
+    expect($site->fresh()->content_instagram_auto_enabled)->toBeTrue();
+});
+
+// ── resolve() live resolution ────────────────────────────────────────────────
+
+it('resolve() drops a google-photo whose ref has vanished from the payload', function () {
+    [$user, $site] = contentUserWithSite('res1');
+    // Only photo "1" exists in the payload now.
+    gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    // Build the selection via replace() (clears the GB-connect auto-seed first,
+    // avoiding a transient UNIQUE(position) collision): one live ref (1) and one
+    // stale ref (99) that no longer exists in the payload.
+    app(ContentSelectionService::class)->replace($site, [
+        ['type' => 'google-photo', 'ref' => 'places/A/photos/1'],
+        ['type' => 'google-photo', 'ref' => 'places/A/photos/99'],
+    ]);
+
+    $resolved = app(ContentSelectionService::class)->resolve($site);
+
+    // Only the live ref survives; the dangling one is dropped.
+    expect($resolved)->toHaveCount(1);
+    expect($resolved[0]['type'])->toBe('google-photo');
+    expect($resolved[0]['url'])->toBe('https://lh3/1.jpg');
+    expect($resolved[0]['badge'])->toBe('google-business');
+});
+
+it('resolve() expands uploads and instagram reel/post rows', function () {
+    [$user, $site] = contentUserWithSite('res2');
+    $upload = contentUpload($site);
+    igConnection($user, [
+        'images' => ['https://r2/post.jpg'],
+        'videoUrl' => 'https://r2/reel.mp4',
+        'videoPoster' => 'https://r2/poster.jpg',
+    ]);
+
+    ContentSelection::create(['site_id' => $site->id, 'position' => 1, 'entry_type' => 'ig-reel']);
+    ContentSelection::create(['site_id' => $site->id, 'position' => 2, 'entry_type' => 'ig-post']);
+    ContentSelection::create([
+        'site_id' => $site->id, 'position' => 3,
+        'entry_type' => 'upload', 'media_id' => $upload->id,
+    ]);
+
+    $resolved = app(ContentSelectionService::class)->resolve($site);
+
+    expect($resolved)->toHaveCount(3);
+    expect($resolved[0])->toMatchArray([
+        'kind' => 'video', 'type' => 'ig-reel', 'url' => 'https://r2/reel.mp4',
+        'poster' => 'https://r2/poster.jpg', 'badge' => 'instagram',
+    ]);
+    expect($resolved[1])->toMatchArray([
+        'kind' => 'image', 'type' => 'ig-post', 'url' => 'https://r2/post.jpg', 'badge' => 'instagram',
+    ]);
+    expect($resolved[2]['type'])->toBe('upload');
+    expect($resolved[2]['kind'])->toBe('image');
+    expect($resolved[2]['badge'])->toBeNull();
+});
+
+it('resolve() drops ig rows when instagram is disconnected', function () {
+    [$user, $site] = contentUserWithSite('res3');
+    ContentSelection::create(['site_id' => $site->id, 'position' => 1, 'entry_type' => 'ig-reel']);
+    ContentSelection::create(['site_id' => $site->id, 'position' => 2, 'entry_type' => 'ig-post']);
+
+    $resolved = app(ContentSelectionService::class)->resolve($site);
+    expect($resolved)->toBe([]);
+});
+
+// ── selection endpoint payload ───────────────────────────────────────────────
+
+it('GET selection returns resolved rows plus IG flags', function () {
+    [$user, $site] = contentUserWithSite('get1');
+    igConnection($user, ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']);
+
+    // Reload so the auth-resolved user reflects the flag the IG-connect observer
+    // set (the fixture's site relation predates the connect).
+    $res = actingAsUser($user->fresh()->load('site'))->getJson('/api/content/selection')->assertOk();
+
+    $res->assertJsonPath('instagramConnected', true);
+    // igConnection() created the connection which flips auto on via the observer.
+    $res->assertJsonPath('instagramAutoEnabled', true);
+    $res->assertJsonStructure(['selection', 'instagramAutoEnabled', 'instagramConnected']);
+});

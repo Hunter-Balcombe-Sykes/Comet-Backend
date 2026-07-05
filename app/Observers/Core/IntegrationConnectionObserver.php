@@ -4,11 +4,13 @@ namespace App\Observers\Core;
 
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Facades\Log;
 
 // Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
@@ -58,6 +60,18 @@ class IntegrationConnectionObserver
             && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
             $this->syncIdentityFromGoogle($connection);
         }
+
+        // Content-selection connect hooks (best-effort, never break the save):
+        //   - google-business connect → one-time seed of google-photo picks
+        //   - instagram connect       → turn the content Instagram-auto flag on
+        // Only on wasRecentlyCreated (a genuine connect), not on refresh writes.
+        if ($connection->wasRecentlyCreated) {
+            if ($connection->platform === Platform::GoogleBusiness->value) {
+                $this->seedContentFromGoogle($connection);
+            } elseif ($connection->platform === Platform::Instagram->value) {
+                $this->enableContentInstagramAuto($connection);
+            }
+        }
     }
 
     /**
@@ -79,6 +93,56 @@ class IntegrationConnectionObserver
         }
 
         app(IdentitySync::class)->applyFromGooglePayload($user, $payload->toArray());
+    }
+
+    /**
+     * One-time seed of the content selection with the owner's Google Business
+     * photos on a GB connect. ContentSelectionService::maybeSeedFromGoogle is
+     * itself a no-op when the user already has upload/google-photo picks, so
+     * this is safe to fire on every GB connect. Best-effort — a failure here
+     * must never break the connection save.
+     */
+    private function seedContentFromGoogle(IntegrationConnection $connection): void
+    {
+        try {
+            $site = $connection->user?->site;
+            if ($site instanceof Site) {
+                app(ContentSelectionService::class)->maybeSeedFromGoogle($site);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver content google-seed failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Turn the content Instagram-auto flag on when an Instagram account is
+     * connected (the reel+post slots then reserve automatically on the next
+     * selection read/toggle). The user can turn it back off. Best-effort — a
+     * failure here must never break the connection save. Note: the IG connect
+     * creates a pending placeholder row first, so this fires on that insert;
+     * flipping the site flag is idempotent and independent of the payload.
+     */
+    private function enableContentInstagramAuto(IntegrationConnection $connection): void
+    {
+        try {
+            $site = $connection->user?->site;
+            if ($site instanceof Site && ! $site->content_instagram_auto_enabled) {
+                $site->content_instagram_auto_enabled = true;
+                $site->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver content instagram-auto enable failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function deleted(IntegrationConnection $connection): void

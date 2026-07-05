@@ -402,6 +402,7 @@ function setupSitesTable(): void
         show_branding INTEGER NULL,
         charlie_enabled INTEGER NULL,
         services_auto_sync_enabled INTEGER NULL,
+        content_instagram_auto_enabled INTEGER NULL,
         booking_mode TEXT NULL,
         manual_booking_url TEXT NULL,
         deleted_at TEXT NULL,
@@ -443,6 +444,7 @@ function setupSitesTable(): void
         'show_branding' => 'INTEGER NULL',
         'charlie_enabled' => 'INTEGER NULL',
         'services_auto_sync_enabled' => 'INTEGER NULL',
+        'content_instagram_auto_enabled' => 'INTEGER NULL',
         'booking_mode' => 'TEXT NULL',
         'manual_booking_url' => 'TEXT NULL',
     ];
@@ -739,6 +741,30 @@ function setupMediaTables(): void
         content_hash TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
+    )');
+}
+
+/**
+ * site.content_selection — ordered background-content picks (≤15) for a site.
+ * Mirrors the applied Postgres schema (supabase/migrations/
+ * 20260705150200_create_content_selection.sql). SQLite does NOT enforce the
+ * position range / ref-shape CHECKs or the UNIQUE(site_id, position) index
+ * beyond what's declared — that's fine; the service enforces shape in PHP and
+ * the constraint semantics are exercised against real Postgres.
+ */
+function setupContentSelectionTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.content_selection (
+        id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        entry_type TEXT NOT NULL,
+        media_id TEXT NULL,
+        external_ref TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        UNIQUE (site_id, position)
     )');
 }
 
