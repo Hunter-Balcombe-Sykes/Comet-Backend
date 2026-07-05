@@ -332,7 +332,8 @@
         foreach (['uber-eats' => $plan['ueUrl'], 'doordash' => $plan['ddUrl']] as $platform => $url) { ... }
         ```
 
-- [ ] **#FOUND-24** · P1 · **Plan: Opus** — Adding a music/video/social listen platform requires copying scaffolding across a controller file AND 7 route definitions
+- [x] **#FOUND-24** · P1 · **Plan: Opus** — Adding a music/video/social listen platform requires copying scaffolding across a controller file AND 7 route definitions
+    - **✅ Closed 2026-07-05** — full convergence: ConnectResult contract, 13 connect strategies, 4 highlights strategies, 12 controllers + base class + 4 route groups deleted, `PlatformControllerConvergenceTest` guards the single path. Plan: `docs/superpowers/plans/2026-07-05-platform-connect-convergence.md`
     - **Where:** `app/Http/Controllers/Api/Platforms/{Bandcamp,Deezer,Soundcloud,Spotify,Twitch,Vimeo,Youtube,YoutubeMusic,Pinterest,Strava,NowBookit,OpenTable,ResDiary}Controller.php` (13 `SingleSelectionPlatformController` subclasses), `routes/api/integrations.php` (4 duplicated 7-route groups for YouTube/Bandcamp/Vimeo/YouTube Music)
     - **Affects:** Every developer adding a new music/video/social platform — currently the highest-volume duplication pattern in the codebase.
     - **Effort:** XL (~16–32h)
@@ -1085,7 +1086,7 @@
 - **#FOUND-1 — GDPR data-export registry** · ✅ Closed 2026-07-04 — implemented and independently reviewed, merged via PR #226 (see finding above).
 - **#FOUND-14 — IntegrationConnection canonical_key column** · DB migration + L effort.
 - **#FOUND-23 — Menu subsystem platform registry** · L effort, spans Services + Jobs layers across the newest subsystem.
-- **#FOUND-24 — Music/video/social platform connect registry** · XL effort, widest blast radius in this audit (13 controllers + 4 route groups).
+- **#FOUND-24 — Music/video/social platform connect registry** · ✅ Closed 2026-07-05 — full convergence, independently reviewed, guarded by `PlatformControllerConvergenceTest` (see finding above).
 - **#FOUND-25 — ShopController brand/product relational extraction** · DB migration + L effort.
 - **#FOUND-13 — MenuItem badges child table** · ✅ Closed 2026-07-04 as premise-invalid — no query/filter usage exists, no migration needed (see finding above).
 - **#FOUND-35 — MenuSource url column promotion** · DB migration (even though low urgency, any DB migration is standalone per policy).
