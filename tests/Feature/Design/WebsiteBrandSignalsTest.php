@@ -225,7 +225,7 @@ it('concludes signals from rendered evidence with pixel corroboration', function
         ->and($a['mode'])->toBe('rendered')
         ->and($a['signals']['bg']['tier'])->toBe('light')
         ->and($a['signals']['bg']['confidence'])->toBe(0.95)   // computed + pixels agree
-        ->and($a['signals']['font']['tier'])->toBe('forma-djr') // Poppins → warm sans
+        ->and($a['signals']['font']['tier'])->toBe('cooper-hewitt') // Poppins → contemporary geometric sans
         ->and($a['signals']['weight']['tier'])->toBe('light')
         ->and($a['signals']['text']['tier'])->toBe('regular')
         ->and($a['signals']['radius']['tier'])->toBe('rounded')
@@ -247,7 +247,7 @@ it('brotherwolf regression: light bg, no accent, sharp radius, fast motion', fun
         ->and($a['accent'])->toBeNull()
         ->and($a['signals']['radius']['tier'])->toBe('sharp')
         ->and($a['signals']['motion']['tier'])->toBe('fast')
-        ->and($a['signals']['font']['tier'])->toBe('helvetica-neue')
+        ->and($a['signals']['font']['tier'])->toBe('roboto') // system_ui → 'system ui' keyword
         ->and(collect($a['logo']['candidates'])->pluck('kind'))->toContain('header-img');
 });
 
@@ -293,7 +293,7 @@ it('abstains on computed-vs-pixel background disagreement', function () {
     $a = wbsAnalyzer()->analyze('https://example.test/');
 
     expect($a['signals'])->not->toHaveKey('bg')
-        ->and($a['signals']['font']['tier'])->toBe('forma-djr'); // other signals unaffected
+        ->and($a['signals']['font']['tier'])->toBe('cooper-hewitt'); // other signals unaffected
 });
 
 it('degrades to pixels-only mode when the collector stash is missing (CSP)', function () {
@@ -344,7 +344,7 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     expect($layer['color_bg'])->toBe('#151515')       // previous-website (100) beats Google (50)
         ->and($layer['color_accent'])->toBe('#123abc') // raw accent passes through
         ->and($layer['border_radius'])->toBe('0.25rem')
-        ->and($layer['typography_font_family'])->toBe('forma-djr'); // Google still wins uncontested columns
+        ->and($layer['typography_font_family'])->toBe('young-serif'); // Google still wins uncontested columns (FOOD_DRINK bucket)
 });
 
 it('ignores below-threshold signals and low-confidence accents', function () {
@@ -414,15 +414,15 @@ it('applies the mode across outside websites: 4 dark + 1 light -> dark', functio
     }
     // Shop connection: relational brand rows (FOUND-25), one dark + one warm brand.
     wbsSeedShopConnection($user, [
-        ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'nb-architekt'])],
-        ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'nb-architekt'])],
+        ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'office-code-pro'])],
+        ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'office-code-pro'])],
     ]);
 
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    expect($layer['color_bg'])->toBe('#151515')                       // 4 dark vs 1 warm → dark
-        ->and($layer['typography_font_family'])->toBe('nb-architekt'); // 2 votes, unopposed
+    expect($layer['color_bg'])->toBe('#151515')                          // 4 dark vs 1 warm → dark
+        ->and($layer['typography_font_family'])->toBe('office-code-pro'); // 2 votes, unopposed
 });
 
 it('skips a column when the outside-website vote is tied', function () {

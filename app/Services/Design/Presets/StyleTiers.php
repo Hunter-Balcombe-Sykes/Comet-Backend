@@ -35,11 +35,27 @@ final class StyleTiers
             'dark' => '#151515',
         ],
         // Font tiers ARE the catalog slugs — validated against this set.
+        // 17-font roster locked 2026-07-02 (docs/design/font-icon-knowledge.md).
+        // The 4 old slugs (forma-djr, helvetica-neue, neue-haas-grotesk,
+        // nb-architekt) are RETIRED — never reintroduce.
         'font' => [
-            'forma-djr' => 'forma-djr',
-            'helvetica-neue' => 'helvetica-neue',
-            'neue-haas-grotesk' => 'neue-haas-grotesk',
-            'nb-architekt' => 'nb-architekt',
+            'archivo' => 'archivo',
+            'caveat' => 'caveat',
+            'cooper-hewitt' => 'cooper-hewitt',
+            'eb-garamond' => 'eb-garamond',
+            'libre-baskerville' => 'libre-baskerville',
+            'mplus' => 'mplus',
+            'office-code-pro' => 'office-code-pro',
+            'ostrich-sans' => 'ostrich-sans',
+            'oswald' => 'oswald',
+            'playfair-display' => 'playfair-display',
+            'quicksand' => 'quicksand',
+            'reglo' => 'reglo',
+            'roboto' => 'roboto',
+            'tex-gyre-heros' => 'tex-gyre-heros',
+            'work-sans' => 'work-sans',
+            'young-serif' => 'young-serif',
+            'zilla-slab' => 'zilla-slab',
         ],
         'weight' => [
             'light' => '300',
