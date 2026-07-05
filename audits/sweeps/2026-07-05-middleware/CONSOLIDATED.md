@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 2 complete
-- P2 Medium: 7 of 20 complete
-- P3 Low: 4 of 13 complete
+- P2 Medium: 9 of 20 complete
+- P3 Low: 5 of 13 complete
 
 ---
 
@@ -177,7 +177,7 @@
         ];
         ```
 
-- [ ] **#TEST-2** · P2 — LoadCurrentUser email-sync collision branch has no test
+- [x] **#TEST-2** · P2 — LoadCurrentUser email-sync collision branch has no test
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php:95-105 (`syncEmailFromClaims` catch block); test file tests/Unit/Middleware/LoadCurrentUserTest.php has coverage for the happy path but not this branch
     - **Affects:** Users whose verified Supabase email now collides with another Partna account's email — without test coverage of the catch, a schema or code refactor could silently turn this into a 500 on login.
     - **Effort:** S (~0.5–1h)
@@ -215,7 +215,7 @@
         }
         ```
 
-- [ ] **#PRIV-2** · P2 — Raw email address logged during email-sync collision
+- [x] **#PRIV-2** · P2 — Raw email address logged during email-sync collision
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php (`syncEmailFromClaims` catch block)
     - **Affects:** Users whose verified JWT email collides with another account's — their full email address ships to Nightwatch (a third-party observability processor) at warning level.
     - **Effort:** S (~0.5–1h)
@@ -639,7 +639,7 @@
         ], self::TTL_SEC + random_int(-$jitter, $jitter));
         ```
 
-- [ ] **#DINT-2** · P3 — TOCTOU race in passive email sync from JWT claims
+- [x] **#DINT-2** · P3 — TOCTOU race in passive email sync from JWT claims
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php (`syncEmailFromClaims`)
     - **Affects:** Users with two concurrent requests carrying two different verified emails within the same read-modify-write window — a genuinely narrow scenario.
     - **Effort:** S (~0.5–1h)

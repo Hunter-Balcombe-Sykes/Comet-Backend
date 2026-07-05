@@ -109,14 +109,28 @@ class LoadCurrentUser
             return;
         }
 
+        // DINT-2: this read (the strcasecmp above) and this write are not
+        // wrapped in a transaction or a conditional `UPDATE ... WHERE
+        // primary_email = ?`. The only realistic race is the same user firing
+        // two concurrent requests carrying two different currently-valid
+        // verified emails (e.g. multi-tab re-login) — a narrow window with no
+        // cross-user exposure. The UniqueConstraintViolationException catch
+        // below already prevents the outcome that actually matters (silently
+        // taking over another user's email row); worst case here is a lost
+        // update that self-heals on the next request against the JWT's
+        // current claim. Not worth a conditional UPDATE for that edge case.
         try {
             $professional->primary_email = $claimedEmail;
             $professional->save();
             $this->userCache->invalidateUser($professional);
         } catch (UniqueConstraintViolationException $e) {
+            // Hash before logging — Nightwatch records must never carry a raw
+            // email. Same HMAC-SHA256 scheme as SupabaseEmailEventService::hashEmail
+            // (app.key as pepper, lowercased input) so it's consistent/correlatable
+            // with other email hashes in the codebase and never reversible.
             Log::warning('LoadCurrentUser email sync collision', [
                 'user_id' => (string) $professional->id,
-                'attempted_email' => $claimedEmail,
+                'attempted_email_hash' => hash_hmac('sha256', strtolower($claimedEmail), config('app.key')),
                 'reason' => $e->getMessage(),
             ]);
         }

@@ -9,6 +9,7 @@ use App\Services\Cache\UserCacheService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
     $this->cache = Mockery::mock(UserCacheService::class);
@@ -137,6 +138,73 @@ it('syncs primary_email when claim differs and is verified', function () {
 
     $updated = DB::connection('pgsql')->table('core.users')->where('id', $proId)->value('primary_email');
     expect($updated)->toBe('new@example.com');
+});
+
+it('swallows a UniqueConstraintViolationException on email collision, leaves the row unchanged, and logs a hashed email', function () {
+    setupUsersTable();
+
+    // Production has a partial unique index on primary_email (migration
+    // 20260526000000: `users_email_unique ... WHERE deleted_at IS NULL`) — the
+    // test schema doesn't carry it by default, so mirror it here to make the
+    // collision below a genuine DB-level violation rather than a mocked one.
+    DB::connection('pgsql')->statement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS core.users_email_unique_test ON users (primary_email) WHERE deleted_at IS NULL'
+    );
+
+    $uid = '550e8400-e29b-41d4-a716-446655440000';
+    $proAId = '00000000-0000-0000-0000-0000000000aa';
+    $proBId = '00000000-0000-0000-0000-0000000000bb';
+    $collidingEmail = 'shared@example.com';
+
+    // User A already owns the email that user B's verified claim will collide with.
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proAId,
+        'auth_user_id' => '11111111-1111-1111-1111-111111111111',
+        'primary_email' => $collidingEmail,
+        'status' => 'active',
+    ]);
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proBId,
+        'auth_user_id' => $uid,
+        'primary_email' => 'b-old@example.com',
+        'status' => 'active',
+    ]);
+
+    $proB = User::query()->where('id', $proBId)->first();
+
+    $request = Request::create('/test', 'GET');
+    $request->attributes->set('supabase_uid', $uid);
+    $request->attributes->set('supabase_claims', [
+        'email' => $collidingEmail,
+        'email_verified' => true,
+    ]);
+
+    $this->cache->shouldReceive('getByAuthId')->with($uid)->once()->andReturn($proB);
+    // save() throws before invalidateUser() is reached — the catch must skip it.
+    $this->cache->shouldNotReceive('invalidateUser');
+
+    Log::spy();
+
+    $response = $this->middleware->handle($request, $this->next);
+
+    expect($response->getStatusCode())->toBe(200);
+
+    // User B's row is untouched — the collision was swallowed, not applied.
+    $updated = DB::connection('pgsql')->table('core.users')->where('id', $proBId)->value('primary_email');
+    expect($updated)->toBe('b-old@example.com');
+
+    // Same HMAC-SHA256 scheme as SupabaseEmailEventService::hashEmail.
+    $expectedHash = hash_hmac('sha256', strtolower($collidingEmail), config('app.key'));
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) use ($expectedHash, $proBId) {
+            return $message === 'LoadCurrentUser email sync collision'
+                && ! array_key_exists('attempted_email', $context)
+                && ($context['attempted_email_hash'] ?? null) === $expectedHash
+                && ($context['user_id'] ?? null) === $proBId;
+        });
 });
 
 it('returns 403 when professional account is suspended', function () {
