@@ -18,8 +18,14 @@ class SectorOptionsController extends ApiController
 
     public function show(Request $request): JsonResponse
     {
-        $this->currentUser($request);
+        $user = $this->currentUser($request);
 
-        return $this->success(['groups' => SectorTaxonomy::all()]);
+        // The picker also needs the user's current pick + its provenance so the
+        // Brand Info page can pre-select the slug and badge a Google-sourced value.
+        return $this->success([
+            'groups' => SectorTaxonomy::all(),
+            'current' => $user->sector,
+            'currentSource' => $user->sector_source,
+        ]);
     }
 }
