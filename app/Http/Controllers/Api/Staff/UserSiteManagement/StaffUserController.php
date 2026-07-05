@@ -13,7 +13,6 @@ use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
-use App\Services\User\SyncUserAboutService;
 use Exception;
 use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
@@ -27,10 +26,6 @@ class StaffUserController extends ApiController
     use HandlesSearchQueries;
     use NormalizesPerPage;
     use ReturnsPaginatedResponse;
-
-    public function __construct(
-        private readonly SyncUserAboutService $aboutSync,
-    ) {}
 
     /**
      * GET /api/staff/professionals?q=...&status=...&per_page=...
@@ -194,19 +189,9 @@ class StaffUserController extends ApiController
 
         $validated = $request->validated();
 
-        // Mirror UserSelfController::update: 'about' has no backing column
-        // (FOUND-37) — it only feeds SyncUserAboutService, which writes the
-        // credentials/experience child tables. Must never reach fill().
-        $about = $validated['about'] ?? null;
-        unset($validated['about']);
-
-        DB::transaction(function () use ($professional, $validated, $about): void {
+        DB::transaction(function () use ($professional, $validated): void {
             $professional->fill($validated);
             $professional->save();
-
-            if (is_array($about)) {
-                $this->aboutSync->sync($professional, $about);
-            }
         });
 
         return $this->success([

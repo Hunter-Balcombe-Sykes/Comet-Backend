@@ -106,9 +106,9 @@ abstract class BaseFormRequest extends FormRequest
     /**
      * Value-level twin of `cleanText`. Strips HTML tags, ASCII control chars,
      * and surrounding whitespace from a single string; returns null for empty
-     * results AND for non-string input. Lifted out of cleanText so traits
-     * (ValidatesUserAbout) and nested-array loops (settings.*) can
-     * share the exact same transform without re-implementing it.
+     * results AND for non-string input. Lifted out of cleanText so request
+     * classes and nested-array loops (settings.*) can share the exact same
+     * transform without re-implementing it.
      */
     protected static function cleanString(?string $value): ?string
     {

@@ -4,19 +4,15 @@ namespace App\Http\Requests\Api\User;
 
 use App\Enums\AccountType;
 use App\Http\Requests\BaseFormRequest;
-use App\Http\Requests\Concerns\ValidatesUserAbout;
 use App\Models\Core\User\User;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 // V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
 class UpdateUserRequest extends BaseFormRequest
 {
-    use ValidatesUserAbout;
-
     public function rules(): array
     {
-        return array_merge([
+        return [
             // keep handle out of this endpoint (handle changes should be a dedicated flow)
             'display_name' => ['sometimes', 'required', 'string', 'max:255'],
             'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],
@@ -48,19 +44,11 @@ class UpdateUserRequest extends BaseFormRequest
             'location_state' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_postcode' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_country' => ['sometimes', 'nullable', 'string', 'max:255'],
-        ], $this->aboutRules());
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function ($v) {
-            $this->validateExperienceDateOrder($v);
-        });
+        ];
     }
 
     protected function prepareForValidation(): void
     {
-        $this->normalizeAboutPayload();
         $this->normalizePhones(['phone', 'public_contact_number']);
         $this->lowercaseEmails(['primary_email', 'public_contact_email']);
         $this->cleanText(['bio']);

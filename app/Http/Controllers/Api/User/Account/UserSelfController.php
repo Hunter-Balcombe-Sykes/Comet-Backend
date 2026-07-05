@@ -11,7 +11,6 @@ use App\Http\Resources\SiteResource;
 use App\Http\Resources\UserDashboardResource;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
-use App\Services\User\SyncUserAboutService;
 use Illuminate\Support\Facades\DB;
 
 // V2: Returns authenticated professional's full profile with site, services, and blocks. Dashboard entry point.
@@ -19,10 +18,6 @@ class UserSelfController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
-
-    public function __construct(
-        private readonly SyncUserAboutService $aboutSync,
-    ) {}
 
     public function show(UserShowRequest $request)
     {
@@ -72,18 +67,9 @@ class UserSelfController extends ApiController
 
         $validated = $request->validated();
 
-        // 'about' has no backing column (FOUND-37) — it only feeds SyncUserAboutService,
-        // which writes the credentials/experience child tables. Must never reach fill().
-        $about = $validated['about'] ?? null;
-        unset($validated['about']);
-
-        DB::transaction(function () use ($professional, $validated, $about): void {
+        DB::transaction(function () use ($professional, $validated): void {
             $professional->fill($validated);
             $professional->save();
-
-            if (is_array($about)) {
-                $this->aboutSync->sync($professional, $about);
-            }
         });
 
         return $this->success([

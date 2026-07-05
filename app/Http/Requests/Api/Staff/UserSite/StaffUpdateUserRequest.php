@@ -3,18 +3,14 @@
 namespace App\Http\Requests\Api\Staff\UserSite;
 
 use App\Http\Requests\BaseFormRequest;
-use App\Http\Requests\Concerns\ValidatesUserAbout;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 // V2: Validates staff update of a professional profile — supports display name, contact info, location, and phone normalization with PATCH semantics.
 class StaffUpdateUserRequest extends BaseFormRequest
 {
-    use ValidatesUserAbout;
-
     public function rules(): array
     {
-        return array_merge([
+        return [
             // profile-ish fields
             'display_name' => ['sometimes', 'required', 'string', 'max:255'],
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -40,19 +36,11 @@ class StaffUpdateUserRequest extends BaseFormRequest
             // Staff-only — see UserStaffResource. Self-service UserDashboardResource
             // must never expose admin_notes back to the professional.
             'admin_notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
-        ], $this->aboutRules());
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function ($v) {
-            $this->validateExperienceDateOrder($v);
-        });
+        ];
     }
 
     protected function prepareForValidation(): void
     {
-        $this->normalizeAboutPayload();
         $this->normalizePhones(['phone', 'public_contact_number']);
         $this->lowercaseEmails(['primary_email', 'public_contact_email']);
         $this->cleanText(['bio']);
