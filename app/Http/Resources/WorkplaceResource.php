@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
 class WorkplaceResource extends ApiResource
 {
     /**
-     * @return array{name: string, address: ?string, address_line1: ?string, city: ?string, state: ?string, postcode: ?string, country: ?string, latitude: ?float, longitude: ?float, phone: ?string, website: ?string, previous_website: ?string, category: ?string, description: ?string}
+     * @return array{name: string, address: ?string, address_line1: ?string, city: ?string, state: ?string, postcode: ?string, country: ?string, latitude: ?float, longitude: ?float, phone: ?string, website: ?string, previous_website: ?string, category: ?string, description: ?string, contact_email: ?string, opening_hours: ?array<string,mixed>, field_sources: array<string,mixed>}
      */
     public function toArray(Request $request): array
     {
@@ -34,6 +34,11 @@ class WorkplaceResource extends ApiResource
             'previous_website' => self::trimOrNull($this->previous_website),
             'category' => self::trimOrNull($this->category),
             'description' => self::trimOrNull($this->description),
+            'contact_email' => self::trimOrNull($this->contact_email),
+            // Structured per-day hours (array) + per-field provenance so the
+            // Brand Info editor can render "Synced from Google" badges per field.
+            'opening_hours' => $this->opening_hours,
+            'field_sources' => $this->field_sources ?? [],
         ];
     }
 

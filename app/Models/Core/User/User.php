@@ -60,6 +60,11 @@ class User extends BaseModel
         'first_name',
         'last_name',
 
+        // Curated industry/sector slug (see App\Services\Profile\SectorTaxonomy).
+        // sector_source is deliberately NOT fillable — it's stamped by the
+        // SectorController ('manual') and IdentitySync ('google-business').
+        'sector',
+
         // Public Accessible Contacts
         'public_contact_number',
         'public_contact_email',

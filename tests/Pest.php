@@ -315,6 +315,8 @@ function setupUsersTable(): void
         onboarding_step INTEGER NULL,
         public_contact_number TEXT NULL,
         public_contact_email TEXT NULL,
+        sector TEXT NULL,
+        sector_source TEXT NULL,
         icon_bucket TEXT NULL,
         icon_path TEXT NULL,
         headshot_bucket TEXT NULL,
@@ -328,6 +330,17 @@ function setupUsersTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTERs for suites that created core.users before the sector
+    // columns existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to
+    // an already-created table within a run). Mirrors migration 20260705150100.
+    foreach (['sector', 'sector_source'] as $col) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE core.users ADD COLUMN {$col} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**
@@ -632,15 +645,27 @@ function setupWorkplacesTable(): void
         previous_website_analysis TEXT NULL,
         category TEXT NULL,
         description TEXT NULL,
+        opening_hours TEXT NULL,
+        contact_email TEXT NULL,
+        field_sources TEXT NOT NULL DEFAULT \'{}\',
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
-    // Defensive ALTER for suites that created the table before the analysis
-    // column existed (mirrors the setupSitesTable pattern).
-    try {
-        DB::connection('pgsql')->statement('ALTER TABLE site.workplaces ADD COLUMN previous_website_analysis TEXT NULL');
-    } catch (Throwable $e) {
-        // already exists — ignore
+    // Defensive ALTERs for suites that created the table before these columns
+    // existed (mirrors the setupSitesTable pattern). previous_website_analysis
+    // predates the central-identity columns (opening_hours/contact_email/
+    // field_sources — migration 20260705150000).
+    foreach ([
+        'ALTER TABLE site.workplaces ADD COLUMN previous_website_analysis TEXT NULL',
+        'ALTER TABLE site.workplaces ADD COLUMN opening_hours TEXT NULL',
+        'ALTER TABLE site.workplaces ADD COLUMN contact_email TEXT NULL',
+        "ALTER TABLE site.workplaces ADD COLUMN field_sources TEXT NOT NULL DEFAULT '{}'",
+    ] as $ddl) {
+        try {
+            DB::connection('pgsql')->statement($ddl);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
     }
 }
 

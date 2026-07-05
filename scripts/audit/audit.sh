@@ -209,12 +209,12 @@ codebase_chunks() {
 auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules config
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
 public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php app/Http/Resources
-outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Design cloudflare-worker/src
+outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Design app/Services/Profile cloudflare-worker/src
 outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
-account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
+account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
 moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
 connectors|app/Services/Platforms app/Jobs/Platforms
 EOF

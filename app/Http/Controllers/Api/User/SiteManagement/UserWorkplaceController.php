@@ -8,6 +8,8 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
 use App\Http\Resources\WorkplaceResource;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,29 +45,57 @@ class UserWorkplaceController extends ApiController
         $site = $this->currentSite($professional);
         $data = $request->validated();
 
-        $workplace = Workplace::updateOrCreate(
-            ['site_id' => (string) $site->id],
-            [
-                'name' => (string) $data['name'],
-                'address' => trim_or_null($data['address'] ?? null),
-                // Structured address components stored alongside the formatted
-                // string so manual edits survive the save round-trip.
-                'address_line1' => trim_or_null($data['address_line1'] ?? null),
-                'city' => trim_or_null($data['city'] ?? null),
-                'state' => trim_or_null($data['state'] ?? null),
-                'postcode' => trim_or_null($data['postcode'] ?? null),
-                'country' => trim_or_null($data['country'] ?? null),
-                'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
-                'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
-                'phone' => trim_or_null($data['phone'] ?? null),
-                'website' => trim_or_null($data['website'] ?? null),
-                // Archive of the business's old website + Google-sourced category
-                // and editorial description (auto-filled from Google Business).
-                'previous_website' => trim_or_null($data['previous_website'] ?? null),
-                'category' => trim_or_null($data['category'] ?? null),
-                'description' => trim_or_null($data['description'] ?? null),
-            ],
+        $attributes = [
+            'name' => (string) $data['name'],
+            'address' => trim_or_null($data['address'] ?? null),
+            // Structured address components stored alongside the formatted
+            // string so manual edits survive the save round-trip.
+            'address_line1' => trim_or_null($data['address_line1'] ?? null),
+            'city' => trim_or_null($data['city'] ?? null),
+            'state' => trim_or_null($data['state'] ?? null),
+            'postcode' => trim_or_null($data['postcode'] ?? null),
+            'country' => trim_or_null($data['country'] ?? null),
+            'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
+            'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
+            'phone' => trim_or_null($data['phone'] ?? null),
+            'website' => trim_or_null($data['website'] ?? null),
+            // Archive of the business's old website + Google-sourced category
+            // and editorial description (auto-filled from Google Business).
+            'previous_website' => trim_or_null($data['previous_website'] ?? null),
+            'category' => trim_or_null($data['category'] ?? null),
+            'description' => trim_or_null($data['description'] ?? null),
+            // Central-identity fields the Brand Info page owns. opening_hours is
+            // the structured per-day map; contact_email is manual-only.
+            'contact_email' => trim_or_null($data['contact_email'] ?? null),
+            'opening_hours' => $data['opening_hours'] ?? null,
+        ];
+
+        $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+        $workplace->fill($attributes);
+
+        // Stamp manual provenance for every identity field the user actually
+        // sent, merged into the existing map so a manual edit to one field
+        // never wipes another field's google-business badge (and vice-versa).
+        $workplace->field_sources = $this->mergeManualSources(
+            is_array($workplace->field_sources) ? $workplace->field_sources : [],
+            $request,
         );
+        $workplace->save();
+
+        // Mirror the shared contact fields onto the user so the sitepage
+        // contact block and the workplace card read one value. Manual entry is
+        // authoritative here regardless of account type — the user is editing
+        // these fields by hand right now.
+        $this->mirrorContactFields($professional, $attributes['phone'], $attributes['contact_email']);
+
+        // Business accounts treat the workplace name as their public display
+        // name (same rule as GoogleBusinessController::maybeAdoptGoogleName),
+        // gated on the capability so the account_type read stays centralized.
+        if (AccountCapabilities::for($professional)->google_business_sets_display_name
+            && $professional->display_name !== $attributes['name']) {
+            $professional->display_name = $attributes['name'];
+            $professional->save();
+        }
 
         // The 'workplace' section block reads its visibility from site.workplaces.
         // Re-evaluate is_enabled so the dashboard's Live toggle frees up the
@@ -79,6 +109,53 @@ class UserWorkplaceController extends ApiController
         return $this->success([
             'workplace' => WorkplaceResource::forWorkplace($workplace),
         ]);
+    }
+
+    /**
+     * Merge 'manual' provenance for the identity fields present in THIS request
+     * into the stored field_sources map. Only fields the user actually sent are
+     * stamped; the rest of the map (e.g. a google-business badge on a field they
+     * didn't touch) is preserved.
+     *
+     * @param  array<string, mixed>  $existing
+     * @return array<string, mixed>
+     */
+    private function mergeManualSources(array $existing, UpsertWorkplaceRequest $request): array
+    {
+        $stamp = now()->toIso8601String();
+
+        // Identity fields whose provenance the dashboard surfaces. `name` is
+        // always present (required); the rest are stamped only when sent.
+        foreach (['name', 'address', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
+            if ($request->has($field)) {
+                $existing[$field] = ['source' => 'manual', 'at' => $stamp];
+            }
+        }
+
+        return $existing;
+    }
+
+    /**
+     * Mirror the workplace phone/email onto the user's public contact columns so
+     * the sitepage contact block stays coherent with the workplace card. Writes
+     * only when the value actually changes to avoid a redundant save + observer.
+     */
+    private function mirrorContactFields(User $user, ?string $phone, ?string $email): void
+    {
+        $dirty = false;
+
+        if ($user->public_contact_number !== $phone) {
+            $user->public_contact_number = $phone;
+            $dirty = true;
+        }
+        if ($user->public_contact_email !== $email) {
+            $user->public_contact_email = $email;
+            $dirty = true;
+        }
+
+        if ($dirty) {
+            $user->save();
+        }
     }
 
     public function destroy(Request $request): JsonResponse

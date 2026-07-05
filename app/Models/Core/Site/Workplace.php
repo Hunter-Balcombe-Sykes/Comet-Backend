@@ -40,6 +40,10 @@ class Workplace extends BaseModel
         'previous_website',
         'category',
         'description',
+        // Identity fields the Brand/Workplace Info page owns and the Google
+        // precedence sync fills. opening_hours is structured per-day JSON.
+        'opening_hours',
+        'contact_email',
     ];
 
     protected $casts = [
@@ -50,6 +54,11 @@ class Workplace extends BaseModel
         // written only via direct attribute assignment (AnalyzePreviousWebsiteJob)
         // — deliberately NOT in $fillable so no mass-assignment path can set it.
         'previous_website_analysis' => 'array',
+        // Structured per-day opening hours: {"mon":[{"open":"0900","close":"1700"}], ...}.
+        'opening_hours' => 'array',
+        // Per-field provenance {"<field>":{"source":"google-business|manual","at":"<iso>"}}.
+        // System-written by IdentitySync + UserWorkplaceController — NOT in $fillable.
+        'field_sources' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

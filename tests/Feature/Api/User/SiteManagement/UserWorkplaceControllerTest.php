@@ -50,6 +50,10 @@ function uwcWorkplaceKeys(): array
     return [
         'name', 'address', 'address_line1', 'city', 'state', 'postcode', 'country',
         'latitude', 'longitude', 'phone', 'website', 'previous_website', 'category', 'description',
+        // Central-identity additions (API-1 follow-up): the workplace card now
+        // also carries the contact email, structured hours, and per-field
+        // provenance the Brand Info page + Google sync own.
+        'contact_email', 'opening_hours', 'field_sources',
     ];
 }
 

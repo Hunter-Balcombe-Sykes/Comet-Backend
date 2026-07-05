@@ -15,6 +15,8 @@ use App\Http\Controllers\Api\User\Notifications\ConfirmationPreferenceController
 use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
+use App\Http\Controllers\Api\User\Profile\SectorController;
+use App\Http\Controllers\Api\User\Profile\SectorOptionsController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
 use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
@@ -39,6 +41,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Show & Edit Details
         Route::get('/me', [UserSelfController::class, 'show']);
         Route::patch('/me', [UserSelfController::class, 'update']);
+
+        // Profile sector/industry — curated picker options + manual set. The
+        // sector is also fillable by the Google Business precedence sync
+        // (IdentitySync); a manual PUT stamps sector_source='manual'.
+        Route::get('/profile/sector-options', [SectorOptionsController::class, 'show']);
+        Route::put('/profile/sector', [SectorController::class, 'update']);
 
         // Account Deletion — self-service lifecycle.
         // `idempotent` middleware closes the concurrent-double-submit race that

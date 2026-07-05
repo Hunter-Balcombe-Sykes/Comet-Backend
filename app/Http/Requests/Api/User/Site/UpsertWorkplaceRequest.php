@@ -15,7 +15,7 @@ class UpsertWorkplaceRequest extends BaseFormRequest
     {
         $trimmed = [];
         foreach ([
-            'name', 'address', 'phone', 'website',
+            'name', 'address', 'phone', 'website', 'contact_email',
             // Previous/old website (archive) + business category + editorial
             // description — also auto-filled from Google Business when empty.
             'previous_website', 'category', 'description',
@@ -54,6 +54,12 @@ class UpsertWorkplaceRequest extends BaseFormRequest
             'previous_website' => ['nullable', 'url', 'max:2048'],
             'category' => ['nullable', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:1000'],
+            // Public contact email — manual-only (Google Places never returns one).
+            'contact_email' => ['nullable', 'email', 'max:255'],
+            // Structured per-day opening hours. Keys are weekday slugs; each maps
+            // to a list of {open,close} HHMM entries. Shape owned by the Brand Info
+            // editor + the Google hours mapper — validated loosely here.
+            'opening_hours' => ['nullable', 'array'],
         ];
     }
 }

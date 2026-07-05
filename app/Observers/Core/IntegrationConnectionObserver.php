@@ -4,7 +4,9 @@ namespace App\Observers\Core;
 
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Facades\Log;
@@ -45,6 +47,38 @@ class IntegrationConnectionObserver
             || $connection->wasChanged('is_active')) {
             $this->refresher->refresh($connection);
         }
+
+        // Central-identity fold: a google-business connect OR a refresh that
+        // changed the payload folds Google's identity fields into the canonical
+        // stores (workplaces + a couple of users mirror columns). Covers both
+        // write paths — connect (updateOrCreate) and ScheduledRefresh (->update)
+        // both land here. IdentitySync writes workplaces + users, never the
+        // connection, so there is no recursion.
+        if ($connection->platform === Platform::GoogleBusiness->value
+            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
+            $this->syncIdentityFromGoogle($connection);
+        }
+    }
+
+    /**
+     * Resolve the connection's owner and fold its google-business payload into
+     * the identity stores. The payload is read through the typed
+     * GoogleBusinessPayload DTO (no raw ->payload access — this observer is on
+     * the migrated read-path allowlist). Gated on a non-empty name so a bare or
+     * failed card never triggers a write. IdentitySync is container-resolved
+     * (not a ctor dep) so the tests that `new` this observer for the Instagram-
+     * only path stay dependency-free, and is best-effort internally — a missing
+     * user is guarded here so a stray orphan row can't throw.
+     */
+    private function syncIdentityFromGoogle(IntegrationConnection $connection): void
+    {
+        $payload = GoogleBusinessPayload::fromArray($connection->payload);
+        $user = $connection->user;
+        if ($user === null || $payload->name() === null) {
+            return;
+        }
+
+        app(IdentitySync::class)->applyFromGooglePayload($user, $payload->toArray());
     }
 
     public function deleted(IntegrationConnection $connection): void
