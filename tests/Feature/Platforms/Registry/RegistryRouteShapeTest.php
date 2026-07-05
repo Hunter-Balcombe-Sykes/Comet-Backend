@@ -12,7 +12,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->connectController())->toBeNull($key);
     }
 
-    $single = ['skool', 'strava', 'google-business'];
+    $single = ['skool', 'google-business'];
     foreach ($single as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::SingleSelection, $key);
         expect($registry->get($key)->connectController())->not->toBeNull($key);
@@ -25,7 +25,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->multiAccount())->toBeTrue($key);
     }
 
-    $multiFalse = ['pinterest', 'opentable', 'resdiary', 'nowbookit'];
+    $multiFalse = ['pinterest', 'strava', 'opentable', 'resdiary', 'nowbookit'];
     foreach ($multiFalse as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::MultiAccount, $key);
         expect($registry->get($key)->multiAccount())->toBeFalse($key);

@@ -38,9 +38,27 @@ it('hydrates leniently — missing keys null, unknown keys dropped, non-array ti
     expect($p->toArray())->not->toHaveKey('_leak');
     expect(array_keys($p->toArray()))->toBe([
         'handle', 'url', 'channelId', 'apiPath', 'input', 'login', 'username', 'artist',
-        'name', 'description', 'link', 'thumbnail', 'image', 'releaseDate', 'followers',
-        'latest', 'items', 'highlights',
+        'name', 'description', 'link', 'thumbnail', 'image', 'releaseDate', 'location',
+        'followers', 'members', 'latest', 'items', 'highlights',
     ]);
+});
+
+// Strava's location/members keys (FOUND-24 Task 4) — round-trip through the DTO
+// exactly like every other feed field: present values pass through typed,
+// absent values null out.
+it('round-trips strava location/members through fromArray/toArray', function () {
+    $p = FeedPayload::fromArray(['location' => 'Melbourne, Australia', 'members' => 142]);
+
+    expect($p->location)->toBe('Melbourne, Australia');
+    expect($p->members)->toBe(142);
+    expect($p->toArray())->toMatchArray(['location' => 'Melbourne, Australia', 'members' => 142]);
+});
+
+it('defaults location/members to null when absent', function () {
+    $p = FeedPayload::fromArray(['name' => 'Fade Lab Running Club']);
+
+    expect($p->location)->toBeNull();
+    expect($p->members)->toBeNull();
 });
 
 // Resource-output equivalence: feeding the DTO-normalized array to each feed

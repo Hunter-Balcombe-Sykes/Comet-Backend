@@ -2,9 +2,9 @@
 
 namespace App\Services\Platforms\Payloads;
 
-// Typed boundary for the scraped/API-feed archetype — ONE DTO spanning the 8 feed
+// Typed boundary for the scraped/API-feed archetype — ONE DTO spanning the 9 feed
 // platforms (youtube, youtube-music, vimeo, bandcamp, twitch, pinterest, apple-music,
-// apple-podcast). Each platform stores a SUBSET of these keys; this is their union.
+// apple-podcast, strava). Each platform stores a SUBSET of these keys; this is their union.
 // `channelId` (YouTube Music) and `apiPath` (Vimeo) are private re-fetch inputs the
 // resources never emit — carried so the fetch strategies + Plan 6's refresher read
 // them typed. `latest`/`items`/`highlights` hold nested scraper items, passed through
@@ -33,7 +33,9 @@ final readonly class FeedPayload
         public ?string $thumbnail,
         public ?string $image,
         public ?string $releaseDate,
+        public ?string $location,
         public int|string|null $followers,
+        public int|string|null $members,
         public ?array $latest,
         public ?array $items,
         public ?array $highlights,
@@ -57,7 +59,9 @@ final readonly class FeedPayload
             thumbnail: self::stringOrNull($payload['thumbnail'] ?? null),
             image: self::stringOrNull($payload['image'] ?? null),
             releaseDate: self::stringOrNull($payload['releaseDate'] ?? null),
+            location: self::stringOrNull($payload['location'] ?? null),
             followers: self::intStringOrNull($payload['followers'] ?? null),
+            members: self::intStringOrNull($payload['members'] ?? null),
             latest: self::arrayOrNull($payload['latest'] ?? null),
             items: self::arrayOrNull($payload['items'] ?? null),
             highlights: self::arrayOrNull($payload['highlights'] ?? null),
@@ -82,7 +86,9 @@ final readonly class FeedPayload
             'thumbnail' => $this->thumbnail,
             'image' => $this->image,
             'releaseDate' => $this->releaseDate,
+            'location' => $this->location,
             'followers' => $this->followers,
+            'members' => $this->members,
             'latest' => $this->latest,
             'items' => $this->items,
             'highlights' => $this->highlights,

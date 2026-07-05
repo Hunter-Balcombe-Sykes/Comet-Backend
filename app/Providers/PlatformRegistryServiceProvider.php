@@ -7,7 +7,6 @@ use App\Http\Controllers\Api\Platforms\NowBookitController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\ResDiaryController;
 use App\Http\Controllers\Api\Platforms\SkoolController;
-use App\Http\Controllers\Api\Platforms\StravaController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
@@ -65,6 +64,7 @@ use App\Services\Platforms\Strategies\Connect\DeezerConnect;
 use App\Services\Platforms\Strategies\Connect\PinterestConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
+use App\Services\Platforms\Strategies\Connect\StravaConnect;
 use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
@@ -126,6 +126,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
             // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
             $r->get('strava')->fetch(fn () => new StravaFetch(app(StravaClubScraper::class)));
+            // Connect strategy + read-path DTO (FOUND-24) — parse-fail message is the
+            // frozen 422 contract, copied verbatim from the deleted StravaController.
+            // Strava's reads now go through FeedPayload too (it gained location/members).
+            $r->get('strava')->connect(fn () => new StravaConnect(app(StravaClubScraper::class)), 'Enter your Strava club URL (strava.com/clubs/yourclub).');
+            $r->get('strava')->payload(FeedPayload::class);
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud', 'deezer' => 'Deezer'] as $key => $label) {
@@ -300,18 +305,20 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // Single-selection (connect/selection/forget all on the bespoke controller).
             $r->get('skool')->routes(PlatformRouteShape::SingleSelection, SkoolController::class);
-            $r->get('strava')->routes(PlatformRouteShape::SingleSelection, StravaController::class);
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/deezer/twitch/pinterest are now fully registry-driven
+            // spotify/soundcloud/deezer/twitch/pinterest/strava are now fully registry-driven
             // (FOUND-24) — null controller routes connect through GenericPlatformController
-            // + the descriptor's ConnectStrategy (registered above).
+            // + the descriptor's ConnectStrategy (registered above). Strava is the one
+            // platform whose READS also moved here (Task 4) — its stored payload now
+            // hydrates through FeedPayload instead of the deleted StravaController.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
+            $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, OpenTableController::class, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, ResDiaryController::class, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, NowBookitController::class, false);
