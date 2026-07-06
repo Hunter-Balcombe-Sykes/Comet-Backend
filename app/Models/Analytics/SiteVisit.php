@@ -35,6 +35,7 @@ class SiteVisit extends BaseModel
         'utm_campaign',
         'country_code',
         'region_code',
+        'city',
         'device_type',
     ];
 

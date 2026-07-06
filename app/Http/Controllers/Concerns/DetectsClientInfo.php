@@ -125,4 +125,35 @@ trait DetectsClientInfo
 
         return $code;
     }
+
+    /**
+     * Detect the visitor's city (free text, e.g. "South Melbourne") from the
+     * partna-pages proxy header. Best-effort demographics only — the edge doesn't
+     * always resolve a city, and the value is NEVER trusted for auth/routing.
+     * Sanitised to a safe printable subset with a length cap; any anomaly returns
+     * null so a malformed header can never poison ingestion.
+     */
+    protected function detectCity(Request $request): ?string
+    {
+        $city = $request->header('X-Visitor-City')
+            ?? $request->header('CF-IPCity');
+
+        if (! is_string($city)) {
+            return null;
+        }
+
+        $city = trim($city);
+
+        // Reject empty / over-long values, then allow only letters (incl. accented),
+        // combining marks, digits, spaces, and common place punctuation.
+        if ($city === '' || mb_strlen($city) > 120) {
+            return null;
+        }
+
+        if (! preg_match("/^[\\p{L}\\p{M}0-9 .'\\-]+$/u", $city)) {
+            return null;
+        }
+
+        return $city;
+    }
 }

@@ -1389,6 +1389,7 @@ function setupSiteVisitsTable(): void
         device_type TEXT NULL,
         country_code TEXT NULL,
         region_code TEXT NULL,
+        city TEXT NULL,
         referrer TEXT NULL,
         utm_source TEXT NULL,
         utm_medium TEXT NULL,

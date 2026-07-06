@@ -342,6 +342,7 @@ class AnalyticsController extends ApiController
             // they happened in via payload (which section hosted the anchor).
             sectionKey: $sectionKey ?? $data['section_key'] ?? null,
             regionCode: $this->detectRegionCode($request),
+            city: $this->detectCity($request),
             url: $data['url'] ?? null,
             platform: isset($data['platform']) ? strtolower($data['platform']) : null,
             productId: $data['product_id'] ?? null,

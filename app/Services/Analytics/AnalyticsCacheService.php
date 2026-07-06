@@ -130,6 +130,9 @@ class AnalyticsCacheService
                 // AU state split (region_code from the edge); countries stays the
                 // world view, regions zooms into the home market.
                 'regions' => $this->queries->regions($proId, $from, $to),
+                // Top cities by unique visitors — powers the demographics map's
+                // city view (region_code gives states; city zooms one level in).
+                'cities' => $this->queries->cities($proId, $from, $to),
                 'referrers' => $this->queries->referrers($proId, $from, $to),
                 'platforms' => $this->queries->platformClicks($proId, $from, $to),
             ],

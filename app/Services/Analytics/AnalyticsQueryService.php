@@ -116,6 +116,13 @@ class AnalyticsQueryService
         }
     }
 
+    /**
+     * Daily/hourly VOLUME series for the "Views" chart — COUNT(*) (page views,
+     * not unique visitors) so the series sums to totals.visits. Headline + chart
+     * must reconcile: the dashboard plots this under the "Views" total, which is
+     * also COUNT(*). Unique-visitor reach lives in the *Aggregate methods +
+     * demographics (countries/regions/referrers stay COUNT(DISTINCT)).
+     */
     public function visitsByBucket(string $userId, Carbon $from, Carbon $to, bool $hourly): Collection
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
@@ -123,7 +130,7 @@ class AnalyticsQueryService
         return DB::table('analytics.site_visits')
             ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw("{$bucketExpr} as day, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
+            ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
             ->groupByRaw($bucketGroup)
             ->orderBy('day')
             ->get();
@@ -137,7 +144,7 @@ class AnalyticsQueryService
             return DB::table('analytics.link_clicks')
                 ->where('user_id', $userId)
                 ->whereBetween('occurred_at', [$from, $to])
-                ->selectRaw("{$bucketExpr} as day, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
+                ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
                 ->groupByRaw($bucketGroup)
                 ->orderBy('day')
                 ->get();
@@ -156,7 +163,7 @@ class AnalyticsQueryService
         $raw = DB::table('analytics.site_visits')
             ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw(self::DEVICE_CASE.' as device, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors')
+            ->selectRaw(self::DEVICE_CASE.' as device, COUNT(*) as visitors')
             ->groupByRaw(self::DEVICE_CASE)
             ->get()
             ->keyBy('device');
@@ -175,7 +182,7 @@ class AnalyticsQueryService
         return DB::table('analytics.site_visits')
             ->where('user_id', $userId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw("DATE(occurred_at) as day, {$case} as device, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as count")
+            ->selectRaw("DATE(occurred_at) as day, {$case} as device, COUNT(*) as count")
             ->groupByRaw("DATE(occurred_at), {$case}")
             ->orderBy('day')
             ->get();
@@ -368,6 +375,32 @@ class AnalyticsQueryService
             ->get()
             ->map(fn ($r) => [
                 'region_code' => (string) $r->region_code,
+                'visitors' => (int) $r->visitors,
+            ])
+            ->all();
+    }
+
+    /**
+     * Top cities by unique visitors — demographics (unique reach), so
+     * COUNT(DISTINCT) like the other geo breakdowns. Rows with no resolved city
+     * are dropped (not bucketed) so the list stays meaningful; the edge fills
+     * city on a best-effort basis.
+     *
+     * @return array<int, array{city:string, visitors:int}>
+     */
+    public function cities(string $userId, Carbon $from, Carbon $to, int $limit = 6): array
+    {
+        return DB::table('analytics.site_visits')
+            ->where('user_id', $userId)
+            ->whereNotNull('city')
+            ->whereBetween('occurred_at', [$from, $to])
+            ->selectRaw('city, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as visitors')
+            ->groupBy('city')
+            ->orderByDesc('visitors')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'city' => (string) $r->city,
                 'visitors' => (int) $r->visitors,
             ])
             ->all();

@@ -108,6 +108,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'utm_campaign' => $e->utmCampaign,
             'country_code' => $e->countryCode,
             'region_code' => $e->regionCode,
+            'city' => $e->city,
             'device_type' => $e->deviceType,
         ];
     }
