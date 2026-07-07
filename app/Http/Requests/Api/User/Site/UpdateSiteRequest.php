@@ -18,7 +18,19 @@ class UpdateSiteRequest extends BaseFormRequest
 
     /** Allowed skeleton IDs — mirrors the DB CHECK constraint. */
     public const ALLOWED_SKELETONS = [
-        'skeleton-1', 'skeleton-2', 'skeleton-3', 'skeleton-4',
+        'bento', 'hub', 'stories', 'flow',
+    ];
+
+    /**
+     * Pre-rename ids (2026-07-07: skeleton-N → named). Accepted on write and
+     * normalized to the canonical id so a not-yet-updated dashboard build can
+     * still save its selection during the rollout window.
+     */
+    public const LEGACY_SKELETON_IDS = [
+        'skeleton-1' => 'bento',
+        'skeleton-2' => 'hub',
+        'skeleton-3' => 'stories',
+        'skeleton-4' => 'flow',
     ];
 
     protected function prepareForValidation(): void
@@ -27,6 +39,10 @@ class UpdateSiteRequest extends BaseFormRequest
 
         if (is_string($this->subdomain ?? null)) {
             $merge['subdomain'] = strtolower(trim($this->subdomain));
+        }
+
+        if (is_string($this->skeleton_id ?? null) && isset(self::LEGACY_SKELETON_IDS[$this->skeleton_id])) {
+            $merge['skeleton_id'] = self::LEGACY_SKELETON_IDS[$this->skeleton_id];
         }
 
         if ($merge !== []) {
@@ -89,7 +105,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of skeleton-1..4. Replaces theme_id.
+            // Skeleton — one of bento/hub/stories/flow (legacy skeleton-N ids
+            // normalized in prepareForValidation). Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
@@ -132,7 +149,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: skeleton-1, skeleton-2, skeleton-3, skeleton-4.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, hub, stories, flow.',
         ];
     }
 }

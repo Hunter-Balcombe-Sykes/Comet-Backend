@@ -22,13 +22,13 @@ beforeEach(function () {
     setupServicesTable();
 
     // Skeleton-system cleanup column shim — production has skeleton_id with
-    // CHECK enum default 'skeleton-1', and the SitepageDataResolverService
+    // CHECK enum default 'bento', and the SitepageDataResolverService
     // reads it via $site->skeleton_id. Plus a stub design_kits table whose
     // shape mirrors the post-phase-7a column set so the PayloadBuilder's
     // loadDesignKit() lookup + grouping logic exercises real columns even on
     // SQLite.
     try {
-        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'skeleton-1'");
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'bento'");
     } catch (Throwable $e) {
         // Column already exists from a prior test in the same process.
     }
@@ -120,7 +120,7 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
-    expect($data['skeletonId'])->toBe('skeleton-1');
+    expect($data['skeletonId'])->toBe('bento');
     // Empty designKit decodes to [] under json() because PHP can't tell
     // {} from [] post-decode; the wire byte-level check happens below.
     expect($data['designKit'])->toEqual([]);
@@ -175,9 +175,9 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
 });
 
 it('returns the user-selected skeleton_id', function () {
-    seedIndividualProfile('solo-sk2', 'skeleton-2');
+    seedIndividualProfile('solo-sk2', 'hub');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
-    expect($data['skeletonId'])->toBe('skeleton-2');
+    expect($data['skeletonId'])->toBe('hub');
 });
 
 it('groups stored design_kit columns into nested camelCase wire shape', function () {
@@ -1091,7 +1091,7 @@ it('single-flights concurrent requests so only one payload is built', function (
         ->andReturn([
             'profile' => ['handle' => 'singleflight-pro'],
             'designKit' => new stdClass,
-            'skeletonId' => 'skeleton-1',
+            'skeletonId' => 'bento',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
             'designMedia' => [],
         ]);

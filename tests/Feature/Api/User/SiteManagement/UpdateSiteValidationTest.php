@@ -101,11 +101,24 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'skeleton_id' => 'skeleton-3',
+            'skeleton_id' => 'stories',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('skeleton-3');
+        ->toBe('stories');
+});
+
+it('normalizes legacy skeleton-N ids to the canonical named ids on write', function () {
+    // Rollout affordance for the 2026-07-07 rename: a dashboard build that still
+    // sends skeleton-N must keep working, and the stored value must be canonical.
+    $pro = createTenant('legacy-skeleton-pro');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['skeleton_id' => 'skeleton-3'])
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
+        ->toBe('stories');
 });

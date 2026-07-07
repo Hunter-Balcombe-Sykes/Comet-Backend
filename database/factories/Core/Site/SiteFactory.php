@@ -23,7 +23,7 @@ class SiteFactory extends Factory
             'id' => (string) Str::uuid(),
             'user_id' => User::factory(),
             'subdomain' => $sub,
-            'skeleton_id' => 'skeleton-1',
+            'skeleton_id' => 'bento',
             'settings' => [],
             'is_published' => true,
         ];

@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property mixed $id
  */
 // A user's public-facing site. Owns blocks, media, skeleton selection, and publish state. One site per user.
-// `skeleton_id` is a TEXT enum constrained by the DB CHECK to skeleton-1..4
+// `skeleton_id` is a TEXT enum constrained by the DB CHECK to bento/hub/stories/flow
 // — the renderer (partna-pages) picks one of four code-side skeleton layouts
 // from that value. Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel
@@ -25,7 +25,7 @@ class Site extends BaseModel
     use HasFactory, HasUuids;
 
     /** Default skeleton when none has been explicitly chosen. Must match the DB CHECK constraint. */
-    public const DEFAULT_SKELETON_ID = 'skeleton-1';
+    public const DEFAULT_SKELETON_ID = 'bento';
 
     /**
      * Allowed booking modes — mirrors the sites_booking_mode_check DB CHECK
