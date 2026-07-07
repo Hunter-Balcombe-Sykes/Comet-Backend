@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  * @property mixed $id
  */
 // A user's public-facing site. Owns blocks, media, skeleton selection, and publish state. One site per user.
-// `skeleton_id` is a TEXT enum constrained by the DB CHECK to bento/hub/stories/flow/sheet/thread
+// `skeleton_id` is a TEXT enum constrained by the DB CHECK to bento/dock/flick/deck/sheet/thread
 // — the renderer (partna-pages) picks one of six code-side skeleton layouts
 // from that value. Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel

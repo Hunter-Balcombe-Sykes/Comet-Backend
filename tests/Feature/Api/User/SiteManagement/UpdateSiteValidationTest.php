@@ -100,18 +100,19 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'skeleton_id' => 'stories',
+            'skeleton_id' => 'flick',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('stories');
+        ->toBe('flick');
 });
 
-it('normalizes legacy skeleton-N ids to the canonical named ids on write', function () {
-    // Rollout affordance for the 2026-07-07 rename: a dashboard build that still
-    // sends skeleton-N must keep working, and the stored value must be canonical.
+it('normalizes legacy skeleton ids (both generations) to canonical on write', function () {
+    // Rollout affordance for the 2026-07-07 renames: dashboard builds that
+    // still send skeleton-N or the pre-bento-class names must keep working,
+    // and the stored value must be canonical.
     $pro = createTenant('legacy-skeleton-pro');
 
     actingAsUser($pro)
@@ -119,5 +120,12 @@ it('normalizes legacy skeleton-N ids to the canonical named ids on write', funct
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('stories');
+        ->toBe('flick');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['skeleton_id' => 'hub'])
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
+        ->toBe('dock');
 });

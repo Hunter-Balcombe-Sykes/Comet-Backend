@@ -18,19 +18,23 @@ class UpdateSiteRequest extends BaseFormRequest
 
     /** Allowed skeleton IDs — mirrors the DB CHECK constraint. */
     public const ALLOWED_SKELETONS = [
-        'bento', 'hub', 'stories', 'flow', 'sheet', 'thread',
+        'bento', 'dock', 'flick', 'deck', 'sheet', 'thread',
     ];
 
     /**
-     * Pre-rename ids (2026-07-07: skeleton-N → named). Accepted on write and
-     * normalized to the canonical id so a not-yet-updated dashboard build can
-     * still save its selection during the rollout window.
+     * Pre-rename ids, both generations (2026-07-07: skeleton-N → named, then
+     * the bento-class renames hub→dock / stories→flick / flow→deck). Accepted
+     * on write and normalized to the canonical id so a not-yet-updated
+     * dashboard build can still save its selection during the rollout window.
      */
     public const LEGACY_SKELETON_IDS = [
         'skeleton-1' => 'bento',
-        'skeleton-2' => 'hub',
-        'skeleton-3' => 'stories',
-        'skeleton-4' => 'flow',
+        'skeleton-2' => 'dock',
+        'skeleton-3' => 'flick',
+        'skeleton-4' => 'deck',
+        'hub' => 'dock',
+        'stories' => 'flick',
+        'flow' => 'deck',
     ];
 
     protected function prepareForValidation(): void

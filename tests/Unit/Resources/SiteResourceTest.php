@@ -10,7 +10,7 @@ uses(TestCase::class)->in(__FILE__);
 it('ships only the allowlisted columns and passes non-design settings through', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'hub',
+        'skeleton_id' => 'dock',
         'is_published' => true,
         'unpublished_at' => null,
         'settings' => [
@@ -37,7 +37,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
-    expect($array['skeleton_id'])->toBe('hub');
+    expect($array['skeleton_id'])->toBe('dock');
     expect($array['booking_mode'])->toBe('manual');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.

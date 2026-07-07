@@ -78,10 +78,10 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'skeleton_id' => 'hub',
+        'skeleton_id' => 'dock',
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('hub');
+        ->toBe('dock');
 });

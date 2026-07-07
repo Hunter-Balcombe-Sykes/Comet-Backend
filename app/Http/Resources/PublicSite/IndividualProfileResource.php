@@ -123,7 +123,7 @@ class IndividualProfileResource extends ApiResource
             'designMedia' => $this->sections['design_media'] ?? [],
 
             // Which of the six code-side skeletons to render. One of
-            // 'bento', 'hub', 'stories', 'flow', 'sheet', 'thread'.
+            // 'bento', 'dock', 'flick', 'deck', 'sheet', 'thread'.
             'skeletonId' => $this->sections['skeleton_id'] ?? Site::DEFAULT_SKELETON_ID,
 
             // Platform-wide knobs the skeleton needs at render time (analytics

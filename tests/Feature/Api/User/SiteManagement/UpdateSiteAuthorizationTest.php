@@ -30,11 +30,11 @@ it('lets an active owner update their site through the policy gate', function ()
     $pro = createTenant('active-owner');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'hub'])
+        ->patchJson('/api/site', ['skeleton_id' => 'dock'])
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('hub');
+        ->toBe('dock');
 });
 
 it('blocks a pending-deletion professional at the controller policy even when the read-only middleware is bypassed', function () {
@@ -47,7 +47,7 @@ it('blocks a pending-deletion professional at the controller policy even when th
     $this->withoutMiddleware(EnforcePendingDeletionReadOnly::class);
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'hub'])
+        ->patchJson('/api/site', ['skeleton_id' => 'dock'])
         ->assertStatus(423);
 
     // The write must not have landed.
