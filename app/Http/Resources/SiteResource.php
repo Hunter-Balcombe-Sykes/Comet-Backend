@@ -41,6 +41,11 @@ class SiteResource extends ApiResource
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),
             'settings' => (object) $settings,
+            // Stored design-kit vars (non-null partial from site.design_kits).
+            // The /account/design editor reads this to show saved choices on
+            // reload — until now its only read surface was same-session cache
+            // seeding after saves. (object) so an empty kit serialises as {}.
+            'design_kit' => (object) $this->resource->designKitVars(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ],

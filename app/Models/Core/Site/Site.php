@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property mixed $id
@@ -140,6 +141,32 @@ class Site extends BaseModel
     public function siteMedia(): HasMany
     {
         return $this->hasMany(SiteMedia::class, 'site_id');
+    }
+
+    /**
+     * The site's stored design-kit vars as a non-null partial
+     * (column-per-var row in site.design_kits; there is no Eloquent model —
+     * writes go through UserSiteController::writeDesignKit's raw builder, so
+     * the read mirrors it). Bookkeeping columns are stripped; null columns are
+     * omitted, matching the public profile payload's "partial kit" convention.
+     *
+     * @return array<string, mixed>
+     */
+    public function designKitVars(): array
+    {
+        $row = DB::connection('pgsql')
+            ->table('site.design_kits')
+            ->where('site_id', $this->id)
+            ->first();
+
+        if ($row === null) {
+            return [];
+        }
+
+        $vars = (array) $row;
+        unset($vars['site_id'], $vars['created_at'], $vars['updated_at']);
+
+        return array_filter($vars, static fn ($value): bool => $value !== null);
     }
 
     public function getPublishedAttribute(): bool
