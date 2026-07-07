@@ -37,7 +37,7 @@ use Illuminate\Support\Facades\DB;
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
  *     designMedia: DesignMediaItem[],
- *     skeletonId: 'skeleton-1' | ... | 'skeleton-4',
+ *     skeletonId: 'bento' | 'hub' | 'stories' | 'flow',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *

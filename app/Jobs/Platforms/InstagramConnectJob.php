@@ -208,7 +208,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => 'automatic',
             // Single element: the most-recent photo, mirrored. Kept as a list so
-            // existing consumers (skeleton-4 fallback, dashboard) read images[0].
+            // existing consumers (flow-skeleton fallback, dashboard) read images[0].
             'images' => $images,
             // The most-recent reel: its mp4 + poster, both on R2. null when the
             // account has no reel (or the mp4 mirror was dropped). Skeletons go

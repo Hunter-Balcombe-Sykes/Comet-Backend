@@ -5,7 +5,7 @@
 **Partna** — Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 For full business context, domain model, and entity relationships, read `AI_CONTEXT.md`.
 For API endpoint reference, read `docs/api.md`.
-Cross-project rules (git workflow, cost discipline, pre-agent gate) live in `../CLAUDE.md`.
+Cross-project rules (git workflow, tool routing, pre-agent gate) live in `../CLAUDE.md`.
 
 **Git reminder (shared repo — primary dev is someone else):** Always `git fetch && git pull` + `git log --oneline -10` before any work. Work on a feature branch. Never push without permission.
 
@@ -365,7 +365,7 @@ the edge cache. The cache-purge job invalidates by URL.
 
 **Backend changes at cleanup (spec §8):**
 
-- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'skeleton-1'..'skeleton-4'`). Default `'skeleton-1'`.
+- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'bento' | 'hub' | 'stories' | 'flow'`). Default `'bento'`.
 - `site.themes` table → DROPPED entirely. Skeletons are code constants in `partna-monorepo/apps/pages/src/skeletons/`, not DB records.
 - `set_default_theme_for_site()` Postgres function → DROPPED with CASCADE (kills the trigger too).
 - `site.sites.settings.design.*` JSONB path → STRIPPED via `UPDATE site.sites SET settings = settings - 'design'`.
@@ -374,13 +374,13 @@ the edge cache. The cache-purge job invalidates by URL.
 
 **API changes:**
 
-- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `skeleton-1..4`). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
+- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `bento | hub | stories | flow`; legacy `skeleton-N` normalized on write). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
 - `PATCH /api/professional/site` mutation: writes `skeleton_id` and individual `design_kits` columns. No longer accepts `settings.design.*`.
 
 **Hard rules:**
 
 - Adding a new design kit var = new SQL migration in `supabase/migrations/` adding a NULLABLE column to `site.design_kits`. Never with a DB-level DEFAULT — defaults live in the package.
-- `site.sites.skeleton_id` values are constrained by the CHECK. Adding a new skeleton means: (1) update the CHECK constraint via migration, (2) add `partna-monorepo/apps/pages/src/skeletons/skeleton-N/`, (3) wire the dispatcher in `partna-monorepo/apps/pages/src/pages/index.astro`. No new DB tables.
+- `site.sites.skeleton_id` values are constrained by the CHECK. Adding a new skeleton means: (1) update the CHECK constraint via migration, (2) add `partna-monorepo/apps/pages/src/skeletons/<name>/`, (3) wire the dispatcher in `partna-monorepo/apps/pages/src/pages/index.astro`. No new DB tables.
 - Don't reintroduce `site.themes`, `settings.design.*`, or any "theme" terminology after the cleanup lands.
 
 ## Do NOT

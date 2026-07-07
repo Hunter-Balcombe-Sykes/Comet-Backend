@@ -10,7 +10,7 @@ uses(TestCase::class)->in(__FILE__);
 it('ships only the allowlisted columns and passes non-design settings through', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'skeleton-2',
+        'skeleton_id' => 'hub',
         'is_published' => true,
         'unpublished_at' => null,
         'settings' => [
@@ -37,7 +37,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
-    expect($array['skeleton_id'])->toBe('skeleton-2');
+    expect($array['skeleton_id'])->toBe('hub');
     expect($array['booking_mode'])->toBe('manual');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.
@@ -47,7 +47,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
 it('handles empty settings as {} not []', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'skeleton-1',
+        'skeleton_id' => 'bento',
         'is_published' => false,
         'settings' => [],
     ]);
@@ -65,7 +65,7 @@ it('builds settings.booking_mode + top-level booking_mode from the promoted colu
     // FOUND-16: column is the source of truth; settings JSONB is empty (post-strip shape).
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'skeleton-1',
+        'skeleton_id' => 'bento',
         'is_published' => true,
         'settings' => [],
     ]);
@@ -86,7 +86,7 @@ it('promoted columns win over residual JSONB value during dual-write', function 
     // Both the column and the JSONB carry a value; the column must win.
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'skeleton-1',
+        'skeleton_id' => 'bento',
         'is_published' => true,
         'settings' => ['booking_mode' => 'manual'],
     ]);

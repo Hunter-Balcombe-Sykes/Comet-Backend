@@ -52,7 +52,7 @@ function seedAllSiteData(array $overrides = []): array
         'site_id' => $siteId,
         'user_id' => $userId,
         'subdomain' => 'alpha',
-        'skeleton_id' => 'skeleton-2',
+        'skeleton_id' => 'hub',
         'site_settings' => json_encode(['booking_mode' => 'manual']),
         'is_published' => 1,
         'handle' => 'alpha',
@@ -76,7 +76,7 @@ it('returns site data for a given subdomain', function () {
         ->and($body['site']['is_published'])->toBeTrue()
         ->and($body['site']['site']['id'])->toBe($siteId)
         ->and($body['site']['site']['subdomain'])->toBe('alpha')
-        ->and($body['site']['site']['skeleton_id'])->toBe('skeleton-2')
+        ->and($body['site']['site']['skeleton_id'])->toBe('hub')
         ->and($body['site']['site']['settings'])->toBe(['booking_mode' => 'manual'])
         ->and($body['site']['professional']['handle'])->toBe('alpha')
         ->and($body['site']['professional']['display_name'])->toBe('Alpha Pro')
