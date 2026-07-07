@@ -7,11 +7,15 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use Illuminate\Support\Carbon;
 
-// Re-pulls a Google Business Place Details snapshot by stored placeId. The cron is
-// daily but the snapshot only needs ~weekly re-pulls (Google billing + ToS caching),
-// so a detailsFetchedAt < 6 days short-circuits with no API call. Mirrors
-// PlatformRefresher::googleBusinessPayload EXACTLY — note the asymmetry: a MISSING
-// placeId is 'unavailable' (legacy link-paste rows lack one), not a shape error.
+// Re-pulls a Google Business Place Details snapshot by stored placeId. The
+// dispatcher's per-platform cadence (registry refreshEvery, 2 days) governs
+// how often this runs; a detailsFetchedAt < 40 hours short-circuit still
+// guards against manual-refresh hammering + honours Google's ToS caching
+// window without letting ratings/review counts drift for a week (the old
+// 6-day gate meant a listing's rating could be 7 days stale on the sitepage).
+// Mirrors PlatformRefresher::googleBusinessPayload EXACTLY — note the
+// asymmetry: a MISSING placeId is 'unavailable' (legacy link-paste rows lack
+// one), not a shape error.
 final readonly class GoogleBusinessFetch implements FetchStrategy
 {
     public function __construct(private GoogleBusinessService $googleBusiness) {}
@@ -29,7 +33,7 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
 
         try {
             $fresh = isset($payload['detailsFetchedAt'])
-                && Carbon::parse($payload['detailsFetchedAt'])->gt(now()->subDays(6));
+                && Carbon::parse($payload['detailsFetchedAt'])->gt(now()->subHours(40));
         } catch (\Throwable) {
             $fresh = false;
         }
