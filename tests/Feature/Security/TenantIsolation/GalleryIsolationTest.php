@@ -21,7 +21,6 @@ it('gallery destroy refuses an image belonging to another professionals site', f
     DB::table('site.site_media')->insert([
         'id' => $imageId,
         'site_id' => $a->site->id,
-        'user_id' => $a->id,
         'pool' => SiteMedia::POOL_GALLERY,
         'media_type' => 'image',
         'path' => "images/{$a->id}/{$imageId}/original.jpg",
@@ -54,7 +53,6 @@ it('gallery update refuses an image belonging to another professionals site', fu
     DB::table('site.site_media')->insert([
         'id' => $imageId,
         'site_id' => $a->site->id,
-        'user_id' => $a->id,
         'pool' => SiteMedia::POOL_GALLERY,
         'media_type' => 'image',
         'path' => "images/{$a->id}/{$imageId}/original.jpg",

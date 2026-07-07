@@ -370,7 +370,6 @@ it('surfaces content-pool site_media as top-level designMedia[] in camelCase', f
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/original.jpg',
         'media_type' => 'image',
@@ -410,7 +409,6 @@ it('omits soft-deleted content-pool media from designMedia', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/deleted.jpg',
         'media_type' => 'image',
@@ -433,7 +431,6 @@ it('omits processing-state != ready content-pool media from designMedia', functi
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'user_id' => $pro->id,
         'pool' => 'content',
         'path' => 'images/content/processing.jpg',
         'media_type' => 'image',
@@ -454,7 +451,7 @@ it('projects content-pool videos with kind=video, poster and duration_ms', funct
     $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'id' => $mediaId, 'site_id' => $siteId,
         'pool' => 'content', 'path' => 'videos/content/original.mp4',
         'media_type' => 'video', 'processing_state' => 'ready',
         'sort_order' => 0, 'is_active' => 1,
@@ -495,14 +492,14 @@ it('interleaves content-pool images and videos by sort_order', function () {
     // Image at sort_order=1, video at sort_order=0 — video must come first.
     DB::connection('pgsql')->table('site.site_media')->insert([
         [
-            'id' => $imageId, 'site_id' => $siteId, 'user_id' => $pro->id,
+            'id' => $imageId, 'site_id' => $siteId,
             'pool' => 'content', 'path' => 'images/content/a.jpg',
             'media_type' => 'image', 'processing_state' => 'ready',
             'sort_order' => 1, 'is_active' => 1,
             'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
         ],
         [
-            'id' => $videoId, 'site_id' => $siteId, 'user_id' => $pro->id,
+            'id' => $videoId, 'site_id' => $siteId,
             'pool' => 'content', 'path' => 'videos/content/a.mp4',
             'media_type' => 'video', 'processing_state' => 'ready',
             'sort_order' => 0, 'is_active' => 1,
@@ -539,7 +536,7 @@ it('excludes content-pool media that is not ready / not active / soft-deleted / 
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     $base = [
-        'site_id' => $siteId, 'user_id' => $pro->id, 'media_type' => 'image',
+        'site_id' => $siteId, 'media_type' => 'image',
         'sort_order' => 0, 'deleted_at' => null,
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ];
@@ -571,7 +568,7 @@ it('handles content-pool video with no poster artifact (poster=null)', function 
     $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'id' => $mediaId, 'site_id' => $siteId,
         'pool' => 'content', 'media_type' => 'video',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
         'path' => 'videos/np.mp4', 'duration_ms' => 4200,
@@ -599,7 +596,7 @@ it('returns url_hd=null for content-pool video with only optimized variant', fun
     $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId, 'site_id' => $siteId, 'user_id' => $pro->id,
+        'id' => $mediaId, 'site_id' => $siteId,
         'pool' => 'content', 'media_type' => 'video',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
         'path' => 'videos/oo.mp4', 'duration_ms' => 3000,
@@ -718,7 +715,6 @@ it('gallery engine returns camelCase GalleryImage[] when items are ready', funct
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'user_id' => $pro->id,
         'pool' => 'gallery',
         'path' => 'images/gallery/a.jpg',
         'media_type' => 'image',
@@ -912,7 +908,6 @@ it('document engine returns DocumentData when a ready document exists', function
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'user_id' => $pro->id,
         'pool' => 'documents',
         'path' => 'docs/rate-card.pdf',
         'media_type' => 'document',

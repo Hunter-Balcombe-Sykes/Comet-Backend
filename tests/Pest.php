@@ -707,7 +707,6 @@ function setupMediaTables(): void
     $conn->statement('CREATE TABLE IF NOT EXISTS site.site_media (
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
-        user_id TEXT NULL,
         pool TEXT NULL,
         bucket TEXT NULL,
         path TEXT NULL,

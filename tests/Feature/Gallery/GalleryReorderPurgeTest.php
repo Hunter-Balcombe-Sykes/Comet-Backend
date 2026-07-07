@@ -56,7 +56,6 @@ function seedGalleryReorderFixture(): array
         DB::connection('pgsql')->table('site_media')->insert([
             'id' => $id,
             'site_id' => $siteId,
-            'user_id' => $userId,
             'pool' => 'gallery',
             'path' => "images/{$siteId}/{$id}/original.webp",
             'sort_order' => $sort,
