@@ -122,3 +122,40 @@ it('returns null when no workplace row exists yet', function () {
         ->assertOk()
         ->assertJsonPath('workplace', null);
 });
+
+it('partial upsert leaves fields absent from the request untouched', function () {
+    // The Brand Info page saves per-card slices (contact / address /
+    // description / hours) — a slice must never null what another card owns.
+    $user = uwcUser('partialupsert');
+    uwcSite($user);
+
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Partial Cafe',
+        'address' => '9 Slice St',
+        'description' => 'Original description.',
+        'phone' => '+61 400 111 222',
+    ])->assertOk();
+
+    // Address-only save: description + phone survive.
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Partial Cafe',
+        'address' => '10 Slice St',
+        'city' => 'Carlton',
+    ])->assertOk();
+
+    $workplace = actingAsUser($user)->getJson('/api/site/workplace')->json('workplace');
+    expect($workplace['address'])->toBe('10 Slice St')
+        ->and($workplace['city'])->toBe('Carlton')
+        ->and($workplace['description'])->toBe('Original description.')
+        ->and($workplace['phone'])->toBe('+61 400 111 222');
+
+    // An explicitly-sent null (or empty string) still clears its field.
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Partial Cafe',
+        'description' => '',
+    ])->assertOk();
+
+    $workplace = actingAsUser($user)->getJson('/api/site/workplace')->json('workplace');
+    expect($workplace['description'])->toBeNull()
+        ->and($workplace['address'])->toBe('10 Slice St');
+});

@@ -45,30 +45,41 @@ class UserWorkplaceController extends ApiController
         $site = $this->currentSite($professional);
         $data = $request->validated();
 
-        $attributes = [
-            'name' => (string) $data['name'],
-            'address' => trim_or_null($data['address'] ?? null),
+        // PARTIAL upsert: only fields present in THIS request are written.
+        // The Brand Info page saves per-card slices (contact / address /
+        // description / hours), so an absent key must never null a field
+        // another card owns — the old build-everything-with-??-null shape
+        // meant a hours-only save wiped the address and description. `name`
+        // is required and always written; an explicitly-sent null (or empty
+        // string, trimmed to null) still clears its field.
+        $attributes = ['name' => (string) $data['name']];
+
+        foreach ([
             // Structured address components stored alongside the formatted
             // string so manual edits survive the save round-trip.
-            'address_line1' => trim_or_null($data['address_line1'] ?? null),
-            'city' => trim_or_null($data['city'] ?? null),
-            'state' => trim_or_null($data['state'] ?? null),
-            'postcode' => trim_or_null($data['postcode'] ?? null),
-            'country' => trim_or_null($data['country'] ?? null),
-            'latitude' => isset($data['latitude']) ? (float) $data['latitude'] : null,
-            'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
-            'phone' => trim_or_null($data['phone'] ?? null),
-            'website' => trim_or_null($data['website'] ?? null),
+            'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+            'phone', 'website',
             // Archive of the business's old website + Google-sourced category
             // and editorial description (auto-filled from Google Business).
-            'previous_website' => trim_or_null($data['previous_website'] ?? null),
-            'category' => trim_or_null($data['category'] ?? null),
-            'description' => trim_or_null($data['description'] ?? null),
-            // Central-identity fields the Brand Info page owns. opening_hours is
-            // the structured per-day map; contact_email is manual-only.
-            'contact_email' => trim_or_null($data['contact_email'] ?? null),
-            'opening_hours' => $data['opening_hours'] ?? null,
-        ];
+            'previous_website', 'category', 'description',
+            // contact_email is manual-only.
+            'contact_email',
+        ] as $key) {
+            if ($request->has($key)) {
+                $attributes[$key] = trim_or_null($data[$key] ?? null);
+            }
+        }
+
+        if ($request->has('latitude')) {
+            $attributes['latitude'] = isset($data['latitude']) ? (float) $data['latitude'] : null;
+        }
+        if ($request->has('longitude')) {
+            $attributes['longitude'] = isset($data['longitude']) ? (float) $data['longitude'] : null;
+        }
+        // opening_hours is the structured per-day map; null clears it.
+        if ($request->has('opening_hours')) {
+            $attributes['opening_hours'] = $data['opening_hours'] ?? null;
+        }
 
         $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
         $workplace->fill($attributes);
@@ -86,7 +97,9 @@ class UserWorkplaceController extends ApiController
         // contact block and the workplace card read one value. Manual entry is
         // authoritative here regardless of account type — the user is editing
         // these fields by hand right now.
-        $this->mirrorContactFields($professional, $attributes['phone'], $attributes['contact_email']);
+        // Post-save truth: with partial saves the request may not carry these
+        // keys, so mirror whatever the workplace now actually holds.
+        $this->mirrorContactFields($professional, $workplace->phone, $workplace->contact_email);
 
         // Business accounts treat the workplace name as their public display
         // name (same rule as GoogleBusinessController::maybeAdoptGoogleName),
