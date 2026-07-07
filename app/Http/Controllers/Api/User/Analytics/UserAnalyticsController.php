@@ -30,7 +30,8 @@ class UserAnalyticsController extends ApiController
         $professional = $this->currentUser($request);
 
         $days = (int) $request->query('days', 30);
-        $days = max(1, min(365, $days));
+        // 3650 = the "all time" request; the range itself is clamped below.
+        $days = max(1, min(3650, $days));
         $groupBy = mb_strtolower(trim((string) $request->query('group_by', 'day')));
         $forceHourly = $groupBy === 'hour';
 
@@ -68,8 +69,12 @@ class UserAnalyticsController extends ApiController
             return $this->error('Invalid date range: from must be before to. ', 422);
         }
 
-        if ($from->diffInDays($to) > 365) {
-            return $this->error('Date range cannot exceed 365 days.', 422);
+        // Wide ranges CLAMP instead of 422ing. days=365 + startOfDay/endOfDay
+        // padding made diffInDays 365.9 — so "Last Year" (and the client-capped
+        // "All Time") hit the old hard >365 boundary and failed. Cap the window
+        // at 730 days: "all time" honestly covers the platform's whole life.
+        if ($from->diffInDays($to) > 730) {
+            $from = $to->copy()->subDays(730)->startOfDay();
         }
 
         $site = $professional->site;
