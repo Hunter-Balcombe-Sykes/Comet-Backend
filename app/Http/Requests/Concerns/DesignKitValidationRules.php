@@ -104,9 +104,19 @@ trait DesignKitValidationRules
             'design_kit.motion_spin_duration' => $len,
             'design_kit.motion_spring_curve' => ['sometimes', 'nullable', 'string', 'max:64'],
 
-            // Effects
-            'design_kit.effect_style' => ['sometimes', 'nullable', 'string', 'in:soft-glass'],
+            // Effects — effect_style is the Visual Style BUNDLE; the axis
+            // selections below override individual slices of it. Unset axis =
+            // the bundle decides (package defaults carry no axis values).
+            'design_kit.effect_style' => ['sometimes', 'nullable', 'string', 'in:soft-glass,sharp,bold,editorial'],
             'design_kit.effect_scrim_blur' => $len,
+            'design_kit.effect_shadow_style' => ['sometimes', 'nullable', 'string', 'in:flat,soft,hard'],
+            'design_kit.effect_link_style' => ['sometimes', 'nullable', 'string', 'in:underline-hover,underline-always,plain'],
+            'design_kit.effect_button_fill' => ['sometimes', 'nullable', 'string', 'in:solid,outline,ghost'],
+            'design_kit.effect_image_treatment' => ['sometimes', 'nullable', 'string', 'in:none,mono,duotone,warm,muted'],
+
+            // Layout + border character axes.
+            'design_kit.layout_density' => ['sometimes', 'nullable', 'string', 'regex:/^(0\.(8[5-9]|9\d)|1(\.([01]\d|2[0-5]))?)$/'],
+            'design_kit.border_style' => ['sometimes', 'nullable', 'string', 'in:solid,double,none'],
 
             // Theme
             'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:light,dark'],
