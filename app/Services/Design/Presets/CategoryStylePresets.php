@@ -11,11 +11,11 @@ namespace App\Services\Design\Presets;
  * (DesignPresetResolver) treat the two sources as genuinely comparable: when
  * both match the SAME bucket the values are identical (no visible conflict);
  * when they match DIFFERENT buckets, the higher-priority factor's full bucket
- * wins every shared column (all buckets set the same 7 keys), not a partial
+ * wins every shared column (all buckets set the same 8 keys), not a partial
  * blend — that's the intended behaviour of a per-column priority merge over
  * two same-shaped contributions, not a bug.
  *
- * Every bucket sets the same 7 value/selection columns (all in
+ * Every bucket sets the same 8 value/selection columns (all in
  * PresetTargetableColumns) so buckets are directly comparable; differentiation
  * comes from accent hue, font, weight, radius, and motion pace — not from
  * varying which columns are set.
@@ -55,6 +55,7 @@ final class CategoryStylePresets
             'border_radius' => '0.25rem',
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'fast',
+            'motion_entrance' => 'stagger',
         ],
         // Soft, elegant, a little luxe.
         self::BEAUTY_PERSONAL_CARE => [
@@ -65,6 +66,7 @@ final class CategoryStylePresets
             'border_radius' => '1.5rem',
             'typography_font_family' => 'playfair-display',
             'motion_pace' => 'normal',
+            'motion_entrance' => 'fade',
         ],
         // Calmer, minimal — muted colour, clean type, unhurried motion.
         self::HEALTH_FITNESS => [
@@ -75,6 +77,7 @@ final class CategoryStylePresets
             'border_radius' => '0.6rem',
             'typography_font_family' => 'oswald',
             'motion_pace' => 'slow',
+            'motion_entrance' => 'rise',
         ],
         // Trustworthy, structured, confident.
         self::PROFESSIONAL_SERVICES => [
@@ -85,6 +88,7 @@ final class CategoryStylePresets
             'border_radius' => '0.4rem',
             'typography_font_family' => 'tex-gyre-heros',
             'motion_pace' => 'normal',
+            'motion_entrance' => 'fade',
         ],
         // Bold, boutique, fashion-forward.
         self::RETAIL_SHOPPING => [
@@ -95,6 +99,7 @@ final class CategoryStylePresets
             'border_radius' => '0.3rem',
             'typography_font_family' => 'cooper-hewitt',
             'motion_pace' => 'fast',
+            'motion_entrance' => 'stagger',
         ],
         // Practical, sturdy, high-visibility trade colour.
         self::HOME_SERVICES => [
@@ -105,6 +110,7 @@ final class CategoryStylePresets
             'border_radius' => '0.5rem',
             'typography_font_family' => 'archivo',
             'motion_pace' => 'normal',
+            'motion_entrance' => 'rise',
         ],
         // Warm, inviting, relaxed.
         self::HOSPITALITY => [
@@ -115,6 +121,7 @@ final class CategoryStylePresets
             'border_radius' => '1rem',
             'typography_font_family' => 'eb-garamond',
             'motion_pace' => 'slow',
+            'motion_entrance' => 'fade',
         ],
         // Bold, industrial, high-contrast.
         self::AUTOMOTIVE => [
@@ -125,6 +132,7 @@ final class CategoryStylePresets
             'border_radius' => '0.2rem',
             'typography_font_family' => 'roboto',
             'motion_pace' => 'fast',
+            'motion_entrance' => 'rise',
         ],
         // Expressive, distinctive, gallery-like.
         self::CREATIVE_ENTERTAINMENT => [
@@ -135,6 +143,7 @@ final class CategoryStylePresets
             'border_radius' => '0.3rem',
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
+            'motion_entrance' => 'stagger',
         ],
         // Approachable, clear, encouraging.
         self::EDUCATION_COACHING => [
@@ -145,6 +154,7 @@ final class CategoryStylePresets
             'border_radius' => '0.8rem',
             'typography_font_family' => 'work-sans',
             'motion_pace' => 'normal',
+            'motion_entrance' => 'rise',
         ],
     ];
 

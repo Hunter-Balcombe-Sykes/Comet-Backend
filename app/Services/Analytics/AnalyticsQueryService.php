@@ -325,21 +325,66 @@ class AnalyticsQueryService
     }
 
     /**
-     * Outbound clicks per product on the sitepage shop section.
+     * Outbound clicks per product on the sitepage shop section(s).
+     * Scoped to shop-family section keys so services/events product_id rows
+     * (see topServices()/topEvents()) never pollute this list — see
+     * topItemsBySection() for the shared grouping logic. Limit stays 10 (this
+     * method's pre-existing contract); topServices()/topEvents() are new and
+     * use the smaller default.
      *
      * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
      */
     public function topProducts(string $userId, Carbon $from, Carbon $to): array
+    {
+        return $this->topItemsBySection($userId, $from, $to, ['shop-products', 'shop-tracks', 'shop'], 10);
+    }
+
+    /**
+     * Outbound clicks per booking service/event item on the sitepage booking
+     * section. Section key differs by skeleton: flow/hub/stories use 'book',
+     * bento uses 'services'.
+     *
+     * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
+     */
+    public function topServices(string $userId, Carbon $from, Carbon $to): array
+    {
+        return $this->topItemsBySection($userId, $from, $to, ['book', 'services']);
+    }
+
+    /**
+     * Outbound clicks per event item on the sitepage events section.
+     *
+     * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
+     */
+    public function topEvents(string $userId, Carbon $from, Carbon $to): array
+    {
+        return $this->topItemsBySection($userId, $from, $to, ['events', 'attend']);
+    }
+
+    /**
+     * Generic per-item click rollup, scoped to a set of section keys — shared by
+     * topProducts()/topServices()/topEvents() now that shop, booking, and event
+     * sitepage sections all carry product_id/product_title on the same
+     * analytics.link_clicks table. Scoping by section_key IN (...) is what keeps
+     * the three lists disjoint; NULL section_key rows are never included (old
+     * shop-only rows already carry a shop section_key from the same tracker, so
+     * this scoping is safe against pre-change data — see caller docblocks).
+     *
+     * @param  array<int, string>  $sectionKeys
+     * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
+     */
+    private function topItemsBySection(string $userId, Carbon $from, Carbon $to, array $sectionKeys, int $limit = 8): array
     {
         try {
             return DB::table('analytics.link_clicks')
                 ->where('user_id', $userId)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->whereNotNull('product_id')
-                ->selectRaw('product_id, MAX(product_title) as title, MAX(url) as url, COUNT(*) as clicks, COUNT(DISTINCT COALESCE(visitor_id::text, ip_hash)) as unique_clickers')
+                ->whereIn('section_key', $sectionKeys)
+                ->selectRaw("product_id, MAX(product_title) as title, MAX(url) as url, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
                 ->groupBy('product_id')
                 ->orderByDesc('clicks')
-                ->limit(10)
+                ->limit($limit)
                 ->get()
                 ->map(fn ($r) => [
                     'product_id' => (string) $r->product_id,
@@ -354,6 +399,23 @@ class AnalyticsQueryService
 
             return [];
         }
+    }
+
+    /**
+     * COALESCE(visitor_id::text, ip_hash) — the visitor_id column is UUID on
+     * Postgres, so it needs an explicit ::text cast to COALESCE against the
+     * TEXT ip_hash fallback. SQLite has no UUID type (visitor_id is already
+     * TEXT there) and doesn't understand the `::text` cast syntax, so this
+     * conditionally drops the cast in test envs — same driver-branch pattern
+     * as bucketExpressions() below. Scoped to this new method only; the eight
+     * other call sites in this file with the same raw ::text fragment predate
+     * this change and are a separate cleanup.
+     */
+    private function uniqueVisitorExpr(): string
+    {
+        $driver = DB::connection('pgsql')->getDriverName();
+
+        return $driver === 'sqlite' ? 'COALESCE(visitor_id, ip_hash)' : 'COALESCE(visitor_id::text, ip_hash)';
     }
 
     /**

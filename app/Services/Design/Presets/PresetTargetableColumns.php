@@ -37,6 +37,7 @@ final class PresetTargetableColumns
         'space_desktop_regular',
         // Animation + effects (selection)
         'motion_pace',
+        'motion_entrance',
         'effect_style',
     ];
 

@@ -238,6 +238,22 @@ final class SectorTaxonomy
     }
 
     /**
+     * The CategoryStylePresets bucket a sector belongs to — the styling hook
+     * the taxonomy was built to carry (consumed by SectorFactor). Null for
+     * unknown slugs.
+     */
+    public static function bucketFor(string $slug): ?string
+    {
+        foreach (self::SECTORS as $sector) {
+            if ($sector['slug'] === $slug) {
+                return $sector['bucket'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Map a raw Google Business category (Places `primaryTypeDisplayName`, e.g.
      * "Italian restaurant", "Barber shop") to the closest curated sector slug
      * via the shared ordered-keyword classifier. Null when nothing matches or

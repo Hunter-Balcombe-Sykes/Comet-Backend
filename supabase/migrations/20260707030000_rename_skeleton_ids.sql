@@ -24,9 +24,11 @@ WHERE skeleton_id LIKE 'skeleton-%';
 
 ALTER TABLE site.sites ALTER COLUMN skeleton_id SET DEFAULT 'bento';
 
--- Table is small (pre-launch) and rows were normalized in this transaction —
--- a directly-validated ADD CONSTRAINT is safe here; no NOT VALID two-step.
+-- Two-step CHECK add per CONVENTIONS.md §2: NOT VALID takes only a brief
+-- metadata lock; VALIDATE below scans without blocking writes.
 ALTER TABLE site.sites ADD CONSTRAINT sites_skeleton_id_check
-    CHECK (skeleton_id IN ('bento', 'hub', 'stories', 'flow'));
+    CHECK (skeleton_id IN ('bento', 'hub', 'stories', 'flow')) NOT VALID;
 
 COMMIT;
+
+ALTER TABLE site.sites VALIDATE CONSTRAINT sites_skeleton_id_check;
