@@ -31,12 +31,6 @@ class UserStaffResource extends ApiResource
             'location_state' => $this->location_state,
             'location_postcode' => $this->location_postcode,
             'location_country' => $this->location_country,
-            // Plan §28.8a: only emit stripe_connect_status for account types that use Stripe Connect.
-            // Individuals never have a Connect account; omitting the field avoids a null confusion.
-            'stripe_connect_status' => $this->when(
-                false, // Stripe Connect removed in 2026-05-22 standalone strip; reintegrate post-pilot
-                fn () => $this->stripe_connect_status,
-            ),
             // Staff-only tribal knowledge — must NEVER appear in UserDashboardResource (/me).
             'admin_notes' => $this->admin_notes,
             'created_at' => $this->created_at?->toIso8601String(),

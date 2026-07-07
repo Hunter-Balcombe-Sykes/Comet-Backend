@@ -10,25 +10,17 @@ use App\Models\Core\User\User;
 use Illuminate\Support\Collection;
 
 /**
- * Shared sitepage-data projection logic.
+ * Shared sitepage-data projection logic for `IndividualProfileController` —
+ * the public endpoint that serves individual sitepages on partna-pages.
+ * (The old second consumer, the brand-partner Hydrogen controller, was
+ * removed with the brand/commerce system.)
  *
- * Two consumers exist for the same underlying shape:
- *
- *  1. `HydrogenAffiliateController` — internal-auth endpoint that serves
- *     brand-partner storefronts on Hydrogen. Brand-fallback content
- *     (placeholders, fallback gallery, brand logo, brand slogan) is layered
- *     in by that controller AFTER calling these methods.
- *
- *  2. `IndividualProfileController` — public §28.8 endpoint that serves
- *     individual sitepages on partna-pages. Brand-fallback content is
- *     intentionally NOT layered (individuals have no brand).
- *
- * Both go through these helpers so the section envelope shape, the gallery
- * URL resolution, the booking link synthesis, the link-row platform
- * normalisation, and the document download URL never drift apart.
+ * These helpers own the section envelope shape, the gallery URL resolution,
+ * the booking link synthesis, the link-row platform normalisation, and the
+ * document download URL, so they can't drift from the controller.
  *
  * Every method is side-effect free — read-only queries and pure projections.
- * The two controllers own their own cache + auth concerns.
+ * The controller owns its own cache + auth concerns.
  */
 class SitepageDataResolverService
 {

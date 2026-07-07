@@ -27,14 +27,12 @@ describe('User model cast', function () {
         expect($pro->account_type)->toBe(AccountType::Business);
     });
 
-    it('isIndividual is true for the standard Partna account; isBusiness for Business', function () {
+    it('isBusiness distinguishes the two account types', function () {
         $partna = new User(['account_type' => 'partna']);
         $business = new User(['account_type' => 'business']);
 
-        expect($partna->isIndividual())->toBeTrue();
         expect($partna->isBusiness())->toBeFalse();
         expect($business->isBusiness())->toBeTrue();
-        expect($business->isIndividual())->toBeFalse();
     });
 });
 

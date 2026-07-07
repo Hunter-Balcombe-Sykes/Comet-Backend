@@ -107,14 +107,6 @@ class User extends BaseModel
         return $this->primary_email;
     }
 
-    // True for the standard Partna account (the non-Business type). Kept for
-    // callers that pre-date the two-type split — here "individual" means
-    // "not a Business Partna account".
-    public function isIndividual(): bool
-    {
-        return $this->account_type !== AccountType::Business;
-    }
-
     public function isBusiness(): bool
     {
         return $this->account_type === AccountType::Business;
