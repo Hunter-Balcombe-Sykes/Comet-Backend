@@ -105,8 +105,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of bento/hub/stories/flow (legacy skeleton-N ids
-            // normalized in prepareForValidation). Replaces theme_id.
+            // Skeleton — one of bento/hub/stories/flow/sheet/thread (legacy
+            // skeleton-N ids normalized in prepareForValidation). Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so

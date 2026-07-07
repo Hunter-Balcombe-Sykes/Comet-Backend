@@ -365,7 +365,7 @@ the edge cache. The cache-purge job invalidates by URL.
 
 **Backend changes at cleanup (spec §8):**
 
-- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'bento' | 'hub' | 'stories' | 'flow'`). Default `'bento'`.
+- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'bento' | 'hub' | 'stories' | 'flow' | 'sheet' | 'thread'` — the last two added 2026-07-07, `docs/superpowers/specs/2026-07-07-skeleton-expansion-design.md`). Default `'bento'`.
 - `site.themes` table → DROPPED entirely. Skeletons are code constants in `partna-monorepo/apps/pages/src/skeletons/`, not DB records.
 - `set_default_theme_for_site()` Postgres function → DROPPED with CASCADE (kills the trigger too).
 - `site.sites.settings.design.*` JSONB path → STRIPPED via `UPDATE site.sites SET settings = settings - 'design'`.
@@ -374,7 +374,7 @@ the edge cache. The cache-purge job invalidates by URL.
 
 **API changes:**
 
-- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `bento | hub | stories | flow`; legacy `skeleton-N` normalized on write). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
+- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `bento | hub | stories | flow | sheet | thread`; legacy `skeleton-N` normalized on write). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
 - `PATCH /api/professional/site` mutation: writes `skeleton_id` and individual `design_kits` columns. No longer accepts `settings.design.*`.
 
 **Hard rules:**
