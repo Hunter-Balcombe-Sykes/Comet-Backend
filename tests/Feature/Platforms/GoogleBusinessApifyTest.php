@@ -6,9 +6,22 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+
+/** Harvester stub: returns nothing so each test exercises the Apify path exactly as before the website-harvest step landed. */
+function emptyHarvester(): WebsiteLinkHarvester
+{
+    return new class(app(\App\Services\Http\SafeUrlFetcher::class)) extends WebsiteLinkHarvester
+    {
+        public function harvest(?string $websiteUrl): array
+        {
+            return [];
+        }
+    };
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -195,7 +208,7 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     $conn = gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // The corrected actor input is still locked in.
     Http::assertSent(function ($request) {
@@ -308,7 +321,7 @@ it('syncs ONLY the booking link for a standard (partna) account', function () {
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // Booking IS synced for every account type (Google's appointment link, only-if-empty).
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeTrue();
@@ -334,7 +347,7 @@ it('seeds no booking when the only booking link is the business website', functi
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     foreach (['booking', 'fresha', 'square'] as $p) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $p)->exists())
@@ -356,7 +369,7 @@ it('drops the website from booking links but keeps a real provider link', functi
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // No custom 'booking' card from the website; the Fresha link connected (pending).
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
@@ -381,7 +394,7 @@ it('keeps a same-domain appointment link and auto-syncs it as the booking card',
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // The same-domain appointment link became the user's (custom) booking card.
     $booking = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail()->payload;
@@ -397,7 +410,7 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // The harvested links are gone from Google Business — just business-info + status.
     actingAsUser($user)->getJson('/api/platforms/google-business/selection')
@@ -438,7 +451,7 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     ]);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // Both kept their manual value + tag — the Google sync left them alone.
     $ot = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->firstOrFail()->payload;
@@ -458,7 +471,7 @@ it('marks apify unavailable when the scrape returns nothing', function () {
     $user = gbApifyUser('gba5');
     $conn = gbApifyConnection($user);
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     $conn->refresh();
     expect($conn->apify_status)->toBe('unavailable');
@@ -472,7 +485,7 @@ it('skips enrichment when the stored place no longer matches (reconnect guard)',
     $user = gbApifyUser('gba6');
     $conn = gbApifyConnection($user, 'ChIJdifferent');   // row now points elsewhere
 
-    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     $conn->refresh();
     expect($conn->payload)->not->toHaveKey('menu');
@@ -525,7 +538,7 @@ it('exposes only this run findings on /synced with a live status per platform', 
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     $synced = actingAsUser($user)->getJson('/api/platforms/google-business/synced')->assertOk()->json('synced');
 
@@ -554,7 +567,7 @@ it('marks an already-connected platform as a conflict and Change-to swaps it in'
     ]);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // /synced reports Facebook as a conflict (the manual one was left alone).
     $fb = collect(actingAsUser($user)->getJson('/api/platforms/google-business/synced')->json('synced'))->firstWhere('platform', 'facebook');
@@ -582,7 +595,7 @@ it('Change-to re-runs the Instagram scrape when swapping an existing Instagram',
     ]);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
-        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class));
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     expect(collect(actingAsUser($user)->getJson('/api/platforms/google-business/synced')->json('synced'))->firstWhere('platform', 'instagram')['status'])->toBe('conflict');
     Bus::assertNotDispatched(InstagramConnectJob::class);   // slot was taken — no scrape spent
@@ -600,4 +613,30 @@ it('skips the scrape and sends no HTTP when the apify budget is exhausted', func
 
     expect($result)->toBeNull();
     Http::assertNothingSent();
+});
+
+it('skips the paid Apify run when a non-food business website satisfies the harvest', function () {
+    Http::fake(); // any Apify call would get a fake 200 [] — the assertion below proves none fired
+    $user = gbApifyUser('harvest-skip');
+    $connection = gbApifyConnection($user);
+    $connection->forceFill(['payload' => [
+        ...$connection->payload,
+        'category' => 'Barber shop',
+        'website' => 'https://barber.example.com.au',
+    ]])->saveQuietly();
+
+    $harvester = new class(app(\App\Services\Http\SafeUrlFetcher::class)) extends WebsiteLinkHarvester
+    {
+        public function harvest(?string $websiteUrl): array
+        {
+            return ['socials' => ['instagram' => 'https://instagram.com/barber']];
+        }
+    };
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), $harvester);
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.apify.com'));
+
+    expect($connection->fresh()->apify_status)->toBe('ok');
 });
