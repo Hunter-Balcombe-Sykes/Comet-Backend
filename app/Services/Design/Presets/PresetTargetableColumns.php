@@ -45,7 +45,7 @@ final class PresetTargetableColumns
         // PRIMARY setter of these; the dashboard exposes only the Visual Style
         // preset + Customize expando (spec §1, §6).
         'effect_shadow_style',      // flat | soft | hard
-        'effect_link_style',        // underline-hover | underline-always | underline-grow | plain
+        'effect_link_style',        // underline-hover | underline-always | plain  (NOT underline-grow — unrenderable; the sitepage renderer + kit validator only accept these three, a stray 'underline-grow' silently falls back to hover)
         'effect_button_fill',       // solid | outline | ghost
         'effect_image_treatment',   // none | mono | duotone | warm | muted
     ];
