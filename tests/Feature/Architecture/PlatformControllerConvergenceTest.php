@@ -27,6 +27,7 @@ const BESPOKE_CONTROLLER_ALLOWLIST = [
     'OnlineOrderingController.php',   // ordering-links category
     'OpenTableController.php',        // suggestion() only — connect is registry-driven
     'RefreshController.php',          // manual refresh, cross-platform
+    'DisplaySettingsController.php',  // display toggles, cross-platform (registry-driven)
     'ReservationsController.php',     // smart-detect category facade
     'ShopController.php',             // multi-brand picker
     'SkoolController.php',            // single-selection; needs a payload DTO before migrating

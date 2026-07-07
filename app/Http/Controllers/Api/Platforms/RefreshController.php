@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Jobs\Platforms\InstagramConnectJob;
+use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\ApifyBudget;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -98,8 +99,8 @@ class RefreshController extends ApiController
             ->where('is_active', true)
             ->first();
 
-        $username = data_get($connection?->payload, 'username');
-        if (! $connection || ! is_string($username) || $username === '') {
+        $username = $connection ? InstagramPayload::fromArray($connection->payload)->username : null;
+        if (! $connection || $username === null || $username === '') {
             return $this->error('Nothing connected to refresh.', 404);
         }
 
