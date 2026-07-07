@@ -326,6 +326,22 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
             }
 
+            // ── Public display toggles ───────────────────────────────────────────
+            // What parts of a platform's synced content the owner can hide from
+            // the sitepage. Read by DisplaySettingsController (settings UI +
+            // PATCH validation) and PublicIntegrationConnectionResource /
+            // PublicMenuController (payload suppression). Absent key = shown.
+            $r->get('google-business')->displayToggles([
+                ['key' => 'reviews', 'label' => 'Reviews', 'description' => 'Your Google rating and recent reviews.'],
+                ['key' => 'hours', 'label' => 'Opening hours', 'description' => 'Your weekly opening hours.'],
+                ['key' => 'photos', 'label' => 'Photos', 'description' => 'Photos from your Google Business profile.'],
+                ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
+                ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
+            ]);
+            $r->get('instagram')->displayToggles([
+                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.'],
+            ]);
+
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
             // Drives the single registry loop in routes/api/platforms.php. Bespoke
             // platforms (the default) keep their standalone groups and are skipped.

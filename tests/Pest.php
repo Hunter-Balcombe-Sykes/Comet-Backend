@@ -477,6 +477,7 @@ function setupSitesTable(): void
         place_id TEXT NULL,
         refresh_etag TEXT NULL,
         refresh_last_modified TEXT NULL,
+        display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL,
         created_at TEXT NULL,
@@ -487,7 +488,7 @@ function setupSitesTable(): void
     // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
     // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
     // already-created table within a run).
-    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind'] as $vCol) {
+    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind', 'display_settings'] as $vCol) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
         } catch (Throwable $e) {

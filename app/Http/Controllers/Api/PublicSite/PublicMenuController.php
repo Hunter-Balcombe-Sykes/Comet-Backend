@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +26,19 @@ class PublicMenuController extends ApiController
 
         $userId = User::query()->where('handle_lc', $handleLc)->value('id');
         if (! $userId) {
+            return $this->error('Not found.', 404);
+        }
+
+        // The owner can hide the menu from their sitepage via the Google
+        // Business display toggles (display_settings.menu === false) — the
+        // menu is GB-sourced, so the gate lives with that connection.
+        $gbDisplay = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', 'google-business')
+            ->where('is_active', true)
+            ->first(['display_settings'])
+            ?->display_settings;
+        if ((($gbDisplay['menu'] ?? true) === false)) {
             return $this->error('Not found.', 404);
         }
 

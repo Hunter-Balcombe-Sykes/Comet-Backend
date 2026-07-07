@@ -54,10 +54,12 @@ class IntegrationConnection extends BaseModel
         'place_id',
         'refresh_etag',
         'refresh_last_modified',
+        'display_settings',
     ];
 
     protected $casts = [
         'payload' => 'array',
+        'display_settings' => 'array',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
         'consecutive_failures' => 'integer',

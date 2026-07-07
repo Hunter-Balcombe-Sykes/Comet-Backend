@@ -46,6 +46,7 @@ class IntegrationConnectionObserver
         // coalesces to one purge + one rebuild.
         if ($connection->wasRecentlyCreated
             || $connection->wasChanged('payload')
+            || $connection->wasChanged('display_settings')
             || $connection->wasChanged('is_active')) {
             $this->refresher->refresh($connection);
         }
