@@ -341,7 +341,7 @@ class AnalyticsQueryService
 
     /**
      * Outbound clicks per booking service/event item on the sitepage booking
-     * section. Section key differs by skeleton: flow/hub/stories use 'book',
+     * section. Section key differs by skeleton: deck/dock/flick use 'book',
      * bento uses 'services'.
      *
      * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>

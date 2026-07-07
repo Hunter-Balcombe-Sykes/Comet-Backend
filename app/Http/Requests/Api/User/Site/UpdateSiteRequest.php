@@ -109,8 +109,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of bento/hub/stories/flow/sheet/thread (legacy
-            // skeleton-N ids normalized in prepareForValidation). Replaces theme_id.
+            // Skeleton — one of bento/dock/flick/deck/sheet/thread (legacy ids,
+            // both generations, normalized in prepareForValidation). Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
@@ -153,7 +153,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, hub, stories, flow, sheet, thread.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread.',
         ];
     }
 }

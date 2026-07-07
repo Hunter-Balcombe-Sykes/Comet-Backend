@@ -175,9 +175,9 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
 });
 
 it('returns the user-selected skeleton_id', function () {
-    seedIndividualProfile('solo-sk2', 'hub');
+    seedIndividualProfile('solo-sk2', 'dock');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
-    expect($data['skeletonId'])->toBe('hub');
+    expect($data['skeletonId'])->toBe('dock');
 });
 
 it('groups stored design_kit columns into nested camelCase wire shape', function () {
