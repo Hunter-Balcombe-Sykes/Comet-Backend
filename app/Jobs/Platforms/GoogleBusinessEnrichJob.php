@@ -99,11 +99,11 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // listing plausibly holds Maps-only data the site can't provide
         // (food places: menu + google reserve/food links) or the harvest
         // came back empty.
-        $payload = $this->payloadOf($connection);
-        $harvest = $harvester->harvest(data_get($payload, 'website'));
+        $gbp = GoogleBusinessPayload::fromArray($connection->payload);
+        $harvest = $harvester->harvest($gbp->website());
 
         $enrichment = null;
-        if ($this->needsApify($harvest, data_get($payload, 'category'))) {
+        if ($this->needsApify($harvest, $gbp->category())) {
             $enrichment = $scraper->fetch($this->placeId, $this->userId);
         }
 
@@ -133,7 +133,6 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
-        $gbp = GoogleBusinessPayload::fromArray($connection->payload);
         $findings = $autoSync->seed(
             $this->userId,
             $enrichment,
@@ -180,13 +179,13 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
      * harvest found anything usable. An empty harvest always falls through
      * to Apify so coverage never regresses.
      */
-    private function needsApify(array $harvest, mixed $category): bool
+    private function needsApify(array $harvest, ?string $category): bool
     {
         if ($harvest === []) {
             return true;
         }
 
-        $cat = is_string($category) ? strtolower($category) : '';
+        $cat = strtolower($category ?? '');
         foreach (['restaurant', 'cafe', 'coffee', 'bar', 'bakery', 'food', 'pizza', 'kitchen', 'diner', 'eatery', 'bistro', 'pub', 'takeaway', 'grill'] as $kw) {
             if (str_contains($cat, $kw)) {
                 return true;
