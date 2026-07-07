@@ -31,8 +31,7 @@ class ReportOutcomeNotification extends Notification
 
         return (new MailMessage)
             ->subject('Update on the page you reported')
-            ->line('Thank you for your report.')
-            ->line($outcome);
+            ->view('mail.moderation.report-outcome', ['outcome' => $outcome]);
     }
 
     public function toArray(object $notifiable): array

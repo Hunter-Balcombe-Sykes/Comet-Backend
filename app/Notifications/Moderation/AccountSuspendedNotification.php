@@ -22,9 +22,7 @@ class AccountSuspendedNotification extends Notification
     {
         return (new MailMessage)
             ->subject('Your Partna account has been suspended')
-            ->line('Your account has been suspended for the following reason:')
-            ->line($this->decision->reason ?? 'A violation of our community standards.')
-            ->line('You may submit an appeal through your account dashboard.');
+            ->view('mail.moderation.account-suspended', ['decision' => $this->decision]);
     }
 
     public function toArray(object $notifiable): array
