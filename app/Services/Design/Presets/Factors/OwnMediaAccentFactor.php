@@ -49,8 +49,13 @@ class OwnMediaAccentFactor implements SiteDesignFactor
     public function detect(User $user, Site $site, Collection $activeConnections): array
     {
         // $activeConnections unused: this factor reads the design media pool.
+        // site.site_media is keyed by site_id (FK site_media_site_fk) — there is
+        // NO user_id column, so ->where('user_id', …) threw 42703 on Postgres and
+        // poisoned the whole resolve transaction (every later factor cascaded to
+        // 25P02, so NO contributions were ever written on a live resolve). The
+        // SQLite test schema masked it. $site is the owner seam here.
         $media = SiteMedia::query()
-            ->where('user_id', $user->id)
+            ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
             ->where('purpose', SiteMedia::PURPOSE_LOGO_SQUARE)
             ->first();
