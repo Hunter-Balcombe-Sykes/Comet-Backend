@@ -24,6 +24,16 @@ class SiteCacheService
     private const MISS_SENTINEL = '__MISS__';
 
     /**
+     * Cache-internal flag on payloads written by writePayloadWithStale: the
+     * entry was fully built (image-variant URLs resolved, block collections +
+     * legal healed), so warm hits return it as-is — no per-request
+     * media_variants query, no cache rewrite. Entries written before this
+     * marker existed take the legacy heal path once and get re-written with
+     * the marker. Never leaves the service (see withoutResolvedMarker).
+     */
+    private const RESOLVED_MARKER = '__resolved_v1';
+
+    /**
      * Stale-extension multiplier — matches CacheLockService::STALE_TTL_MULTIPLIER.
      * Primary TTL 15m → :stale TTL 150m (2.5h last-good window) on the public payload.
      */
@@ -121,9 +131,38 @@ class SiteCacheService
     {
         $base = (int) config('partna.cache.ttls.public_payload');
 
+        // Stamp array payloads as fully built (URLs resolved, blocks/legal
+        // healed) so warm hits can skip re-hydration entirely — the marker is
+        // cache-internal and stripped before the payload leaves this service.
+        if (is_array($value)) {
+            $value[self::RESOLVED_MARKER] = true;
+        }
+
         // Independent jitter draws so primary and stale copies expire at different seconds.
         Cache::put($key, $value, self::applyJitter($base));
         Cache::put($key.':stale', $value, self::applyJitter($base * self::PAYLOAD_STALE_TTL_MULTIPLIER));
+    }
+
+    /**
+     * True when a cached array carries the internal fully-built marker.
+     */
+    private function isResolvedPayload(array $payload): bool
+    {
+        return ($payload[self::RESOLVED_MARKER] ?? false) === true;
+    }
+
+    /**
+     * Strip the cache-internal marker before a payload leaves this service —
+     * the controller response shape must stay exactly as documented.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function withoutResolvedMarker(array $payload): array
+    {
+        unset($payload[self::RESOLVED_MARKER]);
+
+        return $payload;
     }
 
     /**
@@ -143,6 +182,13 @@ class SiteCacheService
             return null;
         }
         if (is_array($cached)) {
+            // Fast path — entry was written fully built (URLs resolved,
+            // collections healed): return it untouched. This is 95% of public
+            // traffic; it must not touch Postgres or rewrite the cache.
+            if ($this->isResolvedPayload($cached)) {
+                return $this->withoutResolvedMarker($cached);
+            }
+
             // Backward-compatible cache healing for payload shape changes.
             // Older cache entries may not include `services`.
             if (array_key_exists('services', $cached)) {
@@ -152,7 +198,7 @@ class SiteCacheService
                     $cached['legal'] = null;
                 }
 
-                // Always resolve image variant paths to URLs (handles pre-URL-resolution cache entries)
+                // Resolve image variant paths to URLs (pre-URL-resolution cache entries)
                 $site = $cached['site'] ?? null;
                 if (is_array($site)) {
                     $userId = (string) data_get($cached, 'professional.id', '');
@@ -164,6 +210,8 @@ class SiteCacheService
                     );
                 }
 
+                // Re-write once with the resolved marker so the next hit takes
+                // the fast path above.
                 $this->writePayloadWithStale($key, $cached);
 
                 return $cached;
@@ -187,7 +235,7 @@ class SiteCacheService
                         return null;
                     }
                     if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
-                        return $rechecked;
+                        return $this->withoutResolvedMarker($rechecked);
                     }
 
                     return $this->buildPayloadFromDb($subdomain, $key);
@@ -207,6 +255,10 @@ class SiteCacheService
             }
             if (! is_array($stale)) {
                 return null;
+            }
+            // Fully-built stale copy — serve as-is (same fast path as primary).
+            if ($this->isResolvedPayload($stale)) {
+                return $this->withoutResolvedMarker($stale);
             }
             if (! array_key_exists('services', $stale)) {
                 // Old payload shape — can't safely return it; rebuild.
@@ -243,7 +295,7 @@ class SiteCacheService
                 return null;
             }
             if (is_array($warm)) {
-                return $warm;
+                return $this->withoutResolvedMarker($warm);
             }
 
             // Cache still empty — compute directly rather than flash-404.
@@ -258,7 +310,7 @@ class SiteCacheService
                 return null;
             }
             if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
-                return $rechecked;
+                return $this->withoutResolvedMarker($rechecked);
             }
 
             return $this->buildPayloadFromDb($subdomain, $key);
