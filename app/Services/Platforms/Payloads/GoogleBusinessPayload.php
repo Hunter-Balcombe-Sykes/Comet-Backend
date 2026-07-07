@@ -34,6 +34,18 @@ final readonly class GoogleBusinessPayload
         return is_string($this->raw['placeId'] ?? null) ? $this->raw['placeId'] : null;
     }
 
+    /** The business's own website URL from Place Details, or null. */
+    public function website(): ?string
+    {
+        return is_string($this->raw['website'] ?? null) ? $this->raw['website'] : null;
+    }
+
+    /** The Places primaryTypeDisplayName (e.g. "Barber shop"), or null. */
+    public function category(): ?string
+    {
+        return is_string($this->raw['category'] ?? null) ? $this->raw['category'] : null;
+    }
+
     /** @return list<mixed> the recorded auto-sync findings, verbatim, or [] */
     public function syncFindings(): array
     {

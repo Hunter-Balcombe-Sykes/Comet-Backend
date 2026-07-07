@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Bus\Queueable;
@@ -85,16 +86,28 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         return now()->addMinutes(15);
     }
 
-    public function handle(GoogleBusinessApifyScraper $scraper, GoogleBusinessAutoSync $autoSync): void
+    public function handle(GoogleBusinessApifyScraper $scraper, GoogleBusinessAutoSync $autoSync, WebsiteLinkHarvester $harvester): void
     {
         $connection = $this->connection();
         if (! $connection) {
             return;
         }
 
-        $enrichment = $scraper->fetch($this->placeId, $this->userId);
+        // In-house first: the business's OWN website usually carries the
+        // social / reservation / ordering / booking links — one free fetch
+        // recovers them instantly. The paid Apify run only fires when the
+        // listing plausibly holds Maps-only data the site can't provide
+        // (food places: menu + google reserve/food links) or the harvest
+        // came back empty.
+        $gbp = GoogleBusinessPayload::fromArray($connection->payload);
+        $harvest = $harvester->harvest($gbp->website());
 
-        if ($enrichment === null) {
+        $enrichment = null;
+        if ($this->needsApify($harvest, $gbp->category())) {
+            $enrichment = $scraper->fetch($this->placeId, $this->userId);
+        }
+
+        if ($enrichment === null && $harvest === []) {
             // Soft failure: keep the Place Details payload, just mark the Apify
             // layer 'unavailable' so the dashboard stops polling. No hard fail —
             // the core card is unaffected and a re-connect can retry.
@@ -103,12 +116,23 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             return;
         }
 
+        // Merge: Apify (when it ran) is the base; harvested keys overlay it —
+        // links published on the business's own site are at least as
+        // authoritative as ones crawled off the listing. Socials merge per
+        // network so each source can fill networks the other missed.
+        $enrichment = [
+            ...($enrichment ?? []),
+            ...array_diff_key($harvest, ['socials' => true]),
+            ...(($harvest['socials'] ?? []) !== [] || ($enrichment['socials'] ?? []) !== []
+                ? ['socials' => [...($enrichment['socials'] ?? []), ...($harvest['socials'] ?? [])]]
+                : []),
+        ];
+
         // The harvested links live on their OWN integrations now (Reservations /
         // Online-ordering / Social), not on the Google Business payload. Seed them
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
-        $gbp = GoogleBusinessPayload::fromArray($connection->payload);
         $findings = $autoSync->seed(
             $this->userId,
             $enrichment,
@@ -146,6 +170,29 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         if ($connection) {
             $this->mark($connection, 'unavailable');
         }
+    }
+
+    /**
+     * Whether the paid Apify run is still needed after the website harvest.
+     * Food-oriented places keep it (menu action link + google reserve/food
+     * URLs only exist on the Maps listing); everyone else skips it once the
+     * harvest found anything usable. An empty harvest always falls through
+     * to Apify so coverage never regresses.
+     */
+    private function needsApify(array $harvest, ?string $category): bool
+    {
+        if ($harvest === []) {
+            return true;
+        }
+
+        $cat = strtolower($category ?? '');
+        foreach (['restaurant', 'cafe', 'coffee', 'bar', 'bakery', 'food', 'pizza', 'kitchen', 'diner', 'eatery', 'bistro', 'pub', 'takeaway', 'grill'] as $kw) {
+            if (str_contains($cat, $kw)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // The user's single google-business connection, matched on the indexed
