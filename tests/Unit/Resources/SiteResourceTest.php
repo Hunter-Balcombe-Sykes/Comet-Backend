@@ -29,11 +29,13 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     // booking_mode is promoted to a top-level key when present in settings
     // (API-1) so the dashboard booking editor and the dedicated
     // updateBookingSettings endpoint share one response shape.
+    // design_rationale is opt-in (withRationale) — NOT present by default.
     expect(array_keys($array))->toEqual([
         'id', 'user_id', 'subdomain', 'skeleton_id', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings', 'design_kit',
         'created_at', 'updated_at', 'booking_mode',
     ]);
+    expect($array)->not->toHaveKey('design_rationale');
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
@@ -42,6 +44,25 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.
     expect($array['settings']->booking_mode)->toBe('manual');
+});
+
+it('includes a stable-shaped design_rationale only when opted in', function () {
+    $site = new Site([
+        'subdomain' => 'example',
+        'skeleton_id' => 'bento',
+        'is_published' => true,
+        'settings' => [],
+    ]);
+    $site->id = '44444444-4444-4444-4444-444444444444';
+
+    $array = (new SiteResource($site))->withRationale()->resolve();
+
+    // Present with a stable shape (fails closed to an empty rationale when the
+    // contribution/kit tables aren't readable, e.g. the SQLite unit mirror).
+    expect($array)->toHaveKey('design_rationale');
+    expect($array['design_rationale'])->toHaveKeys(['summary', 'hasOverrides', 'items'])
+        ->and($array['design_rationale']['hasOverrides'])->toBeBool()
+        ->and($array['design_rationale']['items'])->toBeArray();
 });
 
 it('handles empty settings as {} not []', function () {

@@ -5,8 +5,11 @@ namespace App\Services\Design\Presets;
 use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Registry\PlatformCategory;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,6 +37,24 @@ final class IdentityEvidence
 
     /** @var array<string, mixed>|null */
     private ?array $instagramPayload = null;
+
+    private bool $businessHoursResolved = false;
+
+    /** @var array<string, list<array{open:string, close:string}>>|null */
+    private ?array $businessHours = null;
+
+    private bool $mediaPaletteResolved = false;
+
+    /** @var array<string, mixed>|null */
+    private ?array $mediaPalette = null;
+
+    private bool $musicGenreResolved = false;
+
+    private ?string $musicGenre = null;
+
+    private bool $cuisineHintResolved = false;
+
+    private ?string $cuisineHint = null;
 
     /**
      * @param  Collection<int, IntegrationConnection>  $activeConnections  resolver-supplied, active, with shopBrands.products eager-loaded
@@ -141,6 +162,196 @@ final class IdentityEvidence
         $payload = $connection?->payload;
 
         return $this->instagramPayload = is_array($payload) ? $payload : null;
+    }
+
+    /**
+     * The site's structured weekly opening hours, or null when none are stored /
+     * unparseable. Read from site.workplaces.opening_hours (a per-day jsonb the
+     * Google-Business precedence sync fills, or the user sets manually):
+     *   {"mon":[{"open":"0900","close":"1700"}], ..., "exceptions":[]}
+     *
+     * Normalised to a day => list-of-{open,close} map, keeping ONLY the seven
+     * weekday keys with at least one well-formed HHMM open/close pair (the
+     * "exceptions" bucket and any malformed period are dropped). Returns null
+     * rather than an empty map when nothing usable exists, so HoursRhythmFactor's
+     * "no parseable structure" abstain is a simple null check.
+     *
+     * Uses a keyed Workplace query (NOT $site->workplace) — mirrors
+     * PreviousWebsiteFactor, so it never trips Model::preventLazyLoading and
+     * needs no eager-load wiring in the resolver.
+     *
+     * @return array<string, list<array{open:string, close:string}>>|null
+     */
+    public function businessHours(): ?array
+    {
+        if ($this->businessHoursResolved) {
+            return $this->businessHours;
+        }
+        $this->businessHoursResolved = true;
+
+        $workplace = Workplace::query()->find((string) $this->site->id);
+        $raw = $workplace?->opening_hours;
+        if (! is_array($raw)) {
+            return $this->businessHours = null;
+        }
+
+        $days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        $out = [];
+        foreach ($days as $day) {
+            $periods = $raw[$day] ?? null;
+            if (! is_array($periods)) {
+                continue;
+            }
+            $clean = [];
+            foreach ($periods as $period) {
+                if (! is_array($period)) {
+                    continue;
+                }
+                $open = $this->normaliseClock($period['open'] ?? null);
+                $close = $this->normaliseClock($period['close'] ?? null);
+                if ($open !== null && $close !== null) {
+                    $clean[] = ['open' => $open, 'close' => $close];
+                }
+            }
+            if ($clean !== []) {
+                $out[$day] = $clean;
+            }
+        }
+
+        return $this->businessHours = $out === [] ? null : $out;
+    }
+
+    /**
+     * Dominant-colour / palette metadata for the user's gallery media.
+     *
+     * DELIBERATE EMPTY (spec §2 row 2 + §5): site.site_media stores no colour
+     * metadata today (no dominant_color / palette / saturation column, no data
+     * blob) — extracting it is a separate pixel-extraction infra job, out of
+     * scope for this phase. This accessor is the seam that job will fill; until
+     * then it returns [] and ImageryPaletteFactor abstains cleanly, so users are
+     * unaffected. Kept here (rather than omitted) so wiring the future job is a
+     * one-method change with the factor already in place.
+     *
+     * @return array<string, mixed> always [] until a palette source exists
+     */
+    public function mediaPalette(): array
+    {
+        if ($this->mediaPaletteResolved) {
+            return $this->mediaPalette ?? [];
+        }
+        $this->mediaPaletteResolved = true;
+
+        // No stored colour metadata on media rows — see docblock. Abstain source.
+        return $this->mediaPalette = [];
+    }
+
+    /**
+     * A recognised music genre from the first active music connection that
+     * carries one, lower-cased, or null.
+     *
+     * The music platforms (Spotify, Apple Music, SoundCloud, Bandcamp, Deezer, …)
+     * store an oEmbed-shaped EmbedPayload ({url, name, thumbnail, embedUrl, link,
+     * artistId}) that carries NO genre today, so in practice this returns null and
+     * MusicGenreFactor abstains. It still probes a small set of tolerated genre
+     * keys so that if a future payload enrichment adds one, the factor lights up
+     * with no further wiring. Never fabricates a genre.
+     */
+    public function musicGenre(): ?string
+    {
+        if ($this->musicGenreResolved) {
+            return $this->musicGenre;
+        }
+        $this->musicGenreResolved = true;
+
+        $registry = app(PlatformRegistry::class);
+        foreach ($this->activeConnections as $connection) {
+            $slug = is_string($connection->platform ?? null) ? $connection->platform : '';
+            if ($slug === '' || $registry->get($slug)?->getCategory() !== PlatformCategory::Music) {
+                continue;
+            }
+            $payload = $connection->payload;
+            if (! is_array($payload)) {
+                continue;
+            }
+            // Tolerated genre keys — none are written today; forward-compatible probe.
+            foreach (['genre', 'primaryGenre', 'genreName'] as $key) {
+                $value = $payload[$key] ?? null;
+                if (is_string($value) && trim($value) !== '') {
+                    return $this->musicGenre = strtolower(trim($value));
+                }
+                // Some feeds carry a list; take the first non-empty string.
+                if (is_array($value)) {
+                    foreach ($value as $item) {
+                        if (is_string($item) && trim($item) !== '') {
+                            return $this->musicGenre = strtolower(trim($item));
+                        }
+                    }
+                }
+            }
+        }
+
+        return $this->musicGenre = null;
+    }
+
+    /**
+     * A coarse cuisine hint for a food business, derived from the Google-Business
+     * connection's declared category (Places primaryTypeDisplayName, e.g. "Italian
+     * restaurant", "Coffee shop"), or null when there is no food-business signal.
+     *
+     * Returns one of a small closed set of hint tokens (fine_dining, cafe,
+     * fast_casual, or a specific-cuisine token like 'italian') that CuisineFactor
+     * and LaunchRecipeFactor map to a look. Non-food categories and unrecognised
+     * strings yield null. This is the only cuisine signal stored today — there is
+     * no richer serves-cuisine field on the payload.
+     */
+    public function cuisineHint(): ?string
+    {
+        if ($this->cuisineHintResolved) {
+            return $this->cuisineHint;
+        }
+        $this->cuisineHintResolved = true;
+
+        $connection = $this->activeConnections
+            ->firstWhere('platform', Platform::GoogleBusiness->value);
+        $category = $connection && is_array($connection->payload)
+            ? ($connection->payload['category'] ?? null)
+            : null;
+
+        return $this->cuisineHint = is_string($category)
+            ? CuisineLexicon::hintFor($category)
+            : null;
+    }
+
+    /**
+     * Normalise a clock value to a 4-digit "HHMM" string, or null. Accepts the
+     * stored "0900" form and tolerates "9:00" / "09:00" / integer 900. Rejects
+     * anything that isn't a valid 00:00–23:59 time.
+     */
+    private function normaliseClock(mixed $raw): ?string
+    {
+        if (is_int($raw)) {
+            $raw = str_pad((string) $raw, 4, '0', STR_PAD_LEFT);
+        }
+        if (! is_string($raw)) {
+            return null;
+        }
+
+        $digits = preg_replace('/[^0-9]/', '', $raw);
+        if (! is_string($digits) || $digits === '') {
+            return null;
+        }
+        $digits = str_pad($digits, 4, '0', STR_PAD_LEFT);
+        if (strlen($digits) !== 4) {
+            return null;
+        }
+
+        $hour = (int) substr($digits, 0, 2);
+        $minute = (int) substr($digits, 2, 2);
+        if ($hour > 23 || $minute > 59) {
+            return null;
+        }
+
+        return $digits;
     }
 
     /**

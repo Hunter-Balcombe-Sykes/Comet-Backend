@@ -31,7 +31,8 @@ class UserSiteController extends ApiController
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
 
-        return $this->success(['site' => new SiteResource($site)]);
+        // The site GET powers /account/design — include the transparency line.
+        return $this->success(['site' => (new SiteResource($site))->withRationale()]);
     }
 
     public function update(UpdateSiteRequest $request, UpdateSiteAction $action)
@@ -83,7 +84,9 @@ class UserSiteController extends ApiController
             app(SiteCacheService::class)->invalidateSite($site);
         }
 
-        return $this->success(['site' => new SiteResource($site)]);
+        // A design-editor save round-trips the fresh site — include the updated
+        // transparency line so the frontend re-renders it without a second fetch.
+        return $this->success(['site' => (new SiteResource($site))->withRationale()]);
     }
 
     /**

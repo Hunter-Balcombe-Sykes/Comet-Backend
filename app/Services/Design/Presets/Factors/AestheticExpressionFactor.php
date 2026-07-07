@@ -2,6 +2,7 @@
 
 namespace App\Services\Design\Presets\Factors;
 
+use App\Services\Design\Presets\AestheticLexicon;
 use App\Services\Design\Presets\EvidenceFactor;
 use App\Services\Design\Presets\FactorMode;
 use App\Services\Design\Presets\IdentityEvidence;
@@ -40,30 +41,17 @@ class AestheticExpressionFactor implements EvidenceFactor
 {
     public const SOURCE = 'aesthetic-expression:lean';
 
-    private const SOFT = 'soft';
+    // Soft/neutral/bold direction tokens mirror AestheticLexicon (the shared
+    // word-list + lean reader). Kept as local aliases so DIRECTION_TARGETS keys
+    // and the concordance gate below read cleanly.
+    private const SOFT = AestheticLexicon::SOFT;
 
-    private const NEUTRAL = 'neutral';
+    private const NEUTRAL = AestheticLexicon::NEUTRAL;
 
-    private const BOLD = 'bold';
+    private const BOLD = AestheticLexicon::BOLD;
 
     /** Concordant signals required to conclude a direction. */
     private const MIN_CONCORDANT = 2;
-
-    /** Substrings that lean an aesthetic soft (rounded, gentle, delicate presentation). */
-    private const SOFT_LEXICON = [
-        'beauty', 'cosmetic', 'skincare', 'skin care', 'lash', 'brow', 'nail',
-        'floral', 'flower', 'bloom', 'pastel', 'soft', 'gentle', 'delicate',
-        'dreamy', 'boutique', 'bridal', 'wellness', 'yoga', 'spa', 'glow',
-        'petal', 'blush', 'aesthetic', 'elegant',
-    ];
-
-    /** Substrings that lean an aesthetic bold (high-contrast, chunky, hard-edged presentation). */
-    private const BOLD_LEXICON = [
-        'fitness', 'gym', 'strength', 'iron', 'barber', 'tattoo', 'ink',
-        'street', 'streetwear', 'bold', 'raw', 'grit', 'power', 'beast',
-        'combat', 'boxing', 'mma', 'crossfit', 'automotive', 'garage',
-        'moto', 'forge', 'heavy', 'hardcore',
-    ];
 
     public function key(): string
     {
@@ -127,8 +115,8 @@ class AestheticExpressionFactor implements EvidenceFactor
         // demographic; only a concordant soft/bold read ever yields a recipe.
         $votes = [];
         foreach ([
-            $this->leanOf(is_string($payload['businessCategory'] ?? null) ? $payload['businessCategory'] : ''),
-            $this->leanOf(is_string($payload['fullName'] ?? null) ? $payload['fullName'] : ''),
+            AestheticLexicon::leanOf(is_string($payload['businessCategory'] ?? null) ? $payload['businessCategory'] : ''),
+            AestheticLexicon::leanOf(is_string($payload['fullName'] ?? null) ? $payload['fullName'] : ''),
         ] as $vote) {
             if ($vote !== null) {
                 $votes[] = $vote;
@@ -138,45 +126,6 @@ class AestheticExpressionFactor implements EvidenceFactor
         $direction = $this->concordantDirection($votes);
 
         return $direction === null ? [] : self::DIRECTION_TARGETS[$direction];
-    }
-
-    /**
-     * The aesthetic lean of a text: soft/bold if its lexicon clearly dominates,
-     * neutral if the text is present but leans neither way, null if empty. Ties
-     * (equal soft and bold hits) resolve to neutral — the text is mixed, not
-     * confidently either.
-     */
-    private function leanOf(string $text): ?string
-    {
-        $lower = strtolower(trim($text));
-        if ($lower === '') {
-            return null;
-        }
-
-        $soft = $this->hits($lower, self::SOFT_LEXICON);
-        $bold = $this->hits($lower, self::BOLD_LEXICON);
-
-        if ($soft > $bold) {
-            return self::SOFT;
-        }
-        if ($bold > $soft) {
-            return self::BOLD;
-        }
-
-        return self::NEUTRAL;
-    }
-
-    /** Count of lexicon substrings present in $text. */
-    private function hits(string $text, array $lexicon): int
-    {
-        $n = 0;
-        foreach ($lexicon as $term) {
-            if (str_contains($text, $term)) {
-                $n++;
-            }
-        }
-
-        return $n;
     }
 
     /**

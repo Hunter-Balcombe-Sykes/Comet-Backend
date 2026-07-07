@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Core\Site\Site;
+use App\Services\Design\DesignRationaleService;
 use Illuminate\Http\Request;
 
 // API resource for site.sites rows (dashboard + staff side).
@@ -11,6 +12,22 @@ use Illuminate\Http\Request;
 // (separate table), exposed via the skeleton-system payload.
 class SiteResource extends ApiResource
 {
+    /**
+     * Include the design transparency line (spec §3). OFF by default: it costs two
+     * extra DB reads (contribution ledger + manual kit), so only the design-editor
+     * round-trips (site show/update) opt in via withRationale() — staff/self/
+     * visibility responses that never render the line skip the cost.
+     */
+    private bool $withRationale = false;
+
+    /** Opt this resource into emitting design_rationale. Fluent, for the design GET/PATCH. */
+    public function withRationale(bool $with = true): static
+    {
+        $this->withRationale = $with;
+
+        return $this;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -49,6 +66,14 @@ class SiteResource extends ApiResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ],
+            // Transparency line (spec §3): plain-language WHY the design looks the
+            // way it does, from the contribution ledger + manual overrides. Never
+            // exposes raw column names or sensitive detail. Opt-in (withRationale)
+            // — only the design-editor round-trips pay its two DB reads; the
+            // dashboard renders the summary + an expandable per-area list.
+            $this->withRationale
+                ? ['design_rationale' => app(DesignRationaleService::class)->forSite((string) $this->id)]
+                : [],
             // Booking settings surfaced at the top level for the dashboard's
             // booking editor — mirrors the dedicated updateBookingSettings endpoint.
             // Conditionally merged so the keys are absent (not null) when unset,
