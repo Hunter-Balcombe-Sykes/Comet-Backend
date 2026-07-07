@@ -51,6 +51,8 @@ final class AnalyticsEvent
         public readonly ?string $productTitle = null,
         public readonly ?string $label = null,
         public readonly ?int $durationSeconds = null,
+        public readonly ?float $latitude = null,
+        public readonly ?float $longitude = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -82,6 +84,8 @@ final class AnalyticsEvent
             'product_title' => $this->productTitle,
             'label' => $this->label,
             'duration_seconds' => $this->durationSeconds,
+            'latitude' => $this->latitude,
+            'longitude' => $this->longitude,
         ];
     }
 
@@ -114,6 +118,8 @@ final class AnalyticsEvent
             productTitle: $d['product_title'] ?? null,
             label: $d['label'] ?? null,
             durationSeconds: isset($d['duration_seconds']) ? (int) $d['duration_seconds'] : null,
+            latitude: isset($d['latitude']) ? (float) $d['latitude'] : null,
+            longitude: isset($d['longitude']) ? (float) $d['longitude'] : null,
         );
     }
 }

@@ -448,7 +448,13 @@ class AnalyticsQueryService
      * are dropped (not bucketed) so the list stays meaningful; the edge fills
      * city on a best-effort basis.
      *
-     * @return array<int, array{city:string, visitors:int}>
+     * Grouped by (city, country_code) so same-named cities in different
+     * countries don't collapse into one row. Coordinates are the average of
+     * the per-visit edge-resolved lat/lon (AVG smooths PoP-level jitter for
+     * the same metro); rows older than the lat/lon rollout return null and
+     * simply don't get a map pin.
+     *
+     * @return array<int, array{city:string, country_code:?string, visitors:int, latitude:?float, longitude:?float}>
      */
     public function cities(string $userId, Carbon $from, Carbon $to, int $limit = 6): array
     {
@@ -456,14 +462,17 @@ class AnalyticsQueryService
             ->where('user_id', $userId)
             ->whereNotNull('city')
             ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw("city, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
-            ->groupBy('city')
+            ->selectRaw("city, country_code, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors, AVG(latitude) as latitude, AVG(longitude) as longitude")
+            ->groupBy('city', 'country_code')
             ->orderByDesc('visitors')
             ->limit($limit)
             ->get()
             ->map(fn ($r) => [
                 'city' => (string) $r->city,
+                'country_code' => $r->country_code !== null ? (string) $r->country_code : null,
                 'visitors' => (int) $r->visitors,
+                'latitude' => $r->latitude !== null ? round((float) $r->latitude, 4) : null,
+                'longitude' => $r->longitude !== null ? round((float) $r->longitude, 4) : null,
             ])
             ->all();
     }

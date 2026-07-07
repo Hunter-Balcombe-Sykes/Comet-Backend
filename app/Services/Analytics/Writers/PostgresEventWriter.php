@@ -110,6 +110,8 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'region_code' => $e->regionCode,
             'city' => $e->city,
             'device_type' => $e->deviceType,
+            'latitude' => $e->latitude,
+            'longitude' => $e->longitude,
         ];
     }
 

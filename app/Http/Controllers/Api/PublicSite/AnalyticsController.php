@@ -349,6 +349,8 @@ class AnalyticsController extends ApiController
             productTitle: $data['product_title'] ?? null,
             label: $data['label'] ?? null,
             durationSeconds: $durationSeconds,
+            latitude: $this->detectLatitude($request),
+            longitude: $this->detectLongitude($request),
         );
     }
 

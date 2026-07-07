@@ -156,4 +156,44 @@ trait DetectsClientInfo
 
         return $city;
     }
+
+    /**
+     * Visitor latitude from the partna-pages proxy header (request.cf.latitude
+     * forwarded as X-Visitor-Lat). Best-effort demographics only, same trust
+     * level as detectCity(); anything non-numeric or out of range returns null.
+     */
+    protected function detectLatitude(Request $request): ?float
+    {
+        return $this->parseCoordinate($request->header('X-Visitor-Lat'), 90.0);
+    }
+
+    /**
+     * Visitor longitude from the partna-pages proxy header (request.cf.longitude
+     * forwarded as X-Visitor-Lon). Same rules as detectLatitude().
+     */
+    protected function detectLongitude(Request $request): ?float
+    {
+        return $this->parseCoordinate($request->header('X-Visitor-Lon'), 180.0);
+    }
+
+    private function parseCoordinate(mixed $value, float $bound): ?float
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        if ($value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        $parsed = (float) $value;
+
+        if (! is_finite($parsed) || abs($parsed) > $bound) {
+            return null;
+        }
+
+        return $parsed;
+    }
 }
