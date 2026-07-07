@@ -259,7 +259,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
-            $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->payload(SelectionPayload::class));
+            $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->refreshable()->payload(SelectionPayload::class));
+            // Scheduled service-menu refresh (prices/durations/new services) —
+            // re-scrapes the saved selection; 304s when unchanged or unselected.
+            $r->get('fresha')->fetch(fn () => new \App\Services\Platforms\Strategies\Fetch\FreshaFetch(
+                app(\App\Services\Platforms\FreshaScraper::class),
+            ));
+            $r->get('fresha')->refreshEvery(2 * 86400);
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));

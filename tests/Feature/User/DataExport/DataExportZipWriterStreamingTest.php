@@ -8,13 +8,28 @@ use Tests\Feature\User\DataExport\DataExportTestCase;
 
 beforeEach(function () {
     DataExportTestCase::boot();
+    $GLOBALS['__writer_zip_paths'] = [];
 });
 
+// Clean up ONLY the zips this file's tests produced. The old
+// glob(sys_get_temp_dir().'/export-*') sweep deleted SIBLING paratest
+// workers' live export-test-* fixtures mid-test (ExportUserDataJobTest's
+// fakeWriteResult() temp files) — the parallel-only flake.
 afterEach(function () {
-    foreach (glob(sys_get_temp_dir().'/export-*') as $f) {
+    foreach ($GLOBALS['__writer_zip_paths'] ?? [] as $f) {
         @unlink($f);
     }
+    $GLOBALS['__writer_zip_paths'] = [];
 });
+
+/** writeStreaming + record the produced zip for this file's afterEach cleanup. */
+function writeStreamingTracked(DataExportZipWriter $writer, DataExportPayloadBuilder $builder, string $proId): array
+{
+    $result = $writer->writeStreaming($builder, $proId);
+    $GLOBALS['__writer_zip_paths'][] = $result['path'];
+
+    return $result;
+}
 
 function seedProForWriter(string $id, string $email = 'jane@example.com'): void
 {
@@ -43,7 +58,7 @@ it('writeStreaming produces a zip containing data.json with builder-defined sect
     $builder = app(DataExportPayloadBuilder::class);
     $writer = new DataExportZipWriter;
 
-    $result = $writer->writeStreaming($builder, $proId);
+    $result = writeStreamingTracked($writer, $builder, $proId);
 
     expect($result['path'])->toBeFile();
     expect($result['sha256'])->toBe(hash_file('sha256', $result['path']));
@@ -96,8 +111,8 @@ it('streaming JSON keeps stable section ordering across runs (sha256 reproducibi
     $builder = app(DataExportPayloadBuilder::class);
     $writer = new DataExportZipWriter;
 
-    $r1 = $writer->writeStreaming($builder, $proId);
-    $r2 = $writer->writeStreaming($builder, $proId);
+    $r1 = writeStreamingTracked($writer, $builder, $proId);
+    $r2 = writeStreamingTracked($writer, $builder, $proId);
 
     $z1 = new ZipArchive;
     $z1->open($r1['path']);
@@ -124,7 +139,7 @@ it('streaming export with no rows still produces well-formed JSON for every sect
     $builder = app(DataExportPayloadBuilder::class);
     $writer = new DataExportZipWriter;
 
-    $result = $writer->writeStreaming($builder, $proId);
+    $result = writeStreamingTracked($writer, $builder, $proId);
 
     $zip = new ZipArchive;
     $zip->open($result['path']);

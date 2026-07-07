@@ -30,7 +30,7 @@ final readonly class ShopFetch implements FetchStrategy
             ->get();
 
         if ($latestBrands->isEmpty()) {
-            throw new FetchNotModifiedException;
+            throw new FetchNotModifiedException('shop');
         }
 
         $synced = 0;
@@ -43,7 +43,7 @@ final readonly class ShopFetch implements FetchStrategy
         if ($synced === 0) {
             // Every latest-mode store was unreachable this cycle — selections
             // untouched, nothing to publish.
-            throw new FetchNotModifiedException;
+            throw new FetchNotModifiedException('shop');
         }
 
         $this->refresher->refresh($connection);

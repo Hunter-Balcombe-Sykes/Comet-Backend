@@ -18,7 +18,7 @@ class UpdateSiteRequest extends BaseFormRequest
 
     /** Allowed skeleton IDs — mirrors the DB CHECK constraint. */
     public const ALLOWED_SKELETONS = [
-        'bento', 'hub', 'stories', 'flow',
+        'bento', 'hub', 'stories', 'flow', 'sheet', 'thread',
     ];
 
     /**
@@ -149,7 +149,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, hub, stories, flow.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, hub, stories, flow, sheet, thread.',
         ];
     }
 }
