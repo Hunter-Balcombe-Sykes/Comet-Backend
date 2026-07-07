@@ -31,7 +31,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     // updateBookingSettings endpoint share one response shape.
     expect(array_keys($array))->toEqual([
         'id', 'user_id', 'subdomain', 'skeleton_id', 'is_published',
-        'subdomain_changed_at', 'unpublished_at', 'settings',
+        'subdomain_changed_at', 'unpublished_at', 'settings', 'design_kit',
         'created_at', 'updated_at', 'booking_mode',
     ]);
     expect($array)->not->toHaveKey('internal_flag');

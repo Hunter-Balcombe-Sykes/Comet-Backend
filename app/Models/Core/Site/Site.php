@@ -154,10 +154,17 @@ class Site extends BaseModel
      */
     public function designKitVars(): array
     {
-        $row = DB::connection('pgsql')
-            ->table('site.design_kits')
-            ->where('site_id', $this->id)
-            ->first();
+        try {
+            $row = DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $this->id)
+                ->first();
+        } catch (\Throwable) {
+            // Fail-closed to "no stored vars": the editor falls back to package
+            // defaults exactly as before this field existed. Also covers the
+            // SQLite test mirror, which doesn't create site.design_kits.
+            return [];
+        }
 
         if ($row === null) {
             return [];
