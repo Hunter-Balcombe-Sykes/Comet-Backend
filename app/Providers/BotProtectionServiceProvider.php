@@ -88,11 +88,17 @@ final class BotProtectionServiceProvider extends ServiceProvider
         // and has no public getter, so we read it via reflection. '*' (trust all) counts
         // as configured — it's the recommended setting when the app sits behind a
         // single trusted edge (Cloudflare, Laravel Cloud).
+        // No setAccessible() call: it's been a no-op since PHP 8.1, and PHP 8.5 emits an
+        // E_DEPRECATED notice if you call it. A previous version of this code called it
+        // and caught \Throwable around the whole block — under PHP 8.5, if Laravel's own
+        // deprecation-error handler chokes on that notice (e.g. no deprecations logger
+        // bound), the resulting Error was swallowed here and silently misreported "not
+        // configured", making this guard fire false-positive warnings. Catch only the
+        // reflection-specific exception so unrelated errors aren't masked.
         try {
             $reflection = new \ReflectionProperty(TrustProxies::class, 'alwaysTrustProxies');
-            $reflection->setAccessible(true);
             $proxies = $reflection->getValue();
-        } catch (\Throwable $e) {
+        } catch (\ReflectionException) {
             return false;
         }
 
