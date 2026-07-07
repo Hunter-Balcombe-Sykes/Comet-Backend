@@ -33,22 +33,21 @@ it('rejects a non-hex design-kit colour', function () {
 });
 
 it('rejects a non-hex border / icon colour', function () {
-    // SEC-5 extension: border_color, border_focus_color and icon_color flow into
-    // the same inline-CSS surface as color_*, so they carry the hex-only regex too.
+    // SEC-5 extension: border_color and icon_color flow into the same
+    // inline-CSS surface as color_*, so they carry the hex-only regex too.
     // rgba()/named colours must 422 before reaching writeDesignKit.
+    // (border_focus_color was dropped with its column — 2026-07-07 trait regen.)
     $pro = createTenant('hex-border-pro');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['design_kit' => [
             'border_color' => 'red',
             'icon_color' => 'blue',
-            'border_focus_color' => 'rgba(0,0,0,0.5)',
         ]])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'design_kit.border_color',
             'design_kit.icon_color',
-            'design_kit.border_focus_color',
         ]);
 });
 
