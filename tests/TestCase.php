@@ -31,6 +31,23 @@ abstract class TestCase extends BaseTestCase
 
         DB::purge('pgsql');
 
+        // Parallel-test Redis isolation (#50): ~17 suites call Redis::flushdb
+        // for per-file isolation, which on the SHARED default databases nukes
+        // sibling workers' cache/queue state mid-test — the moderation/
+        // streaming/session flake family (each member passes solo). Under
+        // `--parallel`, point EVERY logical Redis connection at one
+        // worker-private database (token 1..N → DB 1..N; local Redis ships 16
+        // DBs, so ≤15 workers). flushdb then only ever clears the calling
+        // worker's own DB. Solo runs keep the 0-4 defaults.
+        $token = env('TEST_TOKEN');
+        if ($token !== false && $token !== null && $token !== '' && (int) $token > 0) {
+            $db = (int) $token;
+            foreach (['default', 'cache', 'session', 'queue', 'cache_locks'] as $name) {
+                config(["database.redis.{$name}.database" => $db]);
+                \Illuminate\Support\Facades\Redis::purge($name);
+            }
+        }
+
         // MediaDiskResolver trusts $_ENV/$_SERVER over config (Laravel Cloud
         // injects runtime env vars that deploy-cached config can't see). Under
         // phpunit, dotenv loads .env into those superglobals, so a developer's
