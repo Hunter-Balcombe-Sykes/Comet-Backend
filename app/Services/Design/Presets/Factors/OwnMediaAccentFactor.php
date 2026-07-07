@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 // Accent colour from the user's OWN uploaded square logo — the most literal
-// brand signal we hold. Sits near the bottom of the hierarchy (20): the
-// previous-website scan (100) reads the accent in real usage context and any
+// brand signal we hold. Band B (media, 20-29) per factors-engine spec §4: the
+// previous-website scan (84) reads the accent in real usage context and any
 // category bucket (30–60) carries a curated palette; this factor only fills
 // color_accent when nothing stronger claimed it, so a fresh account with just
 // a logo still lands on-brand instead of package blue.

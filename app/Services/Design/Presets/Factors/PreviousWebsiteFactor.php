@@ -34,9 +34,12 @@ class PreviousWebsiteFactor implements SiteDesignFactor
 
     public function priority(): int
     {
-        // Above Google Business (50) and Instagram (30) — their OWN old site
-        // is the strongest identity signal we have.
-        return 100;
+        // Band F (own-site, 80-89) per factors-engine spec §4 — the top
+        // automatic band. Their OWN previous site is the strongest statement of
+        // their actual taste we have, so it beats every category/refiner/declared
+        // factor; only combination factors (band E-combo, 70-79) sit just below
+        // and manual design_kits values still win outright.
+        return 84;
     }
 
     /** @return array<string, string> */

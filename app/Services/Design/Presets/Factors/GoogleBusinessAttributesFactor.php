@@ -10,8 +10,9 @@ use App\Services\Platforms\Registry\Platform;
 // Refinement factor: a Google Business listing's ATTRIBUTES (price level,
 // live music, cocktails/wine, outdoor seating, good-for-children) narrow the
 // bucket preset the type factor picked. It contributes only the few motion /
-// weight columns it means to refine, at a priority just above the type factor
-// (55 > 50), so those columns override the bucket while everything else
+// weight columns it means to refine, at a priority in band D (refiners, 50-59
+// per factors-engine spec §4) just above the band-C type factor
+// (52 > 40), so those columns override the bucket while everything else
 // (colours, font, radius) still comes from the bucket underneath — a
 // per-column refinement, not a competing bucket.
 //
@@ -45,7 +46,8 @@ class GoogleBusinessAttributesFactor implements DesignFactor
 
     public function priority(): int
     {
-        return 55;
+        // Band D (refiners) — see class docblock.
+        return 52;
     }
 
     /** @return array<string, string> */

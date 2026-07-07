@@ -274,7 +274,7 @@ it('fully overrides Instagram with Google when both match DIFFERENT buckets (eve
 
     dkPresetResolver()->resolveForUser($user);
 
-    // Every bucket sets the same 7 keys, so Google's priority (50 > 30) wins
+    // Every bucket sets the same 7 keys, so Google's priority (40 > 30) wins
     // ALL of them — not a partial blend of the two buckets.
     expect(dkPresetResolver()->presetLayer($user->site->id))
         ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK));

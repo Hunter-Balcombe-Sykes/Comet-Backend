@@ -327,13 +327,13 @@ it('maps tiers to columns, drops unknown tiers, and knows the new light tier', f
         ->toBe(['color_bg' => '#fafafa']);
 });
 
-// ── PreviousWebsiteFactor (priority 100) ───────────────────────────────────
+// ── PreviousWebsiteFactor (band F, priority 84) ────────────────────────────
 
 it('contributes raw accent + snapped tiers from a stored analysis, beating Google', function () {
     $user = createTenant('pw-wins');
-    // Google restaurant would set color_bg #f7f4ee at priority 50…
+    // Google restaurant would set color_bg #f7f4ee at priority 40 (band C)…
     wbsSeedConnection($user, ['category' => 'Restaurant'], 'google-business');
-    // …but the previous website concluded dark at priority 100.
+    // …but the previous website concluded dark at priority 84 (band F).
     wbsSeedWorkplace($user->site->id, 'https://old.example', wbsAnalysis(
         'https://old.example', '#123abc', ['bg' => 'dark', 'radius' => 'sharp'],
     ));
@@ -341,7 +341,7 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    expect($layer['color_bg'])->toBe('#151515')       // previous-website (100) beats Google (50)
+    expect($layer['color_bg'])->toBe('#151515')       // previous-website (84) beats Google (40)
         ->and($layer['color_accent'])->toBe('#123abc') // raw accent passes through
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('young-serif'); // Google still wins uncontested columns (FOOD_DRINK bucket)

@@ -104,15 +104,16 @@ class DesignPresetResolver
         // bare DB::transaction()) because BaseModel forces pgsql regardless of
         // the default connection config.
         return DB::connection('pgsql')->transaction(function () use ($user, $site, $siteId) {
-            // Eager-load shopBrands: OutsideWebsitesFactor reads each shop
-            // connection's brand rows (FOUND-25) via this SAME collection, not
-            // its own query. Without this, that property access would lazy-load
-            // per shop connection — an N+1 that also trips Model::preventLazyLoading
-            // outside production whenever the user has 2+ active connections.
+            // Eager-load shopBrands (+ their products): OutsideWebsitesFactor reads
+            // each shop connection's brand rows (FOUND-25) via this SAME collection,
+            // and StorePricePointFactor reads brand->products off it too. Without
+            // eager-loading, those property accesses would lazy-load per shop
+            // connection — an N+1 that also trips Model::preventLazyLoading outside
+            // production whenever the user has 2+ active connections.
             $connections = IntegrationConnection::query()
                 ->where('user_id', $user->id)
                 ->active()
-                ->with('shopBrands')
+                ->with(['shopBrands', 'shopBrands.products'])
                 ->get();
 
             /** @var Collection<string, Collection<int, DesignKitContribution>> $existing */
@@ -180,6 +181,42 @@ class DesignPresetResolver
                     $siteFactor->integrationLabel(),
                     $siteFactor->priority(),
                     FactorMode::Auto->value,
+                    $values,
+                    $existing->get($source),
+                ) || $changed;
+            }
+
+            // v2 evidence factors: reason over the WHOLE assembled IdentityEvidence
+            // bag (cross-source — platform mix, store price point, aesthetic
+            // expression). Built ONCE from the already-loaded connections so no
+            // factor re-queries. One-shot freezing mirrors the loops above (a
+            // resolved one-shot keeps its rows); a factor that throws degrades to
+            // an empty detection (its rows sweep), never a failed job.
+            // $existing (rows grouped by source) is handed in so an auto factor
+            // can read what it last emitted — the hysteresis anchor for
+            // StorePricePointFactor (only flip a band on a sustained ≥15% cross).
+            $evidence = new IdentityEvidence($user, $site, $connections, $existing);
+            foreach ($this->registry->evidenceFactors() as $evidenceFactor) {
+                $source = $evidenceFactor->key();
+                $desiredSources[] = $source;
+
+                if ($evidenceFactor->mode() === FactorMode::OneShot && $existing->has($source)) {
+                    continue;
+                }
+
+                $values = [];
+                try {
+                    $values = PresetTargetableColumns::filter($evidenceFactor->detect($evidence));
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+
+                $changed = $this->syncSource(
+                    $siteId,
+                    $source,
+                    $evidenceFactor->integrationLabel(),
+                    $evidenceFactor->priority(),
+                    $evidenceFactor->mode()->value,
                     $values,
                     $existing->get($source),
                 ) || $changed;

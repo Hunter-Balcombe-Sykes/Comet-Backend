@@ -17,11 +17,11 @@ use Illuminate\Support\Collection;
 // contributing it again would only duplicate a lower-confidence copy of the
 // same signal.
 //
-// Priority sits ABOVE Google Business (50): a person who explicitly tells us
-// "I'm a therapist" outranks what their scraped Google listing implies —
-// declared identity beats inferred identity. The previous-website factor
-// (100) still beats both: their actual brand evidence wins over any
-// classification.
+// Band E (declared, 60-69) per factors-engine spec §4 — above Google Business
+// (band C, 40): a person who explicitly tells us "I'm a therapist" outranks
+// what their scraped Google listing implies — declared identity beats inferred
+// identity. The previous-website factor (band F, 84) still beats both: their
+// actual brand evidence wins over any classification.
 class SectorFactor implements SiteDesignFactor
 {
     public const SOURCE = 'profile:sector';

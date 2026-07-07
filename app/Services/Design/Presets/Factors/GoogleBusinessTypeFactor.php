@@ -95,9 +95,10 @@ class GoogleBusinessTypeFactor implements DesignFactor
 
     public function priority(): int
     {
-        // Base rank for Google Business — explicitly higher than
-        // InstagramCategoryFactor's, so Google wins any contested column.
-        return 50;
+        // Band C (category, 30–49) per factors-engine spec §4. Above
+        // InstagramCategoryFactor (30) so Google wins any contested category
+        // column; below the band-D refiners (52+) and declared sector (60).
+        return 40;
     }
 
     /** @return array<string, string> */

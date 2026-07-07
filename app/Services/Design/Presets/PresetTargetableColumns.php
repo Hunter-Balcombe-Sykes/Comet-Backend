@@ -30,15 +30,24 @@ final class PresetTargetableColumns
         'typography_line_height',
         'typography_logo_height',
         'typography_font_family',   // selection (font slug)
-        // Structure (value)
+        // Structure (value + selection)
         'border_thickness',
         'border_radius',
         'space_regular',
         'space_desktop_regular',
+        'layout_density',           // value multiplier ("0.85".."1.25")
+        'border_style',             // selection (solid | double | none)
         // Animation + effects (selection)
         'motion_pace',
         'motion_entrance',
         'effect_style',
+        // R6 identity axes (migration 20260707130000) — the factor system is the
+        // PRIMARY setter of these; the dashboard exposes only the Visual Style
+        // preset + Customize expando (spec §1, §6).
+        'effect_shadow_style',      // flat | soft | hard
+        'effect_link_style',        // underline-hover | underline-always | underline-grow | plain
+        'effect_button_fill',       // solid | outline | ghost
+        'effect_image_treatment',   // none | mono | duotone | warm | muted
     ];
 
     public static function isValid(string $column): bool

@@ -52,18 +52,22 @@ use App\Services\Analytics\Ingestors\QueuedIngestor;
 use App\Services\Analytics\Ingestors\SyncIngestor;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\Design\Presets\DesignFactorRegistry;
-use App\Services\Http\SafeUrlFetcher;
+use App\Services\Design\Presets\Factors\AestheticExpressionFactor;
 use App\Services\Design\Presets\Factors\GoogleBusinessAttributesFactor;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\Presets\Factors\OwnMediaAccentFactor;
+use App\Services\Design\Presets\Factors\PlatformMixFactor;
 use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\Design\Presets\Factors\SectorFactor;
+use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -114,9 +118,16 @@ class AppServiceProvider extends ServiceProvider
 
         // Design-kit preset factors. Registry is a singleton holding the
         // concrete factor lists; empty lists make the preset system a no-op.
-        // Hierarchy: previous-website 100 > declared sector 60 > Google
-        // attributes 55 (narrow refinement columns only) > Google type 50 >
-        // Instagram 30 > outside-websites 10.
+        // Priority bands (factors-engine spec §4, low→high): A ambient 10-19
+        // (platform-mix 12, outside-websites 10) < B media 20-29 (own-media 20)
+        // < C category 30-49 (Instagram 30, Google type 40) < D refiners 50-59
+        // (Google attributes 52, store price-point 58) < E declared 60-69
+        // (sector 60, aesthetic-expression 64) < F own-site 80-89
+        // (previous-website 84). Manual design_kits values still win outright.
+        //
+        // Three lists: v1 per-connection factors, v1 site-level factors, and v2
+        // evidence factors (which reason over the whole assembled IdentityEvidence
+        // bag — cross-source conclusions the per-connection interface can't reach).
         $this->app->singleton(DesignFactorRegistry::class, fn () => new DesignFactorRegistry(
             [
                 new GoogleBusinessTypeFactor,
@@ -128,6 +139,11 @@ class AppServiceProvider extends ServiceProvider
                 new SectorFactor,
                 new OutsideWebsitesFactor,
                 new OwnMediaAccentFactor($this->app->make(SafeUrlFetcher::class)),
+            ],
+            [
+                new PlatformMixFactor($this->app->make(PlatformRegistry::class)),
+                new StorePricePointFactor,
+                new AestheticExpressionFactor,
             ],
         ));
     }

@@ -90,7 +90,7 @@ it('lets a declared sector outrank the Google Business category on contested col
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    // Declared identity (priority 60) wins over the scraped category (50).
+    // Declared identity (band E, 60) wins over the scraped category (band C, 40).
     expect($layer['color_accent'])->toBe('#2f6b57')
         ->and($layer['typography_font_family'])->toBe('oswald');
 });
@@ -108,7 +108,7 @@ it('refines a bucket with nightlife attributes — stagger + fast override, colo
     // Bucket (food_drink) colours/font survive …
     expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['typography_font_family'])->toBe('young-serif')
-        // … while the attribute refinement (55 > 50) owns motion.
+        // … while the attribute refinement (band D, 52 > 40) owns motion.
         ->and($layer['motion_entrance'])->toBe('stagger')
         ->and($layer['motion_pace'])->toBe('fast');
 });

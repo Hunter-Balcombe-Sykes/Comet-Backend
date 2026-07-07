@@ -11,18 +11,26 @@ namespace App\Services\Design\Presets;
 class DesignFactorRegistry
 {
     /**
-     * @param  list<DesignFactor>  $factors
-     * @param  list<SiteDesignFactor>  $siteFactors
+     * @param  list<DesignFactor>  $factors  v1 per-connection factors
+     * @param  list<SiteDesignFactor>  $siteFactors  v1 site-level factors
+     * @param  list<EvidenceFactor>  $evidenceFactors  v2 factors over the assembled IdentityEvidence bag
      */
     public function __construct(
         private readonly array $factors = [],
         private readonly array $siteFactors = [],
+        private readonly array $evidenceFactors = [],
     ) {}
 
     /** @return list<SiteDesignFactor> */
     public function siteFactors(): array
     {
         return $this->siteFactors;
+    }
+
+    /** @return list<EvidenceFactor> */
+    public function evidenceFactors(): array
+    {
+        return $this->evidenceFactors;
     }
 
     /**
