@@ -286,7 +286,14 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
-            $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->payload(ShopPayload::class));
+            $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
+            // Latest-mode product sync — auto-tracks the store's newest products
+            // for brands with selection_mode='latest'; manual brands 304 inside.
+            $r->get('shop')->fetch(fn () => new \App\Services\Platforms\Strategies\Fetch\ShopFetch(
+                app(\App\Services\Platforms\ShopCatalog::class),
+                app(\App\Services\Platforms\IntegrationConnectionCacheRefresher::class),
+            ));
+            $r->get('shop')->refreshEvery(6 * 3600);
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));

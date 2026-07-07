@@ -366,6 +366,9 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             'favicon' => 'https://b/favicon.ico',
             'logo' => 'https://b/logo.png',
             'discountCode' => '',
+            'selectionMode' => 'manual',
+            'linkMode' => 'product',
+            'referralQuery' => '',
             'individual' => false,
             'products' => [],
         ]);
@@ -387,7 +390,9 @@ it('shopify brands list strips unknown per-brand keys', function () {
         ->assertOk()
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
-            'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE', 'individual' => false, 'products' => [],
+            'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
+            'selectionMode' => 'manual', 'linkMode' => 'product', 'referralQuery' => '',
+            'individual' => false, 'products' => [],
         ]]]);
 });
 

@@ -15,7 +15,16 @@ class UpdateShopBrandRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'discountCode' => ['present', 'nullable', 'string', 'max:100'],
+            // All optional — PATCH applies only what's present. discountCode
+            // was 'present' when it was the endpoint's only field; 'sometimes'
+            // keeps existing dashboard callers valid while allowing
+            // settings-only updates.
+            'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'selectionMode' => ['sometimes', 'string', 'in:manual,latest'],
+            'linkMode' => ['sometimes', 'string', 'in:product,checkout'],
+            // Full URL or bare query — the controller parses out the query
+            // suffix; empty/null clears the stored referral.
+            'referralUrl' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ];
     }
 }

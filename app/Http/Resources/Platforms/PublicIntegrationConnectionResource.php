@@ -90,9 +90,12 @@ class PublicIntegrationConnectionResource extends ApiResource
      * ShopBrand::toBrandArray(), not the connection's payload). `provider`
      * (shopify / woocommerce / generic) drives sitepage URL + discount
      * handling; products pass through verbatim (each carries `url`).
-     * `sourceUrl` stays private — it is a re-scrape input, not a public field.
+     * `linkMode` + `referralQuery` ride along so productHref() can build
+     * checkout deep links and append the user's referral suffix.
+     * `sourceUrl` stays private (re-scrape input); `selectionMode` stays
+     * dashboard-only (selection policy, not render data).
      */
-    private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'products'];
+    private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'linkMode', 'referralQuery', 'products'];
 
     /**
      * @return array{resourceId: ?string, payload: mixed, lastRefreshedAt: ?string}

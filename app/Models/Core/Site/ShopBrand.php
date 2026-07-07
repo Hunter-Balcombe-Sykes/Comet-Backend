@@ -38,6 +38,9 @@ class ShopBrand extends BaseModel
         'is_individual',
         'position',
         'style_analysis',
+        'selection_mode',
+        'link_mode',
+        'referral_query',
     ];
 
     protected $casts = [
@@ -81,6 +84,11 @@ class ShopBrand extends BaseModel
             'favicon' => $this->favicon,
             'logo' => $this->logo,
             'discountCode' => $this->discount_code ?? '',
+            // Pre-migration rows read null from SQLite (no column default
+            // backfill) — coalesce to the mode defaults.
+            'selectionMode' => $this->selection_mode ?? 'manual',
+            'linkMode' => $this->link_mode ?? 'product',
+            'referralQuery' => $this->referral_query ?? '',
             'products' => $this->products->map->data->all(),
         ];
 

@@ -512,6 +512,8 @@ it('freezes the shop brands list contract', function () {
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B',
             'currency' => 'AUD', 'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
+            // Store link-out fields (2026-07-07): additive, defaulted.
+            'selectionMode' => 'manual', 'linkMode' => 'product', 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

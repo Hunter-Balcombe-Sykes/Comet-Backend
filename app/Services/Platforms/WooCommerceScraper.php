@@ -127,6 +127,26 @@ class WooCommerceScraper extends PlatformScraper
             }
             $prices = is_array($product['prices'] ?? null) ? $product['prices'] : [];
 
+            // Store API exposes purchasable variations (id + attribute values)
+            // on variable products — capped like the Shopify scraper, titled
+            // from the attribute values ("Small / Red") for the selector UI.
+            $variants = [];
+            foreach (array_slice(is_array($product['variations'] ?? null) ? $product['variations'] : [], 0, 25) as $variation) {
+                if (! is_array($variation) || ! isset($variation['id'])) {
+                    continue;
+                }
+                $attrs = collect(is_array($variation['attributes'] ?? null) ? $variation['attributes'] : [])
+                    ->map(fn ($a) => is_array($a) ? ($a['value'] ?? null) : null)
+                    ->filter(fn ($v) => is_string($v) && $v !== '')
+                    ->implode(' / ');
+                $variants[] = [
+                    'id' => (string) $variation['id'],
+                    'title' => $attrs !== '' ? html_entity_decode($attrs, ENT_QUOTES | ENT_HTML5) : null,
+                    'price' => null,
+                    'available' => true,
+                ];
+            }
+
             $out[] = [
                 'productId' => (string) $product['id'],
                 'title' => html_entity_decode((string) ($product['name'] ?? ''), ENT_QUOTES | ENT_HTML5),
@@ -138,6 +158,8 @@ class WooCommerceScraper extends PlatformScraper
                 'variantId' => (string) $product['id'],
                 'available' => (bool) ($product['is_in_stock'] ?? true),
                 'url' => (string) ($product['permalink'] ?? $origin),
+                'createdAt' => null,
+                'variants' => $variants,
             ];
         }
 

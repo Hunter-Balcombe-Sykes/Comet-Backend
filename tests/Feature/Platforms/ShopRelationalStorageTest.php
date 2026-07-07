@@ -222,8 +222,9 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
 
     // toEqual (not toBe): key ORDER inside the brand object shifts slightly
     // (id now precedes provider — see ShopBrand::toBrandArray()) but the value
-    // set is exactly the pre-FOUND-25 contract; JSON object key order is not a
-    // meaningful part of the wire contract for any real consumer.
+    // set is exactly the pre-FOUND-25 contract PLUS the store link-out fields
+    // (linkMode/referralQuery — additive, defaulted); JSON object key order is
+    // not a meaningful part of the wire contract for any real consumer.
     expect($res->json('data.platforms.shop.0.payload'))->toEqual([
         'pub-brand' => [
             'id' => 'pub-brand',
@@ -234,6 +235,8 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
             'favicon' => 'https://pub.example.com/favicon.ico',
             'logo' => 'https://pub.example.com/logo.png',
             'discountCode' => 'SAVE10',
+            'linkMode' => 'product',
+            'referralQuery' => '',
             'products' => [
                 ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD'],
             ],
@@ -289,4 +292,91 @@ it('purges the edge cache on a SECOND shop mutation, not just the first connect'
         ->assertOk();
 
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
+});
+
+// ── Store modes (selection_mode / link_mode / referral_query) ──────────────
+
+function modesBrandFor(User $user): void
+{
+    test()->mock(ShopifyScraper::class, function ($m) {
+        $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
+        $m->shouldReceive('probe')->andReturn(true);
+        $m->shouldReceive('fetchBrand')->andReturn([
+            'id' => 'modes-brand', 'name' => 'Modes Store', 'currency' => 'AUD',
+            'favicon' => null, 'logo' => null,
+        ]);
+        // Catalog newest-first by createdAt: p3 newest, p1 oldest.
+        $m->shouldReceive('fetchProducts')->andReturn([
+            ['productId' => 'p1', 'title' => 'Old', 'url' => 'https://m.example.com/p1', 'available' => true, 'price' => '1.00', 'currency' => 'AUD', 'createdAt' => '2026-01-01T00:00:00Z', 'variants' => []],
+            ['productId' => 'p3', 'title' => 'Newest', 'url' => 'https://m.example.com/p3', 'available' => true, 'price' => '3.00', 'currency' => 'AUD', 'createdAt' => '2026-07-01T00:00:00Z', 'variants' => []],
+            ['productId' => 'p2', 'title' => 'Mid', 'url' => 'https://m.example.com/p2', 'available' => true, 'price' => '2.00', 'currency' => 'AUD', 'createdAt' => '2026-04-01T00:00:00Z', 'variants' => []],
+        ]);
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://m.example.com'])->assertOk();
+}
+
+it('updateBrand persists selectionMode/linkMode and parses the referral URL to its query suffix', function () {
+    $user = shopStorageUser('modes1');
+    modesBrandFor($user);
+
+    $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
+        'linkMode' => 'checkout',
+        'referralUrl' => 'https://m.example.com/landing?ref=abc123&utm_source=friend',
+    ]);
+    $res->assertOk()
+        ->assertJsonPath('linkMode', 'checkout')
+        ->assertJsonPath('referralQuery', 'ref=abc123&utm_source=friend');
+
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    expect($brand->link_mode)->toBe('checkout')
+        ->and($brand->referral_query)->toBe('ref=abc123&utm_source=friend')
+        ->and($brand->selection_mode)->toBe('manual');
+
+    // Bare query form + clearing.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['referralUrl' => 'ref=zzz'])
+        ->assertOk()->assertJsonPath('referralQuery', 'ref=zzz');
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['referralUrl' => ''])
+        ->assertOk()->assertJsonPath('referralQuery', '');
+    // Prose / URL-without-query stores nothing.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['referralUrl' => 'https://m.example.com/landing'])
+        ->assertOk()->assertJsonPath('referralQuery', '');
+});
+
+it('selectionMode=latest syncs the selection to the newest products immediately', function () {
+    $user = shopStorageUser('modes2');
+    modesBrandFor($user);
+
+    $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest']);
+    $res->assertOk()
+        ->assertJsonPath('selectionMode', 'latest')
+        ->assertJsonPath('latestSyncPending', false);
+
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    $ordered = ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all();
+
+    // createdAt DESC: newest first, capped at the default count (8 > 3 → all).
+    expect($ordered)->toBe(['p3', 'p2', 'p1']);
+});
+
+it('a manual selection PUT flips a latest-mode brand back to manual', function () {
+    $user = shopStorageUser('modes3');
+    modesBrandFor($user);
+
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest'])->assertOk();
+    actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])->assertOk();
+
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    expect($brand->selection_mode)->toBe('manual')
+        ->and(ShopProduct::where('brand_id', $brand->id)->pluck('product_id')->all())->toBe(['p1']);
+});
+
+it('rejects invalid mode values', function () {
+    $user = shopStorageUser('modes4');
+    modesBrandFor($user);
+
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'auto'])
+        ->assertStatus(422);
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['linkMode' => 'cart'])
+        ->assertStatus(422);
 });

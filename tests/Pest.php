@@ -529,6 +529,9 @@ function setupSitesTable(): void
         is_individual INTEGER NULL DEFAULT 0,
         position INTEGER NULL DEFAULT 0,
         style_analysis TEXT NULL,
+        selection_mode TEXT NULL DEFAULT \'manual\',
+        link_mode TEXT NULL DEFAULT \'product\',
+        referral_query TEXT NULL DEFAULT \'\',
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

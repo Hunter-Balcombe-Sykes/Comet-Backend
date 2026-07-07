@@ -20,6 +20,7 @@ use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
+use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\SquarespaceScraper;
@@ -83,6 +84,7 @@ class ShopController extends ApiController
         private readonly BigCartelScraper $bigcartel,
         private readonly GenericShopScraper $generic,
         private readonly IntegrationConnectionCacheRefresher $refresher,
+        private readonly ShopCatalog $catalog,
     ) {}
 
     protected function platform(): string
@@ -179,7 +181,12 @@ class ShopController extends ApiController
         });
     }
 
-    // PATCH /api/platforms/shop/brands/{id} — update the discount code.
+    // PATCH /api/platforms/shop/brands/{id} — update brand settings: discount
+    // code, selection mode (manual/latest), link mode (product/checkout), and
+    // the referral URL (stored as its parsed query suffix). Every field is
+    // optional; only what's present is applied. Setting selectionMode=latest
+    // syncs the selection to the store's newest products immediately (the
+    // scheduled refresh keeps it fresh afterwards).
     public function updateBrand(UpdateShopBrandRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -192,12 +199,68 @@ class ShopController extends ApiController
                 return $this->error('Brand not found.', 404);
             }
 
-            $brand->update(['discount_code' => trim((string) $validated['discountCode'])]);
+            $updates = [];
+            if (array_key_exists('discountCode', $validated)) {
+                $updates['discount_code'] = trim((string) $validated['discountCode']);
+            }
+            if (array_key_exists('selectionMode', $validated)) {
+                $updates['selection_mode'] = $validated['selectionMode'];
+            }
+            if (array_key_exists('linkMode', $validated)) {
+                $updates['link_mode'] = $validated['linkMode'];
+            }
+            if (array_key_exists('referralUrl', $validated)) {
+                $updates['referral_query'] = self::referralQueryFrom($validated['referralUrl']);
+            }
+            if ($updates !== []) {
+                $brand->update($updates);
+            }
+
+            $syncFailed = false;
+            if (($validated['selectionMode'] ?? null) === 'latest') {
+                // Sync now (idempotent on re-set). null = store unreachable —
+                // keep the mode (the scheduled refresh retries) but tell the
+                // dashboard so it can message the delay.
+                $syncFailed = $this->catalog->syncLatest($brand->fresh('products')) === null;
+            }
+
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
 
-            return $this->success((new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve());
+            $payload = (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve();
+            $payload['latestSyncPending'] = $syncFailed;
+
+            return $this->success($payload);
         });
+    }
+
+    /**
+     * Extract the query-string "end bit" from a pasted referral URL. Accepts a
+     * full URL (`https://store.com/?ref=abc` → `ref=abc`), a bare query
+     * (`ref=abc`), or empty/null to clear. Anything unparseable stores ''.
+     */
+    private static function referralQueryFrom(?string $raw): string
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        $query = str_contains($raw, '?')
+            ? (string) (parse_url($raw, PHP_URL_QUERY) ?? '')
+            : $raw;
+
+        // Bare-query form must look like key=value pairs, not a URL or prose.
+        if ($query === '' || str_contains($query, '://') || str_contains($query, ' ') || ! str_contains($query, '=')) {
+            return '';
+        }
+
+        parse_str($query, $parsed);
+        if ($parsed === []) {
+            return '';
+        }
+
+        return mb_substr($query, 0, 500);
     }
 
     // DELETE /api/platforms/shop/brands/{id} — remove a brand.
@@ -308,6 +371,12 @@ class ShopController extends ApiController
                     ]);
                 }
             });
+
+            // A hand-picked selection is a manual choice — leaving latest mode
+            // on would silently overwrite it on the next scheduled sync.
+            if (($brand->selection_mode ?? 'manual') === 'latest') {
+                $brand->update(['selection_mode' => 'manual']);
+            }
 
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
@@ -515,34 +584,13 @@ class ShopController extends ApiController
         ];
     }
 
-    /** Live product catalog for a stored brand, dispatched by its provider. */
+    /**
+     * Live product catalog for a stored brand — delegated to ShopCatalog
+     * (shared with the scheduled latest-mode refresh strategy).
+     */
     private function providerProducts(array $brand): array
     {
-        // Client-mode brands: the store blocks our egress, so a live scrape
-        // usually 502s. Try it anyway (blocks get lifted), then fall back to
-        // the warmed catalog, then to the already-chosen products.
-        if (($brand['fetchMode'] ?? null) === 'client') {
-            try {
-                $live = $this->woocommerce->fetchProducts($brand['url']);
-                if ($live !== []) {
-                    return $live;
-                }
-            } catch (HttpException) {
-                // Fall through to the cached/stored catalog.
-            }
-
-            return Cache::get($this->catalogKey($brand['id'])) ?? ($brand['products'] ?? []);
-        }
-
-        return match ($brand['provider'] ?? 'shopify') {
-            ShopProviderDetector::PROVIDER_WOOCOMMERCE => $this->woocommerce->fetchProducts($brand['url']),
-            ShopProviderDetector::PROVIDER_SQUARESPACE => $this->squarespace->fetchProducts($brand['sourceUrl'] ?? $brand['url']),
-            ShopProviderDetector::PROVIDER_BIGCARTEL => ($account = $this->bigcartel->accountFromUrl($brand['url']))
-                ? $this->bigcartel->fetchProducts($account, $brand['currency'] ?? null)
-                : [],
-            ShopProviderDetector::PROVIDER_GENERIC => $this->generic->fetchPage($brand['sourceUrl'] ?? $brand['url'])['products'] ?? [],
-            default => $this->shopify->fetchProducts($brand['url'], $brand['currency'] ?? null),
-        };
+        return $this->catalog->providerProducts($brand);
     }
 
     /**

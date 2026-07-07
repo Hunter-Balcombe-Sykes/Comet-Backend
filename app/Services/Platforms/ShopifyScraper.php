@@ -58,13 +58,20 @@ class ShopifyScraper extends PlatformScraper
         ];
     }
 
+    // Full variant lists are capped so a 100-variant catalog monster can't
+    // bloat the stored product row; the first N cover real selector UIs.
+    private const MAX_VARIANTS = 25;
+
     /**
-     * Fetch <origin>/products.json and flatten to the fields we use. Only the
-     * first variant of each product is kept (its id powers the cart deep link).
-     * `$defaultCurrency` is the shop-level currency used as a fallback when a
-     * variant lacks presentment_prices (most single-currency stores).
+     * Fetch <origin>/products.json and flatten to the fields we use. The first
+     * variant stays the flat compat fields (variantId/price/available — powers
+     * the default deep link); the full list rides in `variants` so checkout
+     * link-mode can offer a variant selector. `createdAt` (product created_at)
+     * lets latest-mode selection sort newest-first regardless of endpoint
+     * ordering. `$defaultCurrency` is the shop-level currency used as a
+     * fallback when a variant lacks presentment_prices.
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string, createdAt:?string, variants:list<array{id:string, title:?string, price:?string, available:bool}>}>
      */
     public function fetchProducts(string $origin, ?string $defaultCurrency = null): array
     {
@@ -86,6 +93,19 @@ class ShopifyScraper extends PlatformScraper
                 continue;
             }
 
+            $variants = [];
+            foreach (array_slice(is_array($product['variants'] ?? null) ? $product['variants'] : [], 0, self::MAX_VARIANTS) as $v) {
+                if (! is_array($v) || ! isset($v['id'])) {
+                    continue;
+                }
+                $variants[] = [
+                    'id' => (string) $v['id'],
+                    'title' => isset($v['title']) ? (string) $v['title'] : null,
+                    'price' => $v['price'] ?? null,
+                    'available' => (bool) ($v['available'] ?? true),
+                ];
+            }
+
             $handle = (string) ($product['handle'] ?? '');
             $out[] = [
                 'productId' => (string) ($product['id'] ?? ''),
@@ -100,6 +120,8 @@ class ShopifyScraper extends PlatformScraper
                 // Absolute product URL so sitepage skeletons never need
                 // provider-specific URL construction.
                 'url' => $origin.'/products/'.$handle,
+                'createdAt' => isset($product['created_at']) && is_string($product['created_at']) ? $product['created_at'] : null,
+                'variants' => $variants,
             ];
         }
 

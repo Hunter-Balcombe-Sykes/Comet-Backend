@@ -51,11 +51,13 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     sort($refreshable);
 
     // Frozen expectation (was PlatformRefresher::REFRESHABLE before Plan 6 deleted it).
-    // The 15 auto-content platforms the daily cron + manual refresh button re-pull.
+    // The 16 auto-content platforms the daily cron + manual refresh button re-pull.
+    // 'shop' joined for latest-mode product selections (ShopFetch 304s when no
+    // brand is in latest mode, so manual-selection users see no behavior change).
     $expected = [
         'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
         'bandcamp', 'spotify', 'soundcloud', 'deezer', 'vimeo', 'twitch', 'pinterest', 'strava',
-        'google-business',
+        'google-business', 'shop',
     ];
     sort($expected);
 
