@@ -24,7 +24,7 @@ class UpdateSiteRequest extends BaseFormRequest
      * can_use_multipage_site capability (#30).
      */
     public const ALLOWED_SKELETONS = [
-        'bento', 'dock', 'flick', 'deck', 'sheet', 'thread', 'atlas',
+        'bento', 'dock', 'flick', 'deck', 'atlas',
     ];
 
     /** Skeletons gated to a capability, not available to every account (#30). */
@@ -46,6 +46,11 @@ class UpdateSiteRequest extends BaseFormRequest
         'hub' => 'dock',
         'stories' => 'flick',
         'flow' => 'deck',
+        // Removed 2026-07-08 (#78) — a stale dashboard build that still sends
+        // sheet/thread maps to deck (their DB rows were remapped to deck) rather
+        // than 422-ing.
+        'sheet' => 'deck',
+        'thread' => 'deck',
     ];
 
     protected function prepareForValidation(): void
@@ -176,7 +181,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread, atlas.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas.',
         ];
     }
 }
