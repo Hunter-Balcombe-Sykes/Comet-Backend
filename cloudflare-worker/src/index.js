@@ -165,6 +165,52 @@ function staleShadowKey(cacheKey) {
  * stores it for the requested TTL while the BROWSER keeps the original
  * max-age + stale-while-revalidate directives. EDGE-1: strip Set-Cookie so an
  * origin session cookie can never be cached and replayed to other visitors. */
+
+// ── Branded 404 for unclaimed subdomains ─────────────────────────────────────
+// Mirrors the pages app's notFoundHtml visual (same card, light/dark) but
+// lives here so KV misses stay a pure edge response — no service-binding or
+// backend hop for enumeration traffic. With a plausible subdomain the copy
+// offers the address (growth surface); without one it's the generic miss.
+function unclaimedHtml(subdomain) {
+  const safe =
+    typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
+  const headline = safe
+    ? `${safe}.partna.au isn&#8217;t claimed yet`
+    : "No Partna profile here";
+  const subline = safe
+    ? "This address is still available. Partna gives you a professional website that keeps itself current from the platforms you already use."
+    : "The address you tried to visit doesn&#8217;t match a Partna account.";
+  const cta = safe ? "Claim this address" : "Go to partna.au";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Not found \u2014 Partna</title>
+  <style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #fafafa; color: #1a1a1a; padding: 24px; }
+@media (prefers-color-scheme: dark) { body { background: #0d0d0d; color: #f5f5f5; } .card { background: #1a1a1a; border-color: #2a2a2a; } a { color: #fafafa; } }
+.card { max-width: 480px; width: 100%; background: #ffffff; border: 1px solid #ececec; border-radius: 12px; padding: 32px; text-align: center; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; margin: 0 0 8px; }
+h1 { font-size: 28px; font-weight: 600; margin: 0 0 12px; line-height: 1.2; overflow-wrap: anywhere; }
+p { font-size: 15px; line-height: 1.6; margin: 0 0 16px; opacity: 0.8; }
+a { display: inline-block; margin-top: 8px; color: #1a1a1a; text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">Partna</p>
+    <h1>${headline}</h1>
+    <p>${subline}</p>
+    <a href="https://partna.au">${cta}</a>
+  </main>
+</body>
+</html>`;
+}
+
 async function withCacheTtl(response, ttlSeconds) {
   const body = await response.clone().arrayBuffer();
   const headers = new Headers(response.headers);
@@ -411,8 +457,15 @@ export default {
     }
 
     if (!entry) {
+      // Branded 404 for unclaimed subdomains — same visual language as the
+      // pages app's notFoundHtml, inlined here so the edge keeps absorbing
+      // enumeration spam without a service-binding + backend hop. Unclaimed
+      // handles are a growth surface: the CTA offers the address.
       return finalize(
-        new Response("Not Found", {status: 404, headers: {"Content-Type": "text/plain"}}),
+        new Response(unclaimedHtml(subdomain), {
+          status: 404,
+          headers: {"Content-Type": "text/html; charset=utf-8"},
+        }),
         {noStore: true},
       );
     }
@@ -451,7 +504,10 @@ export default {
 
       // Untrusted/invalid alias target — fail closed to 404 rather than redirect.
       return finalize(
-        new Response("Not Found", {status: 404, headers: {"Content-Type": "text/plain"}}),
+        new Response(unclaimedHtml(null), {
+          status: 404,
+          headers: {"Content-Type": "text/html; charset=utf-8"},
+        }),
         {noStore: true},
       );
     }
