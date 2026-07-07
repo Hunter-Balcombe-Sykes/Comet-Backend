@@ -155,7 +155,13 @@ class AnalyticsCacheService
             ],
             'top_sections' => $this->queries->topSections($proId, $from, $to),
             'top_links' => $this->queries->topLinks($proId, $from, $to),
+            // Shop/booking/event sitepage sections all carry product_id on the same
+            // analytics.link_clicks table — each key is scoped to its own section_key
+            // set (AnalyticsQueryService::topItemsBySection()) so the three lists stay
+            // disjoint.
             'top_products' => $this->queries->topProducts($proId, $from, $to),
+            'top_services' => $this->queries->topServices($proId, $from, $to),
+            'top_events' => $this->queries->topEvents($proId, $from, $to),
             'conversions' => $this->queries->conversions($proId, $from, $to),
         ];
     }
