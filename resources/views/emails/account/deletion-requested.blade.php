@@ -1,25 +1,31 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Confirm your account deletion</title>
-    <style>
-        body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
-        .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; padding: 32px; }
-        h2 { margin-top: 0; font-size: 20px; color: #111; }
-        p { color: #444; line-height: 1.6; }
-        .btn { display: inline-block; margin-top: 16px; padding: 12px 24px; background: #c0392b; color: #fff; text-decoration: none; border-radius: 6px; font-size: 14px; }
-        .warn { color: #888; font-size: 13px; margin-top: 24px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>Confirm your account deletion</h2>
-        <p>Hi {{ $displayName }},</p>
-        <p>We received a request to delete your Partna account. To confirm, click the button below.</p>
-        <a href="{{ $confirmationUrl }}" class="btn">Confirm deletion</a>
-        <p class="warn">This link expires in 24 hours. If you did not request this, ignore this email and your account will remain active.</p>
-    </div>
-</body>
-</html>
+@extends('mail.layouts.partna')
+
+@section('title', 'Confirm your account deletion')
+@section('preheader', 'Confirm your account deletion request — link expires in 24 hours.')
+
+@section('content')
+    <h1 class="headline text-primary" style="margin: 0 0 16px 0; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,sans-serif; font-size: 32px; font-weight: 600; line-height: 1.125; letter-spacing: -0.022em; color: #1d1d1f;">
+        Confirm your account deletion
+    </h1>
+
+    <p class="body-text text-primary" style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.47; color: #1d1d1f;">
+        Hi {{ $displayName }},
+    </p>
+
+    <p class="body-text text-primary" style="margin: 0 0 24px 0; font-size: 17px; line-height: 1.47; color: #1d1d1f;">
+        We received a request to delete your Partna account. Tap the button below to confirm.
+    </p>
+
+    <x-mail.button :href="$confirmationUrl">Confirm deletion</x-mail.button>
+
+    <p class="body-text text-secondary" style="margin: 32px 0 8px 0; font-size: 14px; line-height: 1.5; color: #6e6e73;">
+        This link expires in 24 hours. If you didn't request this, you can safely ignore this email — your account will remain active.
+    </p>
+
+    <p class="body-text text-secondary" style="margin: 0; font-size: 13px; line-height: 1.5; color: #86868b; word-break: break-all;">
+        Button not working? Paste this URL into your browser:<br>
+        <a href="{{ $confirmationUrl }}" style="color: #3a6efc; text-decoration: none;">{{ $confirmationUrl }}</a>
+    </p>
+@endsection
+
+@section('footer_note', 'This is a transactional email related to your account security.')

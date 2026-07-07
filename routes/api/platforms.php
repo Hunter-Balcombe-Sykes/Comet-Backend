@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;
 use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
+use App\Http\Controllers\Api\Platforms\DisplaySettingsController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
@@ -284,6 +285,15 @@ $registerIntegrationRoutes = function (string $base): void {
     // the registry's refreshable set inside the controller; a per-user cooldown
     // keeps it from hammering the upstream scrapers.
     Route::post("{$base}/{platform}/refresh", [RefreshController::class, 'refresh'])
+        ->where('platform', '[a-z-]+')
+        ->middleware($middleware);
+
+    // Per-integration public display toggles (e.g. Google Business "show
+    // reviews"). Registry-driven: platforms without declared toggles 404.
+    Route::get("{$base}/{platform}/display-settings", [DisplaySettingsController::class, 'show'])
+        ->where('platform', '[a-z-]+')
+        ->middleware($middleware);
+    Route::patch("{$base}/{platform}/display-settings", [DisplaySettingsController::class, 'update'])
         ->where('platform', '[a-z-]+')
         ->middleware($middleware);
 };

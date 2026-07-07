@@ -326,6 +326,44 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
             }
 
+            // ── Public display toggles ───────────────────────────────────────────
+            // What parts of a platform's synced content the owner can hide from
+            // the sitepage. Read by DisplaySettingsController (settings UI +
+            // PATCH validation) and PublicIntegrationConnectionResource /
+            // PublicMenuController (payload suppression). Absent key = shown.
+            $r->get('google-business')->displayToggles([
+                ['key' => 'reviews', 'label' => 'Reviews', 'description' => 'Your Google rating and recent reviews.'],
+                ['key' => 'hours', 'label' => 'Opening hours', 'description' => 'Your weekly opening hours.'],
+                ['key' => 'photos', 'label' => 'Photos', 'description' => 'Photos from your Google Business profile.'],
+                ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
+                ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
+            ]);
+            $r->get('instagram')->displayToggles([
+                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.'],
+            ]);
+
+            // ── Refresh cadences ─────────────────────────────────────────────────
+            // Per-platform re-fetch intervals for the hourly dispatcher; anything
+            // not listed uses the global default (24h). Events move fastest (new
+            // listings + sellouts should reach the sitepage same-morning); watch/
+            // listen content lands twice daily; Google Business every 2 days —
+            // its fetch keeps a 40h internal freshness gate so ratings stay
+            // ≤2 days stale instead of the old 6-day drift, while still
+            // respecting Google's caching guidance.
+            $r->get('eventbrite')->refreshEvery(6 * 3600);
+            $r->get('humanitix')->refreshEvery(6 * 3600);
+            $r->get('youtube')->refreshEvery(12 * 3600);
+            $r->get('vimeo')->refreshEvery(12 * 3600);
+            $r->get('twitch')->refreshEvery(12 * 3600);
+            $r->get('youtube-music')->refreshEvery(12 * 3600);
+            $r->get('spotify')->refreshEvery(12 * 3600);
+            $r->get('soundcloud')->refreshEvery(12 * 3600);
+            $r->get('deezer')->refreshEvery(12 * 3600);
+            $r->get('bandcamp')->refreshEvery(12 * 3600);
+            $r->get('apple-music')->refreshEvery(12 * 3600);
+            $r->get('apple-podcast')->refreshEvery(12 * 3600);
+            $r->get('google-business')->refreshEvery(2 * 86400);
+
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
             // Drives the single registry loop in routes/api/platforms.php. Bespoke
             // platforms (the default) keep their standalone groups and are skipped.

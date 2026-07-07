@@ -106,6 +106,43 @@ class PublicIntegrationConnectionResource extends ApiResource
         ];
     }
 
+    /**
+     * Payload keys each display toggle suppresses when the owner turns it
+     * off (PlatformDescriptor::displayToggles declares the toggle sets; the
+     * sparse map lives in display_settings). Menu is gated in
+     * PublicMenuController — its data ships via the separate menu endpoint.
+     */
+    private const DISPLAY_SUPPRESSIONS = [
+        'google-business' => [
+            'reviews' => ['reviews', 'reviewSummary', 'rating', 'reviewCount'],
+            'hours' => ['hours', 'currentHours'],
+            'photos' => ['photos'],
+            'location' => ['address', 'lat', 'lng', 'addressParts'],
+        ],
+        'instagram' => [
+            'gallery' => ['images', 'videoUrl', 'videoPoster', 'imagesDropped'],
+        ],
+    ];
+
+    /** Drop payload keys the owner's display toggles hide. */
+    private function applyDisplaySettings(string $platform, array $payload): array
+    {
+        $settings = (array) ($this->display_settings ?? []);
+        if ($settings === []) {
+            return $payload;
+        }
+
+        foreach (self::DISPLAY_SUPPRESSIONS[$platform] ?? [] as $toggle => $keys) {
+            if (($settings[$toggle] ?? true) === false) {
+                foreach ($keys as $key) {
+                    unset($payload[$key]);
+                }
+            }
+        }
+
+        return $payload;
+    }
+
     /** Restrict a stored payload to its platform's public allowlist. */
     private function filterPayload(string $platform, mixed $payload): mixed
     {
@@ -144,6 +181,9 @@ class PublicIntegrationConnectionResource extends ApiResource
             return [];
         }
 
-        return array_intersect_key($payload, array_flip($allowed));
+        return $this->applyDisplaySettings(
+            $platform,
+            array_intersect_key($payload, array_flip($allowed)),
+        );
     }
 }

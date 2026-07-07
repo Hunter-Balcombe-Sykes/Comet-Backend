@@ -59,7 +59,9 @@ class PublicIntegrationController extends ApiController
             // brand-keyed map without an N+1. `id` is required for the relation
             // to hydrate (it wasn't previously selected).
             ->with(['shopBrands.products'])
-            ->get(['id', 'platform', 'resource_id', 'payload', 'last_refreshed_at'])
+            // display_settings rides along so the Resource can suppress
+            // toggled-off sections (reviews/hours/photos/…) from the payload.
+            ->get(['id', 'platform', 'resource_id', 'payload', 'display_settings', 'last_refreshed_at'])
             ->groupBy('platform')
             ->map(fn ($rows) => PublicIntegrationConnectionResource::collection($rows->values())->resolve())
             ->toArray();

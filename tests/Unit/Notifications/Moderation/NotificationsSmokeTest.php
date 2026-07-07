@@ -26,7 +26,7 @@ it('AccountSuspendedNotification mail message includes reason', function () {
 
     $n = new AccountSuspendedNotification($decision);
     $mail = $n->toMail(new stdClass);
-    expect($mail->introLines)->not->toBeEmpty();
+    expect($mail->render())->toContain('repeated violations');
 });
 
 it('ReportOutcomeNotification mail message contains outcome key', function () {

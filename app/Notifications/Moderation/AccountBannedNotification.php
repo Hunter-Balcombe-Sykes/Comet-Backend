@@ -22,8 +22,7 @@ class AccountBannedNotification extends Notification
     {
         return (new MailMessage)
             ->subject('Your Partna account has been permanently closed')
-            ->line('Your account has been permanently closed for the following reason:')
-            ->line($this->decision->reason ?? 'A serious violation of our community standards.');
+            ->view('mail.moderation.account-banned', ['decision' => $this->decision]);
     }
 
     public function toArray(object $notifiable): array

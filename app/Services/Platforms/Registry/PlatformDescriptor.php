@@ -34,6 +34,9 @@ class PlatformDescriptor
 
     private bool $coverable = false;
 
+    /** @var array<int, array{key: string, label: string, description: string}> */
+    private array $displayToggles = [];
+
     private ?Detection $detection = null;
 
     /** @var (Closure(): ConnectStrategy)|null Lazily builds the connect strategy (same rationale as fetch()). */
@@ -117,6 +120,34 @@ class PlatformDescriptor
         $this->refreshable = $refreshable;
 
         return $this;
+    }
+
+    /**
+     * Per-integration public display toggles — what parts of this platform's
+     * synced content the owner can hide from their sitepage (e.g. Google
+     * Business reviews). Declared here so the settings UI, the PATCH
+     * validation, and the public-payload suppression all read one source; a
+     * platform without toggles renders no Display card. Every toggle
+     * defaults ON (null display_settings = show everything).
+     *
+     * @param  array<int, array{key: string, label: string, description: string}>  $toggles
+     */
+    public function displayToggles(array $toggles): self
+    {
+        $this->displayToggles = $toggles;
+
+        return $this;
+    }
+
+    /** @return array<int, array{key: string, label: string, description: string}> */
+    public function displayToggleDefs(): array
+    {
+        return $this->displayToggles;
+    }
+
+    public function hasDisplayToggles(): bool
+    {
+        return $this->displayToggles !== [];
     }
 
     /**

@@ -6,6 +6,9 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\Concerns\JitteredTtl;
+use App\Jobs\Platforms\InstagramConnectJob;
+use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Platforms\ApifyBudget;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +28,9 @@ class RefreshController extends ApiController
 
     private const COOLDOWN_SECONDS = 12;
 
+    /** Instagram re-pulls are paid Apify runs — hours, not seconds. */
+    private const INSTAGRAM_COOLDOWN_SECONDS = 6 * 3600;
+
     public function __construct(
         private readonly PlatformRefresher $refresher,
         private readonly PlatformRegistry $registry,
@@ -33,6 +39,15 @@ class RefreshController extends ApiController
     // POST /platforms/{platform}/refresh
     public function refresh(Request $request, string $platform): JsonResponse
     {
+        // Instagram is deliberately OUTSIDE the refresh cron (each pull is a
+        // paid Apify run), but the owner can re-pull their latest post/reel on
+        // demand — budget-gated + a long cooldown so the button can't burn
+        // scrape spend. Handled before the refreshable gate since instagram
+        // isn't in the registry's refreshable set.
+        if ($platform === 'instagram') {
+            return $this->refreshInstagram($request);
+        }
+
         if (! $this->registry->isRefreshable($platform)) {
             return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
         }
@@ -67,5 +82,41 @@ class RefreshController extends ApiController
         }
 
         return $this->success(['refreshed' => $rows->count(), 'ok' => $ok]);
+    }
+
+    // Manual Instagram re-pull: re-dispatches the connect job against the
+    // stored username. The current photo/reel keeps serving until the new
+    // scrape lands (the row is NOT reset to pending), the job's success write
+    // fires the observer → edge purge. 6h cooldown per user + the platform
+    // Apify budget gate keep spend bounded.
+    private function refreshInstagram(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        $connection = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'instagram')
+            ->where('is_active', true)
+            ->first();
+
+        $username = $connection ? InstagramPayload::fromArray($connection->payload)->username : null;
+        if (! $connection || $username === null || $username === '') {
+            return $this->error('Nothing connected to refresh.', 404);
+        }
+
+        if (! Cache::add("integrations:refresh:{$user->id}:instagram", true, self::applyJitter(self::INSTAGRAM_COOLDOWN_SECONDS))) {
+            return $this->error('Instagram was refreshed recently — try again in a few hours.', 429);
+        }
+
+        if (! app(ApifyBudget::class)->tryClaim('instagram')) {
+            return $this->error('Refresh limit reached for now — try again later.', 429);
+        }
+
+        InstagramConnectJob::dispatch((string) $user->id, $username, (string) $connection->id);
+
+        return $this->success([
+            'status' => 'pending',
+            'statusUrl' => url('/api/platforms/instagram/connect/status'),
+        ], 202);
     }
 }

@@ -15,8 +15,13 @@ uses(TestCase::class)->in(__FILE__);
 // Property is protected — use reflection. Same approach the production code uses.
 function bp_test_proxies_get()
 {
+    // No setAccessible() call: it's been a no-op since PHP 8.1 and PHP 8.5
+    // emits a deprecation notice if you call it at all. Several tests in this
+    // file flip app()->environment() to a non-'testing' value (via
+    // detectEnvironment()) before calling this helper, which defeats Laravel's
+    // "don't log deprecations while unit testing" guard (runningUnitTests()
+    // reads the same env() value) and crashes on a null deprecations logger.
     $r = new ReflectionProperty(TrustProxies::class, 'alwaysTrustProxies');
-    $r->setAccessible(true);
 
     return $r->getValue();
 }
@@ -24,7 +29,6 @@ function bp_test_proxies_get()
 function bp_test_proxies_set($value): void
 {
     $r = new ReflectionProperty(TrustProxies::class, 'alwaysTrustProxies');
-    $r->setAccessible(true);
     $r->setValue(null, $value);
 }
 

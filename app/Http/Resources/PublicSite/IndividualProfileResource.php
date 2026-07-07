@@ -84,8 +84,10 @@ class IndividualProfileResource extends ApiResource
         $siteImagesOut = $siteImages === [] ? new stdClass : $siteImages;
 
         // Engine fields preserve null-vs-array distinction precisely:
-        //   - bio/document/newsletter: null when no data is authored.
+        //   - document/newsletter: null when no data is authored.
         //   - gallery/links/services: always emitted as an array.
+        //   (bio was removed with the dead-profile-features cleanup,
+        //   migration 20260705120000.)
         return [
             // Content data — the profile itself + engine outputs. camelCase
             // keys for engine fields per spec §5 wire convention.

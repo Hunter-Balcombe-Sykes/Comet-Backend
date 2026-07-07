@@ -1,22 +1,24 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Your account deletion has been cancelled</title>
-    <style>
-        body { font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
-        .container { max-width: 560px; margin: 40px auto; background: #fff; border-radius: 8px; padding: 32px; }
-        h2 { margin-top: 0; font-size: 20px; color: #111; }
-        p { color: #444; line-height: 1.6; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>Your account deletion has been cancelled</h2>
-        <p>Hi {{ $displayName }},</p>
-        <p>Your Partna account deletion has been cancelled. Your account is active again and your public profile page is back online.</p>
-        <p>If you did not request this, please contact support immediately.</p>
-    </div>
-</body>
-</html>
+@extends('mail.layouts.partna')
+
+@section('title', 'Your account deletion has been cancelled')
+@section('preheader', 'Your account deletion has been cancelled — your account and profile are active again.')
+
+@section('content')
+    <h1 class="headline text-primary" style="margin: 0 0 16px 0; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,sans-serif; font-size: 32px; font-weight: 600; line-height: 1.125; letter-spacing: -0.022em; color: #1d1d1f;">
+        Your account deletion has been cancelled
+    </h1>
+
+    <p class="body-text text-primary" style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.47; color: #1d1d1f;">
+        Hi {{ $displayName }},
+    </p>
+
+    <p class="body-text text-primary" style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.47; color: #1d1d1f;">
+        Your Partna account deletion has been cancelled. Your account is active again and your public profile page is back online.
+    </p>
+
+    <p class="body-text text-secondary" style="margin: 0; font-size: 14px; line-height: 1.5; color: #6e6e73;">
+        If you didn't request this, please contact support immediately.
+    </p>
+@endsection
+
+@section('footer_note', 'This is a transactional email related to your account security.')
