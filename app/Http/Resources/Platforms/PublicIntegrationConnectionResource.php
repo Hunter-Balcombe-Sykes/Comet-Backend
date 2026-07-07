@@ -20,6 +20,28 @@ use Illuminate\Support\Facades\Log;
 class PublicIntegrationConnectionResource extends ApiResource
 {
     /**
+     * The owner's GLOBAL shop link mode (site.sites.shop_link_mode). When set,
+     * every shop brand's public `linkMode` is stamped from this single value
+     * (2026-07-08 — the per-brand control became one global choice). The
+     * controller resolves it once per profile and threads it in via
+     * withShopLinkMode(); null falls back to the design-kit default so the
+     * sitepage contract (pages read brand.linkMode) is unchanged.
+     */
+    private ?string $shopLinkModeOverride = null;
+
+    /**
+     * Fluent setter used by PublicIntegrationController to inject the owner's
+     * global shop link mode into a shop connection resource before resolve().
+     * Returns $this so it composes with the existing single-resource path.
+     */
+    public function withShopLinkMode(?string $mode): self
+    {
+        $this->shopLinkModeOverride = $mode;
+
+        return $this;
+    }
+
+    /**
      * Per-platform allowlist of payload keys exposed publicly. Faithful to the
      * current public contract — i.e. exactly what each platform stores today,
      * minus internal keys (e.g. Instagram's `_folder`, added by CONS-21).
@@ -154,9 +176,27 @@ class PublicIntegrationConnectionResource extends ApiResource
             // (eager-loaded by the controller as `shopBrands.products`), not the
             // connection's payload — build the brand-keyed map from there,
             // allowlisted per brand exactly as before.
+            //
+            // 2026-07-08: the per-brand link mode became ONE global choice
+            // (site.sites.shop_link_mode). Stamp EVERY brand's public linkMode
+            // from that global override so the sitepage contract is unchanged
+            // (pages still read brand.linkMode) — its value now comes from the
+            // single site setting, not the per-brand column. Null override (the
+            // controller couldn't resolve a site) leaves toBrandArray()'s own
+            // per-brand value, itself defaulted to 'product', so the wire is
+            // never missing the key.
+            $linkMode = $this->shopLinkModeOverride;
+
             return $this->shopBrands
-                ->mapWithKeys(fn ($b) => [$b->brand_id => array_intersect_key(
-                    $b->toBrandArray(), array_flip(self::SHOP_BRAND_ALLOWLIST))])
+                ->mapWithKeys(function ($b) use ($linkMode) {
+                    $brand = array_intersect_key(
+                        $b->toBrandArray(), array_flip(self::SHOP_BRAND_ALLOWLIST));
+                    if ($linkMode !== null) {
+                        $brand['linkMode'] = $linkMode;
+                    }
+
+                    return [$b->brand_id => $brand];
+                })
                 ->all();
         }
 

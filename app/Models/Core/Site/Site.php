@@ -29,6 +29,19 @@ class Site extends BaseModel
     public const DEFAULT_SKELETON_ID = 'bento';
 
     /**
+     * Allowed GLOBAL shop link modes — mirrors the value the shop-settings
+     * request validates (no DB CHECK, matching the SQLite-test-mirror
+     * convention). 'checkout' deep-links product cards straight to the store
+     * cart/checkout; 'product' links to the product page. Applied to EVERY
+     * connected store — the public payload stamps each brand's linkMode from
+     * site.sites.shop_link_mode. Default 'checkout' (direct-to-checkout ON).
+     */
+    public const SHOP_LINK_MODES = ['checkout', 'product'];
+
+    /** Global shop link-mode default when the column is unset (fresh row). */
+    public const DEFAULT_SHOP_LINK_MODE = 'checkout';
+
+    /**
      * Allowed booking modes — mirrors the sites_booking_mode_check DB CHECK
      * constraint. Referenced by UpdateSiteRequest / StaffUpdateSiteRequest /
      * UpdateBookingSettingsRequest so validation and the DB constraint share a
@@ -72,6 +85,12 @@ class Site extends BaseModel
         // Content Selection: when true, slots 1–2 are reserved for the latest
         // Instagram reel + post. null == off (mirrors the other toggles above).
         'content_instagram_auto_enabled',
+        // GLOBAL shop link controls (2026-07-08) — one choice each, applied to
+        // every connected store. shop_link_mode: 'checkout'|'product' (the
+        // public payload stamps each brand's linkMode from this). shop_auto_latest:
+        // every non-individual store auto-tracks its newest products when true.
+        'shop_link_mode',
+        'shop_auto_latest',
     ];
 
     protected $casts = [
@@ -89,6 +108,8 @@ class Site extends BaseModel
         'services_auto_sync_enabled' => 'boolean',
         // null == off; cast so reads/writes are clean booleans.
         'content_instagram_auto_enabled' => 'boolean',
+        // Global shop auto-latest toggle — clean boolean reads/writes.
+        'shop_auto_latest' => 'boolean',
     ];
 
     public function user(): BelongsTo

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
@@ -44,7 +45,7 @@ class PublicIntegrationController extends ApiController
         // Most platforms have one connection; Shopify can have up to five brands.
         // The payload is allowlisted per platform by the Resource — internal keys
         // (e.g. Instagram's `_folder`) never reach this public, CDN-cached wire.
-        $platforms = IntegrationConnection::query()
+        $connections = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
             // Dashboard-only categories never reach the public sitepage. The
@@ -62,8 +63,27 @@ class PublicIntegrationController extends ApiController
             // display_settings rides along so the Resource can suppress
             // toggled-off sections (reviews/hours/photos/…) from the payload.
             ->get(['id', 'platform', 'resource_id', 'payload', 'display_settings', 'last_refreshed_at'])
-            ->groupBy('platform')
-            ->map(fn ($rows) => PublicIntegrationConnectionResource::collection($rows->values())->resolve())
+            ->groupBy('platform');
+
+        // GLOBAL shop link mode (2026-07-08): one site-level choice applied to
+        // every connected store. Resolved once (single indexed lookup) and
+        // stamped onto each brand's public linkMode by the Resource, so the
+        // sitepage keeps reading brand.linkMode per the existing contract.
+        // Only fetched when there's actually a shop connection to stamp.
+        $shopLinkMode = $connections->has('shop')
+            ? Site::query()->where('user_id', $userId)->value('shop_link_mode')
+            : null;
+
+        $platforms = $connections
+            ->map(fn ($rows, $platform) => $platform === 'shop'
+                // Thread the global into each shop connection resource — collection()
+                // can't forward the override, so map the rows explicitly.
+                ? $rows->values()
+                    ->map(fn ($row) => (new PublicIntegrationConnectionResource($row))
+                        ->withShopLinkMode($shopLinkMode)
+                        ->resolve())
+                    ->all()
+                : PublicIntegrationConnectionResource::collection($rows->values())->resolve())
             ->toArray();
 
         return $this->success(['data' => ['platforms' => $platforms]]);

@@ -405,6 +405,8 @@ function setupSitesTable(): void
         content_instagram_auto_enabled INTEGER NULL,
         booking_mode TEXT NULL,
         manual_booking_url TEXT NULL,
+        shop_link_mode TEXT NULL DEFAULT \'checkout\',
+        shop_auto_latest INTEGER NULL DEFAULT 1,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -447,6 +449,10 @@ function setupSitesTable(): void
         'content_instagram_auto_enabled' => 'INTEGER NULL',
         'booking_mode' => 'TEXT NULL',
         'manual_booking_url' => 'TEXT NULL',
+        // Global shop link controls (2026-07-08) — site-level columns read by
+        // the shop-settings endpoint + the public payload's linkMode stamp.
+        'shop_link_mode' => "TEXT NULL DEFAULT 'checkout'",
+        'shop_auto_latest' => 'INTEGER NULL DEFAULT 1',
     ];
     foreach ($promotedCols as $col => $type) {
         try {

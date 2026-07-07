@@ -4,6 +4,7 @@ use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -90,6 +91,45 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
     expect($brand)->toHaveKey('products');
     expect($brand['provider'])->toBe('shopify');
     expect($brand)->not->toHaveKey('sourceUrl');
+    // No site row for allow2 → the global stamp is skipped, so the brand keeps
+    // its stored per-brand linkMode default ('product' from toBrandArray()).
+    expect($brand['linkMode'])->toBe('product');
+});
+
+it('stamps every shop brand linkMode from the GLOBAL site setting', function () {
+    $user = allowlistUser('allowshop');
+    // The global lives on site.sites.shop_link_mode (2026-07-08). Set it to
+    // 'checkout' and prove EVERY brand's public linkMode is stamped from it,
+    // regardless of the per-brand link_mode column (dormant under the global).
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => 'allowshop',
+        'shop_link_mode' => 'checkout',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    // Two brands whose STORED per-brand link_mode is 'product' — the global must
+    // override both to 'checkout'.
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify',
+        'url' => 'https://b1.example', 'link_mode' => 'product', 'position' => 0,
+    ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'b2', 'provider' => 'woocommerce',
+        'url' => 'https://b2.example', 'link_mode' => 'product', 'position' => 1,
+    ]);
+
+    $shop = $this->getJson('/api/public/profiles/allowshop/integrations')
+        ->assertOk()
+        ->json('data.platforms.shop.0.payload');
+
+    expect($shop['b1']['linkMode'])->toBe('checkout');
+    expect($shop['b2']['linkMode'])->toBe('checkout');
 });
 
 it('allowlists the new v2 platforms on the public endpoint', function () {

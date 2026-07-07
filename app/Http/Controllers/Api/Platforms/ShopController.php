@@ -4,12 +4,15 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
+use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddShopBrandRequest;
 use App\Http\Requests\Platforms\AddShopProductRequest;
 use App\Http\Requests\Platforms\SetShopProductsRequest;
 use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
+use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
+use App\Models\Core\Site\Site;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
@@ -57,6 +60,7 @@ class ShopController extends ApiController
 {
     use JitteredTtl;
     use ManagesIntegrationConnection;
+    use ResolveCurrentSite;
     use ResolveCurrentUser;
 
     private const MAX_BRANDS = 5;
@@ -181,12 +185,17 @@ class ShopController extends ApiController
         });
     }
 
-    // PATCH /api/platforms/shop/brands/{id} — update brand settings: discount
-    // code, selection mode (manual/latest), link mode (product/checkout), and
-    // the referral URL (stored as its parsed query suffix). Every field is
-    // optional; only what's present is applied. Setting selectionMode=latest
-    // syncs the selection to the store's newest products immediately (the
-    // scheduled refresh keeps it fresh afterwards).
+    // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
+    // discount code and the referral URL (stored as its parsed query suffix).
+    // Every field is optional; only what's present is applied.
+    //
+    // selectionMode + linkMode are still ACCEPTED here for backward compatibility
+    // but are DORMANT as of 2026-07-08: both became one GLOBAL site setting
+    // (site.sites.shop_auto_latest / shop_link_mode via /platforms/shop/settings).
+    // The public payload always stamps linkMode from the global, and ShopFetch
+    // gates auto-latest on the global — so a per-brand write to either column is
+    // inert on the wire. The dashboard no longer sends them. (Setting
+    // selectionMode=latest here still triggers a one-off immediate sync, harmless.)
     public function updateBrand(UpdateShopBrandRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -518,6 +527,66 @@ class ShopController extends ApiController
 
             return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
+    }
+
+    // GET /api/platforms/shop/settings — the user's GLOBAL shop link controls
+    // (2026-07-08). One choice each, applied to every connected store:
+    // linkMode ('checkout'|'product') stamps every brand's public linkMode;
+    // autoLatest keeps every non-individual store's selection synced to its
+    // newest products. Stored on the site row (site.sites), read here.
+    public function settings(Request $request): JsonResponse
+    {
+        $site = $this->currentSite($this->currentUser($request));
+
+        return $this->success($this->settingsPayload($site));
+    }
+
+    // PATCH /api/platforms/shop/settings — update the global link controls.
+    // Every field optional (apply only what's present). A linkMode change flips
+    // the public payload for every brand, so purge the sitepage edge cache for
+    // the user's shop connection (same reason every shop mutation refreshes
+    // explicitly — the connection's marker payload never goes dirty on its own).
+    public function updateSettings(UpdateShopSettingsRequest $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $site = $this->currentSite($user);
+        $validated = $request->validated();
+
+        $updates = [];
+        if (array_key_exists('linkMode', $validated)) {
+            $updates['shop_link_mode'] = $validated['linkMode'];
+        }
+        if (array_key_exists('autoLatest', $validated)) {
+            $updates['shop_auto_latest'] = (bool) $validated['autoLatest'];
+        }
+        if ($updates !== []) {
+            $site->update($updates);
+        }
+
+        // Propagate the new public linkMode to the CDN — the shop connection's
+        // payload is a static marker (FOUND-25), so its own save never busts
+        // the cache; refresh explicitly when the user has a shop connected.
+        $connection = $this->connectionFor($user);
+        if ($connection) {
+            $this->refresher->refresh($connection);
+        }
+
+        return $this->success($this->settingsPayload($site->fresh()));
+    }
+
+    /**
+     * The global shop-settings wire shape. Coalesces to the code-side defaults
+     * (direct-to-checkout ON, auto-latest ON) so a site row that predates the
+     * columns still reports sane values.
+     *
+     * @return array{linkMode:string, autoLatest:bool}
+     */
+    private function settingsPayload(Site $site): array
+    {
+        return [
+            'linkMode' => $site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE,
+            'autoLatest' => (bool) ($site->shop_auto_latest ?? true),
+        ];
     }
 
     // ── internals ────────────────────────────────────────────────

@@ -89,6 +89,10 @@ $registerIntegrationRoutes = function (string $base): void {
                 Route::post('/products', [ShopController::class, 'addProduct']);
                 Route::delete('/products/{productId}', [ShopController::class, 'removeProduct'])->where('productId', '[A-Za-z0-9._-]+');
                 Route::get('/selection', [ShopController::class, 'selection']);
+                // GLOBAL shop link controls (2026-07-08) — one site-level choice
+                // each (link mode + auto-latest), applied to every connected store.
+                Route::get('/settings', [ShopController::class, 'settings']);
+                Route::patch('/settings', [ShopController::class, 'updateSettings']);
                 Route::delete('/', [ShopController::class, 'forget']);
             });
     }
