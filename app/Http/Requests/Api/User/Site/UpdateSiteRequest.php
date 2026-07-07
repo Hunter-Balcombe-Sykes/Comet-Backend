@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\User\Site;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Site\SubdomainAvailabilityService;
 use Illuminate\Validation\Rule;
 
@@ -16,9 +17,19 @@ class UpdateSiteRequest extends BaseFormRequest
 {
     use DesignKitValidationRules;
 
-    /** Allowed skeleton IDs — mirrors the DB CHECK constraint. */
+    /**
+     * Allowed skeleton IDs — mirrors the DB CHECK constraint. 'atlas' (the
+     * multi-page site) is Business-only; the Rule::in below accepts it for
+     * everyone, and withValidator() rejects it for accounts without the
+     * can_use_multipage_site capability (#30).
+     */
     public const ALLOWED_SKELETONS = [
-        'bento', 'dock', 'flick', 'deck', 'sheet', 'thread',
+        'bento', 'dock', 'flick', 'deck', 'sheet', 'thread', 'atlas',
+    ];
+
+    /** Skeletons gated to a capability, not available to every account (#30). */
+    public const CAPABILITY_GATED_SKELETONS = [
+        'atlas' => 'can_use_multipage_site',
     ];
 
     /**
@@ -127,6 +138,18 @@ class UpdateSiteRequest extends BaseFormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
+            // Capability-gated skeletons (atlas = Business-only multi-page). The
+            // Rule::in accepts them for everyone; this rejects one the account
+            // lacks the capability for, so selection stays capability-driven (#30).
+            $skeleton = $this->input('skeleton_id');
+            if (is_string($skeleton) && isset(self::CAPABILITY_GATED_SKELETONS[$skeleton])) {
+                $professional = $this->attributes->get('professional');
+                $capability = self::CAPABILITY_GATED_SKELETONS[$skeleton];
+                if (! $professional || ! AccountCapabilities::for($professional)->{$capability}) {
+                    $validator->errors()->add('skeleton_id', 'This layout is only available on Business Partna accounts.');
+                }
+            }
+
             if ($this->input('is_published') === true) {
                 $professional = $this->attributes->get('professional');
                 $site = $professional?->site;
@@ -153,7 +176,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread, atlas.',
         ];
     }
 }

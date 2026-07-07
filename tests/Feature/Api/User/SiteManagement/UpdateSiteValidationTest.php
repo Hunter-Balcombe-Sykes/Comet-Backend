@@ -109,6 +109,32 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
         ->toBe('flick');
 });
 
+it('rejects the atlas skeleton for a standard (non-business) account', function () {
+    // atlas is the Business-only multi-page site (#30). A standard account lacks
+    // the can_use_multipage_site capability, so selecting it must 422 — the
+    // Rule::in accepts 'atlas' for everyone; withValidator() is the gate.
+    $pro = createTenant('atlas-standard');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['skeleton_id' => 'atlas'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['skeleton_id']);
+});
+
+it('accepts the atlas skeleton for a Business account', function () {
+    // Same input, Business account → the capability is present → it persists.
+    $pro = createTenant('atlas-business');
+    $pro->account_type = 'business';
+    $pro->save();
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['skeleton_id' => 'atlas'])
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
+        ->toBe('atlas');
+});
+
 it('normalizes legacy skeleton ids (both generations) to canonical on write', function () {
     // Rollout affordance for the 2026-07-07 renames: dashboard builds that
     // still send skeleton-N or the pre-bento-class names must keep working,

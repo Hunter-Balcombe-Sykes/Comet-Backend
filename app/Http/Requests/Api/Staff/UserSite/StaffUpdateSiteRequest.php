@@ -93,7 +93,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, sheet, thread, atlas.',
         ];
     }
 }

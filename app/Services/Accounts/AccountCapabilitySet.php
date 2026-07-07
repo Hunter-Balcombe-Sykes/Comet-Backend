@@ -55,5 +55,11 @@ final readonly class AccountCapabilitySet
         // their public name — connecting (or reconnecting) overwrites display_name
         // with it. Standard accounts keep their own display name untouched.
         public bool $google_business_sets_display_name,
+        // Business Partna accounts may pick the multi-page "atlas" skeleton — a
+        // full multi-page website (Home / Menu / About / Book / Contact) with its
+        // own nav. Standard accounts are single-view skeletons only. Derived from
+        // account_type here so UpdateSiteRequest gates selection without branching
+        // on the type directly (#30).
+        public bool $can_use_multipage_site,
     ) {}
 }

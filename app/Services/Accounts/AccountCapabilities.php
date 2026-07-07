@@ -50,6 +50,7 @@ final class AccountCapabilities
             can_book_storewide: $pro->isBusiness(),
             google_business_full_sync: $pro->isBusiness(),
             google_business_sets_display_name: $pro->isBusiness(),
+            can_use_multipage_site: $pro->isBusiness(),
         );
     }
 }
