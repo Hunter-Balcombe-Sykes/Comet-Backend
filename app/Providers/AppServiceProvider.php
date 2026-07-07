@@ -52,10 +52,12 @@ use App\Services\Analytics\Ingestors\QueuedIngestor;
 use App\Services\Analytics\Ingestors\SyncIngestor;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 use App\Services\Design\Presets\DesignFactorRegistry;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Design\Presets\Factors\GoogleBusinessAttributesFactor;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
+use App\Services\Design\Presets\Factors\OwnMediaAccentFactor;
 use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\Design\Presets\Factors\SectorFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
@@ -125,6 +127,7 @@ class AppServiceProvider extends ServiceProvider
                 new PreviousWebsiteFactor,
                 new SectorFactor,
                 new OutsideWebsitesFactor,
+                new OwnMediaAccentFactor($this->app->make(SafeUrlFetcher::class)),
             ],
         ));
     }
