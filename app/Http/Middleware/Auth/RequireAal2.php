@@ -26,6 +26,7 @@ class RequireAal2
             return response()->json([
                 'message' => 'MFA required',
                 'code' => 'mfa_required',
+                'error' => 'mfa_required',
             ], 401);
         }
 

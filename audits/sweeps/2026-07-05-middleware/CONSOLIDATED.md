@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 17 of 20 complete
-- P3 Low: 10 of 13 complete
+- P2 Medium: 18 of 20 complete
+- P3 Low: 11 of 13 complete
 
 ---
 
@@ -112,7 +112,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#API-1** · P2 — Error response shapes are inconsistent across middleware — `error`/`code`/bare-message fragmentation
+- [x] **#API-1** · P2 — Error response shapes are inconsistent across middleware — `error`/`code`/bare-message fragmentation
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php; app/Http/Middleware/Auth/RequireAal2.php; app/Http/Middleware/Auth/EnsurePartnaStaff.php; app/Http/Middleware/VerifyBotToken.php
     - **Affects:** Any API client parsing error responses — the frontend and any future integration must branch on the presence of `error` (bool or string) vs `code` vs neither key.
     - **Effort:** M (~2–4h)
@@ -514,7 +514,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — `VerifyBotToken::reject()` uses HTTP 422 for CAPTCHA failures, colliding with validation-error semantics
+- [ ] **#API-2** · P3 — `VerifyBotToken::reject()` uses HTTP 422 for CAPTCHA failures, colliding with validation-error semantics  ⏸ **HELD** (2026-07-08, Josh): 422→400 is frontend-observable; hold until partna-frontend/partna-pages are confirmed not to branch on 422 for captcha failures. Kept out of the live merge deliberately.
     - **Where:** app/Http/Middleware/VerifyBotToken.php:128-136
     - **Affects:** Any client that treats every 422 as a Laravel validation error and unconditionally reads an `errors` object — a CAPTCHA-failure 422 has no such key.
     - **Effort:** S (~0.5–1h)
@@ -537,7 +537,7 @@
         }
         ```
 
-- [ ] **#API-3** · P3 — `EnforcePendingDeletionReadOnly` emits `deletes_at: null` instead of omitting the key
+- [x] **#API-3** · P3 — `EnforcePendingDeletionReadOnly` emits `deletes_at: null` instead of omitting the key
     - **Where:** app/Http/Middleware/Context/EnforcePendingDeletionReadOnly.php:36-45
     - **Affects:** The frontend rendering the "your account will be deleted on X" prompt, in the rare data-shape case where `deletion_confirmed_at` isn't a parseable date.
     - **Effort:** S (~0.5–1h)

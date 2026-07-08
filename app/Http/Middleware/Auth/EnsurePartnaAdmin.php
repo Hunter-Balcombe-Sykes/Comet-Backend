@@ -15,7 +15,7 @@ class EnsurePartnaAdmin
         $uid = $request->attributes->get('supabase_uid');
 
         if (! $uid) {
-            return response()->json(['message' => 'Unauthenticated'], 401);
+            return response()->json(['error' => 'unauthenticated', 'message' => 'Unauthenticated'], 401);
         }
 
         $staff = $request->attributes->get('partna_staff');
@@ -26,7 +26,7 @@ class EnsurePartnaAdmin
         }
 
         if (! $staff || ! $staff->isAdmin()) {
-            return response()->json(['message' => 'Admin access required'], 403);
+            return response()->json(['error' => 'admin_required', 'message' => 'Admin access required'], 403);
         }
 
         $request->attributes->set('partna_staff', $staff);

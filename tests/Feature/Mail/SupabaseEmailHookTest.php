@@ -208,6 +208,7 @@ it('rejects requests with an invalid signature (401)', function (): void {
     ], json_encode(['user' => ['email' => 'x@partna.au'], 'email_data' => ['email_action_type' => 'recovery']]));
 
     expect($response->status())->toBe(401);
+    expect($response->json('error'))->toBe('invalid_signature');
     Mail::assertNothingQueued();
 });
 
@@ -222,6 +223,7 @@ it('returns 503 when the secret is not configured', function (): void {
     ], '{}');
 
     expect($response->status())->toBe(503);
+    expect($response->json('error'))->toBe('hook_not_configured');
 });
 
 it('rejects timestamps outside the tolerance window (401)', function (): void {

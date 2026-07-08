@@ -38,10 +38,18 @@ class EnforcePendingDeletionReadOnly
             $deletesAt = Carbon::parse($confirmedAt)->addDays($retentionDays)->toIso8601String();
         }
 
-        return response()->json([
+        // deletes_at is omitted (not sent as null) when no deletion timestamp
+        // is known yet — keeps the payload honest about what the server
+        // actually knows rather than implying a computed-but-empty value.
+        $body = [
+            'error' => 'account_pending_deletion',
             'message' => 'Account is pending deletion.',
             'pending_deletion' => true,
-            'deletes_at' => $deletesAt,
-        ], 423);
+        ];
+        if ($deletesAt !== null) {
+            $body['deletes_at'] = $deletesAt;
+        }
+
+        return response()->json($body, 423);
     }
 }

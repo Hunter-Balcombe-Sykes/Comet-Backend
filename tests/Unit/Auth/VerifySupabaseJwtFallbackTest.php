@@ -203,6 +203,7 @@ it('refuses fallback and returns 503 on a JWKS outage when jwks_fail_closed is t
     $response = $this->middleware->handle($request, $this->next);
 
     expect($response->getStatusCode())->toBe(503);
+    expect(json_decode($response->getContent(), true)['error'])->toBe('jwks_unavailable');
     Http::assertNothingSent();
 });
 
@@ -225,6 +226,7 @@ it('returns 401 (not 503) for a token-level failure when jwks_fail_closed is tru
     $response = $this->middleware->handle($request, $this->next);
 
     expect($response->getStatusCode())->toBe(401);
+    expect(json_decode($response->getContent(), true)['error'])->toBe('unauthenticated');
     Http::assertNothingSent();
 });
 

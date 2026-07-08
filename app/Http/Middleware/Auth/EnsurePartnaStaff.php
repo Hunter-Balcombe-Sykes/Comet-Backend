@@ -18,18 +18,18 @@ class EnsurePartnaStaff
         $uid = $request->attributes->get('supabase_uid');
 
         if (! $uid) {
-            return response()->json(['message' => 'Unauthenticated'], 401);
+            return response()->json(['error' => 'unauthenticated', 'message' => 'Unauthenticated'], 401);
         }
 
         $staff = $request->attributes->get('partna_staff')
             ?? PartnaStaff::query()->where('auth_user_id', $uid)->first();
 
         if (! $staff) {
-            return response()->json(['message' => 'Staff access required'], 403);
+            return response()->json(['error' => 'staff_required', 'message' => 'Staff access required'], 403);
         }
 
         if (! empty($roles) && ! in_array($staff->role, $roles, true)) {
-            return response()->json(['message' => 'Insufficient staff role'], 403);
+            return response()->json(['error' => 'insufficient_staff_role', 'message' => 'Insufficient staff role'], 403);
         }
 
         // Attach for controllers to use

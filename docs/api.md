@@ -416,6 +416,11 @@ Some framework-level errors (for example abort(404)) may return only:
 ```json
 { "message": "Not Found" }
 ```
+
+### Middleware error envelope
+
+Auth/context middleware (`EnsurePartnaStaff`, `EnsurePartnaAdmin`, `RequireAal2`, `VerifySupabaseJwt`, `RequireEmailVerified`, `VerifyBotToken`, `EnforcePendingDeletionReadOnly`, the Supabase webhook signature gate) respond with `{ "error": "<snake_case_code>", "message": "<human text>" }`. `message` is always present; `error` is a stable machine-readable code — safe to switch on, never changes meaning once shipped. Some responses add extra keys on top (e.g. `code` for legacy compatibility, `captcha` fields, `pending_deletion` + `deletes_at`) — treat those as additive, not a replacement for `error`.
+
 Common status codes
 - 200 OK: successful read or update
 - 201 Created: successful create

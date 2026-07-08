@@ -37,7 +37,7 @@ class VerifySupabaseHookSignature
             Log::warning("{$logPrefix}.misconfigured", ['reason' => 'secret_missing']);
 
             return response()->json([
-                'error' => true,
+                'error' => 'hook_not_configured',
                 'message' => "{$label} hook is not configured.",
             ], 503);
         }
@@ -62,7 +62,7 @@ class VerifySupabaseHookSignature
             ]);
 
             return response()->json([
-                'error' => true,
+                'error' => 'invalid_signature',
                 'message' => 'Invalid webhook signature.',
             ], 401);
         }

@@ -17,6 +17,7 @@ it('returns 401 with mfa_required code when the session is aal1', function () {
         ->assertStatus(401)
         ->assertJson([
             'code' => 'mfa_required',
+            'error' => 'mfa_required',
         ]);
 });
 

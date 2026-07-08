@@ -211,6 +211,8 @@ it('non-admin staff get 403 from EnsurePartnaAdmin middleware', function () {
     $response = $middleware->handle($request, fn () => response()->json(['ok' => true]));
 
     expect($response->getStatusCode())->toBe(403);
+    $data = json_decode($response->getContent(), true);
+    expect($data['error'])->toBe('admin_required');
 });
 
 it('GET show returns deletion state and non-PII audit entries', function () {

@@ -39,7 +39,23 @@ it('returns 423 on POST when status is pending_deletion', function () {
     expect($response->status())->toBe(423);
     $body = json_decode($response->getContent(), true);
     expect($body['pending_deletion'])->toBeTrue()
-        ->and($body['deletes_at'])->not->toBeEmpty();
+        ->and($body['deletes_at'])->not->toBeEmpty()
+        ->and($body['error'])->toBe('account_pending_deletion');
+});
+
+it('omits deletes_at entirely when deletion_confirmed_at is not yet known', function () {
+    $pro = makeProWithStatus('pending_deletion', null);
+    $request = Request::create('/api/professional/me', 'POST');
+    $request->attributes->set('professional', $pro);
+
+    $middleware = new EnforcePendingDeletionReadOnly;
+    $response = $middleware->handle($request, fn () => response('ok'));
+
+    expect($response->status())->toBe(423);
+    $body = json_decode($response->getContent(), true);
+    expect($body)->not->toHaveKey('deletes_at')
+        ->and($body['pending_deletion'])->toBeTrue()
+        ->and($body['error'])->toBe('account_pending_deletion');
 });
 
 it('returns 423 on PATCH when status is pending_deletion', function () {

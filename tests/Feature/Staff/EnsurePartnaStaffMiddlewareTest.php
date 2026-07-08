@@ -51,7 +51,8 @@ it('returns 403 when staff role does not match the required role', function () {
 
     expect($response->getStatusCode())->toBe(403);
     $data = json_decode($response->getContent(), true);
-    expect($data['message'])->toBe('Insufficient staff role');
+    expect($data['message'])->toBe('Insufficient staff role')
+        ->and($data['error'])->toBe('insufficient_staff_role');
 });
 
 it('returns 401 when no supabase uid is present', function () {
@@ -61,6 +62,8 @@ it('returns 401 when no supabase uid is present', function () {
     $response = $middleware->handle($request, fn () => new Response('ok'));
 
     expect($response->getStatusCode())->toBe(401);
+    $data = json_decode($response->getContent(), true);
+    expect($data['error'])->toBe('unauthenticated');
 });
 
 it('accepts multiple allowed roles (any match passes)', function () {
@@ -92,7 +95,8 @@ it('returns 403 when supabase uid has no matching PartnaStaff record in DB', fun
 
     expect($response->getStatusCode())->toBe(403);
     $data = json_decode($response->getContent(), true);
-    expect($data['message'])->toBe('Staff access required');
+    expect($data['message'])->toBe('Staff access required')
+        ->and($data['error'])->toBe('staff_required');
 });
 
 it('passes through when supabase uid maps to a PartnaStaff record in DB', function () {

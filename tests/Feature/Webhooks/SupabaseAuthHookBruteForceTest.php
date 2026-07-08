@@ -37,7 +37,8 @@ function postSignedHook(array $payload, ?string $overrideBody = null, ?string $i
 it('returns 401 for an unsigned request', function () {
     test()
         ->postJson('/api/webhooks/supabase/auth/mfa-verification', ['user_id' => 'abc', 'valid' => true])
-        ->assertStatus(401);
+        ->assertStatus(401)
+        ->assertJson(['error' => 'invalid_signature']);
 });
 
 it('returns continue and records verify_success for a valid signed success', function () {

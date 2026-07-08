@@ -59,7 +59,7 @@ class VerifySupabaseJwt
     {
         $token = $this->getBearerToken($request);
         if (! $token) {
-            return response()->json(['message' => 'Missing Bearer token'], 401);
+            return response()->json(['error' => 'unauthenticated', 'message' => 'Missing Bearer token'], 401);
         }
 
         // Resolved once so both JWKS-fail and auth-server-fail logs in the same
@@ -72,12 +72,12 @@ class VerifySupabaseJwt
 
             // Validate issuer/audience (extra safety)
             if (! $this->claimsMatchConfig($claims)) {
-                return response()->json(['message' => 'Invalid token claims'], 401);
+                return response()->json(['error' => 'unauthenticated', 'message' => 'Invalid token claims'], 401);
             }
 
             $uid = $claims['sub'] ?? null;
             if (! $uid) {
-                return response()->json(['message' => 'Token missing sub'], 401);
+                return response()->json(['error' => 'unauthenticated', 'message' => 'Token missing sub'], 401);
             }
 
             // Revocation gate — if this session_id was revoked (logout from
@@ -117,6 +117,7 @@ class VerifySupabaseJwt
                     return response()->json([
                         'message' => 'Session was terminated. Please log in again.',
                         'code' => 'session_revoked',
+                        'error' => 'session_revoked',
                     ], 401);
                 }
             }
@@ -157,10 +158,10 @@ class VerifySupabaseJwt
                 // failure (expired, bad signature, malformed) is the client's
                 // fault → 401 so it re-authenticates instead of retrying.
                 if ($e instanceof JwksUnavailableException) {
-                    return response()->json(['message' => 'Service unavailable'], 503);
+                    return response()->json(['error' => 'jwks_unavailable', 'message' => 'Service unavailable'], 503);
                 }
 
-                return response()->json(['message' => 'Invalid token'], 401);
+                return response()->json(['error' => 'unauthenticated', 'message' => 'Invalid token'], 401);
             }
 
             // 2) Fallback for legacy/shared-secret setups:
@@ -168,7 +169,7 @@ class VerifySupabaseJwt
             try {
                 $uid = $this->verifyWithAuthServer($token);
                 if (! $uid) {
-                    return response()->json(['message' => 'Invalid token'], 401);
+                    return response()->json(['error' => 'unauthenticated', 'message' => 'Invalid token'], 401);
                 }
 
                 // Re-extract payload claims so the revocation gate and context
@@ -209,6 +210,7 @@ class VerifySupabaseJwt
                         return response()->json([
                             'message' => 'Session was terminated. Please log in again.',
                             'code' => 'session_revoked',
+                            'error' => 'session_revoked',
                         ], 401);
                     }
                 }
@@ -234,7 +236,7 @@ class VerifySupabaseJwt
                     'ip_hash' => $this->hashIp($request->ip()),
                 ]);
 
-                return response()->json(['message' => 'Invalid token'], 401);
+                return response()->json(['error' => 'unauthenticated', 'message' => 'Invalid token'], 401);
             }
         }
     }
