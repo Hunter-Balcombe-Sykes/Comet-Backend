@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 13 of 20 complete
-- P3 Low: 7 of 13 complete
+- P2 Medium: 15 of 20 complete
+- P3 Low: 10 of 13 complete
 
 ---
 
@@ -232,7 +232,7 @@
         ]);
         ```
 
-- [ ] **#PRIV-3** · P2 — Raw client IP logged at warning level in JWT verification failure paths
+- [x] **#PRIV-3** · P2 — Raw client IP logged at warning level in JWT verification failure paths
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php (both `Log::warning` calls in `handle()`'s JWKS-failure and auth-server-fallback catch blocks)
     - **Affects:** Any visitor presenting an invalid/expired JWT — their IP is persisted to the warning log and shipped to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -414,7 +414,7 @@
         }
         ```
 
-- [ ] **#OBS-6** · P2 — APCu JWKS key-cache write failure comment claims "Nightwatch breadcrumb" but Log::warning does not alert
+- [x] **#OBS-6** · P2 — APCu JWKS key-cache write failure comment claims "Nightwatch breadcrumb" but Log::warning does not alert
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php:396-404 (`apcuStore`)
     - **Affects:** Every authenticated request after a PHP-FPM worker recycle when APCu is full or misconfigured — JWKS resolution silently falls back to the ~150-300ms cold path with the root cause invisible to on-call.
     - **Effort:** S (~0.5–1h)
@@ -591,7 +591,7 @@
         $response->headers->set('Cache-Control', 'public, max-age=900, s-maxage=900'); // 15 min
         ```
 
-- [ ] **#CFG-4** · P3 — JWT clock-skew leeway and HTTP fetch timeouts hardcoded in VerifySupabaseJwt
+- [x] **#CFG-4** · P3 — JWT clock-skew leeway and HTTP fetch timeouts hardcoded in VerifySupabaseJwt
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php (`JWT::$leeway = 60`; both `Http::timeout(5)` calls)
     - **Affects:** JWT verification resilience — clock-skew tolerance and network timeout tuning require a code deploy.
     - **Effort:** S (~0.5–1h)
@@ -673,7 +673,7 @@
         }
         ```
 
-- [ ] **#OBS-8** · P3 — VerifySupabaseJwt session-tracking failure log omits the exception object, losing class + stack trace
+- [x] **#OBS-8** · P3 — VerifySupabaseJwt session-tracking failure log omits the exception object, losing class + stack trace
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php (both `setSupabaseContext` tracking-failure catch blocks)
     - **Affects:** Debugging session-tracking outages — `$e->getMessage()` alone loses the exception class and trace.
     - **Effort:** S (~0.5–1h)
@@ -734,7 +734,7 @@
         }
         ```
 
-- [ ] **#SEM-1** · P3 — `resolveSigningKey` accepts an `$alg` parameter that is never used
+- [x] **#SEM-1** · P3 — `resolveSigningKey` accepts an `$alg` parameter that is never used
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php (method signature at `resolveSigningKey`; call site in `verifyWithJwks`)
     - **Affects:** Developers reading the code — the parameter implies the caller's algorithm choice influences key resolution, when it's deliberately ignored.
     - **Effort:** S (~0.5–1h)

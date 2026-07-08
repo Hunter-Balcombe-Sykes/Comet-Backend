@@ -13,6 +13,12 @@ return [
     'jwks_url' => env('SUPABASE_JWKS_URL'),             // full URL
     'jwks_cache_seconds' => (int) env('SUPABASE_JWKS_CACHE_SECONDS', 300),
 
+    // Clock-skew tolerance for JWT exp/nbf validation and the Http client timeout
+    // used for both the JWKS fetch and the Auth-Server fallback. Defaults match
+    // the previously hardcoded values — no env change required at deploy.
+    'jwt_leeway_seconds' => (int) env('SUPABASE_JWT_LEEWAY_SECONDS', 60),
+    'http_timeout_seconds' => (int) env('SUPABASE_HTTP_TIMEOUT_SECONDS', 5),
+
     // When true (the default), a JWKS outage returns 503 instead of falling
     // back to the Auth-Server. Set to false only for legacy shared-secret
     // projects that genuinely need the fallback; production refuses to boot

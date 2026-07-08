@@ -3,6 +3,7 @@
 namespace App\Http\Middleware\Auth;
 
 use App\Exceptions\Auth\JwksUnavailableException;
+use App\Http\Controllers\Concerns\HashesClientData;
 use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use Closure;
@@ -19,6 +20,8 @@ use Symfony\Component\HttpFoundation\Response;
 // V2: JWT authentication via Supabase JWKS (asymmetric). Falls back to Auth Server query. All authenticated routes require this.
 class VerifySupabaseJwt
 {
+    use HashesClientData;
+
     /**
      * Per-request memo of resolved Key objects keyed by kid. Avoids redundant
      * APCu lookups if the same JWT is verified twice within one request — short-lived
@@ -128,6 +131,7 @@ class VerifySupabaseJwt
                     'request_id' => $requestId,
                     'operation' => __METHOD__,
                     'reason' => $trackingEx->getMessage(),
+                    'exception' => $trackingEx,
                     'kind' => 'session_tracking',
                 ]);
             }
@@ -140,7 +144,7 @@ class VerifySupabaseJwt
                 'request_id' => $requestId,
                 'operation' => __METHOD__,
                 'reason' => $e->getMessage(),
-                'ip' => $request->ip(),
+                'ip_hash' => $this->hashIp($request->ip()),
             ]);
 
             // Fail-closed mode (default): refuse to fall back to Auth-Server
@@ -216,6 +220,7 @@ class VerifySupabaseJwt
                         'request_id' => $requestId,
                         'operation' => __METHOD__,
                         'reason' => $trackingEx->getMessage(),
+                        'exception' => $trackingEx,
                         'kind' => 'session_tracking',
                     ]);
                 }
@@ -226,7 +231,7 @@ class VerifySupabaseJwt
                     'request_id' => $requestId,
                     'operation' => __METHOD__,
                     'reason' => $e2->getMessage(),
-                    'ip' => $request->ip(),
+                    'ip_hash' => $this->hashIp($request->ip()),
                 ]);
 
                 return response()->json(['message' => 'Invalid token'], 401);
@@ -308,13 +313,13 @@ class VerifySupabaseJwt
             throw new \RuntimeException('JWT header missing kid');
         }
 
-        $key = $this->resolveSigningKey((string) $kid, (string) $alg);
+        $key = $this->resolveSigningKey((string) $kid);
 
         // Decode + verify signature + exp/nbf automatically.
         // Restore leeway in finally — JWT::$leeway is process-wide static state that
         // would bleed into every subsequent JWT::decode in this worker without restoration.
         $priorLeeway = JWT::$leeway;
-        JWT::$leeway = 60; // Supabase tokens can arrive with up to ~60s clock skew
+        JWT::$leeway = (int) config('supabase.jwt_leeway_seconds', 60); // Supabase tokens can arrive with up to ~60s clock skew
         try {
             $decoded = JWT::decode($jwt, $key);
         } finally {
@@ -340,7 +345,7 @@ class VerifySupabaseJwt
      * in incoming JWTs. A forged token presenting a stale kid still fails
      * signature verification, so retired kids in APCu are harmless until evicted.
      */
-    private function resolveSigningKey(string $kid, string $alg): Key
+    private function resolveSigningKey(string $kid): Key
     {
         if (isset(self::$keysByKid[$kid])) {
             return self::$keysByKid[$kid];
@@ -453,7 +458,7 @@ class VerifySupabaseJwt
         }
 
         $jwks = $this->cacheLock->rememberLocked('supabase:jwks', config('supabase.jwks_cache_seconds', 300), function () use ($jwksUrl) {
-            $res = Http::timeout(5)->get($jwksUrl);
+            $res = Http::timeout((int) config('supabase.http_timeout_seconds', 5))->get($jwksUrl);
             if (! $res->ok()) {
                 throw new \RuntimeException('Failed to fetch JWKS');
             }
@@ -516,12 +521,15 @@ class VerifySupabaseJwt
         $stored = apcu_store($key, $value, self::APCU_TTL_SECONDS);
         if ($stored === false) {
             // APCu full or misconfigured — every request hits the cold JWKS parse
-            // path (150-300ms). Throttle to one Nightwatch breadcrumb per 5 minutes.
+            // path (150-300ms). Throttle to one report per 5 minutes; Log::warning
+            // is breadcrumb-only (does not reach Nightwatch), report() is what
+            // actually surfaces this to Nightwatch as an alert.
             if (Cache::store('cache_locks')->add('jwt:apcu-store-failed', true, 300)) {
                 Log::warning('APCu store failed for JWKS key — cold-path will run on every request', [
                     'kid' => $key,
                     'operation' => __METHOD__,
                 ]);
+                report(new \RuntimeException('APCu store failed for JWKS key — cold JWKS parse on every request'));
             }
         }
     }
@@ -543,7 +551,7 @@ class VerifySupabaseJwt
             return null;
         }
 
-        $res = Http::timeout(5)
+        $res = Http::timeout((int) config('supabase.http_timeout_seconds', 5))
             ->withHeaders([
                 'apikey' => $anonKey,
                 'Authorization' => 'Bearer '.$jwt,
