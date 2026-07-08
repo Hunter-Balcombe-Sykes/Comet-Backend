@@ -234,16 +234,16 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Supabase email hook secret must be set in production. An empty value
-        // causes VerifySupabaseEmailHookSignature to 503 every delivery,
+        // causes VerifySupabaseHookSignature to 503 every delivery,
         // silently breaking all auth email (signup, recovery, magiclink, invite).
         if (app()->isProduction() && empty(config('services.supabase.email_hook_secret'))) {
             throw new \RuntimeException('SUPABASE_EMAIL_HOOK_SECRET must be configured in production (auth email hook fails closed without it).');
         }
 
         // Supabase auth hook secret must be set in production. An empty value
-        // causes VerifySupabaseAuthHookSignature to 503 every MFA verify attempt,
+        // causes VerifySupabaseHookSignature to 503 every MFA verify attempt,
         // blocking all AAL2 promotion.
-        if (app()->isProduction() && empty(config('supabase.auth_hook_secret'))) {
+        if (app()->isProduction() && empty(config('services.supabase.auth_hook_secret'))) {
             throw new \RuntimeException('SUPABASE_AUTH_HOOK_SECRET must be configured in production (MFA verification hook fails closed without it).');
         }
 

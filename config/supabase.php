@@ -23,13 +23,6 @@ return [
     'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
 
     /*
-    | Shared secret for Supabase Auth Hooks (Standard Webhooks signing).
-    | Set in Supabase Dashboard → Authentication → Hooks alongside the
-    | hook URL. Rotate via env var + dashboard update simultaneously.
-    */
-    'auth_hook_secret' => env('SUPABASE_AUTH_HOOK_SECRET'),
-
-    /*
     | Admin API base URL — typically <SUPABASE_URL>/auth/v1/admin. Split
     | as its own config so we can point staging at a different host if
     | needed (e.g. for hermetic tests).

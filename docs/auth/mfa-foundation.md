@@ -90,7 +90,7 @@ This endpoint is registered in Supabase as an **Auth Hook** (MFA Verification). 
 
 ### Signature verification
 
-Follows the [Standard Webhooks spec](https://www.standardwebhooks.com/). The signing key comes from `config('supabase.auth_hook_secret')` (env: `SUPABASE_AUTH_HOOK_SECRET`). The header is `webhook-signature`, which may contain space-separated multi-sig values for key rotation.
+Follows the [Standard Webhooks spec](https://www.standardwebhooks.com/). The signing key comes from `config('services.supabase.auth_hook_secret')` (env: `SUPABASE_AUTH_HOOK_SECRET`). The header is `webhook-signature`, which may contain space-separated multi-sig values for key rotation.
 
 ## Config Keys (`config/partna.php`)
 

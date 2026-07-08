@@ -9,27 +9,36 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Gates POST /webhooks/supabase/auth/* by verifying the Standard Webhooks HMAC
- * signature Supabase attaches to every auth hook delivery.
+ * Unified Standard Webhooks HMAC signature gate for Supabase webhook deliveries
+ * (auth hook + send-email hook). Behavior is identical for both callers; only
+ * the config path, log prefix, and 503 label differ — supplied per route via
+ * the middleware alias, e.g. `supabase.auth-hook` / `supabase.email-hook` in
+ * bootstrap/app.php.
  *
- * Returns 503 if the secret is unset (fail-closed — deploy bug, not a runtime choice).
- * Returns 401 on signature mismatch. Delegates verification to StandardWebhookVerifier.
+ * Returns 503 if the secret is unset (fail-closed — deploy bug, not a runtime
+ * choice). Returns 401 on signature mismatch. Delegates verification to
+ * StandardWebhookVerifier.
  */
-class VerifySupabaseAuthHookSignature
+class VerifySupabaseHookSignature
 {
     public function __construct(
         private readonly StandardWebhookVerifier $verifier,
     ) {}
 
-    public function handle(Request $request, Closure $next): Response
+    /**
+     * @param  string  $configKey  dot-path passed to config(), e.g. 'services.supabase.auth_hook_secret'
+     * @param  string  $logPrefix  prefix for the `{prefix}.misconfigured` / `{prefix}.signature_failed` log events
+     * @param  string  $label  renders into the 503 body as "{label} hook is not configured."
+     */
+    public function handle(Request $request, Closure $next, string $configKey, string $logPrefix, string $label): Response
     {
-        $secret = (string) config('supabase.auth_hook_secret', '');
+        $secret = (string) config($configKey, '');
         if ($secret === '') {
-            Log::warning('supabase.auth_hook.misconfigured', ['reason' => 'secret_missing']);
+            Log::warning("{$logPrefix}.misconfigured", ['reason' => 'secret_missing']);
 
             return response()->json([
                 'error' => true,
-                'message' => 'Auth hook is not configured.',
+                'message' => "{$label} hook is not configured.",
             ], 503);
         }
 
@@ -47,7 +56,7 @@ class VerifySupabaseAuthHookSignature
         );
 
         if (! $valid) {
-            Log::warning('supabase.auth_hook.signature_failed', [
+            Log::warning("{$logPrefix}.signature_failed", [
                 'webhook_id' => $webhookId,
                 'webhook_timestamp' => $webhookTimestamp,
             ]);

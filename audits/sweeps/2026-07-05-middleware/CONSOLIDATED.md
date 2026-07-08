@@ -61,8 +61,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 9 of 20 complete
-- P3 Low: 6 of 13 complete
+- P2 Medium: 10 of 20 complete
+- P3 Low: 7 of 13 complete
 
 ---
 
@@ -142,7 +142,7 @@
         return response()->json(['message' => 'Insufficient staff role'], 403);
         ```
 
-- [ ] **#CFG-1** · P2 — Supabase webhook secrets read from two different config namespaces
+- [x] **#CFG-1** · P2 — Supabase webhook secrets read from two different config namespaces
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php:14 vs app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php:29
     - **Affects:** Operators configuring Supabase webhook secrets on a new environment — one secret lives under `config('supabase.*')`, the other under `config('services.supabase.*')`.
     - **Effort:** S (~0.5–1h)
@@ -693,7 +693,7 @@
         }
         ```
 
-- [ ] **#SLOP-1** · P3 — Near-identical webhook signature middleware duplicated across two classes
+- [x] **#SLOP-1** · P3 — Near-identical webhook signature middleware duplicated across two classes
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php:24-55; app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php:27-57
     - **Affects:** Developers maintaining webhook signature verification — a fix applied to one file has no mechanism to propagate to the other.
     - **Effort:** M (~2–4h)

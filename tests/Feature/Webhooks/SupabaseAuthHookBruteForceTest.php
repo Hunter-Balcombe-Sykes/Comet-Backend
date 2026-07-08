@@ -10,7 +10,7 @@ use Illuminate\Testing\TestResponse;
 beforeEach(function () {
     setupAuthFactorEventsTable();
     config([
-        'supabase.auth_hook_secret' => 'whsec_test_secret_at_least_32_bytes_long_xx',
+        'services.supabase.auth_hook_secret' => 'whsec_test_secret_at_least_32_bytes_long_xx',
         'partna.mfa.verify_max_failures' => 5,
         'partna.mfa.verify_failure_window_seconds' => 300,
     ]);
@@ -21,7 +21,7 @@ function postSignedHook(array $payload, ?string $overrideBody = null, ?string $i
     $body = $overrideBody ?? json_encode($payload);
     $id = $id ?? 'msg_'.Str::uuid();
     $ts = (string) time();
-    $secret = config('supabase.auth_hook_secret');
+    $secret = config('services.supabase.auth_hook_secret');
     $sig = 'v1,'.base64_encode(hash_hmac('sha256', "{$id}.{$ts}.{$body}", $secret, true));
 
     // Laravel's call() takes $server as the 6th arg — headers must be in HTTP_* format.

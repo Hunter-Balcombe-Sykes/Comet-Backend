@@ -54,9 +54,9 @@ class EnvCheckService
             'supabase.service_role_key' => 'SUPABASE_SERVICE_ROLE_KEY',
         ],
         'Supabase Webhooks' => [
-            // Auth hook secret (VerifySupabaseAuthHookSignature) — missing = every auth hook delivery 503s.
-            'supabase.auth_hook_secret' => 'SUPABASE_AUTH_HOOK_SECRET',
-            // Email hook secret (VerifySupabaseEmailHookSignature) — missing = every send-email hook delivery 503s.
+            // Auth hook secret (VerifySupabaseHookSignature) — missing = every auth hook delivery 503s.
+            'services.supabase.auth_hook_secret' => 'SUPABASE_AUTH_HOOK_SECRET',
+            // Email hook secret (VerifySupabaseHookSignature) — missing = every send-email hook delivery 503s.
             'services.supabase.email_hook_secret' => 'SUPABASE_EMAIL_HOOK_SECRET',
         ],
         'Cloudflare (DNS + KV + Purge)' => [
