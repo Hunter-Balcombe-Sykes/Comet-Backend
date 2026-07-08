@@ -61,7 +61,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 18 of 20 complete
+- P2 Medium: 20 of 20 complete
 - P3 Low: 11 of 13 complete
 
 ---
@@ -437,7 +437,7 @@
         }
         ```
 
-- [ ] **#SCALE-1** · P2 — VerifyBotToken holds PHP-FPM workers on a synchronous external CAPTCHA call
+- [x] **#SCALE-1** · P2 — VerifyBotToken holds PHP-FPM workers on a synchronous external CAPTCHA call
     - **Where:** app/Http/Middleware/VerifyBotToken.php (`$this->captcha->verify(...)` call in `handle()`)
     - **Affects:** All CAPTCHA-protected endpoints under a burst of legitimate submissions combined with a slow provider response.
     - **Effort:** S (~0.5–1h)
@@ -455,7 +455,7 @@
         $result = $this->captcha->verify($token, $request->ip(), $action, $timeoutMs);
         ```
 
-- [ ] **#SCALE-2** · P2 — VerifyBotToken has no proactive outbound rate limit to the CAPTCHA provider
+- [x] **#SCALE-2** · P2 — VerifyBotToken has no proactive outbound rate limit to the CAPTCHA provider
     - **Where:** app/Http/Middleware/VerifyBotToken.php (`$this->captcha->verify(...)` call)
     - **Affects:** All bot-protected endpoints if a burst of legitimate verifications approaches the provider's own rate limit.
     - **Effort:** S (~0.5–1h)

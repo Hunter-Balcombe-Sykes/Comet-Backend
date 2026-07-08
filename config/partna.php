@@ -1589,7 +1589,7 @@ return [
         'mode' => env('BOT_PROTECTION_MODE', 'off'),          // off | shadow | enforce
         'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', true),
 
-        'enforce_timeout_ms' => 3000,
+        'enforce_timeout_ms' => 3000, // SCALE-1: evaluated, kept — see VerifyBotToken::handle()
         'shadow_timeout_ms' => 500,
 
         'circuit_breaker' => [

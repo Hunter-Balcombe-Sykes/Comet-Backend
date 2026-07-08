@@ -71,10 +71,19 @@ final class VerifyBotToken
             return $this->failOpenOrReject($failOpen, $mode, $next, $request);
         }
 
+        // SCALE-1: 3000ms enforce timeout evaluated and deliberately kept, not tightened —
+        // this is the conversion-sensitive signup/enquiry path, and false-rejecting a
+        // legitimate user on a slow-but-valid provider round-trip is worse than the bounded
+        // worker-hold, which the CircuitBreaker below already caps for sustained failure.
         $timeoutMs = $mode === 'shadow'
             ? (int) config('partna.bot_protection.shadow_timeout_ms', 500)
             : (int) config('partna.bot_protection.enforce_timeout_ms', 3000);
 
+        // SCALE-2: no proactive outbound rate-limit to the CAPTCHA provider on purpose —
+        // CircuitBreaker is reactive (opens after failures), and a client-side token-bucket
+        // is a documented won't-do for now (pre-pilot, no traffic warrants it yet). If needed
+        // later, use Illuminate\Support\Facades\RateLimiter (same named-limiter pattern as
+        // outbound provider calls in PlatformRegistryServiceProvider).
         try {
             $result = $this->captcha->verify($token, $request->ip(), $action, $timeoutMs);
         } catch (CaptchaProviderException $e) {
