@@ -62,16 +62,25 @@ class ShopifyScraper extends PlatformScraper
     // bloat the stored product row; the first N cover real selector UIs.
     private const MAX_VARIANTS = 25;
 
+    // Product-level gallery cap — mirrors MAX_VARIANTS' "don't let one product
+    // bloat the row" intent. A real product page rarely shows more than this,
+    // and the sitepage gallery only needs enough for a swipeable strip.
+    private const MAX_IMAGES = 25;
+
     /**
      * Fetch <origin>/products.json and flatten to the fields we use. The first
      * variant stays the flat compat fields (variantId/price/available — powers
      * the default deep link); the full list rides in `variants` so checkout
-     * link-mode can offer a variant selector. `createdAt` (product created_at)
-     * lets latest-mode selection sort newest-first regardless of endpoint
-     * ordering. `$defaultCurrency` is the shop-level currency used as a
-     * fallback when a variant lacks presentment_prices.
+     * link-mode can offer a variant selector. Each variant carries its own
+     * `image` (its assigned photo, resolved from featured_image or image_id →
+     * the product's images[]) so a colour/style pick can swap the displayed
+     * photo; `images` is the whole product gallery (absolute src URLs) for a
+     * multi-image strip. `createdAt` (product created_at) lets latest-mode
+     * selection sort newest-first regardless of endpoint ordering.
+     * `$defaultCurrency` is the shop-level currency used as a fallback when a
+     * variant lacks presentment_prices.
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string, createdAt:?string, variants:list<array{id:string, title:?string, price:?string, available:bool}>}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string, createdAt:?string, variants:list<array{id:string, title:?string, price:?string, available:bool, image:?string}>}>
      */
     public function fetchProducts(string $origin, ?string $defaultCurrency = null): array
     {
@@ -93,6 +102,25 @@ class ShopifyScraper extends PlatformScraper
                 continue;
             }
 
+            // Product gallery + an id→src lookup so a variant that only carries
+            // an `image_id` (not an inline featured_image) still resolves to a
+            // real photo. `variant_ids` on an image isn't needed here — the
+            // variant side already points back via featured_image / image_id.
+            $images = [];
+            $imagesById = [];
+            foreach (is_array($product['images'] ?? null) ? $product['images'] : [] as $img) {
+                $src = is_array($img) ? ($img['src'] ?? null) : null;
+                if (! is_string($src) || $src === '') {
+                    continue;
+                }
+                if (count($images) < self::MAX_IMAGES) {
+                    $images[] = $src;
+                }
+                if (isset($img['id'])) {
+                    $imagesById[(string) $img['id']] = $src;
+                }
+            }
+
             $variants = [];
             foreach (array_slice(is_array($product['variants'] ?? null) ? $product['variants'] : [], 0, self::MAX_VARIANTS) as $v) {
                 if (! is_array($v) || ! isset($v['id'])) {
@@ -103,6 +131,10 @@ class ShopifyScraper extends PlatformScraper
                     'title' => isset($v['title']) ? (string) $v['title'] : null,
                     'price' => $v['price'] ?? null,
                     'available' => (bool) ($v['available'] ?? true),
+                    // The variant's own photo: an inline featured_image.src wins;
+                    // else map image_id → the product gallery. Null when the
+                    // merchant didn't assign one (sitepage falls back to `image`).
+                    'image' => $this->variantImage($v, $imagesById),
                 ];
             }
 
@@ -112,7 +144,10 @@ class ShopifyScraper extends PlatformScraper
                 'title' => (string) ($product['title'] ?? ''),
                 'handle' => $handle,
                 'vendor' => $product['vendor'] ?? null,
-                'image' => data_get($product, 'images.0.src'),
+                // Compat single hero image (first product image); `images` below
+                // carries the full gallery for a multi-image strip.
+                'image' => $images[0] ?? data_get($product, 'images.0.src'),
+                'images' => $images,
                 'price' => $variant['price'] ?? null,
                 'currency' => data_get($variant, 'presentment_prices.0.price.currency_code') ?? $defaultCurrency,
                 'variantId' => (string) $variant['id'],
@@ -126,6 +161,30 @@ class ShopifyScraper extends PlatformScraper
         }
 
         return $out;
+    }
+
+    /**
+     * Resolve one variant's own image src. Shopify exposes it two ways in
+     * /products.json: an inline `featured_image` object (`.src`), or a bare
+     * `image_id` that indexes the product's images[] (mapped in $imagesById).
+     * Returns null when neither is present — the variant shares the product's
+     * hero image on the sitepage.
+     *
+     * @param  array<string,mixed>  $variant
+     * @param  array<string,string>  $imagesById  product image id → absolute src
+     */
+    private function variantImage(array $variant, array $imagesById): ?string
+    {
+        $featured = $variant['featured_image'] ?? null;
+        if (is_array($featured) && isset($featured['src']) && is_string($featured['src']) && $featured['src'] !== '') {
+            return $featured['src'];
+        }
+
+        if (isset($variant['image_id']) && $variant['image_id'] !== null) {
+            return $imagesById[(string) $variant['image_id']] ?? null;
+        }
+
+        return null;
     }
 
     // ── internals ────────────────────────────────────────────────

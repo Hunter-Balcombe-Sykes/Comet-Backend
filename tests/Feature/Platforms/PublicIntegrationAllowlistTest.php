@@ -3,6 +3,7 @@
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -94,6 +95,53 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
     // No site row for allow2 → the global stamp is skipped, so the brand keeps
     // its stored per-brand linkMode default ('product' from toBrandArray()).
     expect($brand['linkMode'])->toBe('product');
+});
+
+it('passes each product gallery + per-variant image + variantId through to the public payload', function () {
+    // #84: the pages side builds /cart/<variantId>:1 checkout links + swaps the
+    // photo per variant. Prove the backend exposes the raw material — full
+    // `images` gallery, and each variant's `id` + `image` — verbatim inside the
+    // allowlisted `products` array (products are NOT per-key filtered).
+    $user = allowlistUser('allowvimg');
+
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-x', 'provider' => 'shopify',
+        'url' => 'https://shop.example', 'discount_code' => 'SAVE10', 'referral_query' => 'ref=abc',
+    ]);
+    // Store the exact shape ShopifyScraper::fetchProducts() now produces.
+    ShopProduct::create([
+        'brand_id' => $brand->id, 'product_id' => '111', 'position' => 0,
+        'data' => [
+            'productId' => '111', 'title' => 'Wool Runner', 'handle' => 'wool-runner',
+            'vendor' => 'Allbirds', 'image' => 'https://cdn.shopify.com/grey.jpg',
+            'images' => ['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg'],
+            'price' => '95.00', 'currency' => 'USD', 'variantId' => '201', 'available' => true,
+            'url' => 'https://shop.example/products/wool-runner', 'createdAt' => '2026-01-01T00:00:00Z',
+            'variants' => [
+                ['id' => '201', 'title' => 'Grey', 'price' => '95.00', 'available' => true, 'image' => 'https://cdn.shopify.com/grey.jpg'],
+                ['id' => '202', 'title' => 'Navy', 'price' => '95.00', 'available' => true, 'image' => 'https://cdn.shopify.com/navy.jpg'],
+            ],
+        ],
+    ]);
+
+    $product = $this->getJson('/api/public/profiles/allowvimg/integrations')
+        ->assertOk()
+        ->json('data.platforms.shop.0.payload.brand-x.products.0');
+
+    // Full gallery reaches the wire.
+    expect($product['images'])->toBe(['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg']);
+    // Every variant carries its id (for the checkout URL) + its own image (for the swap).
+    expect($product['variants'])->toHaveCount(2);
+    expect($product['variants'][0]['id'])->toBe('201');
+    expect($product['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
+    expect($product['variants'][1]['id'])->toBe('202');
+    expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
+    // Brand-level fields the pages side needs to assemble the checkout URL ride along.
+    expect($product['url'])->toBe('https://shop.example/products/wool-runner');
 });
 
 it('stamps every shop brand linkMode from the GLOBAL site setting', function () {

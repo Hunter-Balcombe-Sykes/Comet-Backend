@@ -61,3 +61,95 @@ it('falls back to og:image for the logo when no logo signal is present', functio
 
     expect($brand['logo'])->toBe('https://cdn.shopify.com/s/files/brandbanner.png?v=1');
 });
+
+// ── products.json scraping (#84 — variant images + galleries) ──────────
+
+// Build a scraper whose fetcher serves a canned /products.json body (and 200s
+// for anything else). Mirrors SafeUrlFetcher::tryFetch's {status, body} shape.
+function shopifyScraperWithProducts(string $productsJson): ShopifyScraper
+{
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->andReturnUsing(function (string $url) use ($productsJson) {
+        return str_contains($url, '/products.json')
+            ? ['status' => 200, 'body' => $productsJson]
+            : ['status' => 200, 'body' => ''];
+    });
+
+    return new ShopifyScraper($fetcher);
+}
+
+it('scrapes the full product gallery and resolves each variant to its own image', function () {
+    // Two-image product, two variants: the first carries an inline
+    // featured_image (Shopify's usual shape), the second only an image_id that
+    // must resolve against images[] by id. This is exactly Allbirds' shape.
+    $json = json_encode(['products' => [[
+        'id' => 111,
+        'title' => 'Wool Runner',
+        'handle' => 'wool-runner',
+        'vendor' => 'Allbirds',
+        'created_at' => '2026-01-01T00:00:00Z',
+        'images' => [
+            ['id' => 9001, 'src' => 'https://cdn.shopify.com/grey.jpg'],
+            ['id' => 9002, 'src' => 'https://cdn.shopify.com/navy.jpg'],
+        ],
+        'variants' => [
+            ['id' => 201, 'title' => 'Grey', 'price' => '95.00', 'available' => true,
+                'featured_image' => ['id' => 9001, 'src' => 'https://cdn.shopify.com/grey.jpg']],
+            ['id' => 202, 'title' => 'Navy', 'price' => '95.00', 'available' => true, 'image_id' => 9002],
+        ],
+    ]]]);
+
+    $products = shopifyScraperWithProducts($json)->fetchProducts('https://allbirds.example');
+
+    expect($products)->toHaveCount(1);
+    $p = $products[0];
+
+    // Full gallery, ordered, absolute src strings.
+    expect($p['images'])->toBe(['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg']);
+    // Compat hero image is the first gallery image.
+    expect($p['image'])->toBe('https://cdn.shopify.com/grey.jpg');
+
+    // Per-variant image: inline featured_image AND image_id→images[] both resolve.
+    expect($p['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
+    expect($p['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
+    // Flat compat fields still populated from the first variant.
+    expect($p['variantId'])->toBe('201');
+    expect($p['price'])->toBe('95.00');
+});
+
+it('emits a null variant image when the merchant assigned none', function () {
+    // A single-image product whose lone variant has neither featured_image nor
+    // image_id — the sitepage falls back to the product hero.
+    $json = json_encode(['products' => [[
+        'id' => 222,
+        'title' => 'Plain Tee',
+        'handle' => 'plain-tee',
+        'images' => [['id' => 1, 'src' => 'https://cdn.shopify.com/tee.jpg']],
+        'variants' => [
+            ['id' => 301, 'title' => 'Default Title', 'price' => '20.00', 'available' => true],
+        ],
+    ]]]);
+
+    $p = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0];
+
+    expect($p['image'])->toBe('https://cdn.shopify.com/tee.jpg');
+    expect($p['variants'][0]['image'])->toBeNull();
+    expect($p['images'])->toBe(['https://cdn.shopify.com/tee.jpg']);
+});
+
+it('yields an empty images array for a product with no images', function () {
+    // Imageless product (rare, but real for draft/placeholder products): the
+    // gallery is [] and the hero is null — never a broken/partial shape.
+    $json = json_encode(['products' => [[
+        'id' => 333,
+        'title' => 'No Photo',
+        'handle' => 'no-photo',
+        'variants' => [['id' => 401, 'title' => 'One', 'price' => '5.00', 'available' => true]],
+    ]]]);
+
+    $p = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0];
+
+    expect($p['images'])->toBe([]);
+    expect($p['image'])->toBeNull();
+    expect($p['variants'][0]['image'])->toBeNull();
+});
