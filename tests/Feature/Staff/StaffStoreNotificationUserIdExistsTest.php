@@ -30,7 +30,7 @@ beforeEach(function () {
         http_method TEXT NOT NULL DEFAULT \'\',
         status_code INTEGER NOT NULL DEFAULT 0,
         payload_summary TEXT NOT NULL DEFAULT \'{}\',
-        ip TEXT,
+        ip_hash TEXT,
         user_agent TEXT,
         created_at TEXT
     )');

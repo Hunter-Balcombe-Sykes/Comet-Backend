@@ -8,6 +8,7 @@ use App\Services\Audit\StaffAuditService;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -36,6 +37,22 @@ class RecordStaffAuditEntry
 {
     private const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
 
+    // PRIV-4: staff GET endpoints that return user PII get an audit row too —
+    // writes alone left no trail of who *viewed* a customer list, an
+    // enquiries inbox, or an email-subscriber export. Deliberately excludes
+    // staff.professionals.index (PII is gated behind $showPii — plain staff
+    // never see it) and non-PII endpoints (sites, workplaces, stats). Adding a
+    // new PII-returning GET route means adding both a ->name() in
+    // routes/api/staff.php and an entry here.
+    private const PII_READ_ROUTE_NAMES = [
+        'staff.professionals.show',
+        'staff.customers.index',
+        'staff.customers.show',
+        'staff.email-subscribers.index',
+        'staff.email-subscribers.export',
+        'staff.enquiries.index',
+    ];
+
     public function __construct(private readonly StaffAuditService $audit) {}
 
     public function handle(Request $request, Closure $next): Response
@@ -45,7 +62,11 @@ class RecordStaffAuditEntry
 
     public function terminate(Request $request, Response $response): void
     {
-        if (! in_array($request->method(), self::WRITE_METHODS, true)) {
+        $isWrite = in_array($request->method(), self::WRITE_METHODS, true);
+        $isAllowlistedPiiRead = $request->method() === 'GET'
+            && in_array($request->route()?->getName(), self::PII_READ_ROUTE_NAMES, true);
+
+        if (! $isWrite && ! $isAllowlistedPiiRead) {
             return;
         }
 
@@ -81,11 +102,31 @@ class RecordStaffAuditEntry
         } catch (Throwable $e) {
             // Belt-and-suspenders — StaffAuditService already catches DB errors,
             // but this guards against parameter-resolution issues we haven't
-            // anticipated.
+            // anticipated. Re-derive staff/request_id fresh from $request rather
+            // than reusing the try-block locals above — those may be unset if
+            // the exception fired before they were assigned.
+            $staffOnFailure = $request->attributes->get('partna_staff');
+            $staffId = $staffOnFailure instanceof PartnaStaff ? $staffOnFailure->id : null;
+
             Log::warning('staff.audit.middleware_failed', [
                 'exception' => $e->getMessage(),
                 'route' => $request->path(),
+                'staff_id' => $staffId,
+                'request_id' => $request->header('X-Request-Id'),
             ]);
+
+            // OBS-3: Log::warning above is breadcrumb-only — surface to Nightwatch
+            // too, throttled to one per minute (same idiom as
+            // IdempotencyKey::logFailOpen) so a sustained failure mode can't flood
+            // it. Report unconditionally if the throttle layer itself is down.
+            try {
+                $lock = Cache::lock('staff.audit.middleware_failed-reported', 60);
+                if ($lock->get()) {
+                    report($e);
+                }
+            } catch (Throwable) {
+                report($e);
+            }
         }
     }
 

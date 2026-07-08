@@ -38,7 +38,7 @@ class StaffAuditEntry extends BaseModel
         'http_method',
         'status_code',
         'payload_summary',
-        'ip',
+        'ip_hash',
         'user_agent',
     ];
 

@@ -57,7 +57,8 @@ Route::prefix('staff')
         Route::get('/professionals', [StaffUserController::class, 'index']);
 
         // View one professional
-        Route::get('/professionals/{professional}', [StaffUserController::class, 'show']);
+        Route::get('/professionals/{professional}', [StaffUserController::class, 'show'])
+            ->name('staff.professionals.show');
         // Soft delete (regular staff)
         Route::delete('/professionals/{professional}', [StaffUserController::class, 'destroy']);
         // Restore
@@ -65,9 +66,11 @@ Route::prefix('staff')
             ->withTrashed();
 
         // View Customers
-        Route::get('/professionals/{professional}/customers', [StaffCustomerManagementController::class, 'index']);
+        Route::get('/professionals/{professional}/customers', [StaffCustomerManagementController::class, 'index'])
+            ->name('staff.customers.index');
         Route::get('/professionals/{professional}/customers/{customer}', [StaffCustomerManagementController::class, 'show'])
-            ->whereUuid('customer');
+            ->whereUuid('customer')
+            ->name('staff.customers.show');
         Route::post('/professionals/{professional}/customers/{customer}/restore', [StaffCustomerManagementController::class, 'restore'])
             ->whereUuid('customer')
             ->withTrashed();
@@ -113,11 +116,14 @@ Route::prefix('staff')
         Route::post('/professionals/{professional}/data-export', [StaffDataExportController::class, 'store']);
 
         // #GDPR-1 — email subscribers list + CSV export.
-        Route::get('/professionals/{professional}/email-subscribers', [StaffEmailSubscriberController::class, 'index']);
-        Route::get('/professionals/{professional}/email-subscribers/export', [StaffEmailSubscriberController::class, 'export']);
+        Route::get('/professionals/{professional}/email-subscribers', [StaffEmailSubscriberController::class, 'index'])
+            ->name('staff.email-subscribers.index');
+        Route::get('/professionals/{professional}/email-subscribers/export', [StaffEmailSubscriberController::class, 'export'])
+            ->name('staff.email-subscribers.export');
 
         // #ENQUIRY-1 — contact-form enquiries inbox (read).
-        Route::get('/professionals/{professional}/enquiries', [StaffEnquiryController::class, 'index']);
+        Route::get('/professionals/{professional}/enquiries', [StaffEnquiryController::class, 'index'])
+            ->name('staff.enquiries.index');
 
         // Workplace snapshot stored at site.settings.workplace.
         Route::get('/professionals/{professional}/site/workplace', [StaffWorkplaceController::class, 'show']);

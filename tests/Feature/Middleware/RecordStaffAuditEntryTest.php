@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -34,17 +36,17 @@ beforeEach(function () {
         http_method TEXT NOT NULL,
         status_code INTEGER NOT NULL,
         payload_summary TEXT NOT NULL DEFAULT "{}",
-        ip TEXT,
+        ip_hash TEXT,
         user_agent TEXT,
         created_at TEXT
     )');
 });
 
-function makeAuditRequest(string $method, string $uri, array $bindings = []): Request
+function makeAuditRequest(string $method, string $uri, array $bindings = [], string $routeName = 'staff.professionals.update'): Request
 {
     $request = Request::create($uri, $method);
     $route = new RoutingRoute([$method], $uri, fn () => null);
-    $route->name('staff.professionals.update');
+    $route->name($routeName);
     $route->parameters = $bindings;
     $request->setRouteResolver(fn () => $route);
 
@@ -157,4 +159,68 @@ it('serialises route bindings to scalar UUIDs in payload_summary', function () {
         'professional' => $professional->id,
         'service' => 'service-uuid-abc',
     ]);
+});
+
+// PRIV-4: PII-returning staff GET reads now leave an audit trail too, not just writes.
+it('records a row for a GET to an allowlisted PII-read route', function () {
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+
+    $professional = new User;
+    $professional->id = (string) Str::uuid();
+    $professional->handle = 'acme';
+
+    $request = makeAuditRequest('GET', '/staff/professionals/'.$professional->id, [
+        'professional' => $professional,
+    ], 'staff.professionals.show');
+    $request->attributes->set('partna_staff', $staff);
+
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
+    $middleware->terminate($request, new Response('', 200));
+
+    expect(StaffAuditEntry::query()->count())->toBe(1);
+    $row = StaffAuditEntry::query()->first();
+    expect($row->http_method)->toBe('GET')
+        ->and($row->route)->toBe('staff.professionals.show')
+        ->and($row->user_id)->toBe($professional->id);
+});
+
+// A GET to a non-allowlisted route (e.g. staff.professionals.index, which is
+// $showPii-gated in the controller) must still be skipped — writes-only
+// behaviour is preserved outside the explicit PII-read allowlist.
+it('skips a GET to a route not on the PII-read allowlist', function () {
+    $request = makeAuditRequest('GET', '/staff/professionals', [], 'staff.professionals.index');
+    $middleware = new RecordStaffAuditEntry(new StaffAuditService);
+    $middleware->terminate($request, new Response('', 200));
+
+    expect(StaffAuditEntry::query()->count())->toBe(0);
+});
+
+// OBS-3: an unexpected failure inside terminate() (distinct from StaffAuditService's
+// own DB-error handling) must both breadcrumb via Log::warning AND surface to
+// Nightwatch via report(), with staff_id/request_id re-derived fresh from the
+// request rather than relying on a try-block local that may be unset.
+it('OBS-3: reports and logs staff_id + request_id when the middleware fails unexpectedly', function () {
+    Log::spy();
+    Exceptions::fake();
+
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+
+    $failingAudit = Mockery::mock(StaffAuditService::class);
+    $failingAudit->shouldReceive('record')->andThrow(new RuntimeException('unexpected middleware failure'));
+
+    $request = makeAuditRequest('POST', '/staff/notifications');
+    $request->attributes->set('partna_staff', $staff);
+    $request->headers->set('X-Request-Id', 'req-obs3-123');
+
+    $middleware = new RecordStaffAuditEntry($failingAudit);
+    $middleware->terminate($request, new Response('', 200));
+
+    Exceptions::assertReported(RuntimeException::class);
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => $message === 'staff.audit.middleware_failed'
+            && $context['staff_id'] === $staff->id
+            && $context['request_id'] === 'req-obs3-123'
+        );
 });

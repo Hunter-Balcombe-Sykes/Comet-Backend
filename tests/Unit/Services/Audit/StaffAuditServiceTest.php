@@ -34,7 +34,7 @@ beforeEach(function () {
         http_method TEXT NOT NULL,
         status_code INTEGER NOT NULL,
         payload_summary TEXT NOT NULL DEFAULT "{}",
-        ip TEXT,
+        ip_hash TEXT,
         user_agent TEXT,
         created_at TEXT
     )');
@@ -71,8 +71,39 @@ it('inserts a row capturing the staff, target, route, and method', function () {
         ->and($entry->http_method)->toBe('PATCH')
         ->and($entry->status_code)->toBe(200)
         ->and($entry->payload_summary)->toBe(['professional' => $professional->id])
-        ->and($entry->ip)->toBe('203.0.113.42')
+        ->and($entry->ip_hash)->toBe(hash_hmac('sha256', '203.0.113.42', config('app.key')))
         ->and($entry->user_agent)->toBe('PestTest');
+});
+
+// DINT-1: the raw IP must never reach the append-only table — only a one-way
+// HMAC-SHA256 digest (same scheme as site.enquiries.ip_hash / HashesClientData).
+it('DINT-1: hashes the IP with HMAC-SHA256 instead of storing it raw', function () {
+    $entry = (new StaffAuditService)->record(
+        staff: null,
+        impersonator: null,
+        professional: null,
+        route: 'staff.professionals.update',
+        httpMethod: 'PATCH',
+        statusCode: 200,
+        ip: '198.51.100.7',
+    );
+
+    expect($entry->ip_hash)
+        ->not->toBe('198.51.100.7')
+        ->toBe(hash_hmac('sha256', '198.51.100.7', config('app.key')));
+});
+
+it('DINT-1: stores a null ip_hash when no IP is given', function () {
+    $entry = (new StaffAuditService)->record(
+        staff: null,
+        impersonator: null,
+        professional: null,
+        route: 'staff.professionals.update',
+        httpMethod: 'PATCH',
+        statusCode: 200,
+    );
+
+    expect($entry->ip_hash)->toBeNull();
 });
 
 it('accepts a null professional and null staff', function () {

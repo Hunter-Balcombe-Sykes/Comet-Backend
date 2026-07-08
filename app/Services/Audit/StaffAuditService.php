@@ -40,7 +40,10 @@ class StaffAuditService
                 'http_method' => $httpMethod,
                 'status_code' => $statusCode,
                 'payload_summary' => $payloadSummary,
-                'ip' => $ip,
+                // DINT-1: hash centrally here (not at the call site) so no caller
+                // can regress by writing a raw IP — matches the HMAC-SHA256
+                // convention used by site.enquiries.ip_hash / HashesClientData.
+                'ip_hash' => $this->hashIp($ip),
                 'user_agent' => $userAgent,
             ]);
         } catch (Throwable $e) {
@@ -56,5 +59,12 @@ class StaffAuditService
 
             return null;
         }
+    }
+
+    // One-way HMAC-SHA256, keyed on APP_KEY — same scheme as HashesClientData /
+    // ContentReportService::submit(). Never store the raw IP (DINT-1).
+    private function hashIp(?string $ip): ?string
+    {
+        return $ip !== null ? hash_hmac('sha256', $ip, config('app.key')) : null;
     }
 }

@@ -61,7 +61,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 10 of 20 complete
+- P2 Medium: 13 of 20 complete
 - P3 Low: 7 of 13 complete
 
 ---
@@ -250,7 +250,7 @@
         ]);
         ```
 
-- [ ] **#PRIV-4** · P2 — Staff audit middleware only records write methods; staff reads of user PII leave no audit trail
+- [x] **#PRIV-4** · P2 — Staff audit middleware only records write methods; staff reads of user PII leave no audit trail
     - **Where:** app/Http/Middleware/Logging/RecordStaffAuditEntry.php:40 (`WRITE_METHODS` guard), `terminate()`
     - **Affects:** Staff members viewing user profiles, site data, or customer lists via GET endpoints — no audit record is created for read access to personal information.
     - **Effort:** M (~2–4h)
@@ -347,7 +347,7 @@
         }
         ```
 
-- [ ] **#OBS-3** · P2 — Staff audit middleware catches Throwable with only Log::warning, no correlation IDs, no Nightwatch alert
+- [x] **#OBS-3** · P2 — Staff audit middleware catches Throwable with only Log::warning, no correlation IDs, no Nightwatch alert
     - **Where:** app/Http/Middleware/Logging/RecordStaffAuditEntry.php (catch block in `terminate()`)
     - **Affects:** Compliance/incident response — a sustained audit-log write failure produces no alert and the breadcrumb it does leave can't be correlated to which staff member or which request was affected.
     - **Effort:** S (~0.5–1h)
@@ -469,7 +469,7 @@
         ```
         (No preceding outbound rate-limit check.)
 
-- [ ] **#DINT-1** · P2 — Raw staff IP address stored permanently in the append-only audit table with no purge wiring
+- [x] **#DINT-1** · P2 — Raw staff IP address stored permanently in the append-only audit table with no purge wiring
     - **Where:** app/Http/Middleware/Logging/RecordStaffAuditEntry.php (`$this->audit->record(...)` call); table `core.staff_audit_log`
     - **Affects:** Staff members performing administrative actions — every audit row carries a raw, unhashed IP that can never be updated or deleted (the table is enforced append-only at the database level).
     - **Effort:** M (~2–4h)

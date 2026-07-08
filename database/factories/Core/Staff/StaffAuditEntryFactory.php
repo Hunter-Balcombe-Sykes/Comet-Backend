@@ -27,7 +27,7 @@ class StaffAuditEntryFactory extends Factory
             'http_method' => 'PATCH',
             'status_code' => 200,
             'payload_summary' => ['professional' => (string) Str::uuid()],
-            'ip' => '127.0.0.1',
+            'ip_hash' => hash_hmac('sha256', '127.0.0.1', config('app.key')),
             'user_agent' => 'PHPUnit',
             'created_at' => now(),
         ];
