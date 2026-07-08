@@ -135,6 +135,8 @@ class SiteMedia extends BaseModel
         'original_size_bytes',
         'duration_ms',
         'poster_path',
+        'dominant_color',
+        'palette',
     ];
 
     protected $casts = [
@@ -142,6 +144,7 @@ class SiteMedia extends BaseModel
         'is_active' => 'boolean',
         'original_size_bytes' => 'integer',
         'duration_ms' => 'integer',
+        'palette' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

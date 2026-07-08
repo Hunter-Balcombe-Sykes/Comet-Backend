@@ -725,6 +725,8 @@ function setupMediaTables(): void
         alt_text TEXT NULL,
         caption TEXT NULL,
         purpose TEXT NULL,
+        dominant_color TEXT NULL,
+        palette TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL

@@ -179,6 +179,11 @@ class AppleController extends ApiController
             // Flat back-compat tile fields copied verbatim from the latest item.
             // Music exposes releaseDate; podcast exposes description + releaseDate.
             'flatFields' => ['name', 'thumbnail', 'releaseDate', 'link'],
+            // #76: capture the artist's primary genre (keyless iTunes) into the
+            // stored payload so IdentityEvidence::musicGenre() → MusicGenreFactor
+            // has a source. Music-only — apple-podcast (category Content) is never
+            // read by the factor. Absent (null) resolver = no genre capture.
+            'genreResolver' => fn (string $input): ?string => $this->apple->fetchGenre($input),
             'recentKey' => 'albums',
             'notFound' => 'Could not find that Apple Music artist or an album.',
             'connectFirst' => 'Connect an Apple Music artist first.',
@@ -226,6 +231,12 @@ class AppleController extends ApiController
             'latest' => $latest,
             'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
         ];
+
+        // #76: enrich music selections with the artist's genre (best-effort — a
+        // resolver miss or throw leaves the selection untouched; the resource
+        // whitelists its keys so `genre` never leaks to the wire).
+        $selection = $this->withGenre($selection, $cfg, $input);
+
         $row = $this->writeAccountConnection($user, $input, $selection);
         if ($row === null) {
             return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
@@ -325,6 +336,36 @@ class AppleController extends ApiController
     }
 
     // ── internals ────────────────────────────────────────────────
+
+    /**
+     * Attach a `genre` to the selection when the platform config carries a genre
+     * resolver (music only) and it resolves one. Best-effort: a null result or a
+     * throw leaves the selection unchanged so genre capture can NEVER fail a
+     * connect (#76). The stored key feeds MusicGenreFactor; the Apple resource
+     * whitelists its output keys, so `genre` stays out of the wire payload.
+     *
+     * @param  array<string, mixed>  $selection
+     * @param  array<string, mixed>  $cfg
+     * @return array<string, mixed>
+     */
+    private function withGenre(array $selection, array $cfg, string $input): array
+    {
+        $resolver = $cfg['genreResolver'] ?? null;
+        if (! $resolver instanceof \Closure) {
+            return $selection;
+        }
+
+        try {
+            $genre = $resolver($input);
+            if (is_string($genre) && trim($genre) !== '') {
+                $selection['genre'] = $genre;
+            }
+        } catch (\Throwable $e) {
+            report($e); // visible but non-fatal — connect still succeeds without genre
+        }
+
+        return $selection;
+    }
 
     // Preserve existing highlights only when re-adding an already-connected input.
     private function keptHighlights(User $user, string $platform, string $input): array

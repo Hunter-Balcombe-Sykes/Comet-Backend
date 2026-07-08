@@ -113,6 +113,64 @@ it('is a one-shot factor in band 34', function () {
         ->and($factor->key())->toBe('music-genre:style');
 });
 
+// ── Apple Music genre capture (#76 Part B) ────────────────────────────────────
+// AppleController::connectFor + AppleMusicFetch store the artist's iTunes
+// primaryGenreName under the `genre` key on the apple-music connection payload.
+// These pin that apple-music is a Music-category platform and that a stored genre
+// there is read by musicGenre() → the factor emits (the whole point of Part B).
+
+/** IdentityEvidence over one apple-music connection carrying $payload. */
+function mgAppleEvidence(array $payload): IdentityEvidence
+{
+    return new IdentityEvidence(
+        (new User)->forceFill(['id' => 'u1']),
+        (new Site)->forceFill(['id' => 's1']),
+        new Collection([
+            new IntegrationConnection(['user_id' => 'u1', 'platform' => 'apple-music', 'payload' => $payload]),
+        ]),
+        new Collection,
+    );
+}
+
+it('confirms apple-music is registered under the Music platform category', function () {
+    $descriptor = app(PlatformRegistry::class)->get('apple-music');
+
+    expect($descriptor)->not->toBeNull()
+        ->and($descriptor->getCategory())->toBe(PlatformCategory::Music);
+});
+
+it('reads a stored apple-music genre back through musicGenre()', function () {
+    // Mirrors what AppleController stores: the tile fields + a `genre` key.
+    $evidence = mgAppleEvidence([
+        'input' => 'Some MC',
+        'name' => 'Latest Album',
+        'genre' => 'hip-hop/rap',
+    ]);
+
+    expect($evidence->musicGenre())->toBe('hip-hop/rap');
+});
+
+it('an apple-music hip-hop genre lights up the electronic look', function () {
+    $evidence = mgAppleEvidence([
+        'input' => 'Some MC',
+        'genre' => 'hip-hop/rap', // iTunes primaryGenreName form
+    ]);
+
+    expect($evidence->musicGenre())->toBe('hip-hop/rap');
+
+    $out = (new MusicGenreFactor)->detect($evidence);
+    expect($out['color_bg'])->toBe('#151515')
+        ->and($out['weight_regular'])->toBe('600')
+        ->and($out['effect_style'])->toBe('bold');
+});
+
+it('an apple-music alternative genre lights up the pop/indie look', function () {
+    $evidence = mgAppleEvidence(['input' => 'A Band', 'genre' => 'alternative']);
+
+    expect($evidence->musicGenre())->toBe('alternative');
+    expect((new MusicGenreFactor)->detect($evidence)['color_bg'])->toBe('#fafafa');
+});
+
 // ── Safety contract ──────────────────────────────────────────────────────────
 
 it('only ever emits whitelisted design-kit columns', function () {

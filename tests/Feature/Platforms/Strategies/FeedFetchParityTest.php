@@ -306,6 +306,38 @@ it('AppleMusicFetch produces the same success payload as the refresher (preserve
     expect($result['latest'])->toBe($albums[0]);
 });
 
+it('AppleMusicFetch captures the artist genre on refresh (#76 Part B)', function () {
+    $albums = [
+        ['collectionId' => 'c1', 'name' => 'Album One', 'thumbnail' => 'nt', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'],
+    ];
+    $this->mock(AppleSearch::class, function ($m) use ($albums) {
+        $m->shouldReceive('fetchAlbums')->andReturn($albums);
+        $m->shouldReceive('fetchGenre')->with('Taylor Swift')->andReturn('pop');
+    });
+
+    $row = gmSeed(gmUser('gmamg1'), 'apple-music', ['input' => 'Taylor Swift']);
+    $result = (new AppleMusicFetch(app(AppleSearch::class)))->fetch($row);
+
+    // Genre lands on the payload so IdentityEvidence::musicGenre() can read it.
+    expect($result['genre'])->toBe('pop');
+});
+
+it('AppleMusicFetch retains a prior genre when re-fetch yields none (#76 Part B)', function () {
+    $albums = [
+        ['collectionId' => 'c1', 'name' => 'Album One', 'thumbnail' => 'nt', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'],
+    ];
+    // fetchGenre now returns null (transient miss) — the stored genre must survive.
+    $this->mock(AppleSearch::class, function ($m) use ($albums) {
+        $m->shouldReceive('fetchAlbums')->andReturn($albums);
+        $m->shouldReceive('fetchGenre')->andReturn(null);
+    });
+
+    $row = gmSeed(gmUser('gmamg2'), 'apple-music', ['input' => 'Some Artist', 'genre' => 'jazz']);
+    $result = (new AppleMusicFetch(app(AppleSearch::class)))->fetch($row);
+
+    expect($result['genre'])->toBe('jazz'); // preserved via the payload spread
+});
+
 it('AppleMusicFetch throws FetchShapeException when input is missing (refresher status=error)', function () {
     $row = gmSeed(gmUser('gmam3'), 'apple-music', ['name' => 'no input']);
     app(PlatformRefresher::class)->refresh($row);

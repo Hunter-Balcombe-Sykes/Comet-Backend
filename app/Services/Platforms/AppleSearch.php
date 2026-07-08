@@ -78,6 +78,29 @@ class AppleSearch extends PlatformScraper
             ->all();
     }
 
+    /**
+     * The artist's primary genre (e.g. "Dance", "Hip-Hop/Rap", "Alternative"),
+     * lower-cased, from the keyless iTunes artist lookup (`primaryGenreName`), or
+     * null (#76 Part B). Best-effort: any miss (unresolvable artist, no genre on
+     * the record) returns null so MusicGenreFactor abstains rather than errors.
+     *
+     * Same keyless iTunes API + cache path as fetchAlbums — no new credential.
+     */
+    public function fetchGenre(string $input): ?string
+    {
+        $artistId = $this->resolveArtistId($input);
+        if ($artistId === null) {
+            return null;
+        }
+
+        $data = $this->itunes("/lookup?id={$artistId}");
+        // The artist record is the wrapperType='artist' row; primaryGenreName
+        // rides on it directly. data_get tolerates the array-of-results shape.
+        $genre = data_get($data, 'results.0.primaryGenreName');
+
+        return is_string($genre) && trim($genre) !== '' ? strtolower(trim($genre)) : null;
+    }
+
     // ── internals ────────────────────────────────────────────────
 
     private function itunes(string $path): ?array

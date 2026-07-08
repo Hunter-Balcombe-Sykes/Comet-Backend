@@ -28,7 +28,7 @@ final readonly class AppleMusicFetch implements FetchStrategy
         }
         $latest = $albums[0];
 
-        return [
+        $next = [
             ...$payload,
             'latest' => $latest,
             'name' => $latest['name'],
@@ -36,5 +36,22 @@ final readonly class AppleMusicFetch implements FetchStrategy
             'releaseDate' => $latest['releaseDate'],
             'link' => $latest['link'],
         ];
+
+        // #76: (re)capture the artist genre on refresh so connections made before
+        // genre capture existed pick it up on their next daily refresh, and a
+        // changed classification stays current. Best-effort: retain the prior
+        // value on any miss/throw. Only SET the key when we have a non-empty
+        // genre — never introduce a `genre => null` (that would read as a payload
+        // change and force an otherwise-pointless cache purge on legacy rows).
+        try {
+            $fresh = $this->apple->fetchGenre($input);
+            if (is_string($fresh) && trim($fresh) !== '') {
+                $next['genre'] = strtolower(trim($fresh));
+            }
+        } catch (\Throwable) {
+            // ignore — the spread already preserved any existing $payload['genre']
+        }
+
+        return $next;
     }
 }

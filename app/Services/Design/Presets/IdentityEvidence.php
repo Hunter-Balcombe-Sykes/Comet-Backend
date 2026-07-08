@@ -5,6 +5,7 @@ namespace App\Services\Design\Presets;
 use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\Platform;
@@ -222,17 +223,25 @@ final class IdentityEvidence
     }
 
     /**
-     * Dominant-colour / palette metadata for the user's gallery media.
+     * Dominant-colour / palette metadata for the user's gallery imagery,
+     * aggregated to a single representative read the ImageryPaletteFactor
+     * consumes: {saturation: float 0..1, warm: bool} (#76 Part A).
      *
-     * DELIBERATE EMPTY (spec §2 row 2 + §5): site.site_media stores no colour
-     * metadata today (no dominant_color / palette / saturation column, no data
-     * blob) — extracting it is a separate pixel-extraction infra job, out of
-     * scope for this phase. This accessor is the seam that job will fill; until
-     * then it returns [] and ImageryPaletteFactor abstains cleanly, so users are
-     * unaffected. Kept here (rather than omitted) so wiring the future job is a
-     * one-method change with the factor already in place.
+     * Source: the `palette` jsonb ImageVariantService writes per processed image
+     * ({dominant, colors[], saturation, warm}). We read the site's gallery +
+     * content pool image rows that HAVE a palette and:
+     *   • average their `saturation` (the vivid/muted axis is a gallery-wide feel),
+     *   • take a simple majority vote on `warm` (ties / mostly-neutral → not warm),
+     * mirroring the per-image warm rule so a lone warm shot can't flip a cool set.
      *
-     * @return array<string, mixed> always [] until a palette source exists
+     * Returns [] when no gallery image has a stored palette yet (grandfathered or
+     * pre-backfill), so ImageryPaletteFactor keeps abstaining cleanly. Uses a
+     * keyed query (NOT a lazy relation) so it never trips Model::preventLazyLoading
+     * and needs no resolver eager-load wiring — same tactic as businessHours(). The
+     * query is wrapped so ANY read failure degrades to the abstain path — a colour
+     * read must never break preset resolution (additive, low-blast-radius: #76).
+     *
+     * @return array{saturation?: float, warm?: bool} [] when no palette source exists
      */
     public function mediaPalette(): array
     {
@@ -241,8 +250,56 @@ final class IdentityEvidence
         }
         $this->mediaPaletteResolved = true;
 
-        // No stored colour metadata on media rows — see docblock. Abstain source.
-        return $this->mediaPalette = [];
+        try {
+            $rows = SiteMedia::query()
+                ->where('site_id', (string) $this->site->id)
+                ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+                ->where('media_type', SiteMedia::MEDIA_TYPE_IMAGE)
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->whereNotNull('palette')
+                ->pluck('palette');
+        } catch (\Throwable) {
+            return $this->mediaPalette = []; // read failed — abstain, never break resolve
+        }
+
+        $satSum = 0.0;
+        $satCount = 0;
+        $warmVotes = 0;
+        $coolVotes = 0;
+
+        foreach ($rows as $raw) {
+            // `palette` is array-cast on the model, but a raw pluck may hand back
+            // the JSON string — normalise both.
+            $palette = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
+            if (! is_array($palette)) {
+                continue;
+            }
+
+            $sat = $palette['saturation'] ?? null;
+            if (is_int($sat) || is_float($sat)) {
+                $satSum += (float) $sat;
+                $satCount++;
+            }
+
+            if (array_key_exists('warm', $palette)) {
+                $palette['warm'] ? $warmVotes++ : $coolVotes++;
+            }
+        }
+
+        if ($satCount === 0 && $warmVotes === 0 && $coolVotes === 0) {
+            return $this->mediaPalette = []; // no usable palette metadata — abstain
+        }
+
+        $out = [];
+        if ($satCount > 0) {
+            $out['saturation'] = round($satSum / $satCount, 4);
+        }
+        if ($warmVotes > 0 || $coolVotes > 0) {
+            $out['warm'] = $warmVotes > $coolVotes;
+        }
+
+        return $this->mediaPalette = $out;
     }
 
     /**

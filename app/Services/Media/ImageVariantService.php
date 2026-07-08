@@ -3,6 +3,7 @@
 namespace App\Services\Media;
 
 use App\Models\Core\MediaVariant;
+use App\Models\Core\Site\SiteMedia;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
@@ -26,6 +27,12 @@ class ImageVariantService
 
     /** Safe extensions for R2 object keys — anything else falls back to the canonical default. */
     private const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'];
+
+    // Constructor-injected so it can be swapped in tests; defaults to a plain
+    // instance for the many `new ImageVariantService` call-sites (job, tests).
+    public function __construct(
+        private readonly ImagePaletteExtractor $paletteExtractor = new ImagePaletteExtractor,
+    ) {}
 
     /**
      * Process an original image into all configured variants, store them
@@ -67,6 +74,13 @@ class ImageVariantService
 
         $sourceWidth = imagesx($sourceImage);
         $sourceHeight = imagesy($sourceImage);
+
+        // Extract dominant-colour + palette metadata from the already-decoded
+        // source (#76). Best-effort and fully isolated: a failure here must NEVER
+        // affect variant generation or fail the upload — the ImageryPaletteFactor
+        // simply abstains for a NULL palette. Persisted via a scoped query-builder
+        // update so it bypasses SiteMediaObserver (no cache churn on a metadata write).
+        $this->storePalette($sourceImage, $imageId, $siteId);
 
         $created = [];
 
@@ -214,6 +228,42 @@ class ImageVariantService
         ]);
 
         return $created;
+    }
+
+    /**
+     * Extract and persist colour-palette metadata for a media row from its decoded
+     * source image (#76 Part A). Best-effort: any failure is swallowed and logged
+     * at debug level — the row's palette stays NULL and ImageryPaletteFactor
+     * abstains. Writes via a scoped query-builder update so the palette metadata
+     * write does NOT trip SiteMediaObserver (which would purge the edge cache and
+     * re-resolve presets on every image process — the READY transition already
+     * handles the intentional purge).
+     *
+     * $siteId is threaded only for log correlation.
+     */
+    private function storePalette(\GdImage $sourceImage, string $imageId, string $siteId): void
+    {
+        try {
+            $palette = $this->paletteExtractor->fromGd($sourceImage);
+            if ($palette === null) {
+                return; // no usable palette (e.g. fully transparent / neutral) — leave NULL
+            }
+
+            SiteMedia::query()
+                ->where('id', $imageId)
+                ->whereNull('deleted_at')
+                ->update([
+                    'dominant_color' => $palette['dominant'],
+                    'palette' => json_encode($palette),
+                ]);
+        } catch (\Throwable $e) {
+            // Palette is a non-essential enrichment — never let it disrupt processing.
+            Log::debug('ImageVariantService: palette extraction failed (non-fatal).', [
+                'image_id' => $imageId,
+                'site_id' => $siteId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
