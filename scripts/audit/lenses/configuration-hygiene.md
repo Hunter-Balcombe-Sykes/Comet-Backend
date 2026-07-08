@@ -54,7 +54,7 @@ Number them `CFG-1`, `CFG-2`, … sequentially. **P1 for `env()` in non-config f
 ### (6) Secret rotation readiness
 
 - Secrets used in multiple config keys without a `_VERSION` or `_KID` discriminator — rotation requires touching multiple keys simultaneously.
-- HMAC secrets (Supabase auth hook, Supabase email hook) with no documented rotation runbook in a comment or the docs. Both hooks are verified via `VerifySupabaseAuthHookSignature` / `VerifySupabaseEmailHookSignature` — confirm the config key and its `.env.example` placeholder are consistent.
+- HMAC secrets (Supabase auth hook, Supabase email hook) with no documented rotation runbook in a comment or the docs. Both hooks are verified via the unified `VerifySupabaseHookSignature` middleware (`config('services.supabase.auth_hook_secret')` / `config('services.supabase.email_hook_secret')` per route alias) — confirm the config key and its `.env.example` placeholder are consistent.
 - JWT signing keys stored as a single env var with no expiry concept — can't rotate without a brief window of auth failures.
 - Cloudflare API token rotation: confirm the `config('services.cloudflare.token')` path is documented and the token scope (KV write + cache purge) is minimal-privilege.
 - Twitch/Kick OAuth credentials (`config('services.twitch.*')`, `config('services.kick.*')`) — confirm both are in `.env.example` with placeholder values and there is a note on which scopes are required.

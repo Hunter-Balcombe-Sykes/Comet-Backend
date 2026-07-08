@@ -38,7 +38,7 @@ Each of the following code paths is foundational to the platform's operation. Th
 
 - Every webhook controller in `app/Http/Controllers/Api/Webhooks/` (currently `SupabaseAuthHookController`) and every inbound hook in `app/Http/Controllers/Api/Internal/` should have at least two tests: signature pass and signature fail. `tests/Feature/Webhooks/SupabaseAuthHookSignatureTest.php` exists — verify it covers both paths and a re-delivery (same payload twice → second is a no-op).
 - Malformed payload test — handler doesn't crash, returns 400 / 422 cleanly.
-- `VerifySupabaseAuthHookSignature` / `VerifySupabaseEmailHookSignature` HMAC verification — confirm the middleware tests cover an invalid signature and a missing signature header separately.
+- `VerifySupabaseHookSignature` HMAC verification (unified middleware, covering both the auth-hook and email-hook routes) — confirm the middleware tests cover an invalid signature and a missing signature header separately for each aliased route.
 
 ### (3) Policy ability coverage
 

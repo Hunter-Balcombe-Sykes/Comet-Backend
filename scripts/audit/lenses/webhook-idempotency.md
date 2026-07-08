@@ -33,7 +33,7 @@ Number them `WHK-1`, `WHK-2`, … sequentially across the whole audit, regardles
 - `hash_equals` missing — string `===` comparison on HMAC is a timing oracle.
 - Webhook/hook secret read from `env()` directly rather than from a config key (breaks under `config:cache`).
 - Timestamp tolerance window missing or too wide — replay window left open.
-- `StandardWebhookVerifier::verify()` is the shared implementation; confirm both middleware adapters (`VerifySupabaseAuthHookSignature`, `VerifySupabaseEmailHookSignature`) call it with the raw body from `$request->getContent()` and that the tolerance constant (`TIMESTAMP_TOLERANCE = 300`) is enforced.
+- `StandardWebhookVerifier::verify()` is the shared implementation; confirm the unified `VerifySupabaseHookSignature` middleware (aliased `supabase.auth-hook` / `supabase.email-hook` for both routes) calls it with the raw body from `$request->getContent()` and that the tolerance constant (`TIMESTAMP_TOLERANCE = 300`) is enforced.
 - 503 on missing secret is correct (fail-closed); confirm it does not leak config detail in the response body.
 - Canonical evidence to quote: the lines from receiving the request through to the `hash_equals` / verifier call.
 
@@ -123,10 +123,8 @@ For every finding:
 
 ### Group B — Signature verification middleware and services
 ```
---scope app/Http/Middleware/Auth/VerifySupabaseAuthHookSignature.php
---scope app/Http/Middleware/Auth/VerifySupabaseEmailHookSignature.php
+--scope app/Http/Middleware/Auth/VerifySupabaseHookSignature.php
 --scope app/Services/Webhooks/StandardWebhookVerifier.php
---scope app/Services/Email/SupabaseEmailHookSignatureVerifier.php
 ```
 
 ### Group C — Client-supplied idempotency
