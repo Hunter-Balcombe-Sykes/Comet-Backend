@@ -243,7 +243,7 @@ hot-reads-platforms|app/Services/Platforms
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
-callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal app/Services/Webhooks app/Services/Email app/Http/Middleware routes
+callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal app/Services/Webhooks app/Http/Middleware routes
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
@@ -262,7 +262,7 @@ EOF
         ;;
         configuration-hygiene) cat <<'EOF'
 config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
-consumers|app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Email app/Services/Media app/Services/FeatureFlags app/Services/Diagnostics app/Jobs app/Console app/Http/Middleware
+consumers|app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Media app/Services/FeatureFlags app/Services/Diagnostics app/Jobs app/Console app/Http/Middleware
 EOF
         ;;
         test-coverage) cat <<'EOF'
@@ -319,7 +319,7 @@ integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Auth app/Services/Cache
-services-vendor|app/Services/Media app/Services/Analytics app/Services/Moderation app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Diagnostics app/Services/Feedback app/Services/Webhooks app/Services/Audit app/Services/Email
+services-vendor|app/Services/Media app/Services/Analytics app/Services/Moderation app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Diagnostics app/Services/Feedback app/Services/Webhooks app/Services/Audit
 requests-resources|app/Http/Requests app/Http/Resources
 routing-middleware-policies|routes app/Console app/Http/Middleware app/Policies app/Observers
 jobs-providers-rest|app/Jobs/Moderation app/Jobs/Cloudflare app/Jobs/Gdpr app/Jobs/Cache app/Jobs/Account app/Jobs/Streaming app/Jobs/Analytics app/Jobs/Concerns app/Providers app/Mail app/Notifications app/Listeners app/Exceptions app/DTOs app/Support app/Enums app/Rules app/Contracts app/helpers.php
