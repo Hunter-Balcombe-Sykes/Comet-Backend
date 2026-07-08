@@ -3,6 +3,8 @@
 /** @phpstan-ignore-all */
 
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -69,6 +71,67 @@ it('authenticated API routes do not receive public cache headers', function () {
     expect($cacheControl)->not->toContain('public');
 });
 
+/**
+ * API-4: the individual public profile route (the Astro Worker's SSR
+ * subrequest target) is now allow-listed for public caching alongside
+ * site-by-slug. Confirm it gets both Cache-Control and ETag.
+ */
+it('public profiles route returns Cache-Control: public with CDN TTL and an ETag when response is 200', function () {
+    bindPublicProfileCache([
+        ['pro_id' => 'p1', 'site_id' => 's1', 'updated_at_ts' => 123],
+        ['profile' => ['handle' => 'jane']],
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/jane');
+
+    $response->assertOk();
+
+    $cacheControl = (string) $response->headers->get('Cache-Control', '');
+    expect($cacheControl)->toContain('public');
+    expect($cacheControl)->toContain('max-age=900');
+    expect($cacheControl)->toContain('s-maxage=900');
+    expect($response->headers->has('ETag'))->toBeTrue();
+});
+
+/**
+ * API-4 sub-fix / SEC-1: Vary is now prefix-specific. Profile routes resolve
+ * the tenant from the {handle} path segment, not a header, so they must NOT
+ * carry Vary: X-Site-Subdomain — only site-by-slug does (see the regression
+ * guard test below).
+ */
+it('public profiles route Vary includes Accept-Encoding but not X-Site-Subdomain', function () {
+    bindPublicProfileCache([
+        ['pro_id' => 'p1', 'site_id' => 's1', 'updated_at_ts' => 123],
+        ['profile' => ['handle' => 'jane']],
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/jane');
+
+    $response->assertOk();
+
+    $vary = (string) $response->headers->get('Vary', '');
+    expect($vary)->toContain('Accept-Encoding');
+    expect($vary)->not->toContain('X-Site-Subdomain');
+});
+
+/**
+ * Regression guard for the per-prefix Vary refactor: site-by-slug must keep
+ * varying on X-Site-Subdomain even though profiles routes no longer do.
+ */
+it('public site-by-slug route still varies on X-Site-Subdomain after the per-prefix Vary refactor', function () {
+    $subdomain = 'test-vary-regress-'.Str::random(6);
+    prewarmSiteCache($subdomain);
+
+    $response = $this
+        ->withHeader('X-Site-Subdomain', $subdomain)
+        ->getJson('/api/public/site-by-slug');
+
+    $response->assertOk();
+
+    $vary = (string) $response->headers->get('Vary', '');
+    expect($vary)->toContain('X-Site-Subdomain');
+});
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
@@ -103,4 +166,24 @@ function prewarmSiteCache(string $subdomain): void
         'legal' => null,
         'store' => null,
     ], now()->addMinutes(15));
+}
+
+/**
+ * Bind a mocked CacheLockService whose rememberLocked() returns the given
+ * values on successive calls (1st = handle.resolve, 2nd = payload build),
+ * plus a builder stub — mirrors bindProfileCache() in
+ * IndividualProfileControllerTest.php (kept local/renamed here to avoid a
+ * global function name clash when the full suite runs both files).
+ *
+ * @param  array<int, mixed>  $returns
+ */
+function bindPublicProfileCache(array $returns): void
+{
+    $cache = Mockery::mock(CacheLockService::class);
+    $cache->shouldReceive('rememberLocked')->andReturn(...$returns);
+    app()->instance(CacheLockService::class, $cache);
+
+    $builder = Mockery::mock(IndividualProfilePayloadBuilder::class);
+    $builder->shouldReceive('cacheTtl')->andReturn(60);
+    app()->instance(IndividualProfilePayloadBuilder::class, $builder);
 }

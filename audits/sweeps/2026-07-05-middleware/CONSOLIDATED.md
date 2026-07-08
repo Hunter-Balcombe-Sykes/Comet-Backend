@@ -61,7 +61,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 15 of 20 complete
+- P2 Medium: 17 of 20 complete
 - P3 Low: 10 of 13 complete
 
 ---
@@ -161,7 +161,7 @@
         $secret = (string) config('services.supabase.email_hook_secret', '');
         ```
 
-- [ ] **#API-4** · P2 — `AddPublicCacheHeaders` cacheable-prefix allowlist is missing the highest-traffic public endpoint
+- [x] **#API-4** · P2 — `AddPublicCacheHeaders` cacheable-prefix allowlist is missing the highest-traffic public endpoint
     - **Where:** app/Http/Middleware/AddPublicCacheHeaders.php:19-21
     - **Affects:** CDN hit rate for the public sitepage/profile API surface — any public GET endpoint not in the allowlist never gets `Cache-Control: public`, so every request hits the origin.
     - **Effort:** S (~0.5–1h)
@@ -493,7 +493,7 @@
         );
         ```
 
-- [ ] **#SEC-1** · P2 — Public sitepage endpoint varies its shared CDN cache on a client-supplied `X-Site-Subdomain` header
+- [x] **#SEC-1** · P2 — Public sitepage endpoint varies its shared CDN cache on a client-supplied `X-Site-Subdomain` header
     - **Where:** app/Http/Middleware/AddPublicCacheHeaders.php (`handle` + `mergeVary`)
     - **Affects:** The public site-by-slug API — the only signal separating one tenant's cached response from another's, at any shared cache layer in front of this endpoint, is a header the caller controls.
     - **Effort:** M (~2–4h)
