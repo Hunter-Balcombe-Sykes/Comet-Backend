@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -131,6 +132,12 @@ final class IdempotencyKey
                         'body' => $response->getContent(),
                         'headers' => $this->captureHeaders($response),
                     ], $ttl);
+
+                    // PRIV-1: index this cache key under the user so AccountDeletionService
+                    // can flush every cached response for them at deletion-confirm time —
+                    // see indexCacheKeyForUser() for why. Self-contained try/catch inside,
+                    // so a failure here can't be blamed on the Cache::put above.
+                    $this->indexCacheKeyForUser($userId, $cacheKey, $request);
                 } catch (Throwable $e) {
                     // Handler already ran — don't lose the response just because
                     // we couldn't cache it. Log and return the live response.
@@ -177,6 +184,46 @@ final class IdempotencyKey
     private function cacheKey(string $version, string $userId, string $route, string $key): string
     {
         return "idempotency:resp:{$version}:{$userId}:{$route}:{$key}";
+    }
+
+    /**
+     * PRIV-1 (GDPR): record $cacheKey in a per-user Redis SET so
+     * AccountDeletionService::purgeIdempotencyCache() can find and delete every
+     * response-cache entry for a user at deletion-confirm time, rather than
+     * letting PII linger for the full 24h TTL after account deletion.
+     *
+     * Stores the app-level $cacheKey string (not a physically-prefixed key) —
+     * deletion reads it back and calls Cache::forget($cacheKey), which applies
+     * Laravel's cache prefix itself.
+     *
+     * Same Redis connection/DB as the 'redis' cache store (config/cache.php ->
+     * config/database.php redis.cache, DB1) so this index and the response
+     * cache it tracks live side by side. Best-effort: a Redis failure here must
+     * never break the request — the response was already cached (or the caller
+     * already handled a Cache::put failure) by the time we get here.
+     */
+    private function indexCacheKeyForUser(string $userId, string $cacheKey, Request $request): void
+    {
+        try {
+            $indexKey = $this->userIndexKey($userId);
+            $connection = Redis::connection('cache');
+            $connection->sadd($indexKey, $cacheKey);
+
+            // Index TTL is sized off the CONFIGURED base TTL (not this entry's
+            // own jittered $ttl) inflated by JitteredTtl's max ×1.2 multiplier,
+            // so it always outlives every entry it could ever reference —
+            // regardless of that entry's own jitter draw. Refreshed on every
+            // write so the index keeps sliding forward while the user is active.
+            $baseTtl = (int) config('partna.idempotency.ttl_seconds', 86_400);
+            $connection->expire($indexKey, (int) ceil($baseTtl * 1.2));
+        } catch (Throwable $e) {
+            $this->logFailOpen($e, 'index', $request);
+        }
+    }
+
+    private function userIndexKey(string $userId): string
+    {
+        return "idempotency:index:{$userId}";
     }
 
     private function lockKey(string $version, string $userId, string $route, string $key): string

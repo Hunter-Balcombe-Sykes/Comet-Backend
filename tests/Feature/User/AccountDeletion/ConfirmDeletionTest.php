@@ -1,13 +1,16 @@
 <?php
 
+use App\Http\Middleware\IdempotencyKey;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
@@ -242,6 +245,41 @@ it('pseudonymises professionals public_contact PII at confirm time', function ()
 
     expect($pro->public_contact_email)->toBeNull()
         ->and($pro->public_contact_number)->toBeNull();
+});
+
+it('purges the idempotency response cache and its per-user index at confirm time (PRIV-1)', function () {
+    $rawToken = 'raw-token-'.Str::random(54);
+    $pro = seedRequestedUser($rawToken);
+    $authUserId = (string) $pro->auth_user_id;
+
+    // Prime a real idempotency-cached response for this user via the actual
+    // middleware — mirrors how a genuine mutating request populates both the
+    // Cache::put() response entry and the Redis per-user index (PRIV-1).
+    $middleware = new IdempotencyKey;
+    $idempotencyKeyHeader = '11111111-2222-4333-8444-555555555555';
+    $primeRequest = Request::create('/api/priv1-probe', 'POST');
+    $primeRequest->headers->set('Idempotency-Key', $idempotencyKeyHeader);
+    $primeRequest->attributes->set('supabase_uid', $authUserId);
+
+    $middleware->handle($primeRequest, fn () => response()->json(['ok' => true]));
+
+    $version = (string) (config('app.version') ?: 'v0');
+    $routeScope = 'unnamed:'.sha1('POST /api/priv1-probe');
+    $cacheKey = "idempotency:resp:{$version}:{$authUserId}:{$routeScope}:{$idempotencyKeyHeader}";
+    $indexKey = "idempotency:index:{$authUserId}";
+
+    // Sanity: both the cached response and its index entry exist before deletion.
+    expect(Cache::get($cacheKey))->not->toBeNull();
+    expect(Redis::connection('cache')->smembers($indexKey))->toContain($cacheKey);
+
+    $service = new AccountDeletionService;
+    $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
+    expect($result['success'])->toBeTrue();
+
+    // Confirm flushes the cached response AND deletes the now-empty index set —
+    // PII must not survive in Redis after the account is pseudonymised.
+    expect(Cache::get($cacheKey))->toBeNull();
+    expect(Redis::connection('cache')->exists($indexKey))->toBe(0);
 });
 
 it('rolls back the entire confirmation when pseudonymisation fails — status, audit row, and PII all reverted', function () {

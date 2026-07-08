@@ -60,7 +60,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 9 of 20 complete
 - P3 Low: 6 of 13 complete
 
@@ -89,7 +89,7 @@
             ->withoutMiddleware([EnforcePendingDeletionReadOnly::class]);
         ```
 
-- [ ] **#PRIV-1** · P1 — Idempotency-key response cache survives account deletion, leaving PII in Redis for up to 24 hours
+- [x] **#PRIV-1** · P1 — Idempotency-key response cache survives account deletion, leaving PII in Redis for up to 24 hours
     - **Where:** app/Http/Middleware/IdempotencyKey.php (`Cache::put` in `handle()`; no invalidation hook anywhere in the account-deletion/purge flow)
     - **Affects:** Any user who deletes their account after making a mutating request with an `Idempotency-Key` header in the prior 24h — their cached response body (profile data, site data, email, handle) remains in Redis until natural TTL expiry, past the point the platform tells them their data is gone.
     - **Effort:** M (~2–4h)

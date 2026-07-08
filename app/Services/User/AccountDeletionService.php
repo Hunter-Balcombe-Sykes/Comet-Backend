@@ -16,10 +16,12 @@ use App\Services\Media\ImageVariantService;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -224,6 +226,14 @@ class AccountDeletionService
             $this->pseudonymiseAccountPii($professional);
         });
 
+        // PRIV-1: flush cached idempotency responses NOW, not at the day-30 purge().
+        // PII is already pseudonymised above and the account goes read-only immediately
+        // after confirm (no new entries can be written post-confirm), so by the time
+        // purge() runs 30 days later every 24h-TTL entry has long since expired on its
+        // own — that hook would be a no-op. Runs after the transaction has committed,
+        // so even if the Redis flush itself fails, the DB is already redacted.
+        $this->purgeIdempotencyCache((string) ($professional->auth_user_id ?? ''));
+
         $cancelUrl = rtrim((string) config('app.frontend_url'), '/').'/account/deletion/cancel';
 
         try {
@@ -269,6 +279,44 @@ class AccountDeletionService
             'location_state' => null,
             'location_country' => null,
         ])->save();
+    }
+
+    /**
+     * PRIV-1 (GDPR): flush every idempotency response-cache entry for this user
+     * via the per-user Redis index that App\Http\Middleware\IdempotencyKey
+     * maintains at cache-write time.
+     *
+     * Keys on auth_user_id (the Supabase UID) — NOT $professional->id — because
+     * that's the same value the middleware uses to build its cache/index keys
+     * (it reads $request->attributes->get('supabase_uid')).
+     *
+     * Best-effort: a Redis outage here must not abort account deletion — the DB
+     * pseudonymisation this runs after is what GDPR erasure actually depends on.
+     */
+    private function purgeIdempotencyCache(string $authUserId): void
+    {
+        if ($authUserId === '') {
+            return;
+        }
+
+        try {
+            $connection = Redis::connection('cache');
+            $indexKey = "idempotency:index:{$authUserId}";
+
+            $cacheKeys = $connection->smembers($indexKey);
+            foreach ($cacheKeys as $cacheKey) {
+                if (is_string($cacheKey) && $cacheKey !== '') {
+                    Cache::forget($cacheKey);
+                }
+            }
+
+            $connection->del($indexKey);
+        } catch (\Throwable $e) {
+            Log::warning('Idempotency cache purge failed during account deletion confirm', [
+                'auth_user_id' => $authUserId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
