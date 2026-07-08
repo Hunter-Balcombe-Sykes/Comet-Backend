@@ -22,7 +22,7 @@ class LoadCurrentUser
     {
         $uid = $request->attributes->get('supabase_uid');
         if (! $uid) {
-            Log::debug('LoadCurrentUser missing uid');
+            Log::debug('LoadCurrentUser missing uid', ['uid' => $uid]);
 
             return response()->json(['message' => 'Missing uid'], 401);
         }

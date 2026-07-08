@@ -62,7 +62,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
 - P2 Medium: 20 of 20 complete
-- P3 Low: 11 of 13 complete
+- P3 Low: 12 of 13 complete
 
 ---
 
@@ -656,7 +656,7 @@
         } catch (UniqueConstraintViolationException $e) {
         ```
 
-- [ ] **#OBS-7** · P3 — LoadCurrentUser debug logs on the hot auth path without a production guard
+- [x] **#OBS-7** · P3 — LoadCurrentUser debug logs on the hot auth path without a production guard
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php (missing-uid, no-professional, blocked-account branches)
     - **Affects:** Log volume — every unauthenticated request, mid-signup user, and blocked account emits a debug-level log line.
     - **Effort:** S (~0.5–1h)
