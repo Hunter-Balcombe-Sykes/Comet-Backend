@@ -136,6 +136,8 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 imageId: $this->imageId,
                 basePath: $this->basePath,
                 siteId: $this->resolveSiteId($siteMedia),
+                // Logos are POOL_DESIGN — the palette factor never reads them (#76 MAJOR-1).
+                extractPalette: false,
             );
 
             // 3) Store the SVG (when produced) as its own MediaVariant artifact.

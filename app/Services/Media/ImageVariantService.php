@@ -48,6 +48,11 @@ class ImageVariantService
         string $imageId,
         string $basePath,
         string $siteId = '',
+        // Palette metadata is only READ for GALLERY_POOLS media (see
+        // IdentityEvidence::mediaPalette). Logo / design-pool uploads pass false
+        // so they don't pay the extraction cost or write dead palette data to
+        // rows the ImageryPaletteFactor never reads (#76 MAJOR-1).
+        bool $extractPalette = true,
     ): array {
         // Ensure GD extension is available with WebP support
         if (! extension_loaded('gd')) {
@@ -80,7 +85,9 @@ class ImageVariantService
         // affect variant generation or fail the upload — the ImageryPaletteFactor
         // simply abstains for a NULL palette. Persisted via a scoped query-builder
         // update so it bypasses SiteMediaObserver (no cache churn on a metadata write).
-        $this->storePalette($sourceImage, $imageId, $siteId);
+        if ($extractPalette) {
+            $this->storePalette($sourceImage, $imageId, $siteId);
+        }
 
         $created = [];
 
