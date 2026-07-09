@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
 use App\Http\Controllers\Api\User\Account\UserDataExportController;
 use App\Http\Controllers\Api\User\Account\UserDocumentController;
 use App\Http\Controllers\Api\User\Account\UserSelfController;
+use App\Http\Controllers\Api\User\Analytics\DevInsightsController;
 use App\Http\Controllers\Api\User\Analytics\UserAnalyticsController;
 use App\Http\Controllers\Api\User\Content\ContentController;
 use App\Http\Controllers\Api\User\Customers\UserCustomerController;
@@ -154,6 +155,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // View Analytics
         Route::get('/analytics', [UserAnalyticsController::class, 'summary']);
         Route::get('/analytics/live', [UserAnalyticsController::class, 'live']);
+
+        // Dev Insights — raw popularity scores + the analytics feeding them (dev/testing
+        // surface; explains + demos the scoring, own-site only). Path carries the
+        // `professional/` segment to read as a scoped dev tool; still a plain authed GET.
+        Route::get('/professional/dev-insights', [DevInsightsController::class, 'index']);
 
         // Links
         Route::get('/links', [UserLinkBlockController::class, 'index']);
