@@ -9,6 +9,12 @@
 #   /var/www/html/bin/ffmpeg/ffmpeg
 #   /var/www/html/bin/ffmpeg/ffprobe
 #
+# Resilient download: tries johnvansickle.com first, then falls back to the
+# BtbN GitHub static builds — each with curl retries — so a single-host outage
+# (johnvansickle periodically goes down / times out at TLS) can't block a
+# deploy. Binaries are located by name after extraction, tolerating either
+# tarball's layout (johnvansickle: <dir>/ffmpeg ; BtbN: <dir>/bin/ffmpeg).
+#
 # Idempotent: skips download if the binary is already present (e.g. when
 # Cloud reuses a cached builder layer).
 set -euo pipefail
@@ -22,9 +28,21 @@ INSTALL_DIR="${REPO_ROOT}/bin/ffmpeg"
 FFMPEG_BIN="${INSTALL_DIR}/ffmpeg"
 ARCH="$(uname -m)"
 
+# Per-arch download sources, tried in order. Primary = johnvansickle static
+# release; fallback = BtbN 'gpl' (fully static) latest build hosted on GitHub.
 case "${ARCH}" in
-    aarch64|arm64) RELEASE_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz" ;;
-    x86_64|amd64)  RELEASE_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" ;;
+    aarch64|arm64)
+        SOURCES=(
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz"
+        )
+        ;;
+    x86_64|amd64)
+        SOURCES=(
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+        )
+        ;;
     *) echo "[ffmpeg.sh] Unsupported arch: ${ARCH}" >&2; exit 1 ;;
 esac
 
@@ -39,21 +57,39 @@ mkdir -p "${INSTALL_DIR}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-curl --silent --show-error --fail --location \
-    --output "${TMP_DIR}/ffmpeg.tar.xz" \
-    "${RELEASE_URL}"
+# Try each source in turn; --retry handles transient timeouts (incl. exit 28),
+# the loop handles a fully-down host by moving to the next mirror.
+TARBALL="${TMP_DIR}/ffmpeg.tar.xz"
+downloaded=false
+for url in "${SOURCES[@]}"; do
+    echo "[ffmpeg.sh] Fetching ${url}"
+    if curl --fail --location --silent --show-error \
+        --retry 2 --retry-delay 3 --connect-timeout 20 --max-time 300 \
+        --output "${TARBALL}" "${url}" && [[ -s "${TARBALL}" ]]; then
+        downloaded=true
+        break
+    fi
+    echo "[ffmpeg.sh] Source failed, trying next mirror: ${url}" >&2
+done
 
-tar -xf "${TMP_DIR}/ffmpeg.tar.xz" -C "${TMP_DIR}"
-
-# Tarball extracts to ffmpeg-<version>-<arch>-static/
-SRC_DIR="$(find "${TMP_DIR}" -maxdepth 1 -type d -name 'ffmpeg-*-static' | head -1)"
-if [[ -z "${SRC_DIR}" ]]; then
-    echo "[ffmpeg.sh] Could not locate extracted ffmpeg directory" >&2
+if ! ${downloaded}; then
+    echo "[ffmpeg.sh] All download sources failed for ${ARCH}" >&2
     exit 1
 fi
 
-cp "${SRC_DIR}/ffmpeg"  "${INSTALL_DIR}/ffmpeg"
-cp "${SRC_DIR}/ffprobe" "${INSTALL_DIR}/ffprobe"
+tar -xf "${TARBALL}" -C "${TMP_DIR}"
+
+# Locate the binaries by name — tolerates either tarball layout (johnvansickle
+# puts them at <dir>/ffmpeg, BtbN under <dir>/bin/ffmpeg).
+SRC_FFMPEG="$(find "${TMP_DIR}" -type f -name ffmpeg | head -1)"
+SRC_FFPROBE="$(find "${TMP_DIR}" -type f -name ffprobe | head -1)"
+if [[ -z "${SRC_FFMPEG}" || -z "${SRC_FFPROBE}" ]]; then
+    echo "[ffmpeg.sh] Could not locate ffmpeg/ffprobe in the extracted tarball" >&2
+    exit 1
+fi
+
+cp "${SRC_FFMPEG}"  "${INSTALL_DIR}/ffmpeg"
+cp "${SRC_FFPROBE}" "${INSTALL_DIR}/ffprobe"
 chmod +x "${INSTALL_DIR}/ffmpeg" "${INSTALL_DIR}/ffprobe"
 
 echo "[ffmpeg.sh] Installed:"
