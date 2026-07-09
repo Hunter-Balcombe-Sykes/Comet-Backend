@@ -119,6 +119,11 @@ class IndividualProfileResource extends ApiResource
             // render-time concern, not profile content). Always an array.
             'pageOrder' => $this->sections['page_order'] ?? [],
 
+            // Full popularity map { content_type: { content_key: rank } } — the ONE
+            // theme orders items of any type by looking up their rank here (cast to
+            // object so an empty map serializes as {} not []). Top-level.
+            'popularity' => (object) ($this->sections['popularity'] ?? []),
+
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB
             // columns to nested camelCase groups. partna-pages merges this with

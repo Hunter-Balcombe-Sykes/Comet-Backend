@@ -94,6 +94,10 @@ class IndividualProfilePayloadBuilder
             // Taxonomy page order for the ONE skeleton — presence + business
             // gated, popularity-ranked, canonical fallback. Top-level key.
             'page_order' => $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? []),
+            // Full popularity map (content_type => content_key => rank) so the ONE
+            // theme can order ANY item type uniformly, without per-platform payload
+            // surgery. Same $ranks the per-item annotations below already use.
+            'popularity' => $ranks,
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'gallery' => $this->buildGallery($site, $sections, $ranks['gallery_item'] ?? []),
             'curatedGallery' => $this->resolver->buildCuratedGalleryData($site),
