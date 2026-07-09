@@ -2,12 +2,19 @@
 
 namespace App\Services\PublicSite;
 
+use App\Enums\SitepageId;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilitySet;
+use App\Services\Site\ContentSelectionService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Shared sitepage-data projection logic for `IndividualProfileController` —
@@ -24,6 +31,59 @@ use Illuminate\Support\Collection;
  */
 class SitepageDataResolverService
 {
+    /**
+     * Section block_type → sitepage page-id. The section block_group covers a
+     * subset of the taxonomy; the platform-backed pages route via
+     * PLATFORM_TO_PAGE below. Backend presence heuristic only — NOT the analytics
+     * SitepageId::SECTION_KEY_TO_PAGE lockstep (that maps analytics section_keys,
+     * a different namespace: e.g. block_type 'documents' vs section_key 'document').
+     *
+     * @var array<string, string>
+     */
+    private const SECTION_BLOCK_TO_PAGE = [
+        'gallery' => 'gallery',
+        'services' => 'book',
+        'booking' => 'book',
+        'documents' => 'documents',
+        'newsletter' => 'contact',
+        'contact' => 'contact',
+        'public_contact' => 'contact',
+        'workplace' => 'contact',
+        'contacts_collection' => 'contact',
+        'barbershop_info' => 'contact', // PROVISIONAL — business-info block → Contact
+    ];
+
+    /**
+     * Integration / link platform → sitepage page-id. Drives presence for the
+     * platform-backed pages (listen/watch/shop/events/reservations/…). Backend
+     * presence heuristic only — the ONE frontend derives its own presence from
+     * the resolved payload, so this map carries no TS-lockstep obligation. Menu
+     * (Google-Business-sourced) and Reviews are detected separately below.
+     *
+     * @var array<string, string>
+     */
+    private const PLATFORM_TO_PAGE = [
+        // Listen — music/audio platforms.
+        'spotify' => 'listen', 'soundcloud' => 'listen', 'apple-music' => 'listen',
+        'apple-podcast' => 'listen', 'youtube-music' => 'listen', 'tidal' => 'listen',
+        'mixcloud' => 'listen',
+        // Watch — video/streaming.
+        'youtube' => 'watch', 'twitch' => 'watch', 'vimeo' => 'watch',
+        // Shop — storefronts + Bandcamp (sells via Shop per the taxonomy).
+        'shop' => 'shop', 'bandcamp' => 'shop',
+        // Events — ticketing + standalone events.
+        'eventbrite' => 'events', 'humanitix' => 'events', 'events-custom' => 'events',
+        // Book — booking links.
+        'fresha' => 'book', 'square' => 'book', 'booking' => 'book',
+        // Reservations — keyless reservation widgets (Business-only page).
+        'opentable' => 'reservations', 'resdiary' => 'reservations',
+        'nowbookit' => 'reservations', 'reservations' => 'reservations',
+        // Google Business feeds the Contact page (Reviews is detected separately).
+        'google-business' => 'contact',
+        // Standalone social pages.
+        'pinterest' => 'pinterest', 'strava' => 'strava', 'skool' => 'skool',
+    ];
+
     /**
      * Build the section envelope `{state, data, block_id?}`.
      *
@@ -59,6 +119,10 @@ class SitepageDataResolverService
      * a site. Returns a keyed collection so each helper can look up its section
      * without re-querying. Empty collection when site is null.
      *
+     * Ordered by sort_order so the keyed collection preserves the user's manual
+     * section order (keyBy keeps insertion order) — presentPageIds()/buildPageOrder()
+     * rely on this rather than the previous unordered fetch.
+     *
      * @return Collection<string, Block>
      */
     public function loadSections(?Site $site): Collection
@@ -71,8 +135,201 @@ class SitepageDataResolverService
             ->where('site_id', $site->id)
             ->where('block_group', 'sections')
             ->whereNull('deleted_at')
+            ->orderBy('sort_order')
             ->get()
             ->keyBy('block_type');
+    }
+
+    // ── Page presence + ordering (ONE taxonomy) ─────────────────────────
+
+    /**
+     * The taxonomy page-ids this site has content for, in canonical order, with
+     * Business-only pages dropped for accounts lacking the capability. Defined
+     * ONCE here so the read path (buildPageOrder) and the write path
+     * (analytics:compute-popularity) share an identical presence gate.
+     *
+     * Presence signals (any positive hit includes the page):
+     *   home     — always (every published profile has one)
+     *   sections — live section blocks (SECTION_BLOCK_TO_PAGE)
+     *   platforms— active integration connections + link blocks (PLATFORM_TO_PAGE)
+     *   book     — active services
+     *   gallery  — ready gallery media
+     *   menu     — a fetched Menu (Business)
+     *   reviews  — active Google Business (Business)
+     *   links    — any live link block
+     *
+     * @param  Collection<string, Block>  $sections  pre-loaded section blocks
+     * @return list<string>
+     */
+    public function presentPageIds(?Site $site, AccountCapabilitySet $caps, Collection $sections): array
+    {
+        $present = ['home' => true];
+
+        if ($site !== null) {
+            // Live section blocks → their pages.
+            foreach ($sections as $blockType => $block) {
+                $isLive = (bool) $block->is_active && (bool) $block->is_enabled;
+                $page = self::SECTION_BLOCK_TO_PAGE[(string) $blockType] ?? null;
+                if ($isLive && $page !== null) {
+                    $present[$page] = true;
+                }
+            }
+
+            $userId = $site->user_id;
+            if ($userId !== null) {
+                // Active integration connections → platform pages. Each optional
+                // signal is read defensively (safeQuery) so a missing table in a
+                // partial test env / a DB blip degrades to "signal absent" rather
+                // than a 500 — same resilience posture as AnalyticsQueryService.
+                $platforms = $this->safeQuery(
+                    fn () => IntegrationConnection::query()
+                        ->where('user_id', $userId)
+                        ->where('is_active', true)
+                        ->distinct()
+                        ->pluck('platform')
+                        ->all(),
+                    [],
+                );
+                foreach ($platforms as $platform) {
+                    $page = self::PLATFORM_TO_PAGE[strtolower((string) $platform)] ?? null;
+                    if ($page !== null) {
+                        $present[$page] = true;
+                    }
+                }
+
+                // A fetched Menu (Google-Business-sourced) → the Menu page.
+                if ($this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false)) {
+                    $present['menu'] = true;
+                }
+
+                // Active services → the Book page.
+                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->where('is_active', true)->whereNull('deleted_at')->exists(), false)) {
+                    $present['book'] = true;
+                }
+
+                // Active Google Business → the Reviews page (Business-only, gated below).
+                if ($this->safeQuery(fn () => IntegrationConnection::query()->where('user_id', $userId)->where('platform', 'google-business')->where('is_active', true)->exists(), false)) {
+                    $present['reviews'] = true;
+                }
+            }
+
+            // Any live link block → the Links page.
+            if ($this->safeQuery(fn () => Block::query()
+                ->where('site_id', $site->id)
+                ->where('block_group', 'links')
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->exists(), false)) {
+                $present['links'] = true;
+            }
+
+            // Ready gallery media → the Gallery page.
+            if ($this->safeQuery(fn () => SiteMedia::query()
+                ->where('site_id', $site->id)
+                ->where('pool', SiteMedia::POOL_GALLERY)
+                ->where('is_active', true)
+                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                ->exists(), false)) {
+                $present['gallery'] = true;
+            }
+        }
+
+        // Business-gate: drop Business-only pages for accounts without the capability.
+        if (! $caps->can_use_multipage_site) {
+            foreach (SitepageId::BUSINESS_ONLY as $bizPage) {
+                unset($present[$bizPage]);
+            }
+        }
+
+        // Canonical order, presence-filtered.
+        return array_values(array_filter(
+            SitepageId::canonicalOrder(),
+            static fn (string $page): bool => isset($present[$page]),
+        ));
+    }
+
+    /**
+     * Ordered page-ids for the payload's top-level `pageOrder`. Present pages
+     * sorted by their content_popularity_scores rank (content_type='page') where
+     * a rank exists, then the remaining present pages in canonical order. With no
+     * score rows the result is simply the presence-filtered canonical order.
+     *
+     * @param  Collection<string, Block>  $sections
+     * @param  array<string, int>  $pageRanks  content_key (page-id) → rank (1 = most popular)
+     * @return list<string>
+     */
+    public function buildPageOrder(?Site $site, AccountCapabilitySet $caps, Collection $sections, array $pageRanks): array
+    {
+        $present = $this->presentPageIds($site, $caps, $sections);
+
+        // Present pages that carry a stored rank, ordered by rank ascending.
+        $ranked = [];
+        foreach ($present as $page) {
+            if (isset($pageRanks[$page])) {
+                $ranked[$page] = $pageRanks[$page];
+            }
+        }
+        asort($ranked);
+        $rankedPages = array_keys($ranked);
+
+        // Remaining present pages keep canonical order after the ranked block.
+        $rest = array_values(array_filter(
+            $present,
+            static fn (string $page): bool => ! isset($ranked[$page]),
+        ));
+
+        return array_values(array_merge($rankedPages, $rest));
+    }
+
+    /**
+     * Run an optional presence probe, returning $default on any query fault
+     * (missing table in a partial test env, transient DB error) so presence
+     * detection degrades gracefully instead of 500ing the public payload.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $query
+     * @param  T  $default
+     * @return T
+     */
+    private function safeQuery(\Closure $query, mixed $default): mixed
+    {
+        try {
+            return $query();
+        } catch (QueryException $e) {
+            Log::warning('sitepage.presence_probe_failed', ['error' => $e->getMessage()]);
+
+            return $default;
+        }
+    }
+
+    // ── Curated gallery (Content Selection) ─────────────────────────────
+
+    /**
+     * Curated-gallery engine — the site's Content Selection (≤15 ordered picks)
+     * projected for the public payload's `profile.curatedGallery`. Delegates to
+     * ContentSelectionService::resolve(), which returns a PROJECTED DTO per row
+     * (id/position/kind/type/url/badge, + poster for reels) — never the raw
+     * content_selection columns (risk #7). Live-resolves google-photo / ig-*
+     * references and drops any that no longer resolve. Empty array when nothing
+     * is curated.
+     *
+     * Distinct from `profile.gallery` (SiteMedia POOL_GALLERY): this is the
+     * user-curated background/content set, a separate surface — the two never
+     * collide on the wire.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function buildCuratedGalleryData(?Site $site): array
+    {
+        if (! $site) {
+            return [];
+        }
+
+        // Resilient: a missing content_selection table (partial test env) / a
+        // platform-payload read fault degrades to an empty curated gallery rather
+        // than failing the whole public payload.
+        return $this->safeQuery(fn () => app(ContentSelectionService::class)->resolve($site), []);
     }
 
     // ── Gallery ──────────────────────────────────────────────────────────

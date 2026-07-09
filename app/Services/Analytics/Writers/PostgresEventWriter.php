@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics\Writers;
 
+use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
@@ -43,6 +44,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
         $visitRows = [];
         $clickRows = [];
         $sectionRows = [];
+        $itemRows = [];
         $sessionEvents = [];
 
         foreach ($events as $event) {
@@ -50,6 +52,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 AnalyticsEvent::TYPE_PAGEVIEW => $visitRows[] = $this->visitRow($event),
                 AnalyticsEvent::TYPE_CLICK => $this->appendClickRow($event, $blocks, $clickRows),
                 AnalyticsEvent::TYPE_SECTION_VIEW => $this->appendSectionRow($event, $blocks, $sectionRows),
+                AnalyticsEvent::TYPE_ITEM_VIEW => $this->appendItemRow($event, $itemRows),
                 AnalyticsEvent::TYPE_SESSION_PING => $sessionEvents[] = $event,
                 default => $this->drop($event, 'unknown_type'),
             };
@@ -63,6 +66,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
         }
         if ($sectionRows !== []) {
             SectionView::query()->insertOrIgnore($sectionRows);
+        }
+        if ($itemRows !== []) {
+            ItemView::query()->insertOrIgnore($itemRows);
         }
         foreach ($sessionEvents as $event) {
             $this->upsertSession($event);
@@ -227,6 +233,44 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'utm_source' => $e->utmSource,
             'utm_medium' => $e->utmMedium,
             'utm_campaign' => $e->utmCampaign,
+            'country_code' => $e->countryCode,
+            'device_type' => $e->deviceType,
+        ];
+    }
+
+    /**
+     * Append an item-impression row (analytics.item_views). No block FK — the
+     * event self-describes via item_type/item_id (mirrors the v2 click path).
+     * item_type/item_id are required at the FormRequest; the null guard here is
+     * defence-in-depth so a malformed queued payload drops rather than 500s on
+     * the NOT NULL columns.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function appendItemRow(AnalyticsEvent $e, array &$rows): void
+    {
+        if ($e->itemType === null || $e->itemId === null) {
+            $this->drop($e, 'item_identity_missing');
+
+            return;
+        }
+
+        $rows[] = [
+            'id' => $e->id,
+            'user_id' => $e->userId,
+            'site_id' => $e->siteId,
+            'item_type' => $e->itemType,
+            'item_id' => $e->itemId,
+            'item_title' => $e->itemTitle,
+            'section_key' => $e->sectionKey,
+            'occurred_at' => $e->occurredAt,
+            'created_at' => now()->toISOString(),
+            'session_id' => $e->sessionId,
+            'visitor_id' => $e->visitorId,
+            'ip_hash' => $e->ipHash,
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
+            'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'country_code' => $e->countryCode,
             'device_type' => $e->deviceType,
         ];

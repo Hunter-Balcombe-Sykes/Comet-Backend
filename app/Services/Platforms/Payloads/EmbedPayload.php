@@ -2,14 +2,13 @@
 
 namespace App\Services\Platforms\Payloads;
 
-// Typed boundary for the oEmbed music archetype (Spotify / SoundCloud / Deezer,
-// plus the dormant mixcloud/tidal). Stored shape is {url, name, thumbnail,
-// embedUrl, link}; Deezer additionally stores `artistId` as its private re-fetch
-// key, which MusicEmbedConnectionResource omits — the DTO carries it so the stored
-// row round-trips losslessly while the resource output stays the frozen 5 keys.
+// Typed boundary for the oEmbed music archetype (Spotify / SoundCloud, plus the
+// dormant mixcloud/tidal). Stored shape is {url, name, thumbnail, embedUrl, link};
+// `artistId` is an optional private re-fetch key some providers stored, which
+// MusicEmbedConnectionResource omits — the DTO carries it so a stored row
+// round-trips losslessly while the resource output stays the frozen 5 keys.
 // Single home for the tolerant `?? null` hydration previously duplicated across the
-// embed controllers, PlatformRefresher::musicEmbedPayload/deezerPayload, and the
-// resource (spec §8).
+// embed controllers, PlatformRefresher::musicEmbedPayload, and the resource (spec §8).
 final readonly class EmbedPayload
 {
     public function __construct(

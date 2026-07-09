@@ -19,7 +19,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->multiAccount())->toBeFalse($key);
     }
 
-    $multiTrue = ['spotify', 'soundcloud', 'deezer', 'twitch', 'youtube', 'vimeo', 'youtube-music', 'bandcamp'];
+    $multiTrue = ['spotify', 'soundcloud', 'twitch', 'youtube', 'vimeo', 'youtube-music', 'bandcamp'];
     foreach ($multiTrue as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::MultiAccount, $key);
         expect($registry->get($key)->multiAccount())->toBeTrue($key);

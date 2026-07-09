@@ -4,7 +4,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
-use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\ShopifyScraper;
@@ -171,29 +170,6 @@ it('twitch connect stores the og-scraped channel card', function () {
         ]);
 });
 
-it('deezer connect stores the music-embed shape with the widget URL', function () {
-    $user = iv3User('dz1');
-
-    $this->mock(DeezerApi::class, function ($m) {
-        $m->shouldReceive('parseArtistId')->andReturn('134790');
-        $m->shouldReceive('fetchArtist')->andReturn([
-            'name' => 'Tame Impala', 'thumbnail' => 'https://cdn.dzcdn.net/b.jpg', 'link' => 'https://www.deezer.com/artist/134790', 'fans' => 1,
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/deezer/connect', ['url' => 'https://www.deezer.com/artist/134790'])
-        ->assertOk()
-        ->assertExactJson([
-            // Multi-account platforms echo the account row id on connect.
-            'id' => 'acct-'.substr(sha1('https://www.deezer.com/artist/134790'), 0, 16),
-            'url' => 'https://www.deezer.com/artist/134790',
-            'name' => 'Tame Impala',
-            'thumbnail' => 'https://cdn.dzcdn.net/b.jpg',
-            'embedUrl' => 'https://widget.deezer.com/widget/auto/artist/134790/top_tracks',
-            'link' => 'https://www.deezer.com/artist/134790',
-        ]);
-});
-
 // ── Pinterest ────────────────────────────────────────────────────────────────
 
 it('pinterest connect stores the profile and latest pins', function () {
@@ -300,7 +276,7 @@ it('selection and forget work for the new platforms', function () {
 });
 
 it('requires auth on every v3 platform route', function () {
-    foreach (['vimeo', 'twitch', 'deezer', 'pinterest', 'strava', 'google-business'] as $platform) {
+    foreach (['vimeo', 'twitch', 'pinterest', 'strava', 'google-business'] as $platform) {
         $this->getJson("/api/platforms/{$platform}/selection")->assertUnauthorized();
     }
 });

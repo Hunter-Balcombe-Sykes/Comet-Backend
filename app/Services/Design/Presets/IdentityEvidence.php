@@ -306,7 +306,7 @@ final class IdentityEvidence
      * A recognised music genre from the first active music connection that
      * carries one, lower-cased, or null.
      *
-     * The music platforms (Spotify, Apple Music, SoundCloud, Bandcamp, Deezer, …)
+     * The music platforms (Spotify, Apple Music, SoundCloud, Bandcamp, …)
      * store an oEmbed-shaped EmbedPayload ({url, name, thumbnail, embedUrl, link,
      * artistId}) that carries NO genre today, so in practice this returns null and
      * MusicGenreFactor abstains. It still probes a small set of tolerated genre

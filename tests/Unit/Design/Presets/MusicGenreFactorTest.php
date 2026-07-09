@@ -84,7 +84,7 @@ it('maps an acoustic genre to a warm soft look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Acoustic Folk']));
 
     expect($out['border_radius'])->toBe('1.5rem')
-        ->and($out['typography_font_family'])->toBe('eb-garamond')
+        ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
 

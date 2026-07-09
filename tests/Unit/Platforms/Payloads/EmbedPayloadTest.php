@@ -2,13 +2,13 @@
 
 use App\Services\Platforms\Payloads\EmbedPayload;
 
-it('round-trips a full deezer-shaped payload (including the internal artistId)', function () {
+it('round-trips a full music-embed payload (including the internal artistId)', function () {
     $stored = [
-        'url' => 'https://www.deezer.com/artist/123',
+        'url' => 'https://music.example.com/artist/123',
         'name' => 'Artist',
-        'thumbnail' => 'https://e-cdn.deezer.com/t.jpg',
-        'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
-        'link' => 'https://www.deezer.com/artist/123',
+        'thumbnail' => 'https://cdn.example.com/t.jpg',
+        'embedUrl' => 'https://widget.example.com/embed/artist/123',
+        'link' => 'https://music.example.com/artist/123',
         'artistId' => '123',
     ];
 

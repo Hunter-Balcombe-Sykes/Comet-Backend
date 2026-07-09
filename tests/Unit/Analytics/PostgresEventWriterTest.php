@@ -16,6 +16,7 @@ beforeEach(function () {
     setupSiteVisitsTable();
     setupLinkClicksTable();
     setupSectionViewsTable();
+    setupItemViewsTable();
 });
 
 function pgWriter(): PostgresEventWriter
@@ -142,6 +143,30 @@ it('drops a section view whose block belongs to another site', function () {
     expect(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(0);
 });
 
+it('persists an item view to item_views', function () {
+    $t = createBrandTenant('writer-item');
+    pgWriter()->write(baseEvent([
+        'type' => AnalyticsEvent::TYPE_ITEM_VIEW, 'user_id' => $t->id, 'site_id' => $t->site->id,
+        'item_type' => 'shop_product', 'item_id' => 'prod-7', 'item_title' => 'Tee', 'section_key' => 'shop',
+    ]));
+
+    $row = DB::connection('pgsql')->table('analytics.item_views')->first();
+    expect($row->item_type)->toBe('shop_product');
+    expect($row->item_id)->toBe('prod-7');
+    expect($row->item_title)->toBe('Tee');
+    expect($row->section_key)->toBe('shop');
+});
+
+it('drops an item view missing item_type/item_id (NOT NULL defence)', function () {
+    $t = createBrandTenant('writer-item-bad');
+    pgWriter()->write(baseEvent([
+        'type' => AnalyticsEvent::TYPE_ITEM_VIEW, 'user_id' => $t->id, 'site_id' => $t->site->id,
+        'item_type' => null, 'item_id' => null,
+    ]));
+
+    expect(DB::connection('pgsql')->table('analytics.item_views')->count())->toBe(0);
+});
+
 it('writeMany persists all valid events across types', function () {
     $t = createBrandTenant('writer-many');
     $block = createLinkBlockFor($t);
@@ -149,9 +174,11 @@ it('writeMany persists all valid events across types', function () {
         baseEvent(['user_id' => $t->id, 'site_id' => $t->site->id]),
         baseEvent(['type' => AnalyticsEvent::TYPE_CLICK, 'user_id' => $t->id, 'site_id' => $t->site->id, 'block_id' => $block->id]),
         baseEvent(['type' => AnalyticsEvent::TYPE_SECTION_VIEW, 'user_id' => $t->id, 'site_id' => $t->site->id, 'section_key' => 'hero']),
+        baseEvent(['type' => AnalyticsEvent::TYPE_ITEM_VIEW, 'user_id' => $t->id, 'site_id' => $t->site->id, 'item_type' => 'service', 'item_id' => 'svc-1']),
     ]);
 
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1)
         ->and(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(1)
-        ->and(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(1);
+        ->and(DB::connection('pgsql')->table('analytics.section_views')->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('analytics.item_views')->count())->toBe(1);
 });

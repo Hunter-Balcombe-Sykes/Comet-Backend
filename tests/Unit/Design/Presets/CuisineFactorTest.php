@@ -67,7 +67,7 @@ it('concludes a bold fast-casual look', function () {
 it('concludes a restrained look for a specific cuisine', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Italian restaurant']));
 
-    expect($out['typography_font_family'])->toBe('eb-garamond')
+    expect($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_style'])->toBe('editorial')
         ->and($out['effect_image_treatment'])->toBe('muted');
 });

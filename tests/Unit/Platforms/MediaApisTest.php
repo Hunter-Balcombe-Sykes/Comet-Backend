@@ -1,7 +1,6 @@
 <?php
 
 use App\Services\Http\SafeUrlFetcher;
-use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 
@@ -60,31 +59,6 @@ it('vimeo maps Simple-API videos with player embed URLs', function () {
     $profile = $api->fetchProfile('patagonia');
     expect($profile['name'])->toBe('Patagonia');
     expect($profile['thumbnail'])->toBe('https://i.vimeocdn.com/portrait/p.jpg');
-});
-
-// ── Deezer ───────────────────────────────────────────────────────────────────
-
-it('deezer parses artist links and surfaces API error objects as null', function () {
-    $ok = new DeezerApi(mediaFetcherWith([
-        'api.deezer.com/artist/134790' => ['status' => 200, 'body' => json_encode([
-            'id' => 134790, 'name' => 'Tame Impala', 'link' => 'https://www.deezer.com/artist/134790',
-            'picture_big' => 'https://cdn.dzcdn.net/big.jpg', 'nb_fan' => 1000,
-        ]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
-    ]));
-
-    expect($ok->parseArtistId('https://www.deezer.com/en/artist/134790?deferredFl=1'))->toBe('134790');
-    expect($ok->parseArtistId('https://deezer.com/artist/134790'))->toBe('134790');
-    expect($ok->parseArtistId('https://www.deezer.com/album/1'))->toBeNull();
-
-    $artist = $ok->fetchArtist('134790');
-    expect($artist['name'])->toBe('Tame Impala');
-    expect(DeezerApi::embedUrlForArtist('134790'))->toBe('https://widget.deezer.com/widget/auto/artist/134790/top_tracks');
-
-    // Deezer answers 200 with {"error": …} for unknown ids.
-    $err = new DeezerApi(mediaFetcherWith([
-        'api.deezer.com/artist/0' => ['status' => 200, 'body' => '{"error":{"type":"DataException"}}', 'finalUrl' => 'x', 'contentType' => 'application/json'],
-    ]));
-    expect($err->fetchArtist('0'))->toBeNull();
 });
 
 // ── Twitch ───────────────────────────────────────────────────────────────────

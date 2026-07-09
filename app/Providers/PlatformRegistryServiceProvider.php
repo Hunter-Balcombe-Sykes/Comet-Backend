@@ -30,10 +30,11 @@ use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
-use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\EventbriteScraper;
+use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
+use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
@@ -57,8 +58,8 @@ use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
+use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
-use App\Services\Platforms\Strategies\Connect\DeezerConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\PinterestConnect;
@@ -76,12 +77,13 @@ use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
-use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
+use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
+use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
@@ -141,7 +143,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('strava')->payload(FeedPayload::class);
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
-            foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud', 'deezer' => 'Deezer'] as $key => $label) {
+            foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
                 $r->register(PD::oEmbed($key, $label, MusicEmbedConnectionResource::class));
             }
             // mixcloud + tidal are keyless embeds sharing the music-embed resource.
@@ -158,15 +160,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('soundcloud')->fetch(fn () => new OEmbedFetch(
                 app(OEmbedService::class), fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
             ));
-            $r->get('deezer')->fetch(fn () => new DeezerFetch(
-                app(DeezerApi::class),
-            ));
 
             // Connect strategies (FOUND-24) — parse-fail messages are the frozen
             // 422 contract, copied verbatim from the deleted controllers.
             $r->get('spotify')->connect(fn () => new SpotifyConnect(app(OEmbedService::class)), 'Enter a Spotify link (open.spotify.com/artist/...).');
             $r->get('soundcloud')->connect(fn () => new SoundcloudConnect(app(OEmbedService::class)), 'Enter your SoundCloud link (soundcloud.com/yourname).');
-            $r->get('deezer')->connect(fn () => new DeezerConnect(app(DeezerApi::class)), 'Enter a Deezer artist link (deezer.com/artist/...).');
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
             $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()->coverable()
@@ -262,8 +260,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->refreshable()->payload(SelectionPayload::class));
             // Scheduled service-menu refresh (prices/durations/new services) —
             // re-scrapes the saved selection; 304s when unchanged or unselected.
-            $r->get('fresha')->fetch(fn () => new \App\Services\Platforms\Strategies\Fetch\FreshaFetch(
-                app(\App\Services\Platforms\FreshaScraper::class),
+            $r->get('fresha')->fetch(fn () => new FreshaFetch(
+                app(FreshaScraper::class),
             ));
             $r->get('fresha')->refreshEvery(2 * 86400);
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
@@ -295,9 +293,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
             // Latest-mode product sync — auto-tracks the store's newest products
             // for brands with selection_mode='latest'; manual brands 304 inside.
-            $r->get('shop')->fetch(fn () => new \App\Services\Platforms\Strategies\Fetch\ShopFetch(
-                app(\App\Services\Platforms\ShopCatalog::class),
-                app(\App\Services\Platforms\IntegrationConnectionCacheRefresher::class),
+            $r->get('shop')->fetch(fn () => new ShopFetch(
+                app(ShopCatalog::class),
+                app(IntegrationConnectionCacheRefresher::class),
             ));
             $r->get('shop')->refreshEvery(6 * 3600);
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
@@ -314,7 +312,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // url-shaped (17). The max differs per platform — these are NOT uniform.
             $r->get('bandcamp')->connectInput('url', ['required', 'string', 'max:500']);
-            $r->get('deezer')->connectInput('url', ['required', 'string', 'max:300']);
             $r->get('eventbrite')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
             $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
@@ -371,7 +368,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube-music')->refreshEvery(12 * 3600);
             $r->get('spotify')->refreshEvery(12 * 3600);
             $r->get('soundcloud')->refreshEvery(12 * 3600);
-            $r->get('deezer')->refreshEvery(12 * 3600);
             $r->get('bandcamp')->refreshEvery(12 * 3600);
             $r->get('apple-music')->refreshEvery(12 * 3600);
             $r->get('apple-podcast')->refreshEvery(12 * 3600);
@@ -391,7 +387,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/deezer/twitch/youtube/pinterest/strava/nowbookit/resdiary/
+            // spotify/soundcloud/twitch/youtube/pinterest/strava/nowbookit/resdiary/
             // opentable are now fully registry-driven (FOUND-24) — null controller routes
             // connect through GenericPlatformController + the descriptor's ConnectStrategy
             // (registered above). Strava is the one platform whose READS also moved here
@@ -404,7 +400,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // no-op until then.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('deezer')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);

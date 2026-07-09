@@ -7,6 +7,7 @@ use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 
@@ -29,6 +30,10 @@ use Illuminate\Http\JsonResponse;
  */
 class PublicIntegrationController extends ApiController
 {
+    public function __construct(
+        private readonly ContentPopularityReader $popularity,
+    ) {}
+
     public function show(string $handle): JsonResponse
     {
         $handleLc = strtolower(trim($handle));
@@ -69,18 +74,26 @@ class PublicIntegrationController extends ApiController
         // every connected store. Resolved once (single indexed lookup) and
         // stamped onto each brand's public linkMode by the Resource, so the
         // sitepage keeps reading brand.linkMode per the existing contract.
-        // Only fetched when there's actually a shop connection to stamp.
-        $shopLinkMode = $connections->has('shop')
-            ? Site::query()->where('user_id', $userId)->value('shop_link_mode')
-            : null;
+        // Only fetched when there's actually a shop connection to stamp. The same
+        // lookup yields the site id used to read shop-product popularity ranks.
+        $shopLinkMode = null;
+        $productRanks = [];
+        if ($connections->has('shop')) {
+            $site = Site::query()->where('user_id', $userId)->first(['id', 'shop_link_mode']);
+            $shopLinkMode = $site?->shop_link_mode;
+            // shop-product ranks annotate each product with a nullable
+            // popularityRank on the public wire (inert until ONE consumes it).
+            $productRanks = $this->popularity->forSite($site?->id)['shop_product'] ?? [];
+        }
 
         $platforms = $connections
             ->map(fn ($rows, $platform) => $platform === 'shop'
-                // Thread the global into each shop connection resource — collection()
-                // can't forward the override, so map the rows explicitly.
+                // Thread the globals into each shop connection resource — collection()
+                // can't forward the overrides, so map the rows explicitly.
                 ? $rows->values()
                     ->map(fn ($row) => (new PublicIntegrationConnectionResource($row))
                         ->withShopLinkMode($shopLinkMode)
+                        ->withProductRanks($productRanks)
                         ->resolve())
                     ->all()
                 : PublicIntegrationConnectionResource::collection($rows->values())->resolve())

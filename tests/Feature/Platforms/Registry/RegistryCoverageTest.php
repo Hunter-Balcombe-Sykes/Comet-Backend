@@ -4,7 +4,6 @@ use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\PlatformRegistry;
-use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
@@ -18,7 +17,7 @@ it('registers exactly the platforms the app accepts today', function () {
 
     $expected = [
         'shop', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'spotify', 'soundcloud', 'bandcamp', 'mixcloud', 'deezer', 'tidal',
+        'spotify', 'soundcloud', 'bandcamp', 'mixcloud', 'tidal',
         'youtube-music', 'youtube', 'vimeo', 'twitch', 'instagram', 'pinterest',
         'tiktok', 'facebook', 'x', 'linkedin', 'threads', 'reddit', 'fresha',
         'square', 'skool', 'strava', 'google-business', 'custom', 'opentable',
@@ -51,13 +50,13 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     sort($refreshable);
 
     // Frozen expectation (was PlatformRefresher::REFRESHABLE before Plan 6 deleted it).
-    // The 17 auto-content platforms the daily cron + manual refresh button re-pull.
+    // The 16 auto-content platforms the daily cron + manual refresh button re-pull.
     // 'shop' joined for latest-mode product selections (ShopFetch 304s when no
     // brand is in latest mode); 'fresha' joined for the service-menu refresh
     // (FreshaFetch 304s when nothing is selected or the menu is unchanged).
     $expected = [
         'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'deezer', 'vimeo', 'twitch', 'pinterest', 'strava',
+        'bandcamp', 'spotify', 'soundcloud', 'vimeo', 'twitch', 'pinterest', 'strava',
         'google-business', 'shop', 'fresha',
     ];
     sort($expected);
@@ -72,13 +71,6 @@ it('attaches an OEmbedFetch strategy to the spotify and soundcloud descriptors',
         ->toBeInstanceOf(OEmbedFetch::class);
     expect($registry->get('soundcloud')->fetchStrategy())
         ->toBeInstanceOf(OEmbedFetch::class);
-});
-
-it('attaches a DeezerFetch strategy to the deezer descriptor', function () {
-    $registry = app(PlatformRegistry::class);
-
-    expect($registry->get('deezer')->fetchStrategy())
-        ->toBeInstanceOf(DeezerFetch::class);
 });
 
 it('assigns the dormant mixcloud/tidal embeds EmbedPayload with no fetch strategy', function () {

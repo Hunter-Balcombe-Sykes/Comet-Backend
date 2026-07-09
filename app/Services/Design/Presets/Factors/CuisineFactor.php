@@ -68,7 +68,7 @@ class CuisineFactor implements EvidenceFactor
     /** The restrained overlay for any specific named cuisine (italian, japanese, …). */
     private const SPECIFIC_TARGET = [
         'weight_regular' => '400',
-        'typography_font_family' => 'eb-garamond', // refined humanist serif
+        'typography_font_family' => 'origin', // refined humanist serif (17->9 swap; PROVISIONAL)
         'motion_pace' => 'slow',
         'effect_style' => 'editorial',
         'effect_image_treatment' => 'muted',

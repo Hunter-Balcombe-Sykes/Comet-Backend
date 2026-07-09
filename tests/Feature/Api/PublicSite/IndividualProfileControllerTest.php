@@ -307,7 +307,7 @@ it('link projection emits only the structured shape (no extra JSONB leaks)', fun
 
     // Only the projected keys exist — no admin_token / internal_note ever
     // surfaces because they're not part of the typed projection.
-    expect(array_keys($link))->toEqual(['id', 'title', 'url', 'category', 'platform']);
+    expect(array_keys($link))->toEqual(['id', 'title', 'url', 'category', 'platform', 'popularityRank']);
     expect($link)->toMatchArray([
         'title' => 'Sensitive',
         'url' => 'https://example.test',
@@ -768,7 +768,7 @@ it('links engine emits a flat list with id/title/url/category/platform', functio
     $links = $this->getJson('/api/public/profiles/links-live')->assertOk()->json('data.profile.links');
 
     expect($links)->toHaveCount(1);
-    expect(array_keys($links[0]))->toEqual(['id', 'title', 'url', 'category', 'platform']);
+    expect(array_keys($links[0]))->toEqual(['id', 'title', 'url', 'category', 'platform', 'popularityRank']);
     expect($links[0])->toMatchArray([
         'title' => 'My IG',
         'url' => 'https://instagram.com/me',
@@ -889,7 +889,7 @@ it('services engine returns a flat ProfileService[] with camelCase keys', functi
     expect($services)->toBeArray();
     expect($services)->toHaveCount(1);
     expect(array_keys($services[0]))->toEqual([
-        'id', 'title', 'description', 'priceCents', 'currencyCode', 'durationMinutes', 'category',
+        'id', 'title', 'description', 'priceCents', 'currencyCode', 'durationMinutes', 'category', 'popularityRank',
     ]);
     expect($services[0])->toMatchArray([
         'title' => 'Haircut',

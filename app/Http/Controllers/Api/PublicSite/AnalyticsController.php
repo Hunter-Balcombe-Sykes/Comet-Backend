@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSiteFromRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
+use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PingRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
@@ -159,6 +160,60 @@ class AnalyticsController extends ApiController
         $this->ingestor->ingest($event);
 
         return $this->success(['message' => 'Section view recorded', 'view_id' => $event->id], 201);
+    }
+
+    /**
+     * Item-impression ingest (analytics v2, popularity scoring). Mirrors
+     * sectionSeen exactly — resolve + publication-gate + origin-bind + bot-drop +
+     * 5min Redis dedup — but the dedup key + written grain are per item
+     * (item_type:item_id) instead of per section_key. Writes analytics.item_views.
+     */
+    public function itemSeen(ItemSeenRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        $site = $this->resolvePublishedSite($data, $error);
+        if (! $site) {
+            return $error;
+        }
+
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'Item view recorded'], 200);
+        }
+
+        $id = (string) Str::orderedUuid();
+
+        // Dedup on (site, item_type, item_id, strongest identifier) for 5min —
+        // same window + fail-open semantics as section-seen.
+        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
+        if ($identifier !== null) {
+            $key = "analytics:dedup:item:{$site->id}:{$data['item_type']}:{$data['item_id']}:{$identifier}";
+            $claim = $this->dedup->claim($key, $id, 300);
+            if (! $claim['novel']) {
+                return $this->success(['message' => 'Item view recorded', 'view_id' => $claim['id']], 201);
+            }
+        }
+
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_ITEM_VIEW,
+            request: $request,
+            site: $site,
+            data: $data,
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            id: $id,
+            sectionKey: $data['section_key'] ?? null,
+            itemType: $data['item_type'],
+            itemId: $data['item_id'],
+            itemTitle: $data['item_title'] ?? null,
+        );
+
+        $this->ingestor->ingest($event);
+
+        return $this->success(['message' => 'Item view recorded', 'view_id' => $event->id], 201);
     }
 
     /**
@@ -320,6 +375,9 @@ class AnalyticsController extends ApiController
         ?string $blockId = null,
         ?string $sectionKey = null,
         ?int $durationSeconds = null,
+        ?string $itemType = null,
+        ?string $itemId = null,
+        ?string $itemTitle = null,
     ): AnalyticsEvent {
         return new AnalyticsEvent(
             id: $id ?? (string) Str::orderedUuid(),
@@ -351,6 +409,9 @@ class AnalyticsController extends ApiController
             durationSeconds: $durationSeconds,
             latitude: $this->detectLatitude($request),
             longitude: $this->detectLongitude($request),
+            itemType: $itemType,
+            itemId: $itemId,
+            itemTitle: $itemTitle,
         );
     }
 

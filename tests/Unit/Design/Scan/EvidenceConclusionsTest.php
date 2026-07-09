@@ -165,10 +165,10 @@ it('maps a recognized body font family to its catalog slug', function (string $f
     expect($r['signals']['font']['tier'])->toBe($slug)
         ->and($r['signals']['font']['confidence'])->toBe(0.85);
 })->with([
-    'Poppins → cooper-hewitt' => ['Poppins, sans-serif', 'cooper-hewitt'],
-    'Arial → tex-gyre-heros' => ['Arial', 'tex-gyre-heros'],
-    'Georgia (serif) → libre-baskerville' => ['Georgia, serif', 'libre-baskerville'],
-    'Neue Haas Grotesk → tex-gyre-heros' => ['Neue Haas Grotesk', 'tex-gyre-heros'],
+    'Poppins → geist' => ['Poppins, sans-serif', 'geist'],
+    'Arial → geist' => ['Arial', 'geist'],
+    'Georgia (serif) → origin' => ['Georgia, serif', 'origin'],
+    'Neue Haas Grotesk → geist' => ['Neue Haas Grotesk', 'geist'],
 ]);
 
 it('scores font 0.85 when the visible copy agrees with the body font', function () {
@@ -177,20 +177,22 @@ it('scores font 0.85 when the visible copy agrees with the body font', function 
         'copy' => array_fill(0, 3, ['family' => 'Poppins', 'weight' => '400', 'size' => 16]),
     ]));
 
-    expect($r['signals']['font']['tier'])->toBe('cooper-hewitt')
+    expect($r['signals']['font']['tier'])->toBe('geist')
         ->and($r['signals']['font']['confidence'])->toBe(0.85);
 });
 
 it('scores font 0.6 when known copy disagrees with the body font (< 0.7 share, >= 2 known)', function () {
-    // body Poppins(cooper-hewitt); copy = Arial, Arial, Poppins → known 3, agree 1 → 1/3 < 0.7.
+    // body Poppins(geist); copy = Georgia, Georgia, Poppins → origin, origin, geist → known 3, agree 1 → 1/3 < 0.7.
+    // Georgia (serif → origin) diverges from the body's geist; Arial now also maps
+    // to geist post 17→9 swap, so it would no longer disagree.
     $r = ecConclude(ecEvidence([
         'page' => ['bodyFont' => 'Poppins'],
         'copy' => [
-            ['family' => 'Arial'], ['family' => 'Arial'], ['family' => 'Poppins'],
+            ['family' => 'Georgia'], ['family' => 'Georgia'], ['family' => 'Poppins'],
         ],
     ]));
 
-    expect($r['signals']['font']['tier'])->toBe('cooper-hewitt')
+    expect($r['signals']['font']['tier'])->toBe('geist')
         ->and($r['signals']['font']['confidence'])->toBe(0.6);
 });
 
@@ -211,7 +213,7 @@ it('falls back to a recognized heading (0.55) when the body font is unknown', fu
         'headings' => [['tag' => 'h1', 'family' => 'Poppins']],
     ]));
 
-    expect($r['signals']['font']['tier'])->toBe('cooper-hewitt')
+    expect($r['signals']['font']['tier'])->toBe('geist')
         ->and($r['signals']['font']['confidence'])->toBe(0.55)
         ->and($r['notes'])->toContain('unknown font family: obscurecustomface');
 });
@@ -624,7 +626,7 @@ it('concludes the expected signal set for the default light-page fixture', funct
 
     expect($r['signals']['bg']['tier'])->toBe('light')
         ->and($r['signals']['bg']['confidence'])->toBe(0.95)    // computed + pixel agree
-        ->and($r['signals']['font']['tier'])->toBe('cooper-hewitt') // Poppins
+        ->and($r['signals']['font']['tier'])->toBe('geist') // Poppins
         ->and($r['signals']['weight']['tier'])->toBe('light')   // all 300
         ->and($r['signals']['text']['tier'])->toBe('regular')   // 17px median
         ->and($r['signals']['radius']['tier'])->toBe('rounded') // radius 14

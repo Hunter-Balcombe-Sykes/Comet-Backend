@@ -66,7 +66,7 @@ it('stamps beauty-soft when two independent sources concur on beauty', function 
     expect($out['color_bg'])->toBe('#faf6f7')
         ->and($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
-        ->and($out['typography_font_family'])->toBe('eb-garamond')
+        ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_button_fill'])->toBe('ghost');
 });
 
@@ -108,7 +108,7 @@ it('stamps hospitality-warm for a cafe with two category sources (not fine dinin
     ])));
 
     expect($out['color_bg'])->toBe('#f7f4ee')
-        ->and($out['typography_font_family'])->toBe('work-sans')
+        ->and($out['typography_font_family'])->toBe('geist')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
 
@@ -119,7 +119,7 @@ it('stamps creative-editorial when sector and Google concur on creative', functi
     ])));
 
     expect($out['color_bg'])->toBe('#fafafa')
-        ->and($out['typography_font_family'])->toBe('archivo')
+        ->and($out['typography_font_family'])->toBe('geist')
         ->and($out['effect_style'])->toBe('editorial')
         ->and($out['effect_link_style'])->toBe('underline-always');
 });
@@ -132,7 +132,7 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
 
     expect($out['color_bg'])->toBe('#f7f4ee')
         ->and($out['border_radius'])->toBe('1rem')
-        ->and($out['typography_font_family'])->toBe('zilla-slab')
+        ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_button_fill'])->toBe('outline');
 });
 

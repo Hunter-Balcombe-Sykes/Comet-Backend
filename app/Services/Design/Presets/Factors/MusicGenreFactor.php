@@ -13,7 +13,7 @@ use App\Services\Design\Presets\IdentityEvidence;
  * IdentityEvidence::musicGenre().
  *
  * CURRENT STATE (spec §2 row 3): the music platforms (Spotify, Apple Music,
- * SoundCloud, Bandcamp, Deezer, …) store an oEmbed-shaped payload that carries NO
+ * SoundCloud, Bandcamp, …) store an oEmbed-shaped payload that carries NO
  * genre today (verified). musicGenre() therefore returns null and this factor
  * ABSTAINS. The lexicon below is complete so that if a future payload enrichment
  * adds a genre, the factor lights up unchanged. Until then it is a provable no-op.
@@ -90,7 +90,7 @@ class MusicGenreFactor implements EvidenceFactor
             'color_bg' => '#faf6f7',            // soft pastel ground
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'eb-garamond',
+            'typography_font_family' => 'origin',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
             'effect_image_treatment' => 'warm',

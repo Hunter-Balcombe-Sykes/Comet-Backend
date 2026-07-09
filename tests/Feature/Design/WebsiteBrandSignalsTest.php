@@ -225,7 +225,7 @@ it('concludes signals from rendered evidence with pixel corroboration', function
         ->and($a['mode'])->toBe('rendered')
         ->and($a['signals']['bg']['tier'])->toBe('light')
         ->and($a['signals']['bg']['confidence'])->toBe(0.95)   // computed + pixels agree
-        ->and($a['signals']['font']['tier'])->toBe('cooper-hewitt') // Poppins → contemporary geometric sans
+        ->and($a['signals']['font']['tier'])->toBe('geist') // Poppins → geist
         ->and($a['signals']['weight']['tier'])->toBe('light')
         ->and($a['signals']['text']['tier'])->toBe('regular')
         ->and($a['signals']['radius']['tier'])->toBe('rounded')
@@ -247,7 +247,7 @@ it('brotherwolf regression: light bg, no accent, sharp radius, fast motion', fun
         ->and($a['accent'])->toBeNull()
         ->and($a['signals']['radius']['tier'])->toBe('sharp')
         ->and($a['signals']['motion']['tier'])->toBe('fast')
-        ->and($a['signals']['font']['tier'])->toBe('roboto') // system_ui → 'system ui' keyword
+        ->and($a['signals']['font']['tier'])->toBe('geist') // system_ui → 'system ui' keyword
         ->and(collect($a['logo']['candidates'])->pluck('kind'))->toContain('header-img');
 });
 
@@ -293,7 +293,7 @@ it('abstains on computed-vs-pixel background disagreement', function () {
     $a = wbsAnalyzer()->analyze('https://example.test/');
 
     expect($a['signals'])->not->toHaveKey('bg')
-        ->and($a['signals']['font']['tier'])->toBe('cooper-hewitt'); // other signals unaffected
+        ->and($a['signals']['font']['tier'])->toBe('geist'); // other signals unaffected
 });
 
 it('degrades to pixels-only mode when the collector stash is missing (CSP)', function () {
@@ -414,15 +414,15 @@ it('applies the mode across outside websites: 4 dark + 1 light -> dark', functio
     }
     // Shop connection: relational brand rows (FOUND-25), one dark + one warm brand.
     wbsSeedShopConnection($user, [
-        ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'office-code-pro'])],
-        ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'office-code-pro'])],
+        ['id' => 'b1', 'url' => 'https://s1.test', 'styleAnalysis' => wbsAnalysis('https://s1.test', null, ['bg' => 'dark', 'font' => 'geist'])],
+        ['id' => 'b2', 'url' => 'https://s2.test', 'styleAnalysis' => wbsAnalysis('https://s2.test', null, ['bg' => 'warm_light', 'font' => 'geist'])],
     ]);
 
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
     expect($layer['color_bg'])->toBe('#151515')                          // 4 dark vs 1 warm → dark
-        ->and($layer['typography_font_family'])->toBe('office-code-pro'); // 2 votes, unopposed
+        ->and($layer['typography_font_family'])->toBe('geist'); // 2 votes, unopposed
 });
 
 it('skips a column when the outside-website vote is tied', function () {
