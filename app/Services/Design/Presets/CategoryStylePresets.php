@@ -64,7 +64,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
-            'typography_font_family' => 'playfair-display',
+            'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'motion_entrance' => 'fade',
         ],
@@ -86,7 +86,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.4rem',
-            'typography_font_family' => 'tex-gyre-heros',
+            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'motion_entrance' => 'fade',
         ],
@@ -97,7 +97,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.3rem',
-            'typography_font_family' => 'cooper-hewitt',
+            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'motion_entrance' => 'stagger',
         ],
@@ -108,7 +108,7 @@ final class CategoryStylePresets
             'text_xs' => '0.9rem',
             'weight_regular' => '500',
             'border_radius' => '0.5rem',
-            'typography_font_family' => 'archivo',
+            'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'motion_entrance' => 'rise',
         ],
@@ -119,7 +119,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1rem',
-            'typography_font_family' => 'eb-garamond',
+            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'slow',
             'motion_entrance' => 'fade',
         ],
@@ -130,7 +130,7 @@ final class CategoryStylePresets
             'text_xs' => '0.85rem',
             'weight_regular' => '600',
             'border_radius' => '0.2rem',
-            'typography_font_family' => 'roboto',
+            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'motion_entrance' => 'rise',
         ],
@@ -152,7 +152,7 @@ final class CategoryStylePresets
             'text_xs' => '0.9rem',
             'weight_regular' => '400',
             'border_radius' => '0.8rem',
-            'typography_font_family' => 'work-sans',
+            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'motion_entrance' => 'rise',
         ],

@@ -69,7 +69,7 @@ final class LaunchRecipes
                     'color_accent' => '#b8375a',        // muted rose (beauty bucket)
                     'border_radius' => '1.5rem',        // very rounded
                     'weight_regular' => '300',          // light
-                    'typography_font_family' => 'eb-garamond', // soft humanist serif
+                    'typography_font_family' => 'origin', // soft humanist serif (17->9 swap; PROVISIONAL)
                     'space_regular' => '1.15rem',       // generous/airy
                     'motion_pace' => 'slow',
                     'motion_entrance' => 'fade',
@@ -142,7 +142,7 @@ final class LaunchRecipes
                     'color_accent' => '#7c2d12',        // warm brown (hospitality bucket)
                     'border_radius' => '0.6rem',        // moderate
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'work-sans', // friendly humanist
+                    'typography_font_family' => 'geist', // friendly humanist (17->9 swap; PROVISIONAL)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     'motion_entrance' => 'fade',
@@ -222,7 +222,7 @@ final class LaunchRecipes
                     'color_accent' => '#7c3aed',        // distinctive violet (creative bucket)
                     'border_radius' => '0.6rem',        // moderate
                     'weight_regular' => '500',          // medium
-                    'typography_font_family' => 'archivo', // distinctive display
+                    'typography_font_family' => 'geist', // clean grotesque sans (17->9 swap; PROVISIONAL)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     'motion_entrance' => 'stagger',
@@ -269,7 +269,7 @@ final class LaunchRecipes
                     'color_accent' => '#a15c2b',        // terracotta/craft
                     'border_radius' => '1rem',          // rounded
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'zilla-slab', // sturdy slab
+                    'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     'motion_entrance' => 'rise',

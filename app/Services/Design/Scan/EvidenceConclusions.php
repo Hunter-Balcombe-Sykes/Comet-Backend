@@ -671,33 +671,33 @@ class EvidenceConclusions
     {
         $map = [
             // Disambiguation guards — must run before their generic substrings.
-            'cooper hewitt' => 'cooper-hewitt',
-            'cormorant garamond' => 'eb-garamond',
+            'cooper hewitt' => 'geist',
+            'cormorant garamond' => 'origin',
 
             // Monospace.
-            'office code' => 'office-code-pro', 'source code' => 'office-code-pro',
-            'fira code' => 'office-code-pro', 'fira mono' => 'office-code-pro',
-            'jetbrains' => 'office-code-pro', 'roboto mono' => 'office-code-pro',
-            'ibm plex mono' => 'office-code-pro', 'space mono' => 'office-code-pro',
-            'courier' => 'office-code-pro', 'consolas' => 'office-code-pro',
-            'menlo' => 'office-code-pro', 'monaco' => 'office-code-pro',
-            'mono' => 'office-code-pro', 'monospace' => 'office-code-pro',
+            'office code' => 'geist', 'source code' => 'geist',
+            'fira code' => 'geist', 'fira mono' => 'geist',
+            'jetbrains' => 'geist', 'roboto mono' => 'geist',
+            'ibm plex mono' => 'geist', 'space mono' => 'geist',
+            'courier' => 'geist', 'consolas' => 'geist',
+            'menlo' => 'geist', 'monaco' => 'geist',
+            'mono' => 'geist', 'monospace' => 'geist',
 
             // Didone / high-contrast display serif.
-            'playfair' => 'playfair-display', 'didot' => 'playfair-display',
-            'bodoni' => 'playfair-display', 'abril' => 'playfair-display',
-            'prata' => 'playfair-display', 'cormorant' => 'playfair-display',
+            'playfair' => 'origin', 'didot' => 'origin',
+            'bodoni' => 'origin', 'abril' => 'origin',
+            'prata' => 'origin', 'cormorant' => 'origin',
 
             // Old-style (Garalde) serif.
-            'garamond' => 'eb-garamond', 'sabon' => 'eb-garamond',
-            'minion' => 'eb-garamond', 'bembo' => 'eb-garamond', 'caslon' => 'eb-garamond',
+            'garamond' => 'origin', 'sabon' => 'origin',
+            'minion' => 'origin', 'bembo' => 'origin', 'caslon' => 'origin',
 
             // Transitional serif / generic serif fallback.
-            'baskerville' => 'libre-baskerville', 'georgia' => 'libre-baskerville',
-            'times' => 'libre-baskerville', 'merriweather' => 'libre-baskerville',
-            'lora' => 'libre-baskerville', 'pt serif' => 'libre-baskerville',
-            'source serif' => 'libre-baskerville', 'crimson' => 'libre-baskerville',
-            'charter' => 'libre-baskerville', 'literata' => 'libre-baskerville',
+            'baskerville' => 'origin', 'georgia' => 'origin',
+            'times' => 'origin', 'merriweather' => 'origin',
+            'lora' => 'origin', 'pt serif' => 'origin',
+            'source serif' => 'origin', 'crimson' => 'origin',
+            'charter' => 'origin', 'literata' => 'origin',
 
             // Chunky old-style serif.
             'young serif' => 'young-serif', 'recoleta' => 'young-serif',
@@ -705,9 +705,9 @@ class EvidenceConclusions
             'souvenir' => 'young-serif', 'cooper' => 'young-serif',
 
             // Slab serif.
-            'zilla' => 'zilla-slab', 'rockwell' => 'zilla-slab', 'roboto slab' => 'zilla-slab',
-            'arvo' => 'zilla-slab', 'bitter' => 'zilla-slab', 'museo slab' => 'zilla-slab',
-            'josefin slab' => 'zilla-slab', 'clarendon' => 'zilla-slab', 'slab' => 'zilla-slab',
+            'zilla' => 'origin', 'rockwell' => 'origin', 'roboto slab' => 'origin',
+            'arvo' => 'origin', 'bitter' => 'origin', 'museo slab' => 'origin',
+            'josefin slab' => 'origin', 'clarendon' => 'origin', 'slab' => 'origin',
 
             // Condensed gothic display.
             'oswald' => 'oswald', 'bebas' => 'oswald', 'anton' => 'oswald',
@@ -723,51 +723,51 @@ class EvidenceConclusions
             'microgramma' => 'reglo', 'agency' => 'reglo',
 
             // Handwritten script.
-            'caveat' => 'caveat', 'dancing script' => 'caveat', 'pacifico' => 'caveat',
-            'satisfy' => 'caveat', 'kalam' => 'caveat', 'indie flower' => 'caveat',
-            'shadows into light' => 'caveat', 'amatic' => 'caveat', 'permanent marker' => 'caveat',
-            'lobster' => 'caveat', 'great vibes' => 'caveat', 'sacramento' => 'caveat', 'cursive' => 'caveat',
+            'caveat' => 'melodrama', 'dancing script' => 'melodrama', 'pacifico' => 'melodrama',
+            'satisfy' => 'melodrama', 'kalam' => 'melodrama', 'indie flower' => 'melodrama',
+            'shadows into light' => 'melodrama', 'amatic' => 'melodrama', 'permanent marker' => 'melodrama',
+            'lobster' => 'melodrama', 'great vibes' => 'melodrama', 'sacramento' => 'melodrama', 'cursive' => 'melodrama',
 
             // Rounded geometric sans.
-            'quicksand' => 'quicksand', 'nunito' => 'quicksand', 'comfortaa' => 'quicksand',
-            'varela' => 'quicksand', 'baloo' => 'quicksand', 'fredoka' => 'quicksand',
-            'rubik' => 'quicksand', 'vag' => 'quicksand',
+            'quicksand' => 'geist', 'nunito' => 'geist', 'comfortaa' => 'geist',
+            'varela' => 'geist', 'baloo' => 'geist', 'fredoka' => 'geist',
+            'rubik' => 'geist', 'vag' => 'geist',
 
             // Contemporary geometric sans.
-            'gotham' => 'cooper-hewitt', 'montserrat' => 'cooper-hewitt', 'proxima' => 'cooper-hewitt',
-            'futura' => 'cooper-hewitt', 'avenir' => 'cooper-hewitt', 'poppins' => 'cooper-hewitt',
-            'dm sans' => 'cooper-hewitt', 'raleway' => 'cooper-hewitt', 'manrope' => 'cooper-hewitt',
-            'jost' => 'cooper-hewitt', 'urbanist' => 'cooper-hewitt', 'sora' => 'cooper-hewitt',
-            'circular' => 'cooper-hewitt',
+            'gotham' => 'geist', 'montserrat' => 'geist', 'proxima' => 'geist',
+            'futura' => 'geist', 'avenir' => 'geist', 'poppins' => 'geist',
+            'dm sans' => 'geist', 'raleway' => 'geist', 'manrope' => 'geist',
+            'jost' => 'geist', 'urbanist' => 'geist', 'sora' => 'geist',
+            'circular' => 'geist',
 
             // Techno-humanist sans.
-            'm plus' => 'mplus', 'mplus' => 'mplus', 'zen kaku' => 'mplus',
-            'noto sans jp' => 'mplus', 'din' => 'mplus',
+            'm plus' => 'geist', 'mplus' => 'geist', 'zen kaku' => 'geist',
+            'noto sans jp' => 'geist', 'din' => 'geist',
 
             // Grotesque sans (American gothic lineage).
-            'archivo' => 'archivo', 'franklin' => 'archivo', 'trade gothic' => 'archivo',
-            'barlow' => 'archivo', 'public sans' => 'archivo', 'libre franklin' => 'archivo',
-            'oscine' => 'archivo',
+            'archivo' => 'geist', 'franklin' => 'geist', 'trade gothic' => 'geist',
+            'barlow' => 'geist', 'public sans' => 'geist', 'libre franklin' => 'geist',
+            'oscine' => 'geist',
 
             // Helvetica-clone grotesque.
-            'helvetica' => 'tex-gyre-heros', 'neue haas' => 'tex-gyre-heros', 'haas' => 'tex-gyre-heros',
-            'nimbus' => 'tex-gyre-heros', 'arial' => 'tex-gyre-heros', 'univers' => 'tex-gyre-heros',
-            'aktiv' => 'tex-gyre-heros', 'suisse' => 'tex-gyre-heros', 'swiss 721' => 'tex-gyre-heros',
-            'akzidenz' => 'tex-gyre-heros',
+            'helvetica' => 'geist', 'neue haas' => 'geist', 'haas' => 'geist',
+            'nimbus' => 'geist', 'arial' => 'geist', 'univers' => 'geist',
+            'aktiv' => 'geist', 'suisse' => 'geist', 'swiss 721' => 'geist',
+            'akzidenz' => 'geist',
 
             // Neo-grotesque / system UI sans.
-            'roboto' => 'roboto', 'noto sans' => 'roboto', 'inter' => 'roboto',
-            'san francisco' => 'roboto', 'sf pro' => 'roboto', 'apple system' => 'roboto',
-            'system ui' => 'roboto', 'segoe' => 'roboto', 'ubuntu' => 'roboto', 'ibm plex sans' => 'roboto',
+            'roboto' => 'geist', 'noto sans' => 'geist', 'inter' => 'geist',
+            'san francisco' => 'geist', 'sf pro' => 'geist', 'apple system' => 'geist',
+            'system ui' => 'geist', 'segoe' => 'geist', 'ubuntu' => 'geist', 'ibm plex sans' => 'geist',
 
             // Humanist grotesque / generic sans fallback.
-            'work sans' => 'work-sans', 'open sans' => 'work-sans', 'lato' => 'work-sans',
-            'source sans' => 'work-sans', 'pt sans' => 'work-sans', 'karla' => 'work-sans',
-            'mulish' => 'work-sans', 'assistant' => 'work-sans', 'figtree' => 'work-sans',
+            'work sans' => 'geist', 'open sans' => 'geist', 'lato' => 'geist',
+            'source sans' => 'geist', 'pt sans' => 'geist', 'karla' => 'geist',
+            'mulish' => 'geist', 'assistant' => 'geist', 'figtree' => 'geist',
 
             // Generic catch-alls — must stay last.
-            'serif' => 'libre-baskerville',
-            'sans serif' => 'work-sans',
+            'serif' => 'origin',
+            'sans serif' => 'geist',
         ];
         foreach ($map as $keyword => $slug) {
             if (str_contains($family, $keyword)) {

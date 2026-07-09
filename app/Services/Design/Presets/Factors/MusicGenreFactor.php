@@ -90,7 +90,7 @@ class MusicGenreFactor implements EvidenceFactor
             'color_bg' => '#faf6f7',            // soft pastel ground
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'eb-garamond',
+            'typography_font_family' => 'origin',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
             'effect_image_treatment' => 'warm',

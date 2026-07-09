@@ -177,7 +177,7 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
     ])));
 
     expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('work-sans');
+        ->and($r['kit']['typography_font_family'])->toBe('geist');
     assertCoherent($r['kit']);
 });
 
@@ -200,7 +200,7 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
     ])));
 
     expect($r['recipe']['color_bg'])->toBe('#fafafa')
-        ->and($r['kit']['typography_font_family'])->toBe('archivo');
+        ->and($r['kit']['typography_font_family'])->toBe('geist');
     assertCoherent($r['kit']);
 });
 
@@ -211,7 +211,7 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
     ])));
 
     expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('zilla-slab')
+        ->and($r['kit']['typography_font_family'])->toBe('origin')
         ->and($r['kit']['border_radius'])->toBe('1rem');
     assertCoherent($r['kit']);
 });
