@@ -87,7 +87,9 @@ class ComputeContentPopularityScores extends Command
         $dryRun = (bool) $this->option('dry-run');
         $siteOpt = $this->option('site');
 
-        $query = Site::query()->where('is_published', true);
+        // Eager-load user — aggregatePages reads $site->user for AccountCapabilities
+        // gating, and prod runs with lazy-loading disabled (Model::preventLazyLoading).
+        $query = Site::query()->where('is_published', true)->with('user');
         if (is_string($siteOpt) && $siteOpt !== '') {
             $query->where('id', $siteOpt);
         }
