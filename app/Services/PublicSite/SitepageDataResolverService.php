@@ -82,6 +82,11 @@ class SitepageDataResolverService
         'google-business' => 'contact',
         // Standalone social pages.
         'pinterest' => 'pinterest', 'strava' => 'strava', 'skool' => 'skool',
+        // Custom links → the Links page. Link items are sourced from custom
+        // connections, so a live custom connection means the Links page exists
+        // (previously Links presence relied only on link Blocks, which missed
+        // custom-connection-only link sets).
+        'custom' => 'links',
     ];
 
     /**
