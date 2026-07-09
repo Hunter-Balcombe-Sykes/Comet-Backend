@@ -25,20 +25,20 @@ it('off mode passes without token and without provider call', function () {
     expect(app(FakeProvider::class)->verifyCount())->toBe(0);
 });
 
-it('enforce mode rejects 422 when token missing', function () {
+it('enforce mode rejects 400 when token missing', function () {
     config(['partna.bot_protection.mode' => 'enforce']);
 
     $response = $this->postJson('/__test/bot-protected');
 
-    $response->assertStatus(422);
+    $response->assertStatus(400);
     $response->assertJson(['error' => 'captcha_missing']);
     expect($response->json('captcha.codes' ?? null))->toBeNull();  // raw codes NOT exposed
 });
 
-it('enforce mode rejects 422 when token is whitespace-only', function () {
+it('enforce mode rejects 400 when token is whitespace-only', function () {
     config(['partna.bot_protection.mode' => 'enforce']);
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => '   ']);
-    $response->assertStatus(422)->assertJson(['error' => 'captcha_missing']);
+    $response->assertStatus(400)->assertJson(['error' => 'captcha_missing']);
 });
 
 it('enforce mode passes when FakeProvider returns success', function () {
@@ -50,22 +50,22 @@ it('enforce mode passes when FakeProvider returns success', function () {
     $response->assertOk();
 });
 
-it('enforce mode rejects 422 captcha_failed on FakeProvider failure', function () {
+it('enforce mode rejects 400 captcha_failed on FakeProvider failure', function () {
     config(['partna.bot_protection.mode' => 'enforce']);
     app(FakeProvider::class)->queueResult(new VerificationResult(success: false, errorCodes: ['invalid-input-response']));
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'bad']);
 
-    $response->assertStatus(422)->assertJson(['error' => 'captcha_failed']);
+    $response->assertStatus(400)->assertJson(['error' => 'captcha_failed']);
 });
 
-it('enforce mode rejects 422 captcha_expired when codes include the sentinel', function () {
+it('enforce mode rejects 400 captcha_expired when codes include the sentinel', function () {
     config(['partna.bot_protection.mode' => 'enforce']);
     app(FakeProvider::class)->queueResult(new VerificationResult(success: false, errorCodes: ['timeout-or-duplicate', 'captcha_expired']));
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'expired']);
 
-    $response->assertStatus(422)->assertJson(['error' => 'captcha_expired']);
+    $response->assertStatus(400)->assertJson(['error' => 'captcha_expired']);
 });
 
 it('accepts the legacy cf_turnstile_response body field', function () {

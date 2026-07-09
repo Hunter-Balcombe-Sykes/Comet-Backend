@@ -62,7 +62,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
 - P2 Medium: 20 of 20 complete
-- P3 Low: 12 of 13 complete
+- P3 Low: 13 of 13 complete
 
 ---
 
@@ -514,7 +514,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — `VerifyBotToken::reject()` uses HTTP 422 for CAPTCHA failures, colliding with validation-error semantics  ⏸ **HELD** (2026-07-08, Josh): 422→400 is frontend-observable; hold until partna-frontend/partna-pages are confirmed not to branch on 422 for captcha failures. Kept out of the live merge deliberately.
+- [x] **#API-2** · P3 — `VerifyBotToken::reject()` uses HTTP 422 for CAPTCHA failures, colliding with validation-error semantics
     - **Where:** app/Http/Middleware/VerifyBotToken.php:128-136
     - **Affects:** Any client that treats every 422 as a Laravel validation error and unconditionally reads an `errors` object — a CAPTCHA-failure 422 has no such key.
     - **Effort:** S (~0.5–1h)

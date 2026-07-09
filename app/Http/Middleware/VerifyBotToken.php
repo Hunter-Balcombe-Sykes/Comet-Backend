@@ -153,12 +153,12 @@ final class VerifyBotToken
                 'should_retry' => true,
                 'should_rerender' => true,
             ],
-        ], 422);
+        ], 400); // 400, not 422 — 422 collides with Laravel's FormRequest validation-error shape (API-2)
     }
 
     // 503 path used when fail_open=false and the CAPTCHA backend is unreachable
     // (provider exception, Redis-backed breaker unavailable, or breaker open).
-    // Distinct from 422 captcha_failed so the frontend can render a
+    // Distinct from the 400 captcha_failed so the frontend can render a
     // "try again shortly" UX rather than re-rendering the widget.
     private function unavailable(): Response
     {
