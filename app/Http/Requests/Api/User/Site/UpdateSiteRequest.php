@@ -21,10 +21,12 @@ class UpdateSiteRequest extends BaseFormRequest
      * Allowed skeleton IDs — mirrors the DB CHECK constraint. 'atlas' (the
      * multi-page site) is Business-only; the Rule::in below accepts it for
      * everyone, and withValidator() rejects it for accounts without the
-     * can_use_multipage_site capability (#30).
+     * can_use_multipage_site capability (#30). 'one' is reserved for the
+     * upcoming ONE skeleton — accepted on write so a site can be flipped to it,
+     * but not yet exposed in the dashboard picker or rendered (both land in V1).
      */
     public const ALLOWED_SKELETONS = [
-        'bento', 'dock', 'flick', 'deck', 'atlas',
+        'bento', 'dock', 'flick', 'deck', 'atlas', 'one',
     ];
 
     /** Skeletons gated to a capability, not available to every account (#30). */
@@ -125,8 +127,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of bento/dock/flick/deck/sheet/thread (legacy ids,
-            // both generations, normalized in prepareForValidation). Replaces theme_id.
+            // Skeleton — one of bento/dock/flick/deck/atlas/one (legacy ids
+            // normalized in prepareForValidation). Replaces theme_id.
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
@@ -181,7 +183,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas.',
+            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas, one.',
         ];
     }
 }
