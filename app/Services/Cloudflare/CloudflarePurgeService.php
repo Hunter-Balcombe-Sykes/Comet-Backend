@@ -2,6 +2,7 @@
 
 namespace App\Services\Cloudflare;
 
+use App\Enums\SitepageId;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -57,32 +58,36 @@ class CloudflarePurgeService
             return;
         }
 
-        Http::withToken($this->apiToken)
-            ->asJson()
-            ->acceptJson()
-            ->post($this->url(), ['files' => array_values($urls)])
-            ->throw();
+        // Cloudflare's purge_cache `files` accepts at most 30 URLs per request on
+        // non-Enterprise plans. A full sitepage purge (root + 15 deep-link
+        // sub-paths + each one's SWR shadow + the API subrequest) exceeds that, so
+        // chunk into <=30-URL batches — one POST each.
+        foreach (array_chunk(array_values($urls), 30) as $chunk) {
+            Http::withToken($this->apiToken)
+                ->asJson()
+                ->acceptJson()
+                ->post($this->url(), ['files' => $chunk])
+                ->throw();
+        }
     }
 
     /**
-     * Purge the full cache chain for one individual's public profile:
-     *   1. Page URL (`https://<handle>.partna.au/`) — what visitors hit. Cached by
-     *      the router Worker via `caches.default.put` with `s-maxage=10`.
-     *   2. SWR stale shadow (`https://<handle>.partna.au/_swr-shadow/`) — the
-     *      router Worker stores a second copy under a `_swr-shadow` path prefix
-     *      with a 7-day TTL (cloudflare-worker/src/index.js `staleShadowKey`).
-     *      On a primary cache MISS the Worker serves the shadow immediately and
-     *      kicks off an origin refresh in the background. Without this purge,
-     *      the first refresh after a mutation still hits the stale shadow and
-     *      shows pre-mutation content — and the visitor who triggered the
-     *      refresh always sees stale, even though the next visitor sees fresh.
-     *   3. Backend API subrequest URL (`<app.url>/api/public/profiles/<handle>`) —
-     *      the Astro Worker calls this with `cf: {cacheTtl: 300, cacheEverything: true}`,
-     *      so without this purge the edge holds the API response for 5 minutes
-     *      and re-renders stale HTML even after the page URL has been evicted.
+     * Purge the full cache chain for one individual's public profile. The router
+     * Worker keys the edge cache by request PATH, so a profile occupies many keys:
+     *   • Root page (`https://<handle>.partna.au/`, slash + slash-less variants).
+     *   • Every deep-link sub-page — `/shop`, `/book`, `/listen`, … (the SitepageId
+     *     taxonomy). Each is a SEPARATE edge key; purging only the root left these
+     *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h).
+     *   • The SWR stale shadow for each of the above (`/_swr-shadow<path>`, 7-day
+     *     TTL — cloudflare-worker/src/index.js `staleShadowKey`). On a primary MISS
+     *     the Worker serves the shadow and refreshes in the background, so without
+     *     purging it the first post-mutation visitor still sees stale content.
+     *   • Backend API subrequest (`<app.url>/api/public/profiles/<handle>`), which
+     *     the Astro Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
+     *     otherwise, re-rendering old HTML even after the page keys are evicted.
      *
-     * All URLs sit in the same Cloudflare zone (the configured public domain),
-     * so one purge_cache request covers everything.
+     * A custom domain (Cloudflare for SaaS) adds the same set under its own host.
+     * All sit in one Cloudflare zone; purgeUrls chunks them to the 30-URL limit.
      */
     public function purgeHandle(string $handle, ?string $customDomain = null): void
     {
@@ -97,27 +102,35 @@ class CloudflarePurgeService
         // instead of always pointing at partna.au.
         $baseDomain = config('partna.public_domain');
 
-        $urls = [
-            // Page URL — root path and slash-less variant. Cloudflare treats
-            // these as distinct cache keys, so list both.
-            "https://{$h}.{$baseDomain}/",
-            "https://{$h}.{$baseDomain}",
-            // SWR stale shadow — the router Worker's second cache layer,
-            // 7-day TTL. Without purging this, post-mutation refreshes serve
-            // pre-mutation content from the shadow.
-            "https://{$h}.{$baseDomain}/_swr-shadow/",
-        ];
-
-        // Custom domain (Cloudflare for SaaS): its sitepage is cached at the edge
-        // under its OWN host key (e.g. https://tuesdae.co/), entirely separate from
-        // the .partna.au URLs above — the router Worker keys caches.default by the
-        // full request URL incl. Host. Same zone, so one purge_cache call evicts
-        // both. Without these, a content change never busts the custom-domain cache.
+        // One base host per domain this profile is reachable under: the canonical
+        // .partna.au subdomain, plus a custom domain (Cloudflare for SaaS) which is
+        // cached under its OWN host key — the router keys caches.default by full URL
+        // incl. Host, so a content change must bust both. Same zone → one purge run.
+        $bases = ["https://{$h}.{$baseDomain}"];
         $domain = strtolower(trim((string) $customDomain));
         if ($domain !== '') {
-            $urls[] = "https://{$domain}/";
-            $urls[] = "https://{$domain}";
-            $urls[] = "https://{$domain}/_swr-shadow/";
+            $bases[] = "https://{$domain}";
+        }
+
+        // The deep-link sub-pages (SitepageId taxonomy minus 'home', which IS the
+        // root). Each is its own edge key, so each needs its own purge — this is the
+        // bug the root-only purge had: /shop, /book, … stayed stale for 24 h.
+        $subPages = array_values(array_filter(
+            SitepageId::canonicalOrder(),
+            static fn (string $page): bool => $page !== 'home',
+        ));
+
+        $urls = [];
+        foreach ($bases as $base) {
+            // Root — slash + slash-less are distinct keys — and its shadow.
+            $urls[] = "{$base}/";
+            $urls[] = $base;
+            $urls[] = "{$base}/_swr-shadow/";
+            // Each sub-page + its SWR shadow (`/_swr-shadow<path>`).
+            foreach ($subPages as $page) {
+                $urls[] = "{$base}/{$page}";
+                $urls[] = "{$base}/_swr-shadow/{$page}";
+            }
         }
 
         $apiBase = rtrim((string) config('app.url', ''), '/');
@@ -125,7 +138,7 @@ class CloudflarePurgeService
             // The Astro Worker subrequest target — `IndividualProfileController@show`.
             // Without this entry the §28.8 endpoint's edge cache (`cacheTtl: 300`)
             // pins the rendered HTML to stale data for up to 5 minutes after a
-            // mutation, regardless of how aggressively we purge the page URL.
+            // mutation, regardless of how aggressively we purge the page URLs.
             $urls[] = "{$apiBase}/api/public/profiles/{$h}";
         }
 
