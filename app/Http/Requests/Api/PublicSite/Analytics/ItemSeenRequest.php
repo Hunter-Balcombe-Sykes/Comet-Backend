@@ -22,6 +22,12 @@ class ItemSeenRequest extends BaseFormRequest
      * matches analytics.content_popularity_scores.content_type. Kept in lockstep
      * with ComputeContentPopularityScores + the DDL comment.
      *
+     * listen_item / watch_item / link_item were added 2026-07-10 alongside the ONE
+     * theme's tracks/videos/custom-links items: the storefront fires item-seen with
+     * these types, and ComputeContentPopularityScores::CLICK_SECTION_TO_ITEM_TYPE
+     * already emits them for clicks — so impressions must be accepted here too, or
+     * those three grains only ever accrue click score, never view score.
+     *
      * @var list<string>
      */
     public const ITEM_TYPES = [
@@ -32,6 +38,9 @@ class ItemSeenRequest extends BaseFormRequest
         'block',
         'gallery_item',
         'engine_item',
+        'listen_item',
+        'watch_item',
+        'link_item',
     ];
 
     protected function prepareForValidation(): void
