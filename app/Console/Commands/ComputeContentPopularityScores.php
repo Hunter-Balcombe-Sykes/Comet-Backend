@@ -74,6 +74,22 @@ class ComputeContentPopularityScores extends Command
         'services' => 'service',
         'events' => 'engine_item',
         'attend' => 'engine_item',
+        // ONE item scoring by link-out (2026-07-10): listen tracks, watch videos,
+        // and custom links score from clicks in their own page's section. The ONE
+        // theme tags each item click with its page's canonical section_key
+        // (listen / watch / custom); sub-platform keys included for robustness.
+        'listen' => 'listen_item',
+        'music' => 'listen_item',
+        'spotify' => 'listen_item',
+        'apple-music' => 'listen_item',
+        'soundcloud' => 'listen_item',
+        'podcast' => 'listen_item',
+        'watch' => 'watch_item',
+        'youtube' => 'watch_item',
+        'twitch' => 'watch_item',
+        'vimeo' => 'watch_item',
+        'custom' => 'link_item',
+        'other' => 'link_item',
     ];
 
     public function __construct(
