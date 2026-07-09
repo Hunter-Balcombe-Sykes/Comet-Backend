@@ -1495,6 +1495,57 @@ function setupSectionViewsTable(): void
 }
 
 /**
+ * analytics.item_views — item-level impression events (popularity scoring).
+ * Mirrors the applied Postgres DDL (20260709042911_create_item_views.sql):
+ * section_views' visitor/session/geo columns with an item grain. user_id is
+ * nullable here (matches prod — fail-open on the new write path).
+ */
+function setupItemViewsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.item_views (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        site_id TEXT NOT NULL,
+        item_type TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        item_title TEXT NULL,
+        section_key TEXT NULL,
+        occurred_at TEXT NULL,
+        session_id TEXT NULL,
+        visitor_id TEXT NULL,
+        ip_hash TEXT NULL,
+        user_agent TEXT NULL,
+        referrer TEXT NULL,
+        country_code TEXT NULL,
+        device_type TEXT NULL,
+        created_at TEXT NULL
+    )');
+}
+
+/**
+ * analytics.content_popularity_scores — polymorphic popularity ranks per
+ * (site, content_type, content_key). Mirrors the applied Postgres DDL
+ * (20260709042716_create_content_popularity_scores.sql). SQLite doesn't enforce
+ * the double-precision / integer types beyond affinity, which is fine — the
+ * upsert/read shape is what the tests exercise.
+ */
+function setupContentPopularityScoresTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.content_popularity_scores (
+        id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        content_key TEXT NOT NULL,
+        score REAL NOT NULL,
+        rank INTEGER NOT NULL,
+        computed_at TEXT NULL,
+        UNIQUE (site_id, content_type, content_key)
+    )');
+}
+
+/**
  * notifications.email_subscriptions — minimal columns for broadcast fan-out tests.
  */
 function setupEmailSubscriptionsTable(): void

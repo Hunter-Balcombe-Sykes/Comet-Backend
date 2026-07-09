@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
@@ -49,6 +50,7 @@ const POLICY_EXEMPT = [
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
     // API, gated by the parent Site policy.
+    ItemView::class,
     LinkClick::class,
     SectionView::class,
     SiteVisit::class,

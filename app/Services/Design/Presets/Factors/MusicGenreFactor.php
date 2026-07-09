@@ -13,7 +13,7 @@ use App\Services\Design\Presets\IdentityEvidence;
  * IdentityEvidence::musicGenre().
  *
  * CURRENT STATE (spec §2 row 3): the music platforms (Spotify, Apple Music,
- * SoundCloud, Bandcamp, Deezer, …) store an oEmbed-shaped payload that carries NO
+ * SoundCloud, Bandcamp, …) store an oEmbed-shaped payload that carries NO
  * genre today (verified). musicGenre() therefore returns null and this factor
  * ABSTAINS. The lexicon below is complete so that if a future payload enrichment
  * adds a genre, the factor lights up unchanged. Until then it is a provable no-op.

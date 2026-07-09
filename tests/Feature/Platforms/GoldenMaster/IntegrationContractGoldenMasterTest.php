@@ -33,7 +33,7 @@ it('freezes link-only selection contract', function (string $platform, array $st
     expect($selection)->toEqual($stored);
 })->with('link_only');
 
-// oEmbed music platforms (Spotify / SoundCloud / Deezer) render via
+// oEmbed music platforms (Spotify / SoundCloud) render via
 // MusicEmbedConnectionResource, which emits exactly {url, name, thumbnail, embedUrl, link}.
 // The _leak key must not appear in the response.
 dataset('oembed', [
@@ -46,11 +46,6 @@ dataset('oembed', [
         'url' => 'https://soundcloud.com/artist', 'name' => 'Artist',
         'thumbnail' => 'https://i1.sndcdn.com/t.jpg', 'embedUrl' => 'https://w.soundcloud.com/player/?url=x',
         'link' => 'https://soundcloud.com/artist',
-    ]],
-    'deezer' => ['deezer', [
-        'url' => 'https://www.deezer.com/artist/123', 'name' => 'Artist',
-        'thumbnail' => 'https://e-cdn.deezer.com/t.jpg', 'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
-        'link' => 'https://www.deezer.com/artist/123',
     ]],
 ]);
 
@@ -108,9 +103,9 @@ it('freezes the youtube accounts list contract', function () {
     expect($accounts[0]['handle'])->toBe('mychannel');
 });
 
-// ── TEST-4: 7 previously unpinned /accounts endpoints ────────────────────────
+// ── TEST-4: 6 previously unpinned /accounts endpoints ────────────────────────
 //
-// apple/music, apple/podcast, bandcamp, deezer, soundcloud, vimeo, youtube-music
+// apple/music, apple/podcast, bandcamp, soundcloud, vimeo, youtube-music
 // all route through GenericPlatformController::accountsList → shape() → resource.
 // Each parametrized case seeds one row with a _leak key and asserts the exact
 // full-row shape via toEqual (catches both missing and extra keys).
@@ -183,25 +178,7 @@ dataset('multi_account_unpinned', [
             'highlights' => [],
         ],
     ],
-    // deezer: MusicEmbedConnectionResource — {url, name, thumbnail, embedUrl, link}.
-    'deezer' => [
-        'deezer',
-        'deezer',
-        'acct-'.substr(sha1('https://www.deezer.com/artist/123'), 0, 16),
-        [
-            'url' => 'https://www.deezer.com/artist/123', 'name' => 'Artist',
-            'thumbnail' => 'https://e-cdn.deezer.com/t.jpg',
-            'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
-            'link' => 'https://www.deezer.com/artist/123', '_leak' => 'x',
-        ],
-        [
-            'url' => 'https://www.deezer.com/artist/123', 'name' => 'Artist',
-            'thumbnail' => 'https://e-cdn.deezer.com/t.jpg',
-            'embedUrl' => 'https://widget.deezer.com/widget/dark/artist/123',
-            'link' => 'https://www.deezer.com/artist/123',
-        ],
-    ],
-    // soundcloud: MusicEmbedConnectionResource — same 5-key shape as deezer.
+    // soundcloud: MusicEmbedConnectionResource — the shared 5-key music-embed shape.
     'soundcloud' => [
         'soundcloud',
         'soundcloud',
@@ -588,7 +565,7 @@ it('covers every integration GET read-route in the golden master', function () {
     // TEST-6: Pin route IDENTITY, not just count.
     // Sorted URI snapshot — catches add/remove AND one-for-one swaps.
     // Count guard kept too for fast failure messaging.
-    expect($readRoutes->count())->toBe(60);
+    expect($readRoutes->count())->toBe(58);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/selection',
@@ -600,8 +577,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/booking/status',
         'api/platforms/custom/links',
         'api/platforms/custom/links/{id}/status',
-        'api/platforms/deezer/accounts',
-        'api/platforms/deezer/selection',
         'api/platforms/eventbrite/accounts',
         'api/platforms/eventbrite/selection',
         'api/platforms/events/selection',

@@ -238,7 +238,7 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
             'linkMode' => 'product',
             'referralQuery' => '',
             'products' => [
-                ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD'],
+                ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD', 'popularityRank' => null],
             ],
         ],
     ]);

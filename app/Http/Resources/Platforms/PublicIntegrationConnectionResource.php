@@ -30,6 +30,17 @@ class PublicIntegrationConnectionResource extends ApiResource
     private ?string $shopLinkModeOverride = null;
 
     /**
+     * Popularity ranks for this connection's shop products (product_id → rank,
+     * content_popularity_scores content_type='shop_product'). Threaded in by
+     * PublicIntegrationController so each product gains a nullable
+     * `popularityRank` on the PUBLIC wire (inert until ONE consumes it). Null =
+     * not a shop connection / no ranks resolved.
+     *
+     * @var array<string, int>|null
+     */
+    private ?array $productRanks = null;
+
+    /**
      * Fluent setter used by PublicIntegrationController to inject the owner's
      * global shop link mode into a shop connection resource before resolve().
      * Returns $this so it composes with the existing single-resource path.
@@ -37,6 +48,20 @@ class PublicIntegrationConnectionResource extends ApiResource
     public function withShopLinkMode(?string $mode): self
     {
         $this->shopLinkModeOverride = $mode;
+
+        return $this;
+    }
+
+    /**
+     * Fluent setter — inject the shop-product popularity ranks so filterPayload()
+     * can annotate each product. Passing an array (even empty) opts this shop
+     * resource into `popularityRank` annotation; null leaves products unannotated.
+     *
+     * @param  array<string, int>|null  $ranks  product_id → rank
+     */
+    public function withProductRanks(?array $ranks): self
+    {
+        $this->productRanks = $ranks;
 
         return $this;
     }
@@ -72,7 +97,6 @@ class PublicIntegrationConnectionResource extends ApiResource
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
-        'deezer' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         // mixcloud + tidal share MusicEmbedConnectionResource — same five-key contract.
         'mixcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
@@ -186,11 +210,15 @@ class PublicIntegrationConnectionResource extends ApiResource
             // per-brand value, itself defaulted to 'product', so the wire is
             // never missing the key.
             $linkMode = $this->shopLinkModeOverride;
+            // Pass the ranks map (possibly empty) so toBrandArray annotates each
+            // product with a nullable popularityRank on the public wire. null →
+            // no annotation (keeps parity if the controller didn't thread ranks).
+            $productRanks = $this->productRanks;
 
             return $this->shopBrands
-                ->mapWithKeys(function ($b) use ($linkMode) {
+                ->mapWithKeys(function ($b) use ($linkMode, $productRanks) {
                     $brand = array_intersect_key(
-                        $b->toBrandArray(), array_flip(self::SHOP_BRAND_ALLOWLIST));
+                        $b->toBrandArray($productRanks), array_flip(self::SHOP_BRAND_ALLOWLIST));
                     if ($linkMode !== null) {
                         $brand['linkMode'] = $linkMode;
                     }

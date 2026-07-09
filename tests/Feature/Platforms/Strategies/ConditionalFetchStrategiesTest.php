@@ -9,9 +9,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ConditionalContext;
-use App\Services\Platforms\DeezerApi;
 use App\Services\Platforms\OEmbedService;
-use App\Services\Platforms\Strategies\Fetch\DeezerFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
@@ -48,24 +46,6 @@ it('YoutubeMusicFetch raises FetchNotModifiedException on a 304', function () {
     ]);
 
     expect(fn () => (new YoutubeMusicFetch(app(YoutubeScraper::class)))->fetch($conn))
-        ->toThrow(FetchNotModifiedException::class);
-});
-
-it('DeezerFetch raises FetchNotModifiedException on a 304', function () {
-    $this->mock(DeezerApi::class, function ($m) {
-        $m->shouldReceive('fetchArtist')->andReturnUsing(function ($id, ?ConditionalContext $cond) {
-            $cond->notModified = true;
-
-            return null;
-        });
-    });
-
-    $conn = IntegrationConnection::create([
-        'user_id' => condStratUser('dz304')->id, 'platform' => 'deezer', 'resource_id' => 'deezer',
-        'payload' => ['artistId' => '123'], 'refresh_etag' => '"e"',
-    ]);
-
-    expect(fn () => (new DeezerFetch(app(DeezerApi::class)))->fetch($conn))
         ->toThrow(FetchNotModifiedException::class);
 });
 

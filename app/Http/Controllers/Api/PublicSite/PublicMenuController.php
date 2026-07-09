@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Analytics\ContentPopularityReader;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -17,6 +19,10 @@ use Illuminate\Http\JsonResponse;
  */
 class PublicMenuController extends ApiController
 {
+    public function __construct(
+        private readonly ContentPopularityReader $popularity,
+    ) {}
+
     public function show(string $handle): JsonResponse
     {
         $handleLc = strtolower(trim($handle));
@@ -57,9 +63,18 @@ class PublicMenuController extends ApiController
 
         $currency = $menu->currency ?? 'AUD';
 
+        // Popularity ranks — nullable annotations, inert until ONE consumes them.
+        // menu_category keyed by category id, menu_item by item id. Item/category
+        // ORDER stays position-sorted; ranks are additive metadata only.
+        $siteId = Site::query()->where('user_id', $userId)->value('id');
+        $ranks = $this->popularity->forSite($siteId);
+        $categoryRanks = $ranks['menu_category'] ?? [];
+        $itemRanks = $ranks['menu_item'] ?? [];
+
         $categories = $menu->categories
             ->map(fn ($cat) => [
                 'name' => $cat->name,
+                'popularityRank' => $categoryRanks[(string) $cat->id] ?? null,
                 'items' => $cat->items->map(fn ($item) => [
                     'name' => $item->name,
                     'description' => $item->description,
@@ -73,6 +88,7 @@ class PublicMenuController extends ApiController
                     'rating' => $item->rating,
                     'ratingCount' => $item->rating_count,
                     'badges' => $item->badges,
+                    'popularityRank' => $itemRanks[(string) $item->id] ?? null,
                 ])->values()->toArray(),
             ])
             ->filter(fn ($cat) => count($cat['items']) > 0)

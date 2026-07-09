@@ -7,7 +7,6 @@ it('pins the descriptor-driven connect contract for every reducible platform', f
 
     $expected = [
         'bandcamp' => ['url', ['required', 'string', 'max:500'], [], false],
-        'deezer' => ['url', ['required', 'string', 'max:300'], [], false],
         'eventbrite' => ['url', ['required', 'string', 'max:500'], [], false],
         'fresha' => ['url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true],
         'humanitix' => ['url', ['required', 'string', 'max:500'], [], false],

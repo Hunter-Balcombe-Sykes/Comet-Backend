@@ -49,7 +49,9 @@ class IndividualProfileResource extends ApiResource
      *     design_media?: list<array<string, mixed>>,
      *     skeleton_id?: string|null,
      *     public_config?: array<string, mixed>,
+     *     page_order?: list<string>,
      *     gallery?: list<array<string, mixed>>,
+     *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
@@ -99,6 +101,10 @@ class IndividualProfileResource extends ApiResource
 
                 // Engine outputs (phase 8).
                 'gallery' => $this->sections['gallery'] ?? [],
+                // Curated background/content picks (Content Selection, ≤15). A
+                // SEPARATE surface from `gallery` above — never collides with it.
+                // Always an array.
+                'curatedGallery' => $this->sections['curatedGallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
@@ -107,6 +113,11 @@ class IndividualProfileResource extends ApiResource
                 'publicContact' => $this->sections['publicContact'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
             ],
+
+            // Taxonomy page order for the ONE skeleton — presence + business
+            // gated, popularity-ranked with canonical fallback. Top-level (a
+            // render-time concern, not profile content). Always an array.
+            'pageOrder' => $this->sections['page_order'] ?? [],
 
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB

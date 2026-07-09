@@ -61,6 +61,16 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('purge-raw-events'));
 
+// Recompute content popularity scores from raw events (pages + scored items).
+// Runs before the 03:00 purge so it scores the full retained window. Reads only
+// section_views / link_clicks / item_views.
+Schedule::command('analytics:compute-popularity')
+    ->dailyAt('02:40')
+    ->onOneServer()
+    ->withoutOverlapping(60) // 60min lock — per-site aggregation over all sites; daily cadence.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('compute-popularity'));
+
 // Dispatcher: fan out a queued RefreshConnectionJob per due connection. Hourly so
 // connections are picked up close to their TTL (the heavy work is on the queue, not
 // here). Lock < cadence so a slow run can't overlap the next tick.

@@ -70,10 +70,27 @@ class ShopBrand extends BaseModel
      * payload object verbatim except `fetchMode`/`individual` are only present
      * when actually set (matches the old array's optional-key behaviour).
      *
+     * $productRanks is the PUBLIC-path popularity annotation: a map of
+     * product_id → rank (content_popularity_scores, content_type='shop_product').
+     * When provided (even empty), each product gains a nullable `popularityRank`
+     * (inert until ONE consumes it). When null — the DASHBOARD path
+     * (ShopBrandResource) — the key is omitted entirely, keeping that shape
+     * byte-identical. Product ORDER is never changed.
+     *
+     * @param  array<string, int>|null  $productRanks  product_id → rank (public path only)
      * @return array<string, mixed>
      */
-    public function toBrandArray(): array
+    public function toBrandArray(?array $productRanks = null): array
     {
+        $products = $productRanks === null
+            ? $this->products->map->data->all()
+            : $this->products->map(static function (ShopProduct $p) use ($productRanks): array {
+                $data = is_array($p->data) ? $p->data : [];
+                $data['popularityRank'] = $productRanks[(string) $p->product_id] ?? null;
+
+                return $data;
+            })->all();
+
         $brand = [
             'id' => $this->brand_id,
             'provider' => $this->provider,
@@ -89,7 +106,7 @@ class ShopBrand extends BaseModel
             'selectionMode' => $this->selection_mode ?? 'manual',
             'linkMode' => $this->link_mode ?? 'product',
             'referralQuery' => $this->referral_query ?? '',
-            'products' => $this->products->map->data->all(),
+            'products' => $products,
         ];
 
         if ($this->fetch_mode !== null) {

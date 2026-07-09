@@ -25,6 +25,12 @@ final class AnalyticsEvent
 
     public const TYPE_SESSION_PING = 'session_ping';
 
+    // Item-level impression (analytics v2, popularity scoring). Fired by the
+    // storefront IntersectionObserver per scored item (shop product, menu item,
+    // service, gallery item, …); writes analytics.item_views. Mirrors
+    // TYPE_SECTION_VIEW but swaps the section grain for item_type/item_id.
+    public const TYPE_ITEM_VIEW = 'item_view';
+
     public function __construct(
         public readonly string $id,
         public readonly string $type,
@@ -53,6 +59,11 @@ final class AnalyticsEvent
         public readonly ?int $durationSeconds = null,
         public readonly ?float $latitude = null,
         public readonly ?float $longitude = null,
+        // Item-impression grain (TYPE_ITEM_VIEW only): item_type is the scored-item
+        // taxonomy value, item_id the product/item id, item_title an optional label.
+        public readonly ?string $itemType = null,
+        public readonly ?string $itemId = null,
+        public readonly ?string $itemTitle = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -86,6 +97,9 @@ final class AnalyticsEvent
             'duration_seconds' => $this->durationSeconds,
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
+            'item_type' => $this->itemType,
+            'item_id' => $this->itemId,
+            'item_title' => $this->itemTitle,
         ];
     }
 
@@ -120,6 +134,9 @@ final class AnalyticsEvent
             durationSeconds: isset($d['duration_seconds']) ? (int) $d['duration_seconds'] : null,
             latitude: isset($d['latitude']) ? (float) $d['latitude'] : null,
             longitude: isset($d['longitude']) ? (float) $d['longitude'] : null,
+            itemType: $d['item_type'] ?? null,
+            itemId: $d['item_id'] ?? null,
+            itemTitle: $d['item_title'] ?? null,
         );
     }
 }
