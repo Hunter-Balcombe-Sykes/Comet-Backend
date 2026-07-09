@@ -62,12 +62,19 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->onFailure($reportScheduledFailure('purge-raw-events'));
 
 // Recompute content popularity scores from raw events (pages + scored items).
-// Runs before the 03:00 purge so it scores the full retained window. Reads only
-// section_views / link_clicks / item_views.
+// Reads only section_views / link_clicks / item_views.
+//
+// CADENCE (2026-07-09): every 15 min while validating the ONE theme, so page +
+// item scores reflect real browsing without a manual trigger. ⚠️ REVISIT before
+// real prod scale — this full-sweeps EVERY published site each run (wasteful at
+// scale; should scope to sites with recent events), and the 0.7/0.3 hysteresis
+// blend + 90-day half-life were tuned for a DAILY cadence (at 15-min the blend
+// barely smooths). Was: ->dailyAt('02:40'). The daily 03:00 purge still bounds
+// the retained window this reads.
 Schedule::command('analytics:compute-popularity')
-    ->dailyAt('02:40')
+    ->everyFifteenMinutes()
     ->onOneServer()
-    ->withoutOverlapping(60) // 60min lock — per-site aggregation over all sites; daily cadence.
+    ->withoutOverlapping(14) // 14min lock (< 15min cadence): releases immediately on a normal run; a stuck run's lock clears before the next tick.
     ->runInBackground()
     ->onFailure($reportScheduledFailure('compute-popularity'));
 
