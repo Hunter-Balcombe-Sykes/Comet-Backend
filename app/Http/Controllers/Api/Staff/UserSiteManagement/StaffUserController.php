@@ -88,8 +88,8 @@ class StaffUserController extends ApiController
                 'id' => $professional->site->id,
                 'subdomain' => $professional->site->subdomain,
                 'is_published' => (bool) $professional->site->is_published,
-                // skeleton_id replaces theme — skeletons are code constants, not DB rows.
-                'skeleton_id' => $professional->site->skeleton_id,
+                // architecture_id replaces theme — architectures are code constants, not DB rows.
+                'architecture_id' => $professional->site->architecture_id,
             ] : null,
         ]);
     }

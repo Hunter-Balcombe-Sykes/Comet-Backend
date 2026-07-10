@@ -6,9 +6,8 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 // Read-only database view that denormalizes a site with its blocks and
-// settings into a single row for efficient dashboard queries. After the
-// skeleton-system cleanup the view exposes `skeleton_id` (TEXT enum) instead
-// of the old theme join columns.
+// settings into a single row for efficient dashboard queries. The view exposes
+// `architecture_id` (TEXT enum) instead of the old theme join columns.
 class AllSiteData extends BaseModel
 {
     use HasFactory;

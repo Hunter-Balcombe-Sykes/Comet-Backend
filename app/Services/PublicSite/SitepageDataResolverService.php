@@ -451,13 +451,13 @@ class SitepageDataResolverService
     // ── Content media (polymorphic — design layer) ──────────────────────
 
     /**
-     * Content-pool media — design-layer assets the skeleton paints with
+     * Content-pool media — design-layer assets the architecture paints with
      * (backgrounds, section covers, decorative imagery). Polymorphic: images
      * and videos in a single sort-ordered list, projected through the shared
      * buildMediaItem helper so the shape matches gallery items exactly.
      *
      * Unlike the phase-8 engines, this is not gated by a Block row — it's
-     * design infrastructure, not user content. The skeleton consumes whatever
+     * design infrastructure, not user content. The architecture consumes whatever
      * is in the pool in order.
      *
      * Returns snake_case keys (id, sort_order, url, url_hd, alt_text,

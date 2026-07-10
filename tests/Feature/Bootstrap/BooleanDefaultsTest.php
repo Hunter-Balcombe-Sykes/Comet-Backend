@@ -16,11 +16,11 @@ beforeEach(function () {
     setupCustomersTable();
     setupEmailSubscriptionsTable();
 
-    // Shared setupSitesTable() doesn't include skeleton_id. Site::$fillable
+    // Shared setupSitesTable() doesn't include architecture_id. Site::$fillable
     // includes it post-cleanup, so Eloquent inserts the column — patch the
     // SQLite shadow schema to match.
     try {
-        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'one'");
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'one'");
     } catch (Throwable $e) {
         // Column already exists from a prior test run in the same process.
     }

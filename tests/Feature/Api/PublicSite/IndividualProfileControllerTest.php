@@ -21,14 +21,13 @@ beforeEach(function () {
     setupServiceCategoriesTable();
     setupServicesTable();
 
-    // Skeleton-system cleanup column shim — production has skeleton_id with
-    // CHECK enum default 'one', and the SitepageDataResolverService
-    // reads it via $site->skeleton_id. Plus a stub design_kits table whose
-    // shape mirrors the post-phase-7a column set so the PayloadBuilder's
-    // loadDesignKit() lookup + grouping logic exercises real columns even on
-    // SQLite.
+    // Architecture column shim — production has architecture_id with a CHECK
+    // enum default 'one', and the SitepageDataResolverService reads it via
+    // $site->architecture_id. Plus a stub design_kits table whose shape mirrors
+    // the post-phase-7a column set so the PayloadBuilder's loadDesignKit()
+    // lookup + grouping logic exercises real columns even on SQLite.
     try {
-        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN skeleton_id TEXT NOT NULL DEFAULT 'one'");
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'one'");
     } catch (Throwable $e) {
         // Column already exists from a prior test in the same process.
     }
@@ -53,7 +52,7 @@ beforeEach(function () {
     Config::set('partna.throttle.enabled', false);
 });
 
-function seedIndividualProfile(string $handle, ?string $skeletonId = null): User
+function seedIndividualProfile(string $handle, ?string $architectureId = null): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -82,8 +81,8 @@ function seedIndividualProfile(string $handle, ?string $skeletonId = null): User
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ];
-    if ($skeletonId !== null) {
-        $siteRow['skeleton_id'] = $skeletonId;
+    if ($architectureId !== null) {
+        $siteRow['architecture_id'] = $architectureId;
     }
     DB::connection('pgsql')->table('site.sites')->insert($siteRow);
 
@@ -112,13 +111,16 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     $res = $this->getJson('/api/public/profiles/solo1')->assertOk();
     $data = $res->json('data');
 
-    // Top-level keys are now { profile, designKit, skeletonId, publicConfig }
-    // — no more legacy themeMode/accent/fontFamily/design. publicConfig was
-    // restored in phase 7a (was missing in phase 2 reshape).
-    expect($data)->toHaveKeys(['profile', 'designKit', 'skeletonId', 'publicConfig']);
+    // Top-level keys are now { profile, designKit, architectureId, skeletonId,
+    // publicConfig } — architectureId is the canonical key; skeletonId is a
+    // transition alias kept until apps/pages reads architectureId. No more legacy
+    // themeMode/accent/fontFamily/design.
+    expect($data)->toHaveKeys(['profile', 'designKit', 'architectureId', 'skeletonId', 'publicConfig']);
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
+    expect($data['architectureId'])->toBe('one');
+    // Transition alias — must mirror architectureId until apps/pages migrates.
     expect($data['skeletonId'])->toBe('one');
     // Empty designKit decodes to [] under json() because PHP can't tell
     // {} from [] post-decode; the wire byte-level check happens below.
@@ -173,9 +175,10 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     ]);
 });
 
-it('returns the user-selected skeleton_id', function () {
+it('returns the user-selected architecture_id (with skeletonId transition alias)', function () {
     seedIndividualProfile('solo-sk2', 'one');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
+    expect($data['architectureId'])->toBe('one');
     expect($data['skeletonId'])->toBe('one');
 });
 
@@ -1085,6 +1088,7 @@ it('single-flights concurrent requests so only one payload is built', function (
         ->andReturn([
             'profile' => ['handle' => 'singleflight-pro'],
             'designKit' => new stdClass,
+            'architectureId' => 'one',
             'skeletonId' => 'one',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
             'designMedia' => [],

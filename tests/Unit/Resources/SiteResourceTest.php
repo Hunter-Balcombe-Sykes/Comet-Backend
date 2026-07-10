@@ -10,7 +10,7 @@ uses(TestCase::class)->in(__FILE__);
 it('ships only the allowlisted columns and passes non-design settings through', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'one',
+        'architecture_id' => 'one',
         'is_published' => true,
         'unpublished_at' => null,
         'settings' => [
@@ -31,7 +31,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     // updateBookingSettings endpoint share one response shape.
     // design_rationale is opt-in (withRationale) — NOT present by default.
     expect(array_keys($array))->toEqual([
-        'id', 'user_id', 'subdomain', 'skeleton_id', 'is_published',
+        'id', 'user_id', 'subdomain', 'architecture_id', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings', 'design_kit',
         'created_at', 'updated_at', 'booking_mode',
     ]);
@@ -39,7 +39,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
-    expect($array['skeleton_id'])->toBe('one');
+    expect($array['architecture_id'])->toBe('one');
     expect($array['booking_mode'])->toBe('manual');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.
@@ -49,7 +49,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
 it('includes a stable-shaped design_rationale only when opted in', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'one',
+        'architecture_id' => 'one',
         'is_published' => true,
         'settings' => [],
     ]);
@@ -68,7 +68,7 @@ it('includes a stable-shaped design_rationale only when opted in', function () {
 it('handles empty settings as {} not []', function () {
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'one',
+        'architecture_id' => 'one',
         'is_published' => false,
         'settings' => [],
     ]);
@@ -86,7 +86,7 @@ it('builds settings.booking_mode + top-level booking_mode from the promoted colu
     // FOUND-16: column is the source of truth; settings JSONB is empty (post-strip shape).
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'one',
+        'architecture_id' => 'one',
         'is_published' => true,
         'settings' => [],
     ]);
@@ -107,7 +107,7 @@ it('promoted columns win over residual JSONB value during dual-write', function 
     // Both the column and the JSONB carry a value; the column must win.
     $site = new Site([
         'subdomain' => 'example',
-        'skeleton_id' => 'one',
+        'architecture_id' => 'one',
         'is_published' => true,
         'settings' => ['booking_mode' => 'manual'],
     ]);

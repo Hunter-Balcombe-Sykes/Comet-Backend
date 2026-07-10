@@ -53,7 +53,7 @@ class SiteResource extends ApiResource
             'id' => (string) $this->id,
             'user_id' => $this->user_id,
             'subdomain' => $this->subdomain,
-            'skeleton_id' => $this->skeleton_id,
+            'architecture_id' => $this->architecture_id,
             'is_published' => $this->is_published,
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),
