@@ -6,6 +6,8 @@ use App\Enums\SitepageId;
 use App\Models\Core\Site\Site;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentFreshness;
+use App\Services\Analytics\RankedActionsComputer;
+use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -24,6 +26,11 @@ use Illuminate\Support\Str;
  *                        presence + Business gated (shared resolver gate).
  *   - item scores      : link_clicks.product_id + item_views, keyed
  *                        (item_type, item_id).
+ * plus a third, DERIVED family layered on top (content_type='action', keyed
+ * '<kind>:<ref>'): the unified page|item|button ranked-action list computed by
+ * RankedActionsComputer from this run's blended scores + button click signals.
+ * The action layer owns its own lifecycle (stale keys deleted per run) and is
+ * excluded from the generic fade-out union below.
  *
  * Formula: score = Σ_days (W_CLICK·clicks_d + W_VIEW·impressions_d +
  * W_DWELL_PER_SECOND·dwell_s_d) · 2^(-age_d / HALF_LIFE_DAYS) + freshness.
@@ -125,6 +132,8 @@ class ComputeContentPopularityScores extends Command
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentFreshness $freshness,
+        private readonly SiteActionsService $actions,
+        private readonly RankedActionsComputer $rankedActions,
     ) {
         parent::__construct();
     }
@@ -227,8 +236,12 @@ class ComputeContentPopularityScores extends Command
             $itemAgg['link_item'][$key] ??= ['clicks' => 0.0, 'impressions' => 0.0, 'dwell_ms' => 0.0];
         }
 
+        // 'action' rows (ranked-actions layer) are OWNED by computeActions
+        // below — excluded from the generic union so the fade-out loop never
+        // treats them as a signal-less content family.
         $storedTypes = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $site->id)
+            ->where('content_type', '!=', RankedActionsComputer::CONTENT_TYPE)
             ->distinct()
             ->pluck('content_type')
             ->all();
@@ -256,7 +269,54 @@ class ComputeContentPopularityScores extends Command
             }
         }
 
+        // Ranked actions (unified page|item|button list) — layered ON TOP of
+        // the rows above; fail-open so an action-layer fault degrades to "no
+        // rankedActions refresh", never to broken page/item scores.
+        try {
+            $actionResult = $this->computeActions($site, $rows);
+            $rows = array_merge($rows, $actionResult['rows']);
+            if ($actionResult['deletes'] !== []) {
+                $deletes[RankedActionsComputer::CONTENT_TYPE] = $actionResult['deletes'];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('analytics.ranked_actions_failed', [
+                'site_id' => $site->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return ['rows' => $rows, 'deletes' => $deletes];
+    }
+
+    /**
+     * Ranked-action rows for one site from THIS RUN's blended page/item scores
+     * (fresher than the stored rows mid-run) + the live action pool.
+     *
+     * @param  list<array<string, mixed>>  $rows  this run's upsert rows (page + item types)
+     * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
+     */
+    private function computeActions(Site $site, array $rows): array
+    {
+        $pro = $site->user;
+        if ($pro === null) {
+            return ['rows' => [], 'deletes' => []];
+        }
+
+        $pageScores = [];
+        $itemScores = [];
+        $itemRanks = [];
+        foreach ($rows as $row) {
+            if ($row['content_type'] === 'page') {
+                $pageScores[$row['content_key']] = (float) $row['score'];
+            } else {
+                $itemScores[$row['content_type']][$row['content_key']] = (float) $row['score'];
+                $itemRanks[$row['content_type']][$row['content_key']] = (int) $row['rank'];
+            }
+        }
+
+        $pool = $this->actions->pool($pro, $site, ranks: $itemRanks);
+
+        return $this->rankedActions->computeForSite($site, $pool, $pageScores, $itemScores);
     }
 
     /**

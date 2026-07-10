@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
+use App\Http\Controllers\Api\User\SiteManagement\UserSiteActionsController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\Uploads\UserDesignMediaController;
@@ -93,6 +94,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
 
         // View Site Details
         Route::get('/site', [UserSiteController::class, 'show']);
+        // Action pool + ranked actions + ordering settings — powers the design
+        // page's "Pages" / "Action buttons" controls (read-only; writes via
+        // PATCH /site settings).
+        Route::get('/site/actions', [UserSiteActionsController::class, 'show'])
+            ->name('professional.site.actions');
         // Live availability check for the URL-change flow — same code path as
         // the PATCH /site subdomain validation. Dedicated limiter (typing-speed
         // debounced client-side, but still per-user capped).

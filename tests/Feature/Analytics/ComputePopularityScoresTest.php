@@ -76,8 +76,15 @@ it('seeds nothing for ancient connections (boost below the floor)', function () 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
+    // Page/item families seed nothing (boost below the floor)...
     expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
-        ->where('site_id', $tenant->site->id)->count())->toBe(0);
+        ->where('site_id', $tenant->site->id)
+        ->where('content_type', '!=', 'action')
+        ->count())->toBe(0);
+
+    // ...but the ranked-action layer still writes its cold-start row for the
+    // present Links page (priors + recency carry zero-signal sites by design).
+    expect(popularityScoreRow($tenant->site->id, 'action', 'page:links'))->not->toBeNull();
 });
 
 it('decays each day\'s events with a 90-day true half-life', function () {
