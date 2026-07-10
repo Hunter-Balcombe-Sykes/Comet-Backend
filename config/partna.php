@@ -1689,5 +1689,20 @@ return [
             'documents' => 'File Preview', 'newsletter' => 'Newsletter', 'contact' => 'Contact',
             'contacts_collection' => 'Contacts', 'barbershop_info' => 'Barbershop Info',
         ],
+
+        // Page-id → display label for the "page views" metric + insight headlines.
+        // Keyed by the 16 canonical page-ids (App\Enums\SitepageId) that
+        // section_keys fold into via SitepageId::SECTION_KEY_TO_PAGE — the
+        // page-model successor to section_titles above (stored section_keys are
+        // immutable; folding + relabelling happens at the query layer only).
+        // Unknown page-ids fall back to a humanized key in
+        // AnalyticsQueryService::pageTitle().
+        'page_titles' => [
+            'home' => 'Home', 'listen' => 'Listen', 'watch' => 'Watch', 'shop' => 'Shop',
+            'menu' => 'Menu', 'book' => 'Book', 'reservations' => 'Reservations',
+            'events' => 'Events', 'gallery' => 'Gallery', 'reviews' => 'Reviews',
+            'documents' => 'Documents', 'contact' => 'Contact', 'pinterest' => 'Pinterest',
+            'strava' => 'Strava', 'skool' => 'Skool', 'links' => 'Links',
+        ],
     ],
 ];

@@ -28,7 +28,15 @@ class AnalyticsCacheService
     public function __construct(
         private readonly CacheLockService $cacheLock,
         private readonly AnalyticsQueryService $queries,
+        private readonly InsightEngine $insightEngine,
     ) {}
+
+    /**
+     * Fixed rolling window (days) the insight engine analyses — independent of
+     * the dashboard's selected range. 14d = two full weeks, the minimum the
+     * week-over-week insights need.
+     */
+    private const INSIGHT_WINDOW_DAYS = 14;
 
     /**
      * Debounced bust of every cached summary variant for a user: increments the
@@ -84,6 +92,105 @@ class AnalyticsCacheService
             $cacheTTL,
             fn () => $this->compose($professional, $site, $from, $to, $useHourlyBuckets, $professionalTimezone),
         );
+    }
+
+    /**
+     * Derived insights for the dashboard's "Insights" card. Computed over a fixed
+     * INSIGHT_WINDOW_DAYS rolling window (NOT the dashboard's selected range),
+     * cached per user with the shared summary version token (1h TTL) so the
+     * heavier week-over-week reads run at most hourly however many ranges the
+     * dashboard requests.
+     *
+     * Fail-open at every layer: each query provider try/catches to empty, the
+     * engine emits nothing below threshold, and this wrapper backstops any
+     * surprise to [] — insights can never break the analytics response.
+     *
+     * @return list<array{id:string, kind:string, headline:string, supporting_stat:array<string,mixed>, period:array<string,mixed>}>
+     */
+    public function insights(User $professional, Site $site): array
+    {
+        $version = (int) Cache::get(CacheKeyGenerator::analyticsSummaryVersion($professional->id), 0);
+        $cacheKey = CacheKeyGenerator::analyticsInsights($professional->id).":v{$version}";
+
+        return $this->cacheLock->rememberLocked($cacheKey, 3600, fn (): array => $this->computeInsights($professional));
+    }
+
+    /**
+     * Fetch the aggregates each insight needs and run them through the pure
+     * InsightEngine. Windows: time-of-day / weekday / dwell use the full
+     * INSIGHT_WINDOW_DAYS window; page riser-faller + source shift compare the
+     * current 7-day week against the prior 7-day week.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function computeInsights(User $professional): array
+    {
+        try {
+            $proId = $professional->id;
+            $now = Carbon::now()->utc();
+            $windowStart = $now->copy()->subDays(self::INSIGHT_WINDOW_DAYS)->startOfDay();
+            $thisWeekStart = $now->copy()->subDays(7)->startOfDay();
+            $priorWeekStart = $thisWeekStart->copy()->subDays(7);
+
+            $windowPeriod = [
+                'from' => $windowStart->toDateString(),
+                'to' => $now->toDateString(),
+                'label' => 'Last '.self::INSIGHT_WINDOW_DAYS.' days',
+            ];
+            $wowPeriod = [
+                'from' => $thisWeekStart->toDateString(),
+                'to' => $now->toDateString(),
+                'label' => 'This week vs last week',
+            ];
+
+            $insights = [];
+
+            $timeOfDay = $this->insightEngine->timeOfDay(
+                $this->queries->hourlyClickBuckets($proId, $windowStart, $now),
+                $windowPeriod,
+            );
+            if ($timeOfDay !== null) {
+                $insights[] = $timeOfDay;
+            }
+
+            $weekdayPeak = $this->insightEngine->weekdayPeak(
+                $this->queries->weekdayVisitBuckets($proId, $windowStart, $now),
+                $windowPeriod,
+            );
+            if ($weekdayPeak !== null) {
+                $insights[] = $weekdayPeak;
+            }
+
+            foreach ($this->insightEngine->pageRisersFallers(
+                $this->queries->pageViewsWeekOverWeek($proId, $thisWeekStart, $now),
+                $wowPeriod,
+            ) as $pageInsight) {
+                $insights[] = $pageInsight;
+            }
+
+            $sourceShift = $this->insightEngine->trafficSourceShift(
+                $this->queries->sourceCountsForWindow($proId, $thisWeekStart, $now),
+                $this->queries->sourceCountsForWindow($proId, $priorWeekStart, $thisWeekStart),
+                $wowPeriod,
+            );
+            if ($sourceShift !== null) {
+                $insights[] = $sourceShift;
+            }
+
+            $dwellOutlier = $this->insightEngine->dwellOutlier(
+                $this->queries->pageDwellStats($proId, $windowStart, $now),
+                $windowPeriod,
+            );
+            if ($dwellOutlier !== null) {
+                $insights[] = $dwellOutlier;
+            }
+
+            return $insights;
+        } catch (Throwable $e) {
+            Log::warning('analytics.insights_failed', ['user_id' => $professional->id, 'error' => $e->getMessage()]);
+
+            return [];
+        }
     }
 
     /**
@@ -153,7 +260,10 @@ class AnalyticsCacheService
                 'clicks_by_day' => $this->queries->clicksByBucket($proId, $from, $to, $useHourlyBuckets),
                 'visits_by_day_by_device' => $this->queries->visitsByDayByDevice($proId, $from, $to),
             ],
-            'top_sections' => $this->queries->topSections($proId, $from, $to),
+            // "Page views" — section_views folded into the 16-page sitepage
+            // taxonomy at the query layer (stored section_key rows are immutable).
+            // Supersedes the old `top_sections` key; the frontend reads `top_pages`.
+            'top_pages' => $this->queries->topPages($proId, $from, $to),
             'top_links' => $this->queries->topLinks($proId, $from, $to),
             // Shop/booking/event sitepage sections all carry product_id on the same
             // analytics.link_clicks table — each key is scoped to its own section_key

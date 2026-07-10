@@ -101,7 +101,31 @@ class UserAnalyticsController extends ApiController
             $professionalTimezone,
         );
 
+        // Derived insights ride the summary payload (own fixed window + cache, so
+        // they don't vary with the selected range). Fail-open to [] inside the
+        // service — never blocks the summary.
+        $data['insights'] = $this->analytics->insights($professional, $site);
+
         return $this->success($data);
+    }
+
+    /**
+     * Dedicated insights resource — the same derived-insight array the summary
+     * embeds under `insights`, for the dashboard's Insights card to fetch on its
+     * own. Computed over a fixed rolling window, independent of any date range.
+     */
+    public function insights(Request $request): JsonResponse
+    {
+        $professional = $this->currentUser($request);
+
+        $site = $professional->site;
+        if (! $site) {
+            return $this->error('professional has no site.', 404);
+        }
+
+        return $this->success([
+            'insights' => $this->analytics->insights($professional, $site),
+        ]);
     }
 
     /**
