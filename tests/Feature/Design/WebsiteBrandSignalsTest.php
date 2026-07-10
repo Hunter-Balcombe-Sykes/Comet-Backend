@@ -320,11 +320,13 @@ it('stores the failure kind when the worker errors, and when unconfigured', func
     expect($a['ok'])->toBeFalse()->and($a['failure'])->toBe('disabled');
 });
 
-it('maps tiers to columns, drops unknown tiers, and knows the new light tier', function () {
-    expect(StyleTiers::columnsFromTiers(['bg' => 'made-up', 'radius' => 'sharp', 'nonsense' => 'x']))
+it('maps tiers to columns, drops unknown tiers, and no longer maps the bg signal', function () {
+    expect(StyleTiers::columnsFromTiers(['bg' => 'dark', 'radius' => 'sharp', 'nonsense' => 'x']))
         ->toBe(['border_radius' => '0.25rem'])
+        // The analyzer still emits bg tiers, but the mapping deliberately drops
+        // them — theme_mode owns the background (2026-07-10 rework).
         ->and(StyleTiers::columnsFromTiers(['bg' => 'light']))
-        ->toBe(['color_bg' => '#fafafa']);
+        ->toBe([]);
 });
 
 // ── PreviousWebsiteFactor (band F, priority 84) ────────────────────────────
@@ -341,14 +343,13 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    // color_bg is no longer factor-targetable, so the allowlist filter drops
-    // it (WS5 re-tunes factor values — see plan 2026-07-10). The band-F win
-    // still shows on border_radius: previous-website 'sharp' (84) beats
-    // nothing here, but accent + radius prove the factor landed.
+    // The dark bg tier maps to nothing (theme_mode owns the background); the
+    // band-F win shows on accent + radius, and Google still fills the
+    // uncontested columns from the FOOD_DRINK bucket.
     expect($layer)->not->toHaveKey('color_bg');
-    expect($layer['color_accent'])->toBe('#123abc') // raw accent passes through
+    expect($layer['color_accent'])->toBe('#123abc') // raw accent passes through, beating the bucket's #e0491f
         ->and($layer['border_radius'])->toBe('0.25rem')
-        ->and($layer['typography_font_family'])->toBe('young-serif'); // Google still wins uncontested columns (FOOD_DRINK bucket)
+        ->and($layer['typography_font_family'])->toBe('young-serif');
 });
 
 it('ignores below-threshold signals and low-confidence accents', function () {
@@ -391,9 +392,9 @@ it('contributes nothing when the stored analysis is stale (URL changed since)', 
 
 it('sweeps previous-website contributions when the URL is cleared', function () {
     $user = createTenant('pw-cleared');
-    // radius signal added: bg alone no longer produces a visible contribution
-    // (color_bg untargetable — WS5 re-tunes factor values, see plan 2026-07-10),
-    // and this test needs a non-empty layer to prove the sweep empties it.
+    // radius signal included: a bg tier maps to nothing (theme_mode owns the
+    // background), and this test needs a non-empty layer to prove the sweep
+    // empties it.
     wbsSeedWorkplace($user->site->id, 'https://old.example', wbsAnalysis(
         'https://old.example', null, ['bg' => 'dark', 'radius' => 'sharp'],
     ));
@@ -428,9 +429,9 @@ it('applies the mode across outside websites: 4 dark + 1 light -> dark', functio
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    // The bg vote (4 dark vs 1 warm) still happens factor-side but color_bg is
-    // untargetable (WS5 re-tunes factor values — see plan 2026-07-10); the
-    // unopposed font vote remains the observable outcome.
+    // The bg signal is unmapped in StyleTiers (theme_mode owns the background),
+    // so the 4-dark-vs-1-warm vote yields nothing; the unopposed font vote is
+    // the observable outcome.
     expect($layer)->not->toHaveKey('color_bg')
         ->and($layer['typography_font_family'])->toBe('geist'); // 2 votes, unopposed
 });
@@ -456,9 +457,9 @@ it('skips a column when the outside-website vote is tied', function () {
 it('loses every contested column to Instagram (30 beats 10)', function () {
     $user = createTenant('outside-loses');
     wbsSeedConnection($user, ['businessCategory' => 'Restaurant'], 'instagram'); // food bucket @30
-    // Contest moved to border_radius: color_bg is untargetable now (WS5
-    // re-tunes factor values — see plan 2026-07-10). Outside sites vote
-    // 'rounded' (1rem) at priority 10; the food bucket's 0.25rem (30) must win.
+    // Contested column is border_radius (bg tiers map to nothing). Outside
+    // sites vote 'rounded' (1rem) at priority 10; the food bucket's 0.25rem
+    // (30) must win.
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://c.test',
         'styleAnalysis' => wbsAnalysis('https://c.test', null, ['bg' => 'dark', 'radius' => 'rounded']),
@@ -470,10 +471,9 @@ it('loses every contested column to Instagram (30 beats 10)', function () {
 });
 
 it('ignores failed, missing, and v1 analyses in the vote', function () {
-    // Discriminator moved bg → radius: color_bg is untargetable now (WS5
-    // re-tunes factor values — see plan 2026-07-10). The valid analysis votes
-    // 'sharp'; the v1 doc votes a CONFLICTING 'very_rounded' — if the v1 doc
-    // were (wrongly) counted, the 1–1 tie would drop border_radius entirely.
+    // Discriminator is radius (bg tiers map to nothing). The valid analysis
+    // votes 'sharp'; the v1 doc votes a CONFLICTING 'very_rounded' — if the v1
+    // doc were (wrongly) counted, the 1–1 tie would drop border_radius entirely.
     $user = createTenant('outside-failed');
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://ok.test',

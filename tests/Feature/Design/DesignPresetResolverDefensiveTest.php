@@ -166,12 +166,12 @@ it('breaks an equal-priority contest by source ascending, independent of row ord
                 'integration' => 'test',
                 'priority' => 50,
                 'mode' => 'one_shot',
-                'target_var' => 'color_bg',
+                'target_var' => 'color_accent',
                 'value' => $value,
             ]);
         }
 
-        expect(dprResolver()->presetLayer($siteId)['color_bg'])->toBe('#aaaaaa');
+        expect(dprResolver()->presetLayer($siteId)['color_accent'])->toBe('#aaaaaa');
     }
 });
 

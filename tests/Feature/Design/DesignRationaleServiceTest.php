@@ -84,7 +84,7 @@ it('labels a manually-overridden column "You set this." and drops its factor att
 
 it('surfaces a launch recipe as a neutral "curated look" and aesthetic-expression neutrally', function () {
     $siteId = (string) Str::uuid();
-    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'color_bg', '#faf6f7', 'one_shot');
+    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'effect_surface', 'glass', 'one_shot');
     contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'weight_regular', '300', 'one_shot');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);
@@ -98,7 +98,7 @@ it('surfaces a launch recipe as a neutral "curated look" and aesthetic-expressio
 it('never surfaces raw column names, factor keys, or sensitive/demographic detail', function () {
     $siteId = (string) Str::uuid();
     // A spread across many sources, including the sensitive aesthetic one.
-    contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'color_bg', '#faf6f7', 'one_shot');
+    contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'effect_surface', 'glass', 'one_shot');
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
     contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '1.15rem');
     contribute($siteId, 'hours-rhythm:energy', 'hours', 15, 'motion_pace', 'fast');
@@ -108,7 +108,7 @@ it('never surfaces raw column names, factor keys, or sensitive/demographic detai
     $blob = strtolower(json_encode($out));
 
     // No raw target_var column names.
-    foreach (['color_bg', 'color_accent', 'space_regular', 'motion_pace', 'weight_regular', 'target_var'] as $col) {
+    foreach (['effect_surface', 'color_accent', 'space_regular', 'motion_pace', 'weight_regular', 'target_var'] as $col) {
         expect(str_contains($blob, $col))->toBeFalse("rationale leaked a raw column name: {$col}");
     }
     // No factor keys / source strings.
@@ -148,14 +148,14 @@ it('summarises auto-tailoring with an override note when both are present', func
 
 it('attributes only the WINNING source when two factors contest a column', function () {
     $siteId = (string) Str::uuid();
-    // Two sources set color_bg; the higher-priority one (recipe, 70) wins the
+    // Two sources set the accent; the higher-priority one (recipe, 70) wins the
     // attribution, and the loser (instagram, 30) is not credited for Colours.
-    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'color_bg', '#151515', 'one_shot');
-    contribute($siteId, 'instagram:category', 'instagram', 30, 'color_bg', '#fafafa');
+    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'color_accent', '#c9a24b', 'one_shot');
+    contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);
 
     $labels = collect($out['items'])->pluck('sourceLabel')->all();
     expect($labels)->toContain('A curated look')
-        ->and($labels)->not->toContain('Your Instagram'); // IG only set the losing color_bg
+        ->and($labels)->not->toContain('Your Instagram'); // IG only set the losing accent
 });

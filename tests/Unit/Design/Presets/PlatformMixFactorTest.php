@@ -39,37 +39,37 @@ function mixEvidence(array $slugs): IdentityEvidence
     );
 }
 
-it('maps a creator-AV-heavy mix to fast motion + hard shadows + bold bundle', function () {
+it('maps a creator-AV-heavy mix to fast motion + hard shadows + solid surface', function () {
     $out = mixFactor()->detect(mixEvidence(['youtube', 'twitch', 'vimeo']));
 
     expect($out)->toBe([
         'motion_pace' => 'fast',
         'effect_shadow_style' => 'hard',
-        'effect_style' => 'bold',
+        'effect_surface' => 'solid',
     ]);
 });
 
-it('maps a social-lifestyle mix to normal motion + soft shadows + soft-glass bundle', function () {
+it('maps a social-lifestyle mix to normal motion + soft shadows + glass surface', function () {
     $out = mixFactor()->detect(mixEvidence(['instagram', 'tiktok', 'spotify']));
 
     expect($out)->toBe([
         'motion_pace' => 'normal',
         'effect_shadow_style' => 'soft',
-        'effect_style' => 'soft-glass',
+        'effect_surface' => 'glass',
     ]);
 });
 
-it('maps a local-service mix to slow motion + soft shadows + soft-glass bundle', function () {
+it('maps a local-service mix to slow motion + soft shadows + glass surface', function () {
     $out = mixFactor()->detect(mixEvidence(['google-business', 'fresha', 'opentable']));
 
     expect($out)->toBe([
         'motion_pace' => 'slow',
         'effect_shadow_style' => 'soft',
-        'effect_style' => 'soft-glass',
+        'effect_surface' => 'glass',
     ]);
 });
 
-it('maps a retail-only mix to normal motion + flat shadows + sharp bundle', function () {
+it('maps a retail-only mix to normal motion + flat shadows + outline surface', function () {
     // The vibe tally counts DISTINCT platform types, and retail's sole slug is
     // `shop` — so retail only leads when the store is the only categorised
     // platform. (A `custom` link classifies as content → creator-av, so it would
@@ -79,7 +79,7 @@ it('maps a retail-only mix to normal motion + flat shadows + sharp bundle', func
     expect($out)->toBe([
         'motion_pace' => 'normal',
         'effect_shadow_style' => 'flat',
-        'effect_style' => 'sharp',
+        'effect_surface' => 'outline',
     ]);
 });
 
@@ -96,7 +96,7 @@ it('ignores unregistered / uncategorised slugs when tallying', function () {
     // 'custom' has no design vibe; two social platforms still carry the read.
     $out = mixFactor()->detect(mixEvidence(['custom', 'instagram', 'tiktok']));
 
-    expect($out['effect_style'])->toBe('soft-glass');
+    expect($out['effect_surface'])->toBe('glass');
 });
 
 it('is registered in band A (ambient) as an auto factor', function () {

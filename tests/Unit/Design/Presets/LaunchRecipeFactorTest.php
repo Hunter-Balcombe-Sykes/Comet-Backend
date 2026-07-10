@@ -63,12 +63,10 @@ it('stamps beauty-soft when two independent sources concur on beauty', function 
         lrConnection('google-business', ['category' => 'Beauty salon']),
     ])));
 
-    // color_bg is no longer factor-targetable, so detect()'s internal
-    // allowlist filter drops it. WS5 re-tunes factor values — see plan 2026-07-10.
-    expect($out)->not->toHaveKey('color_bg');
     expect($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
-        ->and($out['typography_font_family'])->toBe('origin')
+        ->and($out['typography_font_family'])->toBe('melodrama') // the beauty-premium display serif
+        ->and($out['effect_surface'])->toBe('glass')
         ->and($out['effect_button_fill'])->toBe('ghost');
 });
 
@@ -81,11 +79,10 @@ it('stamps fitness-bold when sector and Google concur on fitness', function () {
     // Only fires if the declared sector 'personal-trainer' maps to the fitness
     // family; if the taxonomy slug differs this asserts the shape when it does.
     if ($out !== []) {
-        // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
-        expect($out)->not->toHaveKey('color_bg');
         expect($out['border_radius'])->toBe('0.25rem')
             ->and($out['weight_regular'])->toBe('600')
-            ->and($out['typography_font_family'])->toBe('oswald');
+            ->and($out['typography_font_family'])->toBe('oswald')
+            ->and($out['effect_surface'])->toBe('solid');
     } else {
         // Sector slug didn't map — Google alone is one group, correctly abstains.
         expect($out)->toBe([]);
@@ -98,10 +95,11 @@ it('stamps fine-dining-editorial for a fine-dining cuisine plus a premium price'
         lrShop([180, 220, 260, 300]), // premium median
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
-    expect($out)->not->toHaveKey('color_bg');
-    expect($out)->not->toHaveKey('effect_style');
+    // Dark-luxury identity without a bg column: gold + light weight + outline.
     expect($out['typography_font_family'])->toBe('young-serif')
+        ->and($out['color_accent'])->toBe('#c9a24b')
+        ->and($out['weight_regular'])->toBe('300')
+        ->and($out['effect_surface'])->toBe('outline')
         ->and($out['effect_link_style'])->toBe('underline-always');
 });
 
@@ -111,9 +109,8 @@ it('stamps hospitality-warm for a cafe with two category sources (not fine dinin
         lrConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
-    expect($out)->not->toHaveKey('color_bg');
-    expect($out['typography_font_family'])->toBe('geist')
+    expect($out['typography_font_family'])->toBe('young-serif') // artisanal café warmth
+        ->and($out['effect_surface'])->toBe('glass')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
 
@@ -123,11 +120,10 @@ it('stamps creative-editorial when sector and Google concur on creative', functi
         lrConnection('instagram', ['businessCategory' => 'Photographer']),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
-    expect($out)->not->toHaveKey('color_bg');
-    expect($out)->not->toHaveKey('effect_style');
     expect($out['typography_font_family'])->toBe('geist')
-        ->and($out['effect_link_style'])->toBe('underline-always');
+        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out['effect_link_style'])->toBe('underline-always')
+        ->and($out['effect_image_treatment'])->toBe('none'); // the work is never filtered
 });
 
 it('stamps maker-craft for a craft business with an active accessible shop', function () {
@@ -136,10 +132,9 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
         lrShop([25, 30, 35, 38]), // accessible median
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
-    expect($out)->not->toHaveKey('color_bg');
     expect($out['border_radius'])->toBe('1rem')
         ->and($out['typography_font_family'])->toBe('origin')
+        ->and($out['effect_surface'])->toBe('solid') // tactile, not digital-luxe glass
         ->and($out['effect_button_fill'])->toBe('outline');
 });
 

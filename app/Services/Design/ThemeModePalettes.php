@@ -21,6 +21,7 @@ class ThemeModePalettes
     /** @return array{bg: string, text: string} */
     public static function anchorsFor(?string $mode): array
     {
-        return self::ANCHORS[$mode] ?? self::ANCHORS[self::DEFAULT_MODE];
+        // Coalesce before indexing: a null offset is a PHP 8.5 deprecation.
+        return self::ANCHORS[$mode ?? self::DEFAULT_MODE] ?? self::ANCHORS[self::DEFAULT_MODE];
     }
 }
