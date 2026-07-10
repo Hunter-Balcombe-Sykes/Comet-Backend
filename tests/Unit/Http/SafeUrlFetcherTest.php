@@ -2,6 +2,7 @@
 
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -121,6 +122,23 @@ it('keeps the original 403 when the honest-UA retry is also blocked', function (
 
     expect($out['status'])->toBe(403);
     Http::assertSentCount(2);
+});
+
+it('keeps the original 403 when the retry leg fails at transport level', function () {
+    // The retry must never worsen the outcome: a ConnectionException on the
+    // fallback-UA leg is swallowed, not propagated over the 403 we already have.
+    Http::fake(function ($request) {
+        $ua = $request->header('User-Agent')[0] ?? '';
+
+        return str_starts_with($ua, 'Mozilla/')
+            ? Http::response('blocked', 403)
+            : throw new ConnectionException('timed out');
+    });
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/x');
+
+    expect($out['status'])->toBe(403);
+    expect($out['body'])->toBe('blocked');
 });
 
 it('does not retry a 403 when the caller already sent a non-Mozilla UA', function () {

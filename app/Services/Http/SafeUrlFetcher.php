@@ -79,8 +79,9 @@ class SafeUrlFetcher
                 if ($retry['status'] < 400) {
                     return $retry;
                 }
-            } catch (SafeUrlException) {
-                // Retry failed harder than the original — keep the 403.
+            } catch (SafeUrlException|ConnectionException) {
+                // Retry failed harder than the original (SSRF re-check or
+                // transport failure) — keep the 403.
             }
         }
 
