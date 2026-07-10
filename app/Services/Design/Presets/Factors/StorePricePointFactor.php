@@ -78,12 +78,15 @@ class StorePricePointFactor implements EvidenceFactor
         ],
         self::BAND_MID => [
             'space_regular' => '0.95rem',   // regular
-            'border_thickness' => '1px',
+            // 2026-07-10 thickness vocab shifted down a label (1px -> 0.5px),
+            // so mid now matches luxury's hairline; the tier contrast lives in
+            // space/motion/surface.
+            'border_thickness' => '0.5px',
             'motion_pace' => 'normal',
         ],
         self::BAND_CASUAL => [
             'space_regular' => '0.8rem',    // compact
-            'border_radius' => '1rem',      // rounded/friendly
+            'border_radius' => '0.85rem',   // rounded/friendly
             'weight_regular' => '500',
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',    // filled, friendly, accessible

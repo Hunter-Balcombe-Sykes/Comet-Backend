@@ -136,7 +136,7 @@ it('summarises auto-tailoring with an override note when both are present', func
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,
-        'border_radius' => '1rem',
+        'border_radius' => '0.85rem',
     ]);
 
     $out = app(DesignRationaleService::class)->forSite($siteId);

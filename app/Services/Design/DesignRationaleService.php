@@ -32,8 +32,15 @@ class DesignRationaleService
      */
     private const COLUMN_AREAS = [
         'color_accent' => 'Colours',
-        'text_xs' => 'Typography',
-        'text_desktop_xs' => 'Typography',
+        'text_caption' => 'Typography',
+        'text_body' => 'Typography',
+        'text_h3' => 'Typography',
+        'text_h2' => 'Typography',
+        'text_h1' => 'Typography',
+        'text_display' => 'Typography',
+        'text_desktop_body' => 'Typography',
+        'text_desktop_h1' => 'Typography',
+        'text_desktop_display' => 'Typography',
         'weight_regular' => 'Typography',
         'typography_line_height' => 'Typography',
         'typography_logo_height' => 'Typography',

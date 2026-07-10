@@ -83,7 +83,7 @@ class GoogleBusinessAttributesFactor implements DesignFactor
         if ($children && $outdoor) {
             return [
                 'motion_pace' => 'normal',
-                'border_radius' => '1rem',
+                'border_radius' => '0.85rem',
             ];
         }
 

@@ -48,7 +48,7 @@ class CuisineFactor implements EvidenceFactor
             'effect_image_treatment' => 'duotone',
         ],
         CuisineLexicon::CAFE => [
-            'border_radius' => '1rem',          // rounded/friendly
+            'border_radius' => '0.85rem',       // rounded/friendly
             'weight_regular' => '400',
             'motion_pace' => 'normal',
             'effect_shadow_style' => 'soft',

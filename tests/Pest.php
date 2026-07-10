@@ -2085,9 +2085,10 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
  * so tests can insert partial rows and the resolver falls back to defaults
  * for unset columns. Mirrors the production schema subset tests touch —
  * 2026-07-10 rework: color_bg dropped; theme_mode / theme_night_shift_auto /
- * effect_surface added (migration 20260710160000). The production trigger
- * trg_create_empty_design_kit is absent in SQLite — tests that need a kit
- * row must insert one manually.
+ * effect_surface added (migration 20260710160000); the size-named text_*
+ * columns became the nine semantic slots (migration 20260710190000). The
+ * production trigger trg_create_empty_design_kit is absent in SQLite — tests
+ * that need a kit row must insert one manually.
  */
 function setupDesignKitsTable(): void
 {
@@ -2101,6 +2102,15 @@ function setupDesignKitsTable(): void
         border_radius TEXT NULL,
         button_primary_bg TEXT NULL,
         button_primary_text TEXT NULL,
+        text_caption TEXT NULL,
+        text_body TEXT NULL,
+        text_h3 TEXT NULL,
+        text_h2 TEXT NULL,
+        text_h1 TEXT NULL,
+        text_display TEXT NULL,
+        text_desktop_body TEXT NULL,
+        text_desktop_h1 TEXT NULL,
+        text_desktop_display TEXT NULL,
         theme_mode TEXT NULL,
         theme_night_shift_auto INTEGER NULL,
         effect_surface TEXT NULL,

@@ -132,7 +132,7 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
         lrShop([25, 30, 35, 38]), // accessible median
     ])));
 
-    expect($out['border_radius'])->toBe('1rem')
+    expect($out['border_radius'])->toBe('0.85rem')
         ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_surface'])->toBe('solid') // tactile, not digital-luxe glass
         ->and($out['effect_button_fill'])->toBe('outline');

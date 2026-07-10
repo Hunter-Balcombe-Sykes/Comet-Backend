@@ -458,7 +458,7 @@ it('loses every contested column to Instagram (30 beats 10)', function () {
     $user = createTenant('outside-loses');
     wbsSeedConnection($user, ['businessCategory' => 'Restaurant'], 'instagram'); // food bucket @30
     // Contested column is border_radius (bg tiers map to nothing). Outside
-    // sites vote 'rounded' (1rem) at priority 10; the food bucket's 0.25rem
+    // sites vote 'rounded' (0.85rem) at priority 10; the food bucket's 0.25rem
     // (30) must win.
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://c.test',

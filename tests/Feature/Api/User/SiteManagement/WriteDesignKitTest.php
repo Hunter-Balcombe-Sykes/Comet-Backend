@@ -303,6 +303,25 @@ it('persists theme_mode, theme_night_shift_auto and effect_surface', function ()
         ->and((bool) $row->theme_night_shift_auto)->toBeFalse();
 });
 
+// 2026-07-10 semantic text scale (migration 20260710190000) — write-surface
+// coverage for the renamed text columns.
+it('persists the semantic text-scale columns', function () {
+    $siteId = seedSiteWithEmptyKit();
+
+    invokeWriteDesignKit($siteId, [
+        'text_body' => '0.85rem',
+        'text_display' => '3.2rem',
+        'text_desktop_h1' => '3.2rem',
+    ]);
+
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $siteId)->first();
+
+    expect($row->text_body)->toBe('0.85rem')
+        ->and($row->text_display)->toBe('3.2rem')
+        ->and($row->text_desktop_h1)->toBe('3.2rem');
+});
+
 it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {
     config(['partna.throttle.enabled' => false]);
 

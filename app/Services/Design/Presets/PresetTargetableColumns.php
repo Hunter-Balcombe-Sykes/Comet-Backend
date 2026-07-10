@@ -29,8 +29,8 @@ final class PresetTargetableColumns
         // theme_mode palette (2026-07-10 rework), the rest is inferred.
         'color_accent',
         // Typography (value + selection)
-        'text_xs',
-        'text_desktop_xs',
+        'text_body',
+        'text_desktop_body',
         'weight_regular',
         'typography_line_height',
         'typography_logo_height',

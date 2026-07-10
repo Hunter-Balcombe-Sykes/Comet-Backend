@@ -142,7 +142,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#7c2d12',        // warm brown (hospitality bucket)
-                    'border_radius' => '0.6rem',        // moderate
+                    'border_radius' => '0.25rem',       // moderate (2026-07-10 vocab: shares the sharp stop)
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
                     'space_regular' => '0.95rem',       // regular
@@ -221,7 +221,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#7c3aed',        // distinctive violet (creative bucket)
-                    'border_radius' => '0.6rem',        // moderate
+                    'border_radius' => '0.25rem',       // moderate (2026-07-10 vocab: shares the sharp stop)
                     'weight_regular' => '500',          // medium
                     'typography_font_family' => 'geist', // gallery-neutral grotesque — the chrome recedes, the work speaks
                     'space_regular' => '0.95rem',       // regular
@@ -269,7 +269,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#a15c2b',        // terracotta/craft
-                    'border_radius' => '1rem',          // rounded
+                    'border_radius' => '0.85rem',       // rounded
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
                     'space_regular' => '0.95rem',       // regular
