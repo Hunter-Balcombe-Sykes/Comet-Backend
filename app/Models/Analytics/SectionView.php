@@ -31,8 +31,11 @@ class SectionView extends BaseModel
     public $timestamps = false;
 
     protected $fillable = [
+        // block_id is a nullable ownership FK to site.blocks (mirrors
+        // LinkClick's link_block_id) — the writer validates it belongs to
+        // the same site before persisting, so it must stay guarded here too
+        // rather than mass-assignable. See AnalyticsModelFillableTest.
         'section_key',
-        'block_id',
         'occurred_at',
         'session_id',
         'visitor_id',

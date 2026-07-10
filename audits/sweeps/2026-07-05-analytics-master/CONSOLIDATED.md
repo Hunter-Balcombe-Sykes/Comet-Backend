@@ -138,7 +138,8 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
             USING (user_id = (SELECT id FROM core.users WHERE auth_user_id = auth.uid() AND deleted_at IS NULL));
         ```
 
-- [ ] **#PARITY-1** `[full-sweep]` · P2 — Analytics event models' `$fillable` lists are missing columns the production writer writes
+- [x] **#PARITY-1** `[full-sweep]` · P2 — Analytics event models' `$fillable` lists are missing columns the production writer writes
+    - **Resolution (2026-07-10):** fixed, but NOT as written. The `What to do` below prescribes adding `id`, `user_id`, `site_id`, `link_block_id`, `created_at` to `$fillable` — that would regress the tenancy-FK guard (trusted writes use the query builder / `->associate()`, never mass assignment) and break `AnalyticsModelFillableTest`. `#FOUND-4` had already added the v2 payload columns. The real remaining gaps were `latitude`/`longitude` on `SiteVisit` (added post-audit by `99839d78`) and `block_id` leaking *into* `SectionView::$fillable`. `AnalyticsModelFillableTest` is now generative: it reflects `PostgresEventWriter`'s row builders and asserts `writerKeys − GUARDED === $fillable`, so a future column addition fails CI.
     - **Where:** app/Models/Analytics/LinkClick.php, app/Models/Analytics/SiteVisit.php, app/Models/Analytics/SectionView.php
     - **Affects:** Any future Eloquent mass-assignment path (`::create()`, `fill()`+`save()`, or a test factory) touching these three tables. The current hot path (`Model::query()->insertOrIgnore($rows)`) bypasses `$fillable` entirely, so production is unaffected today — but `SiteVisit` and `SectionView` both declare `use HasFactory`, inviting exactly the vulnerable call pattern in future tests.
     - **Effort:** S (~0.5–1h)

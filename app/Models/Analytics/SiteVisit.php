@@ -37,6 +37,13 @@ class SiteVisit extends BaseModel
         'region_code',
         'city',
         'device_type',
+        // #PARITY-1: added by the 20260707020000 lat/lon migration and wired
+        // into PostgresEventWriter::visitRow() (99839d78), but never added
+        // here — the exact foot-gun AnalyticsModelFillableTest now guards
+        // generatively. user_id/site_id/created_at stay guarded (see that
+        // test's GUARDED constant).
+        'latitude',
+        'longitude',
     ];
 
     protected $casts = [
