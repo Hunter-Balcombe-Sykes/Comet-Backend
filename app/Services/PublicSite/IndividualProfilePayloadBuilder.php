@@ -61,6 +61,7 @@ class IndividualProfilePayloadBuilder
         private readonly SitepageDataResolverService $resolver,
         private readonly DesignPresetResolver $presetResolver,
         private readonly ContentPopularityReader $popularity,
+        private readonly SiteActionsService $actions,
     ) {}
 
     /**
@@ -84,6 +85,26 @@ class IndividualProfilePayloadBuilder
         // positionally). Empty maps when scoring hasn't run for the site.
         $ranks = $this->popularity->forSite($site?->id);
 
+        // Ordering preferences (smart vs manual, defaults = smart) + the
+        // unified ranked-action list. Manual overrides are applied HERE so
+        // pageOrder / rankedActions on the wire are always the final,
+        // render-ready values — consumers never re-derive.
+        $ordering = $this->actions->orderingSettings($site);
+
+        $pageOrder = $ordering['smart_page_order']
+            ? $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? [])
+            : $this->actions->applyManualPageOrder(
+                $this->resolver->presentPageIds($site, $caps, $sections),
+                $ordering['manual_page_order'],
+            );
+
+        $rankedActions = $this->actions->resolveRankedActions(
+            $this->actions->pool($pro, $site, $sections, $booking, $ranks),
+            $this->popularity->rankedActionsForSite($site?->id),
+            $ordering['smart_actions'],
+            $ordering['manual_actions'],
+        );
+
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
@@ -92,12 +113,18 @@ class IndividualProfilePayloadBuilder
             'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
             'public_config' => $this->buildPublicConfig(),
             // Taxonomy page order for the ONE architecture — presence + business
-            // gated, popularity-ranked, canonical fallback. Top-level key.
-            'page_order' => $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? []),
+            // gated, popularity-ranked (or the owner's manual order when
+            // smart_page_order is off), canonical fallback. Top-level key.
+            'page_order' => $pageOrder,
             // Full popularity map (content_type => content_key => rank) so the ONE
             // theme can order ANY item type uniformly, without per-platform payload
             // surgery. Same $ranks the per-item annotations below already use.
             'popularity' => $ranks,
+            // Unified ranked actions (page|item|button|custom) — the lander
+            // renders the top 6. Override-applied (manual list when
+            // smart_actions is off); ordering carries the raw preferences.
+            'ranked_actions' => $rankedActions,
+            'ordering' => $this->actions->orderingWire($ordering),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'gallery' => $this->buildGallery($site, $sections, $ranks['gallery_item'] ?? []),
             'curatedGallery' => $this->resolver->buildCuratedGalleryData($site),

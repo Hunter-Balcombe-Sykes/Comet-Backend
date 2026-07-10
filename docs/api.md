@@ -792,6 +792,17 @@ HTTP 423 Locked
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
+- Ordering settings (actions system): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.smart_actions` (bool, default true), `settings.manual_actions` (≤12 ordered entries, each ONE of `{kind:"page",ref:"<page-id>"}` / `{kind:"item",ref:"<itemType>:<itemKey>"}` / `{kind:"button",ref:"<platform slug>"}` (`booking` = the general booking link) / `{kind:"custom",label:"...",url:"https://..."}`). Strict: non-custom entries reject label/url, custom rejects ref; duplicate kind:ref pairs 422; both lists REPLACE atomically on write. The public payload's `pageOrder` / `rankedActions` apply these server-side.
+
+### `GET /api/site/actions`
+
+- Purpose: dashboard picker data for the design page's "Pages" / "Action buttons" controls
+- Auth: Required
+- Response (200): `{ "pool": [ActionEntry], "rankedActions": [ActionEntry], "ordering": { "smartPageOrder": bool, "manualPageOrder": [...], "smartActions": bool, "manualActions": [...] } }` (no data envelope)
+- `ActionEntry` = `{ "kind": "page|item|button|custom", "ref": "book" | "service:<id>" | "instagram" | null, "label": string|null, "url": string|null, "pageId": string|null, "itemType": string|null, "itemKey": string|null, "score": number|null }`
+- `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
+- The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
+- Common status codes: 200, 401, 404
 
 ### `GET /api/site/google-business-profile`
 

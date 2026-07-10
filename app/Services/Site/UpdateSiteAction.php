@@ -13,6 +13,16 @@ use Illuminate\Validation\ValidationException;
 // vars are written via UpdateDesignKitAction (separate flow).
 class UpdateSiteAction
 {
+    /**
+     * Settings keys whose values are LISTS and must replace atomically.
+     * array_replace_recursive merges lists positionally — a shorter incoming
+     * list would silently inherit the old list's tail entries (e.g. manual
+     * page order [a,b,c] PATCHed with [b] must become [b], not [b,b,c]).
+     *
+     * @var list<string>
+     */
+    public const LIST_SETTINGS_KEYS = ['manual_page_order', 'manual_actions'];
+
     public function __construct(private readonly RenameSubdomainAction $renameSubdomain) {}
 
     /**
@@ -58,6 +68,15 @@ class UpdateSiteAction
             // was already stripped by the cleanup migration, but if any
             // straggler resurfaced via a write race it dies here.
             unset($merged['design']);
+
+            // List-valued settings replace atomically (see LIST_SETTINGS_KEYS —
+            // recursive replace would positionally merge the old list's tail
+            // into a shorter incoming one).
+            foreach (self::LIST_SETTINGS_KEYS as $listKey) {
+                if (array_key_exists($listKey, $incoming)) {
+                    $merged[$listKey] = $incoming[$listKey];
+                }
+            }
 
             // FOUND-16: hoist the promoted keys out of settings JSONB into
             // typed columns. We extract from $merged (post-PATCH) so only keys

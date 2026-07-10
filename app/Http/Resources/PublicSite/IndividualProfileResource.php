@@ -50,6 +50,8 @@ class IndividualProfileResource extends ApiResource
      *     architecture_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
+     *     ranked_actions?: list<array<string, mixed>>,
+     *     ordering?: array<string, mixed>,
      *     gallery?: list<array<string, mixed>>,
      *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
@@ -123,6 +125,19 @@ class IndividualProfileResource extends ApiResource
             // theme orders items of any type by looking up their rank here (cast to
             // object so an empty map serializes as {} not []). Top-level.
             'popularity' => (object) ($this->sections['popularity'] ?? []),
+
+            // Unified ranked actions — ordered best-first, the lander renders the
+            // top 6. Entries: {kind: page|item|button|custom, ref, label, url,
+            // pageId, itemType, itemKey, score}. Already override-applied (when
+            // the owner disabled smart actions this IS their manual list, customs
+            // included) — consumers render, never re-derive. Always an array.
+            'rankedActions' => $this->sections['ranked_actions'] ?? [],
+
+            // Ordering preferences (defaults applied server-side): {smartPageOrder,
+            // manualPageOrder, smartActions, manualActions}. pageOrder/rankedActions
+            // above already reflect these — this object is for transparency +
+            // dashboard/preview surfaces. Always an object.
+            'ordering' => (object) ($this->sections['ordering'] ?? []),
 
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB
