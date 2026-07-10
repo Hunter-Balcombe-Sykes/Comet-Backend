@@ -106,7 +106,10 @@ class StaffAggregateAnalyticsController extends ApiController
                     'clicks' => $this->queries->clicksByBucket($scope, $from, $to, $hourly)
                         ->map(fn ($row) => ['bucket' => (string) $row->day, 'count' => (int) $row->count])->values(),
                 ],
-                'top_pages' => $this->queries->topSections($scope, $from, $to)->values(),
+                // Folded page-grain (SitepageId taxonomy) — same projection the
+                // user dashboard's `top_pages` uses, so the key means one thing
+                // platform-wide (not the un-folded section grain topSections gives).
+                'top_pages' => $this->queries->topPages($scope, $from, $to)->values(),
                 'top_platforms' => $this->queries->platformClicks($scope, $from, $to),
             ];
         });

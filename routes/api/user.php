@@ -161,6 +161,9 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // View Analytics
         Route::get('/analytics', [UserAnalyticsController::class, 'summary']);
         Route::get('/analytics/live', [UserAnalyticsController::class, 'live']);
+        // Derived insights (also embedded on /analytics under `insights`) — a
+        // dedicated resource for the dashboard's Insights card.
+        Route::get('/analytics/insights', [UserAnalyticsController::class, 'insights']);
 
         // Dev Insights — raw popularity scores + the analytics feeding them (dev/testing
         // surface; explains + demos the scoring, own-site only). Path carries the

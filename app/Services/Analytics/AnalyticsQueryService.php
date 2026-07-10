@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Enums\SitepageId;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -220,21 +221,33 @@ class AnalyticsQueryService
      */
     public function referrers(string $userId, Carbon $from, Carbon $to): array
     {
-        $case = self::sourceCase();
+        try {
+            $case = self::sourceCase();
 
-        $raw = DB::table('analytics.site_visits')
-            ->where('user_id', $userId)
-            ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw("{$case} as source, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
-            ->groupByRaw($case)
-            ->orderByDesc('visitors')
-            ->get()
-            ->keyBy('source');
+            $raw = DB::table('analytics.site_visits')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$case} as source, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
+                ->groupByRaw($case)
+                ->orderByDesc('visitors')
+                ->get()
+                ->keyBy('source');
 
-        return array_map(
-            fn (string $label) => ['label' => $label, 'visitors' => (int) ($raw->get($label)?->visitors ?? 0)],
-            self::REFERRER_LABELS
-        );
+            return array_map(
+                fn (string $label) => ['label' => $label, 'visitors' => (int) ($raw->get($label)?->visitors ?? 0)],
+                self::REFERRER_LABELS
+            );
+        } catch (QueryException $e) {
+            // Fail-open like every other click-side read: the ILIKE sourceCase is
+            // Postgres-only (throws on the SQLite test mirror), and a classifier
+            // fault must never 500 the whole summary. Zero-fill the fixed labels.
+            Log::warning('analytics.referrer_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return array_map(
+                fn (string $label) => ['label' => $label, 'visitors' => 0],
+                self::REFERRER_LABELS
+            );
+        }
     }
 
     public function topLinks(string $userId, Carbon $from, Carbon $to): Collection
@@ -285,6 +298,54 @@ class AnalyticsQueryService
                 ->values();
         } catch (QueryException $e) {
             Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
+
+            return collect();
+        }
+    }
+
+    /**
+     * "Page views" — the page-model successor to topSections(). Folds
+     * analytics.section_views rows into the 16-page sitepage taxonomy
+     * (SitepageId::SECTION_KEY_TO_PAGE) at the QUERY layer only: stored
+     * section_key values are immutable data, so the mapping/relabelling happens
+     * here, never on the rows. Grouping by the folded page in SQL means
+     * COUNT(DISTINCT visitor) yields correct per-PAGE unique viewers (a visitor
+     * seen in two sections of one page counts once). Unmapped section_keys carry
+     * no page and are dropped. Returns display order by views.
+     *
+     * Accepts the same OV-A scope injection as topSections()/platformClicks()
+     * (string user / array segment / null all-users) so the staff aggregate
+     * endpoint gets the SAME folded page-grain projection as the user dashboard.
+     *
+     * @return Collection<int, array{key:string, title:string, views:int, unique_viewers:int}>
+     */
+    public function topPages(string|array|null $userScope, Carbon $from, Carbon $to): Collection
+    {
+        try {
+            $case = self::pageCase();
+
+            return $this->scopedTable('analytics.section_views', $userScope)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$case} as page, COUNT(*) as views, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_viewers")
+                ->groupByRaw($case)
+                ->orderByDesc('views')
+                ->get()
+                // Drop the ELSE-NULL bucket (section_keys with no page mapping).
+                ->filter(fn ($entry) => $entry->page !== null && $entry->page !== '')
+                ->map(function ($entry) {
+                    $page = (string) $entry->page;
+
+                    return [
+                        'key' => $page,
+                        'title' => $this->pageTitle($page),
+                        'views' => (int) ($entry->views ?? 0),
+                        'unique_viewers' => (int) ($entry->unique_viewers ?? 0),
+                    ];
+                })
+                ->take(12)
+                ->values();
+        } catch (QueryException $e) {
+            Log::warning('analytics.page_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return collect();
         }
@@ -542,6 +603,246 @@ class AnalyticsQueryService
         }
 
         return ['enquiries' => $enquiries, 'subscribers' => $subscribers];
+    }
+
+    // ── Insight-engine data providers ──────────────────────────────────────
+    // Each returns a plain aggregate array consumed by the pure InsightEngine.
+    // All are fail-open (QueryException → empty) so a broken/absent table can
+    // never break the analytics response. hourlyClickBuckets/weekdayVisitBuckets
+    // are driver-branched (strftime on SQLite) so they run in tests;
+    // sourceCountsForWindow uses the ILIKE sourceCase() and is Postgres-only —
+    // on the SQLite mirror it degrades to [] (the source-shift insight simply
+    // doesn't emit), same philosophy as the other click-side reads.
+
+    /**
+     * Outbound link_clicks bucketed by hour-of-day (0–23) over the window.
+     * Feeds the time-of-day insight.
+     *
+     * @return array<int, int> hour => clicks
+     */
+    public function hourlyClickBuckets(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            $hour = $this->hourExpr();
+            $rows = DB::table('analytics.link_clicks')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$hour} as hour, COUNT(*) as n")
+                ->groupByRaw($hour)
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                $out[(int) $r->hour] = (int) $r->n;
+            }
+
+            return $out;
+        } catch (QueryException $e) {
+            Log::warning('analytics.insight_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * site_visits bucketed by day-of-week (0=Sunday … 6=Saturday) over the
+     * window. Feeds the weekday-peak insight.
+     *
+     * @return array<int, int> dow => visits
+     */
+    public function weekdayVisitBuckets(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            $dow = $this->dowExpr();
+            $rows = DB::table('analytics.site_visits')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$dow} as dow, COUNT(*) as n")
+                ->groupByRaw($dow)
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                $out[(int) $r->dow] = (int) $r->n;
+            }
+
+            return $out;
+        } catch (QueryException $e) {
+            Log::warning('analytics.insight_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Per-page section_views counts for the current 7-day week vs the prior
+     * 7-day week, folded to the page taxonomy. One pass over the 14-day span
+     * with conditional sums. Feeds the page riser/faller insight. The week
+     * boundary literal is a server-derived Carbon string (no user input).
+     *
+     * @return array<string, array{title:string, this_week:int, prior_week:int}> page => counts
+     */
+    public function pageViewsWeekOverWeek(string $userId, Carbon $thisWeekStart, Carbon $now): array
+    {
+        try {
+            $case = self::pageCase();
+            $priorStart = $thisWeekStart->copy()->subDays(7);
+            $ts = $thisWeekStart->toDateTimeString();
+
+            $rows = DB::table('analytics.section_views')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$priorStart, $now])
+                ->selectRaw("{$case} as page,
+                    SUM(CASE WHEN occurred_at >= '{$ts}' THEN 1 ELSE 0 END) as this_week,
+                    SUM(CASE WHEN occurred_at < '{$ts}' THEN 1 ELSE 0 END) as prior_week")
+                ->groupByRaw($case)
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                if ($r->page === null || $r->page === '') {
+                    continue;
+                }
+                $page = (string) $r->page;
+                $out[$page] = [
+                    'title' => $this->pageTitle($page),
+                    'this_week' => (int) $r->this_week,
+                    'prior_week' => (int) $r->prior_week,
+                ];
+            }
+
+            return $out;
+        } catch (QueryException $e) {
+            Log::warning('analytics.insight_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Referrer/source visitor counts over the window, classified by the same
+     * ILIKE sourceCase() the referrers breakdown uses. Postgres-only (ILIKE) —
+     * degrades to [] on the SQLite mirror. Feeds the traffic-source-shift
+     * insight (called once per week window).
+     *
+     * @return array<string, int> source-label => unique visitors
+     */
+    public function sourceCountsForWindow(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            $case = self::sourceCase();
+            $rows = DB::table('analytics.site_visits')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$case} as source, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
+                ->groupByRaw($case)
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                $out[(string) $r->source] = (int) $r->visitors;
+            }
+
+            return $out;
+        } catch (QueryException $e) {
+            Log::warning('analytics.insight_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Per-page dwell aggregates (sum + count of section-dwell ms), folded to the
+     * page taxonomy, over the window. The engine derives per-page and site-wide
+     * averages from these (weighted correctly — never an average of averages).
+     * Feeds the dwell-outlier insight.
+     *
+     * @return array<string, array{title:string, dwell_sum_ms:int, dwell_n:int}> page => dwell stats
+     */
+    public function pageDwellStats(string $userId, Carbon $from, Carbon $to): array
+    {
+        try {
+            $case = self::pageCase();
+            $rows = DB::table('analytics.section_views')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->whereNotNull('duration_ms')
+                ->selectRaw("{$case} as page, COALESCE(SUM(duration_ms), 0) as dwell_sum_ms, COUNT(duration_ms) as dwell_n")
+                ->groupByRaw($case)
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                if ($r->page === null || $r->page === '') {
+                    continue;
+                }
+                $page = (string) $r->page;
+                $out[$page] = [
+                    'title' => $this->pageTitle($page),
+                    'dwell_sum_ms' => (int) $r->dwell_sum_ms,
+                    'dwell_n' => (int) $r->dwell_n,
+                ];
+            }
+
+            return $out;
+        } catch (QueryException $e) {
+            Log::warning('analytics.insight_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * SQL CASE folding section_key → page-id, single-sourced from
+     * SitepageId::SECTION_KEY_TO_PAGE (mirrors sourceCase()'s pattern). Runs on
+     * both Postgres and the SQLite test mirror (plain equality WHENs). Section
+     * keys with no mapping fall through to ELSE NULL and are dropped by callers.
+     */
+    private static function pageCase(): string
+    {
+        $whens = [];
+        foreach (SitepageId::SECTION_KEY_TO_PAGE as $sectionKey => $page) {
+            $whens[] = "WHEN section_key = '{$sectionKey}' THEN '{$page}'";
+        }
+
+        return "CASE\n".implode("\n", $whens)."\nELSE NULL\nEND";
+    }
+
+    /**
+     * Page-id → display label from config('partna.analytics.page_titles'). A new
+     * page is a config edit, not a code change. Unknown ids humanize the raw id.
+     */
+    private function pageTitle(string $pageId): string
+    {
+        $titles = config('partna.analytics.page_titles', []);
+
+        return $titles[$pageId] ?? ucfirst(str_replace(['_', '-'], ' ', $pageId));
+    }
+
+    /**
+     * Hour-of-day (0–23) extract — DATE part driver-branch (pgsql EXTRACT vs
+     * SQLite strftime), same pattern as bucketExpressions()/uniqueVisitorExpr().
+     */
+    private function hourExpr(): string
+    {
+        $driver = DB::connection('pgsql')->getDriverName();
+
+        return $driver === 'sqlite'
+            ? "CAST(strftime('%H', occurred_at) AS INTEGER)"
+            : 'EXTRACT(HOUR FROM occurred_at)::int';
+    }
+
+    /**
+     * Day-of-week extract, 0=Sunday … 6=Saturday on BOTH drivers (Postgres
+     * EXTRACT(DOW) and SQLite strftime('%w') already share that numbering).
+     */
+    private function dowExpr(): string
+    {
+        $driver = DB::connection('pgsql')->getDriverName();
+
+        return $driver === 'sqlite'
+            ? "CAST(strftime('%w', occurred_at) AS INTEGER)"
+            : 'EXTRACT(DOW FROM occurred_at)::int';
     }
 
     /**
