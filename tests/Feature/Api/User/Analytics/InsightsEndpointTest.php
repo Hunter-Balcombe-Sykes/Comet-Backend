@@ -109,3 +109,32 @@ it('404s when the professional has no site', function () {
 
     actingAsUser($user)->getJson('/api/analytics/insights')->assertStatus(404);
 });
+
+it('GET /api/analytics emits BOTH top_sections (section-grain) and top_pages (folded)', function () {
+    // Transition alias (pre-OV-G-FE): the live dashboard still reads top_sections;
+    // top_pages is the new folded page-views metric. Both must be present, each
+    // backed by its own true projection.
+    $user = insightsUser('bothkeys');
+    insightsSite($user);
+
+    // A shop section_key → section-grain 'shop-products' AND folded page 'shop'.
+    DB::connection('pgsql')->table('analytics.section_views')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'section_key' => 'shop-products',
+        'visitor_id' => (string) Str::uuid(),
+        'occurred_at' => now()->subHours(2)->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(),
+    ]);
+
+    $response = actingAsUser($user)->getJson('/api/analytics?days=30');
+    $response->assertOk();
+
+    $topSections = $response->json('top_sections');
+    $topPages = $response->json('top_pages');
+
+    expect($topSections)->toBeArray()->not->toBeEmpty()
+        ->and($topPages)->toBeArray()->not->toBeEmpty()
+        ->and(collect($topSections)->pluck('key')->all())->toContain('shop-products') // section grain
+        ->and(collect($topPages)->pluck('key')->all())->toContain('shop');            // folded page grain
+});

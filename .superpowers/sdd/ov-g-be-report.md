@@ -1,10 +1,23 @@
 # OV-G-BE · Analytics updates (backend) — report
 
-Status: COMPLETE. `composer test` green (3475 passed, 0 failed); `pint --dirty` clean.
+Status: COMPLETE (+ 3 review fixes applied). `composer test` green; `pint --dirty` clean.
 Real (non-symlink) vendor materialized in the worktree before testing.
-Commit `8a635ab` on `tobias/ov-g-analytics` (rebased onto origin/development past
-OV-A-BE #255 — trivial import conflict in AnalyticsQueryService resolved).
+Branch `tobias/ov-g-analytics` (rebased onto origin/development past OV-A-BE #255).
 PR: https://github.com/Hunter-Balcombe-Sykes/partna-backend/pull/256 (do NOT merge — orchestrator merges).
+
+Review fixes (pre-merge):
+1. TRANSITION ALIAS — user summary emits BOTH `top_sections` (section-grain,
+   `topSections()`) AND `top_pages` (folded, `topPages()`); each its own true
+   projection. (`referrers()` made fail-open so the summary path runs on the
+   SQLite test mirror; enabled the new http-level both-keys test.)
+2. STAFF COLLISION — `StaffAggregateAnalyticsController` `top_pages` now sourced
+   from the folded `topPages()` (was `topSections()`); `topPages()` widened to the
+   OV-A `string|array|null $userScope` scope injection so `top_pages` means the
+   same folded page-grain on both endpoints.
+3. HEADLINE/VALUE CONSISTENCY — the 4 percent insights derive the headline number
+   FROM the rounded `supporting_stat.value` (new `formatMagnitude()`), so a FE
+   rendering both never shows a mismatch.
+Tail (noted, not fixed): per-insight try/catch isolation → dashboard-batch plan Tail.
 
 Pre-existing flaky test note: `tests/Feature/Analytics/RankedActionsComputeTest`
 (OV-I-BE's ranked-actions system, not touched here) flaked ONCE under an ad-hoc
@@ -92,13 +105,17 @@ Consumed via `GET /api/professional/analytics` (alias `/api/analytics`) and the 
 the payload is the response **root** (no `data` wrapper) — read `payload?.data ?? payload`,
 exactly as `lib/analytics/data.ts` already does.
 
-### 1. Stale-metric rename — `top_sections` → `top_pages` (BREAKING, coordinated)
+### 1. Stale-metric rename — `top_sections` → `top_pages` (TRANSITION: both emitted)
 
-The summary payload no longer emits `top_sections`. It emits **`top_pages`**: the
-same per-visibility metric, but folded from raw `section_key` grain into the
-16-page sitepage taxonomy (`SitepageId::SECTION_KEY_TO_PAGE`) and relabelled
-"page views". Stored analytics rows / event keys are unchanged — folding is
-query-layer only.
+The summary payload now emits **BOTH** `top_sections` (unchanged section-grain,
+via `topSections()` — what the live dashboard still reads) **and** the new
+**`top_pages`** (via `topPages()`): the same per-visibility metric, but folded
+from raw `section_key` grain into the 16-page sitepage taxonomy
+(`SitepageId::SECTION_KEY_TO_PAGE`) and relabelled "page views". Each key is
+backed by its own true projection (NOT `top_sections := topPages()`). Stored
+analytics rows / event keys are unchanged — folding is query-layer only.
+`top_sections` is a transition alias and will be dropped in a one-line follow-up
+once OV-G-FE deploys reading `top_pages`.
 
 Row shape (unchanged field names from the old `top_sections` rows, so the FE
 mapping is a key-rename + a label tweak):

@@ -89,14 +89,17 @@ class InsightEngine
             return null;
         }
 
-        $magnitude = (int) round(abs($deltaPct));
-        $headline = $deltaPct > 0
+        // Headline number is derived FROM the rounded `value` (single source) so a
+        // FE rendering both never shows a contradictory figure.
+        $value = round($deltaPct, 1);
+        $magnitude = $this->formatMagnitude($value);
+        $headline = $value > 0
             ? "Your visitors click {$magnitude}% more often in the evening (after 6pm) than during the day."
             : "Your visitors click {$magnitude}% more often during the day than in the evening.";
 
         return $this->insight('time_of_day', 'time_of_day', $headline, [
             'metric' => 'clicks',
-            'value' => round($deltaPct, 1),
+            'value' => $value,
             'unit' => 'percent_change',
             'detail' => [
                 'evening_clicks_per_hour' => round($eveningRate, 2),
@@ -139,12 +142,13 @@ class InsightEngine
         }
 
         $dayName = self::DOW_NAMES[$peakDow] ?? 'A weekday';
-        $magnitude = (int) round($aboveAvgPct);
+        $value = round($aboveAvgPct, 1);
+        $magnitude = $this->formatMagnitude($value);
         $headline = "{$dayName} is your busiest day — {$magnitude}% more visits than your typical day.";
 
         return $this->insight('weekday_peak', 'weekday_peak', $headline, [
             'metric' => 'visits',
-            'value' => round($aboveAvgPct, 1),
+            'value' => $value,
             'unit' => 'percent_above_average',
             'detail' => [
                 'weekday' => $dayName,
@@ -193,15 +197,17 @@ class InsightEngine
             }
         }
 
+        // Headline numbers derive FROM the rounded `value` (formatMagnitude of the
+        // same round(change,1) that pageWowStat reports) so headline + stat agree.
         $out = [];
         if ($riser !== null) {
-            $mag = (int) round($riser['change']);
+            $mag = $this->formatMagnitude(round($riser['change'], 1));
             $out[] = $this->insight('page_riser', 'page_riser',
                 "Your {$riser['title']} page views are up {$mag}% this week vs last.",
                 $this->pageWowStat($riser), $period);
         }
         if ($faller !== null) {
-            $mag = (int) round(abs($faller['change']));
+            $mag = $this->formatMagnitude(round($faller['change'], 1));
             $out[] = $this->insight('page_faller', 'page_faller',
                 "Your {$faller['title']} page views are down {$mag}% this week vs last.",
                 $this->pageWowStat($faller), $period);
@@ -358,6 +364,19 @@ class InsightEngine
         $label = (string) array_key_first($filtered);
 
         return ['label' => $label, 'visitors' => $filtered[$label]];
+    }
+
+    /**
+     * Format a percentage magnitude for a headline from the SAME rounded value
+     * the supporting_stat reports (single source → headline + stat never
+     * disagree). Whole numbers drop the decimal ("100"), fractions keep one
+     * ("32.6"); always the absolute value (direction is in the sentence).
+     */
+    private function formatMagnitude(float $value): string
+    {
+        $abs = abs($value);
+
+        return $abs === floor($abs) ? (string) (int) $abs : (string) $abs;
     }
 
     /**

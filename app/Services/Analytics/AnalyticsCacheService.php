@@ -260,9 +260,15 @@ class AnalyticsCacheService
                 'clicks_by_day' => $this->queries->clicksByBucket($proId, $from, $to, $useHourlyBuckets),
                 'visits_by_day_by_device' => $this->queries->visitsByDayByDevice($proId, $from, $to),
             ],
-            // "Page views" — section_views folded into the 16-page sitepage
-            // taxonomy at the query layer (stored section_key rows are immutable).
-            // Supersedes the old `top_sections` key; the frontend reads `top_pages`.
+            // TRANSITION ALIAS: emit BOTH keys, each backed by its own true
+            // projection, until OV-G-FE ships. `top_sections` = section-grain
+            // (what the live dashboard still reads today); `top_pages` =
+            // section_views folded into the 16-page sitepage taxonomy at the query
+            // layer (the new page-views metric). Stored section_key rows are
+            // immutable — folding/relabelling is query-layer only. Drop
+            // `top_sections` in a one-line follow-up once the OV-G-FE deploy
+            // reading `top_pages` lands.
+            'top_sections' => $this->queries->topSections($proId, $from, $to),
             'top_pages' => $this->queries->topPages($proId, $from, $to),
             'top_links' => $this->queries->topLinks($proId, $from, $to),
             // Shop/booking/event sitepage sections all carry product_id on the same

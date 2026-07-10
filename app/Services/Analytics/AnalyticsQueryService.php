@@ -221,21 +221,33 @@ class AnalyticsQueryService
      */
     public function referrers(string $userId, Carbon $from, Carbon $to): array
     {
-        $case = self::sourceCase();
+        try {
+            $case = self::sourceCase();
 
-        $raw = DB::table('analytics.site_visits')
-            ->where('user_id', $userId)
-            ->whereBetween('occurred_at', [$from, $to])
-            ->selectRaw("{$case} as source, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
-            ->groupByRaw($case)
-            ->orderByDesc('visitors')
-            ->get()
-            ->keyBy('source');
+            $raw = DB::table('analytics.site_visits')
+                ->where('user_id', $userId)
+                ->whereBetween('occurred_at', [$from, $to])
+                ->selectRaw("{$case} as source, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as visitors")
+                ->groupByRaw($case)
+                ->orderByDesc('visitors')
+                ->get()
+                ->keyBy('source');
 
-        return array_map(
-            fn (string $label) => ['label' => $label, 'visitors' => (int) ($raw->get($label)?->visitors ?? 0)],
-            self::REFERRER_LABELS
-        );
+            return array_map(
+                fn (string $label) => ['label' => $label, 'visitors' => (int) ($raw->get($label)?->visitors ?? 0)],
+                self::REFERRER_LABELS
+            );
+        } catch (QueryException $e) {
+            // Fail-open like every other click-side read: the ILIKE sourceCase is
+            // Postgres-only (throws on the SQLite test mirror), and a classifier
+            // fault must never 500 the whole summary. Zero-fill the fixed labels.
+            Log::warning('analytics.referrer_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return array_map(
+                fn (string $label) => ['label' => $label, 'visitors' => 0],
+                self::REFERRER_LABELS
+            );
+        }
     }
 
     public function topLinks(string $userId, Carbon $from, Carbon $to): Collection
@@ -301,15 +313,18 @@ class AnalyticsQueryService
      * seen in two sections of one page counts once). Unmapped section_keys carry
      * no page and are dropped. Returns display order by views.
      *
+     * Accepts the same OV-A scope injection as topSections()/platformClicks()
+     * (string user / array segment / null all-users) so the staff aggregate
+     * endpoint gets the SAME folded page-grain projection as the user dashboard.
+     *
      * @return Collection<int, array{key:string, title:string, views:int, unique_viewers:int}>
      */
-    public function topPages(string $userId, Carbon $from, Carbon $to): Collection
+    public function topPages(string|array|null $userScope, Carbon $from, Carbon $to): Collection
     {
         try {
             $case = self::pageCase();
 
-            return DB::table('analytics.section_views')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.section_views', $userScope)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw("{$case} as page, COUNT(*) as views, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_viewers")
                 ->groupByRaw($case)
@@ -330,7 +345,7 @@ class AnalyticsQueryService
                 ->take(12)
                 ->values();
         } catch (QueryException $e) {
-            Log::warning('analytics.page_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.page_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return collect();
         }
