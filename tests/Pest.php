@@ -2081,10 +2081,13 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
 
 /**
  * site.design_kits — per-site design token table (1:1 with site.sites).
- * All token columns are NULLABLE TEXT so tests can insert partial rows and
- * the resolver falls back to defaults for unset columns. Mirrors the
- * production schema; the production trigger trg_create_empty_design_kit is
- * absent in SQLite — tests that need a kit row must insert one manually.
+ * All token columns are NULLABLE (TEXT except the boolean night-shift flag)
+ * so tests can insert partial rows and the resolver falls back to defaults
+ * for unset columns. Mirrors the production schema subset tests touch —
+ * 2026-07-10 rework: color_bg dropped; theme_mode / theme_night_shift_auto /
+ * effect_surface added (migration 20260710160000). The production trigger
+ * trg_create_empty_design_kit is absent in SQLite — tests that need a kit
+ * row must insert one manually.
  */
 function setupDesignKitsTable(): void
 {
@@ -2093,12 +2096,14 @@ function setupDesignKitsTable(): void
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
         color_accent_contrast TEXT NULL,
-        color_bg TEXT NULL,
         color_text TEXT NULL,
         color_text_muted TEXT NULL,
         border_radius TEXT NULL,
         button_primary_bg TEXT NULL,
         button_primary_text TEXT NULL,
+        theme_mode TEXT NULL,
+        theme_night_shift_auto INTEGER NULL,
+        effect_surface TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

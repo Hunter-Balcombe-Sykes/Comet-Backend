@@ -13,6 +13,10 @@ namespace App\Http\Requests\Concerns;
 // weight_* / motion selection columns. writeDesignKit() filters against
 // information_schema.columns so stale keys were harmless, but the trait is
 // the documented contract and should mirror the schema exactly.
+//
+// 2026-07-10 theme/surface rework (migration 20260710160000): color_bg,
+// effect_style and motion_entrance dropped; theme_mode is now the 5-value
+// palette selection; effect_surface + theme_night_shift_auto added.
 trait DesignKitValidationRules
 {
     /**
@@ -32,8 +36,8 @@ trait DesignKitValidationRules
         return [
             'design_kit' => ['sometimes', 'array'],
 
-            // Colors
-            'design_kit.color_bg' => $hex,
+            // Colors — bg is gone: the background is owned by theme_mode's
+            // palette (2026-07-10 rework).
             'design_kit.color_accent' => $hex,
             'design_kit.color_text' => $hex,
             'design_kit.color_text_muted' => $hex,
@@ -95,19 +99,18 @@ trait DesignKitValidationRules
             'design_kit.icons_large_stroke_width' => $len,
             'design_kit.icons_brand_logo_height' => $len,
 
-            // Motion — pace + entrance are selections; durations/curve are
-            // inferred from pace but keep columns for promotion.
+            // Motion — pace is the selection; durations/curve are inferred
+            // from pace but keep columns for promotion. (Entrance removed
+            // entirely in the 2026-07-10 rework.)
             'design_kit.motion_pace' => ['sometimes', 'nullable', 'string', 'in:slow,normal,fast'],
-            'design_kit.motion_entrance' => ['sometimes', 'nullable', 'string', 'in:none,fade,rise,stagger'],
             'design_kit.motion_fade_duration' => $len,
             'design_kit.motion_expand_duration' => $len,
             'design_kit.motion_spin_duration' => $len,
             'design_kit.motion_spring_curve' => ['sometimes', 'nullable', 'string', 'max:64'],
 
-            // Effects — effect_style is the Visual Style BUNDLE; the axis
-            // selections below override individual slices of it. Unset axis =
-            // the bundle decides (package defaults carry no axis values).
-            'design_kit.effect_style' => ['sometimes', 'nullable', 'string', 'in:soft-glass,sharp,bold,editorial'],
+            // Effects — Surface type: storage-only selection for now (no
+            // bundle expansion); the per-axis selections below are independent.
+            'design_kit.effect_surface' => ['sometimes', 'nullable', 'string', 'in:glass,solid,outline'],
             'design_kit.effect_scrim_blur' => $len,
             'design_kit.effect_shadow_style' => ['sometimes', 'nullable', 'string', 'in:flat,soft,hard'],
             'design_kit.effect_link_style' => ['sometimes', 'nullable', 'string', 'in:underline-hover,underline-always,plain'],
@@ -118,8 +121,11 @@ trait DesignKitValidationRules
             'design_kit.layout_density' => ['sometimes', 'nullable', 'string', 'regex:/^(0\.(8[5-9]|9\d)|1(\.([01]\d|2[0-5]))?)$/'],
             'design_kit.border_style' => ['sometimes', 'nullable', 'string', 'in:solid,double,none'],
 
-            // Theme
-            'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:light,dark'],
+            // Theme — mode is the user-picked palette that owns bg/text/border
+            // anchors. Night Shift Auto switches day/night palette variants by
+            // visitor clock; user-only, default true code-side.
+            'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:bleach,dust,warm,dusk,midnight'],
+            'design_kit.theme_night_shift_auto' => ['sometimes', 'nullable', 'boolean'],
         ];
     }
 }

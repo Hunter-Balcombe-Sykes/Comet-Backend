@@ -181,29 +181,30 @@ it('persists only columns that exist on site.design_kits', function () {
 it('filters incoming keys against information_schema, not the physical table', function () {
     $siteId = seedSiteWithEmptyKit();
 
-    // Drop color_bg from the information_schema mirror so it becomes a REAL
+    // Drop color_text from the information_schema mirror so it becomes a REAL
     // SQLite column that is absent from the catalog. This proves the filter
     // keys off information_schema specifically — and gives the guard an
     // assertion-based tooth that does not rely on SQLite rejecting unknown
-    // columns. With the intersection: color_bg is dropped despite the physical
-    // column existing. Without it: color_bg (a valid column) would be written
-    // and SQLite would accept it, failing the toBeNull() assertion below.
+    // columns. With the intersection: color_text is dropped despite the
+    // physical column existing. Without it: color_text (a valid column) would
+    // be written and SQLite would accept it, failing the toBeNull() below.
+    // (Was color_bg pre-2026-07-10; that column no longer exists at all.)
     DB::connection('pgsql')->table('information_schema.columns')
         ->where('table_schema', 'site')
         ->where('table_name', 'design_kits')
-        ->where('column_name', 'color_bg')
+        ->where('column_name', 'color_text')
         ->delete();
 
     invokeWriteDesignKit($siteId, [
         'color_accent' => '#abcabc',  // in catalog → written
-        'color_bg' => '#dedede',      // real column, absent from catalog → dropped
+        'color_text' => '#dedede',    // real column, absent from catalog → dropped
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $siteId)->first();
 
     expect($row->color_accent)->toBe('#abcabc');
-    expect($row->color_bg)->toBeNull();
+    expect($row->color_text)->toBeNull();
 });
 
 it('silently ignores an empty design_kit array', function () {
@@ -277,4 +278,75 @@ it('busts the site cache twice on a design-kit-only update via the HTTP endpoint
 
     // Bust 1 is suppressed (withoutObservers); busts 2 (touch) + 3 (explicit) remain.
     $spy->shouldHaveReceived('invalidateSite')->times(2);
+});
+
+// 2026-07-10 theme/surface rework (migration 20260710160000) — write-surface
+// coverage for the new columns and retirement of the old values/columns.
+
+it('persists theme_mode, theme_night_shift_auto and effect_surface', function () {
+    $siteId = seedSiteWithEmptyKit();
+
+    invokeWriteDesignKit($siteId, [
+        'theme_mode' => 'dusk',
+        'theme_night_shift_auto' => false,
+        'effect_surface' => 'outline',
+    ]);
+
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $siteId)->first();
+
+    expect($row->theme_mode)->toBe('dusk')
+        ->and($row->effect_surface)->toBe('outline')
+        // SQLite stores the boolean as 0 — assert the falsy value is a stored
+        // false, not an untouched NULL.
+        ->and($row->theme_night_shift_auto)->not->toBeNull()
+        ->and((bool) $row->theme_night_shift_auto)->toBeFalse();
+});
+
+it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {
+    config(['partna.throttle.enabled' => false]);
+
+    $pro = createTenant('old-theme-mode');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    // 'dark' was valid pre-rework; the migration remapped stored rows to
+    // 'midnight' and the trait now only accepts the 5 palette modes.
+    actingAsUser($pro)
+        ->patchJson('/api/site', [
+            'design_kit' => ['theme_mode' => 'dark'],
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['design_kit.theme_mode']);
+});
+
+it('silently drops the retired effect_style key over HTTP', function () {
+    config(['partna.throttle.enabled' => false]);
+    // Unlike the spy-based HTTP test above, this one runs the REAL cache
+    // invalidation path, which reads the subdomain-alias table.
+    setupSubdomainAliasesTable();
+
+    $pro = createTenant('old-effect-style');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    // A stale client still sending effect_style must not 422 and must not
+    // write anywhere: the key has no validation rule (validated() drops it)
+    // and no site.design_kits column (the information_schema allowlist drops
+    // it again, defence-in-depth). The sibling accent write proves the
+    // design-kit path executed.
+    actingAsUser($pro)
+        ->patchJson('/api/site', [
+            'design_kit' => [
+                'effect_style' => 'soft-glass',
+                'color_accent' => '#123123',
+            ],
+        ])
+        ->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $pro->site->id)->first();
+
+    expect($row->color_accent)->toBe('#123123')
+        // No silent remap onto the new column either — carry-over happened
+        // once, in the migration.
+        ->and($row->effect_surface)->toBeNull();
 });
