@@ -559,3 +559,32 @@ it('GET selection reports the googlePhotos flags', function () {
         ->assertJsonPath('googlePhotosConnected', true)
         ->assertJsonPath('googlePhotosEnabled', true);
 });
+
+it('content_photos and display-section toggles do not clobber each other', function () {
+    [$user] = contentUserWithSite('coexist');
+    $conn = gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    // Content path (PUT /content/google-photos) writes content_photos.
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Platform path (PATCH display-settings) writes a display toggle — content_photos survives.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => false],
+    ])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)
+        ->toEqual(['content_photos' => false, 'reviews' => false]);
+
+    // Re-enabling reviews leaves content_photos intact.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => true],
+    ])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Reverse: the content path re-enabling leaves an existing display toggle intact.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => false],
+    ])->assertOk();
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => true])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['reviews' => false]);
+});

@@ -1,8 +1,11 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
+use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -151,4 +154,71 @@ it('does not refresh switched-off sections into the stored google-business paylo
     expect($merged)->not->toHaveKeys(['reviews', 'reviewSummary', 'rating', 'reviewCount'])
         ->and($merged['hours'] ?? null)->not->toBeNull()
         ->and($merged['name'] ?? null)->toBe('Cafe');
+});
+
+// ── WS-B2.2 (I1): display toggles also gate public multipage page PRESENCE ────
+// so a toggled-off GB section doesn't advertise an empty page in nav/pageOrder.
+// reviews + menu are Business-only pages, so a business tenant is required.
+
+function dsBusinessTenant(string $handle): User
+{
+    $pro = createTenant($handle);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update(['account_type' => 'business']);
+    AccountCapabilities::flushCache();
+
+    return User::query()->with('site')->findOrFail($pro->id);
+}
+
+function dsFetchedMenu(string $userId): void
+{
+    DB::connection('pgsql')->table('site.menus')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'store_name' => 'Test Menu',
+        'last_fetched_at' => now()->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+}
+
+it('drops the reviews page from presence when the reviews toggle is off', function () {
+    $pro = dsBusinessTenant('pages-rev-off');
+    displaySeedConnection($pro->id, ['name' => 'Cafe'], displaySettings: ['reviews' => false]);
+
+    $r = app(SitepageDataResolverService::class);
+    $pages = $r->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->not->toContain('reviews');
+});
+
+it('keeps the reviews page present when the reviews toggle is on', function () {
+    $pro = dsBusinessTenant('pages-rev-on');
+    displaySeedConnection($pro->id, ['name' => 'Cafe']); // no display_settings → ON
+
+    $r = app(SitepageDataResolverService::class);
+    $pages = $r->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->toContain('reviews');
+});
+
+it('drops the menu page from presence when the menu toggle is off', function () {
+    $pro = dsBusinessTenant('pages-menu-off');
+    displaySeedConnection($pro->id, ['name' => 'Cafe'], displaySettings: ['menu' => false]);
+    dsFetchedMenu($pro->id);
+
+    $r = app(SitepageDataResolverService::class);
+    $pages = $r->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->not->toContain('menu');
+});
+
+it('keeps the menu page present when the menu toggle is on', function () {
+    $pro = dsBusinessTenant('pages-menu-on');
+    displaySeedConnection($pro->id, ['name' => 'Cafe']);
+    dsFetchedMenu($pro->id);
+
+    $r = app(SitepageDataResolverService::class);
+    $pages = $r->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->toContain('menu');
 });
