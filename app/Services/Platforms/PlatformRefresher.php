@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
@@ -27,7 +28,10 @@ use Illuminate\Support\Facades\Log;
 // quiet 'unavailable'.
 class PlatformRefresher
 {
-    public function __construct(private readonly PlatformRegistry $registry) {}
+    public function __construct(
+        private readonly PlatformRegistry $registry,
+        private readonly PlatformHealthNotifier $healthNotifier,
+    ) {}
 
     public function refresh(IntegrationConnection $connection): IntegrationConnection
     {
@@ -95,6 +99,11 @@ class PlatformRefresher
             'last_refresh_status' => $status,
             'last_refresh_error' => $error,
         ]);
+
+        // OV-H: warn the user (critical → in-app + email) when this failure trips the
+        // circuit breaker. The notifier is dedupe-keyed + best-effort, so it fires once
+        // and can never break the refresh path.
+        $this->healthNotifier->connectionRefreshFailing($connection);
 
         return $connection;
     }

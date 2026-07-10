@@ -54,6 +54,15 @@ Schedule::command('partna:prune-notifications', ['--days' => 30])
     ->runInBackground()
     ->onFailure($reportScheduledFailure('prune-notifications'));
 
+// OV-H: weekly in-app "your week on Partna" summary (non-critical, Info). Dedupe-per-week
+// makes a re-run idempotent. Monday 08:00 UTC — start-of-week nudge, off the daily 03:xx sweeps.
+Schedule::command('partna:notify-weekly-summary')
+    ->weeklyOn(1, '08:00')
+    ->onOneServer()
+    ->withoutOverlapping(120) // 2h lock — bounded by the active-users fan-out size.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('notify-weekly-summary'));
+
 Schedule::command('partna:analytics:purge-raw-events')
     ->dailyAt('03:00')
     ->onOneServer()
