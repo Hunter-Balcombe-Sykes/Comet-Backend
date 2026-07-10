@@ -1,31 +1,36 @@
 <?php
 
-// Verifies structural invariants introduced by the skeleton-system cleanup migration
-// (20260527070000_skeleton_system_cleanup.sql):
-//   1. The skeleton_id TEXT CHECK enum on site.sites is present and validated.
+// Verifies structural invariants for the site.sites architecture column and the
+// per-site design_kits table:
+//   1. The architecture_id TEXT CHECK enum on site.sites is present and validated.
 //   2. The ON DELETE CASCADE FK from site.design_kits to site.sites is registered.
 //   3. The trg_create_empty_design_kit AFTER INSERT trigger exists on site.sites.
+//
+// The CHECK constraint originated in the skeleton-system cleanup migration
+// (20260527070000_skeleton_system_cleanup.sql) as sites_skeleton_id_check and was
+// renamed to sites_architecture_id_check by
+// 20260710230000_rename_skeleton_id_to_architecture_id.sql.
 //
 // Uses pg_constraint / information_schema queries (rather than inserting bad rows)
 // so the tests are read-only, require no clean state, and are safe to run against
 // any Supabase environment.
 //
 // To run against Supabase dev:
-//   DB_CONNECTION=pgsql DB_HOST=... php artisan test --filter SkeletonSystemConstraintsTest
+//   DB_CONNECTION=pgsql DB_HOST=... php artisan test --filter ArchitectureSystemConstraintsTest
 
 use Illuminate\Support\Facades\DB;
 
-if (! function_exists('skeletonSuiteIsPostgres')) {
-    function skeletonSuiteIsPostgres(): bool
+if (! function_exists('architectureSuiteIsPostgres')) {
+    function architectureSuiteIsPostgres(): bool
     {
         return DB::connection()->getDriverName() === 'pgsql';
     }
 }
 
-// ─── 1. skeleton_id CHECK constraint ────────────────────────────────────────
+// ─── 1. architecture_id CHECK constraint ─────────────────────────────────────
 
-it('sites_skeleton_id_check constraint exists and is validated', function () {
-    if (! skeletonSuiteIsPostgres()) {
+it('sites_architecture_id_check constraint exists and is validated', function () {
+    if (! architectureSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
 
@@ -35,23 +40,23 @@ it('sites_skeleton_id_check constraint exists and is validated', function () {
           JOIN pg_namespace n ON t.relnamespace = n.oid
          WHERE n.nspname = 'site'
            AND t.relname = 'sites'
-           AND c.conname = 'sites_skeleton_id_check'
+           AND c.conname = 'sites_architecture_id_check'
            AND c.contype = 'c'",
         []
     );
 
     expect($row)->not->toBeNull(
-        'Expected CHECK constraint [site.sites.sites_skeleton_id_check] to exist but it was not found.'
+        'Expected CHECK constraint [site.sites.sites_architecture_id_check] to exist but it was not found.'
     );
     expect((bool) $row->convalidated)->toBeTrue(
-        'Constraint [sites_skeleton_id_check] exists but is NOT VALID — run VALIDATE CONSTRAINT.'
+        'Constraint [sites_architecture_id_check] exists but is NOT VALID — run VALIDATE CONSTRAINT.'
     );
 });
 
 // ─── 2. design_kits → sites CASCADE FK ──────────────────────────────────────
 
 it('design_kits has an ON DELETE CASCADE FK to site.sites', function () {
-    if (! skeletonSuiteIsPostgres()) {
+    if (! architectureSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
 
@@ -79,7 +84,7 @@ it('design_kits has an ON DELETE CASCADE FK to site.sites', function () {
 // ─── 3. trg_create_empty_design_kit trigger ──────────────────────────────────
 
 it('trg_create_empty_design_kit AFTER INSERT trigger exists on site.sites', function () {
-    if (! skeletonSuiteIsPostgres()) {
+    if (! architectureSuiteIsPostgres()) {
         $this->markTestSkipped('Trigger queries require PostgreSQL.');
     }
 

@@ -9,7 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Rules\SubdomainValidationRule;
 use Illuminate\Validation\Rule;
 
-// Validates staff update of a site — skeleton selection, subdomain (with
+// Validates staff update of a site — architecture selection, subdomain (with
 // uniqueness + reserved-word checks), publish status, settings (non-design
 // only). Per-user design vars are written via the `design_kit` field which
 // is processed separately by the controller (writes to site.design_kits).
@@ -25,10 +25,15 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        // Every historical skeleton id normalizes to 'one' — same collapse
-        // affordance as UpdateSiteRequest (the platform is single-skeleton).
-        if (is_string($this->skeleton_id ?? null) && isset(UpdateSiteRequest::LEGACY_SKELETON_IDS[$this->skeleton_id])) {
-            $merge['skeleton_id'] = UpdateSiteRequest::LEGACY_SKELETON_IDS[$this->skeleton_id];
+        // Legacy field-name compat: old clients send skeleton_id. Merge it into
+        // architecture_id, then normalize legacy VALUES — same collapse
+        // affordance as UpdateSiteRequest (the platform is single-architecture).
+        if (is_string($this->skeleton_id ?? null) && $this->architecture_id === null) {
+            $merge['architecture_id'] = $this->skeleton_id;
+        }
+        if (is_string($merge['architecture_id'] ?? $this->architecture_id ?? null)) {
+            $v = $merge['architecture_id'] ?? $this->architecture_id;
+            $merge['architecture_id'] = UpdateSiteRequest::LEGACY_ARCHITECTURE_IDS[$v] ?? $v;
         }
 
         if ($merge !== []) {
@@ -42,9 +47,9 @@ class StaffUpdateSiteRequest extends BaseFormRequest
         $currentSiteId = $professional?->site?->id;
 
         return [
-            // Skeleton — always 'one' (shares UpdateSiteRequest::ALLOWED_SKELETONS;
+            // Architecture — always 'one' (shares UpdateSiteRequest::ALLOWED_ARCHITECTURES;
             // legacy ids collapse in prepareForValidation).
-            'skeleton_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_SKELETONS)],
+            'architecture_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_ARCHITECTURES)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and UpdateSiteRequest share a single source of truth
@@ -94,7 +99,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Unknown layout.',
+            'architecture_id.in' => 'Unknown layout.',
         ];
     }
 }

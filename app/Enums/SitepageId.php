@@ -3,7 +3,7 @@
 namespace App\Enums;
 
 /**
- * Canonical sitepage page-ids for the ONE skeleton taxonomy.
+ * Canonical sitepage page-ids for the ONE architecture taxonomy.
  *
  * The 16 cases below, IN THIS ORDER, are the canonical default page order — the
  * order pages appear before any popularity re-ranking is applied. Every page is

@@ -9,7 +9,7 @@ use App\Services\Site\SubdomainAvailabilityService;
 use Illuminate\Validation\Rule;
 
 // Validates site updates — settings (non-design only), subdomain uniqueness,
-// skeleton selection, and publish readiness checks. Per-user design vars are
+// architecture selection, and publish readiness checks. Per-user design vars are
 // written via the `design_kit` field which is processed separately by the
 // controller (writes to site.design_kits, not site.sites).
 class UpdateSiteRequest extends BaseFormRequest
@@ -17,21 +17,21 @@ class UpdateSiteRequest extends BaseFormRequest
     use DesignKitValidationRules;
 
     /**
-     * The platform is single-skeleton: 'one' is the only layout (2026-07-10 —
-     * the bento/dock/flick/deck/atlas skeletons were deleted and the dashboard
-     * picker removed). Mirrors the DB CHECK constraint.
+     * The platform is single-architecture: 'one' is the only layout (2026-07-10
+     * — the bento/dock/flick/deck/atlas architectures were deleted and the
+     * dashboard picker removed). Mirrors the DB CHECK constraint.
      */
-    public const ALLOWED_SKELETONS = [
+    public const ALLOWED_ARCHITECTURES = [
         'one',
     ];
 
     /**
-     * Every historical skeleton id, all generations (skeleton-N → named →
+     * Every historical architecture id, all generations (skeleton-N → named →
      * bento-class renames → the 2026-07-10 collapse to 'one'). Accepted on
      * write and normalized to 'one' so a stale dashboard/chat build can never
      * 422 on a value that used to be valid — the layout is fixed regardless.
      */
-    public const LEGACY_SKELETON_IDS = [
+    public const LEGACY_ARCHITECTURE_IDS = [
         'skeleton-1' => 'one',
         'skeleton-2' => 'one',
         'skeleton-3' => 'one',
@@ -56,8 +56,14 @@ class UpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        if (is_string($this->skeleton_id ?? null) && isset(self::LEGACY_SKELETON_IDS[$this->skeleton_id])) {
-            $merge['skeleton_id'] = self::LEGACY_SKELETON_IDS[$this->skeleton_id];
+        // Legacy field-name compat: old clients send skeleton_id. Merge it into
+        // architecture_id (then normalize legacy VALUES the same as before).
+        if (is_string($this->skeleton_id ?? null) && $this->architecture_id === null) {
+            $merge['architecture_id'] = $this->skeleton_id;
+        }
+        if (is_string($merge['architecture_id'] ?? $this->architecture_id ?? null)) {
+            $v = $merge['architecture_id'] ?? $this->architecture_id;
+            $merge['architecture_id'] = self::LEGACY_ARCHITECTURE_IDS[$v] ?? $v;
         }
 
         if ($merge !== []) {
@@ -120,9 +126,9 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — always 'one' (every legacy id normalized to it in
+            // Architecture — always 'one' (every legacy id normalized to it in
             // prepareForValidation; only genuinely unknown strings 422).
-            'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
+            'architecture_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_ARCHITECTURES)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and StaffUpdateSiteRequest share a single source of truth
@@ -164,7 +170,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Unknown layout.',
+            'architecture_id.in' => 'Unknown layout.',
         ];
     }
 }

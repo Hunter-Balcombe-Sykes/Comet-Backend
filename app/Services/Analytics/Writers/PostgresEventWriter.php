@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
 // UUID is the explicit PK and inserts use insertOrIgnore (ON CONFLICT (id) DO NOTHING),
 // so an at-least-once retry no-ops instead of double-counting.
 //
-// v2: clicks without a blockId are valid (skeleton sitepages — destination url +
+// v2: clicks without a blockId are valid (architecture sitepages — destination url +
 // labels are on the event itself), and TYPE_SESSION_PING upserts
 // analytics.site_sessions with GREATEST() merges (idempotent under retries).
 class PostgresEventWriter implements AnalyticsEventWriter

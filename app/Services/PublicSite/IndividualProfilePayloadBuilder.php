@@ -39,12 +39,12 @@ use Illuminate\Support\Facades\DB;
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
  *     designMedia: DesignMediaItem[],
- *     skeletonId: 'one',
+ *     architectureId: 'one',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *
- * Each engine field falls back to a stable empty state so skeletons never
- * have to guard on `undefined`:
+ * Each engine field falls back to a stable empty state so the architecture
+ * never has to guard on `undefined`:
  *   - object engines (document, newsletter) → null when nothing authored
  *   - list engines (gallery, links, services) → empty array
  *
@@ -67,7 +67,7 @@ class IndividualProfilePayloadBuilder
      * Build the §28.8 resolved payload. Reads:
      *   - the user's content sections via SitepageDataResolverService
      *   - the per-user design_kit row (partial — only stored non-null cols)
-     *   - the site's skeleton_id (TEXT enum)
+     *   - the site's architecture_id (TEXT enum)
      *   - platform-wide publicConfig fields (analytics endpoint, etc.)
      *
      * @return array<string, mixed>
@@ -80,7 +80,7 @@ class IndividualProfilePayloadBuilder
 
         // One indexed read of content_popularity_scores per build (behind the 60s
         // public-profile cache). Ranks ANNOTATE the content arrays + drive
-        // pageOrder — arrays are NEVER reordered (live skeletons read them
+        // pageOrder — arrays are NEVER reordered (live architectures read them
         // positionally). Empty maps when scoring hasn't run for the site.
         $ranks = $this->popularity->forSite($site?->id);
 
@@ -89,9 +89,9 @@ class IndividualProfilePayloadBuilder
             'design_kit' => $this->loadDesignKit($site),
             'design_media' => $this->buildDesignMedia($site),
             'site_images' => $this->buildSiteImages($site),
-            'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
+            'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
             'public_config' => $this->buildPublicConfig(),
-            // Taxonomy page order for the ONE skeleton — presence + business
+            // Taxonomy page order for the ONE architecture — presence + business
             // gated, popularity-ranked, canonical fallback. Top-level key.
             'page_order' => $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? []),
             // Full popularity map (content_type => content_key => rank) so the ONE

@@ -51,13 +51,13 @@ it('rejects a non-hex border / icon colour', function () {
         ]);
 });
 
-it('rejects an unknown skeleton id', function () {
+it('rejects an unknown architecture id', function () {
     $pro = createTenant('skel-pro');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'skeleton-9'])
+        ->patchJson('/api/site', ['architecture_id' => 'skeleton-9'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['skeleton_id']);
+        ->assertJsonValidationErrors(['architecture_id']);
 });
 
 it('rejects a reserved subdomain', function () {
@@ -91,7 +91,7 @@ it('rejects any settings.design.* path (skeleton-cleanup guard)', function () {
         ->assertJsonValidationErrors(['settings.design']);
 });
 
-it('accepts a valid skeleton and settings (negative tests are not over-rejecting)', function () {
+it('accepts a valid architecture and settings (negative tests are not over-rejecting)', function () {
     // Guards against false-positive negative tests: prove the same pipeline lets
     // VALID input through. A design_kit write is intentionally omitted — that path
     // needs the information_schema mirror (see WriteDesignKitTest); the bad-hex
@@ -100,36 +100,49 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'skeleton_id' => 'one',
+            'architecture_id' => 'one',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('one');
 });
 
-it('rejects a genuinely unknown skeleton id', function () {
-    $pro = createTenant('unknown-skeleton');
+it('rejects a genuinely unknown architecture id', function () {
+    $pro = createTenant('unknown-architecture');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'brutalist'])
+        ->patchJson('/api/site', ['architecture_id' => 'brutalist'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['skeleton_id']);
+        ->assertJsonValidationErrors(['architecture_id']);
 });
 
-it('collapses every historical skeleton id to one on write', function () {
-    // The platform is single-skeleton (2026-07-10). Any stale dashboard/chat
+it('collapses every historical architecture id to one on write', function () {
+    // The platform is single-architecture (2026-07-10). Any stale dashboard/chat
     // build sending an old id must succeed and store 'one' — never 422, never
     // persist a layout that no longer renders.
-    $pro = createTenant('legacy-skeleton-pro');
+    $pro = createTenant('legacy-architecture-pro');
 
     foreach (['skeleton-3', 'hub', 'sheet', 'bento', 'deck', 'atlas'] as $legacy) {
         actingAsUser($pro)
-            ->patchJson('/api/site', ['skeleton_id' => $legacy])
+            ->patchJson('/api/site', ['architecture_id' => $legacy])
             ->assertOk();
 
-        expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
+        expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
             ->toBe('one', "legacy id {$legacy} must collapse to 'one'");
     }
+});
+
+it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
+    // Old clients (pre-rename dashboards) still send skeleton_id. prepareForValidation
+    // merges it into architecture_id, so the write must succeed and store 'one'.
+    $pro = createTenant('legacy-field-pro');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['skeleton_id' => 'bento'])
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('one');
 });

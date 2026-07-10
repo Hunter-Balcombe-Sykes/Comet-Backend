@@ -17,7 +17,7 @@ it('allows scanning and quarantined values for site_media.processing_state', fun
                 'id' => $siteId,
                 'user_id' => $user->id,
                 'subdomain' => 'scan-test-'.Str::random(6),
-                'skeleton_id' => 'one',
+                'architecture_id' => 'one',
                 'settings' => '[]',
                 'is_published' => true,
                 'created_at' => now(),

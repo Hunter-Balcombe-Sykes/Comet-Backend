@@ -245,7 +245,7 @@ class AnalyticsQueryService
         try {
             // v2: clicks self-describe (url/platform/label captured at the anchor).
             // Legacy block-era rows have url IS NULL and are excluded — the block
-            // model is gone with the skeleton pivot.
+            // model is gone with the architecture pivot.
             return DB::table('analytics.link_clicks')
                 ->where('user_id', $userId)
                 ->whereBetween('occurred_at', [$from, $to])
@@ -265,7 +265,7 @@ class AnalyticsQueryService
     public function topSections(string $userId, Carbon $from, Carbon $to): Collection
     {
         try {
-            // v2: section opens recorded by the skeleton tracker into
+            // v2: section opens recorded by the architecture tracker into
             // analytics.section_views (per-session dedup happens at ingest). The
             // legacy derivation from block clicks is gone with the block model.
             return DB::table('analytics.section_views')
@@ -341,7 +341,7 @@ class AnalyticsQueryService
 
     /**
      * Outbound clicks per booking service/event item on the sitepage booking
-     * section. Section key differs by skeleton: deck/dock/flick use 'book',
+     * section. Section key differs by architecture: deck/dock/flick use 'book',
      * bento uses 'services'.
      *
      * @return array<int, array{product_id:string, title:?string, url:?string, clicks:int, unique_clickers:int}>
