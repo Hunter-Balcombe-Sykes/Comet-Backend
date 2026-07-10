@@ -11,7 +11,7 @@ namespace App\Services\Design\Presets;
  * (DesignPresetResolver) treat the two sources as genuinely comparable: when
  * both match the SAME bucket the values are identical (no visible conflict);
  * when they match DIFFERENT buckets, the higher-priority factor's full bucket
- * wins every shared column (all buckets set the same 8 keys), not a partial
+ * wins every shared column (all buckets set the same 7 keys), not a partial
  * blend — that's the intended behaviour of a per-column priority merge over
  * two same-shaped contributions, not a bug.
  *
@@ -108,11 +108,14 @@ final class CategoryStylePresets
         ],
         // Practical, sturdy, high-visibility trade colour — homeowners want
         // legible text and dependable filled panels, no design flourish.
+        // Rounded (not the sharp cluster): the audience is a homeowner hiring
+        // a person — approachable beats industrial; pre-vocab this sat at
+        // 0.5rem, deliberately the roundest of the work buckets.
         self::HOME_SERVICES => [
             'color_accent' => '#d97706',
             'text_body' => '0.9rem',
             'weight_regular' => '500',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0.85rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',
@@ -129,12 +132,14 @@ final class CategoryStylePresets
             'effect_surface' => 'glass',
         ],
         // Bold, industrial, high-contrast — garage-signage confidence: heavy
-        // weight, near-square corners, filled panels.
+        // weight, true-square corners, filled panels. The one bucket on the
+        // Square stop: trade signage is square, and pre-vocab this was
+        // deliberately the sharpest entry in the table (0.2rem).
         self::AUTOMOTIVE => [
             'color_accent' => '#c81e1e',
             'text_body' => '0.85rem',
             'weight_regular' => '600',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',

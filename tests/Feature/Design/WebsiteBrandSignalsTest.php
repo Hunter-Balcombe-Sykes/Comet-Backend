@@ -322,7 +322,7 @@ it('stores the failure kind when the worker errors, and when unconfigured', func
 
 it('maps tiers to columns, drops unknown tiers, and no longer maps the bg signal', function () {
     expect(StyleTiers::columnsFromTiers(['bg' => 'dark', 'radius' => 'sharp', 'nonsense' => 'x']))
-        ->toBe(['border_radius' => '0.25rem'])
+        ->toBe(['border_radius' => '0']) // sharp = the old site was square; faithful Square stop
         // The analyzer still emits bg tiers, but the mapping deliberately drops
         // them — theme_mode owns the background (2026-07-10 rework).
         ->and(StyleTiers::columnsFromTiers(['bg' => 'light']))
@@ -348,7 +348,7 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     // uncontested columns from the FOOD_DRINK bucket.
     expect($layer)->not->toHaveKey('color_bg');
     expect($layer['color_accent'])->toBe('#123abc') // raw accent passes through, beating the bucket's #e0491f
-        ->and($layer['border_radius'])->toBe('0.25rem')
+        ->and($layer['border_radius'])->toBe('0') // sharp tier → Square, beating the bucket's 0.25rem
         ->and($layer['typography_font_family'])->toBe('young-serif');
 });
 
@@ -364,7 +364,7 @@ it('ignores below-threshold signals and low-confidence accents', function () {
 
     expect($layer)->not->toHaveKey('color_bg')
         ->and($layer)->not->toHaveKey('color_accent')
-        ->and($layer['border_radius'])->toBe('0.25rem');
+        ->and($layer['border_radius'])->toBe('0');
 });
 
 it('contributes nothing from a v1 (pre-rebuild) analysis document', function () {
@@ -451,7 +451,7 @@ it('skips a column when the outside-website vote is tied', function () {
     $layer = wbsResolver()->presetLayer($user->site->id);
 
     expect($layer)->not->toHaveKey('color_bg')                 // 1–1 tie → no conclusion
-        ->and($layer['border_radius'])->toBe('0.25rem');        // unanimous column still lands
+        ->and($layer['border_radius'])->toBe('0');              // unanimous sharp column still lands (Square)
 });
 
 it('loses every contested column to Instagram (30 beats 10)', function () {
@@ -491,7 +491,7 @@ it('ignores failed, missing, and v1 analyses in the vote', function () {
 
     wbsResolver()->resolveForUser($user);
 
-    expect(wbsResolver()->presetLayer($user->site->id)['border_radius'])->toBe('0.25rem');
+    expect(wbsResolver()->presetLayer($user->site->id)['border_radius'])->toBe('0'); // the lone valid 'sharp' vote → Square
 });
 
 // ── Observer + reconciliation wiring ───────────────────────────────────────

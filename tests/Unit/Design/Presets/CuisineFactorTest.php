@@ -43,8 +43,10 @@ it('concludes fine-dining editorial look for a fine-dining category', function (
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Fine dining restaurant']));
 
     // Dark ground retired (theme_mode owns bg) — restraint reads through the
-    // light weight + outline surface + flat shadows + duotone mood.
+    // light weight + outline surface + flat shadows + duotone mood, plus the
+    // square editorial shape refining the food bucket's soft corners.
     expect($out['weight_regular'])->toBe('300')
+        ->and($out['border_radius'])->toBe('0')
         ->and($out['typography_font_family'])->toBe('young-serif')
         ->and($out['effect_surface'])->toBe('outline')
         ->and($out['effect_shadow_style'])->toBe('flat')

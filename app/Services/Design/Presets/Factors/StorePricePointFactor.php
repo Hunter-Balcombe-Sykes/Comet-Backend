@@ -78,10 +78,10 @@ class StorePricePointFactor implements EvidenceFactor
         ],
         self::BAND_MID => [
             'space_regular' => '0.95rem',   // regular
-            // 2026-07-10 thickness vocab shifted down a label (1px -> 0.5px),
-            // so mid now matches luxury's hairline; the tier contrast lives in
-            // space/motion/surface.
-            'border_thickness' => '0.5px',
+            // Standard border (1px) — mid means NEUTRAL. The 2026-07-10 label
+            // shift briefly dragged this to 0.5px, collapsing the luxury
+            // hairline into it; the tier contrast is restored deliberately.
+            'border_thickness' => '1px',
             'motion_pace' => 'normal',
         ],
         self::BAND_CASUAL => [

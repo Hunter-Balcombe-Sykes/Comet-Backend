@@ -26,10 +26,19 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Design\Presets\CategoryStylePresets;
 use App\Services\Design\Presets\DesignFactorRegistry;
+use App\Services\Design\Presets\Factors\AestheticExpressionFactor;
+use App\Services\Design\Presets\Factors\CuisineFactor;
+use App\Services\Design\Presets\Factors\HoursRhythmFactor;
 use App\Services\Design\Presets\Factors\LaunchRecipeFactor;
+use App\Services\Design\Presets\Factors\MusicGenreFactor;
+use App\Services\Design\Presets\Factors\PlatformMixFactor;
+use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\Design\Presets\IdentityEvidence;
+use App\Services\Design\Presets\LaunchRecipes;
 use App\Services\Design\Presets\PresetTargetableColumns;
+use App\Services\Design\Presets\StyleTiers;
 use Illuminate\Support\Collection;
 
 // Feature tests inherit Tests\TestCase from tests/Pest.php — no per-file uses().
@@ -138,6 +147,14 @@ function assertCoherent(array $kit): void
     expect($radius === '1.5rem' && $heavyWeight)->toBeFalse(
         "incoherent: very-rounded radius ({$radius}) + heavy weight ({$weight})",
     );
+
+    // Pill + hard shadow: every soft-shape emitter pairs 1.5rem with soft/flat
+    // deliberately; a merged pill+hard can only be a cross-factor accident.
+    // (Square + hard/solid is fine — that IS the poster register; outline +
+    // hard is neubrutalist and legitimate; neither is banned.)
+    expect($radius === '1.5rem' && $shadow === 'hard')->toBeFalse(
+        "incoherent: pill radius ({$radius}) + hard shadow",
+    );
 }
 
 // ── Golden bags ──────────────────────────────────────────────────────────────
@@ -167,7 +184,7 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['weight_regular'])->toBe('600')
-        ->and($r['kit']['border_radius'])->toBe('0.25rem')
+        ->and($r['kit']['border_radius'])->toBe('0') // square — the 2-signal poster archetype earns the extreme stop
         ->and($r['kit']['effect_surface'])->toBe('solid')
         ->and($r['kit']['effect_shadow_style'])->toBe('hard')
         ->and($r['kit']['color_accent'])->toBe('#c81e1e');
@@ -253,4 +270,102 @@ it('a conflicting-signals profile abstains from any recipe and stays coherent', 
 
     expect($r['recipe'])->toBe([]);
     assertCoherent($r['kit']);
+});
+
+// ── Vocabulary sweep ─────────────────────────────────────────────────────────
+//
+// Every statically-enumerable emission — bucket, recipe, tier literal, factor
+// overlay const — must sit EXACTLY on the locked design-kit vocabulary. This is
+// the net that would have caught the pre-2026-07-10 corner drift (0.2/0.3/0.4/
+// 0.5/0.6rem free-hand radii) at authoring time instead of migration time.
+
+/** @return array<string, array<string, string>> every static emission set, keyed by a debug name */
+function swAllStaticEmissions(): array
+{
+    $sets = [];
+
+    foreach ((new ReflectionClass(CategoryStylePresets::class))->getConstants() as $const) {
+        if (is_string($const)) {
+            $sets["bucket:{$const}"] = CategoryStylePresets::forBucket($const);
+        }
+    }
+
+    foreach (LaunchRecipes::all() as $recipe) {
+        $sets["recipe:{$recipe['key']}"] = $recipe['values'];
+    }
+
+    // Every analyzer tier of every signal, through the real mapping.
+    $tiers = (new ReflectionClass(StyleTiers::class))->getConstant('TIERS');
+    foreach ($tiers as $signal => $tierMap) {
+        foreach (array_keys($tierMap) as $tier) {
+            $sets["tier:{$signal}:{$tier}"] = StyleTiers::columnsFromTiers([$signal => $tier]);
+        }
+    }
+
+    // Factor overlay consts (the full static emission surface of the stack).
+    foreach ([
+        [HoursRhythmFactor::class, 'RHYTHM_TARGETS'],
+        [AestheticExpressionFactor::class, 'DIRECTION_TARGETS'],
+        [MusicGenreFactor::class, 'FAMILY_TARGETS'],
+        [CuisineFactor::class, 'HINT_TARGETS'],
+        [PlatformMixFactor::class, 'VIBE_TARGETS'],
+        [StorePricePointFactor::class, 'BAND_TARGETS'],
+    ] as [$class, $const]) {
+        foreach ((new ReflectionClass($class))->getConstant($const) as $key => $values) {
+            $sets[class_basename($class).":{$key}"] = $values;
+        }
+    }
+    $sets['CuisineFactor:specific'] = (new ReflectionClass(CuisineFactor::class))->getConstant('SPECIFIC_TARGET');
+
+    return $sets;
+}
+
+it('every statically-enumerable emission sits exactly on the locked vocabulary', function () {
+    $vocab = [
+        'text_body' => ['0.8rem', '0.85rem', '0.9rem'],                 // Small / Medium / Large body
+        'weight_regular' => ['300', '400', '500', '600'],
+        'border_radius' => ['0', '0.25rem', '0.85rem', '1.5rem'],       // Square / Soft / Rounded / Pill
+        'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold
+        'space_regular' => ['0.8rem', '0.95rem', '1.15rem'],            // compact / regular / generous
+        'motion_pace' => ['slow', 'normal', 'fast'],
+        'effect_surface' => ['glass', 'solid', 'outline'],
+        'effect_shadow_style' => ['flat', 'soft', 'hard'],
+        'effect_link_style' => ['underline-hover', 'underline-always', 'plain'],
+        'effect_button_fill' => ['solid', 'outline', 'ghost'],
+        'effect_image_treatment' => ['none', 'mono', 'duotone', 'warm', 'muted'],
+    ];
+
+    foreach (swAllStaticEmissions() as $name => $values) {
+        foreach ($values as $column => $value) {
+            expect(PresetTargetableColumns::isValid($column))->toBeTrue(
+                "{$name} emits non-targetable column {$column}",
+            );
+
+            if ($column === 'color_accent') {
+                expect((bool) preg_match('/^#[0-9a-f]{6}$/', $value))->toBeTrue(
+                    "{$name} accent '{$value}' is not lowercase 6-digit hex",
+                );
+
+                continue;
+            }
+
+            if ($column === 'typography_font_family') {
+                // Closed loop: an emitted font slug must be a live StyleTiers
+                // font tier (the 9-font roster allowlist).
+                expect(StyleTiers::columnsFromTiers(['font' => $value]))->toBe(
+                    ['typography_font_family' => $value],
+                    "{$name} font '{$value}' is not in the live roster",
+                );
+
+                continue;
+            }
+
+            expect(array_key_exists($column, $vocab))->toBeTrue(
+                "{$name} emits {$column}, which has no vocabulary entry in this sweep",
+            );
+            expect(in_array($value, $vocab[$column], true))->toBeTrue(
+                "{$name} emits {$column}='{$value}', off the locked vocabulary [".implode(', ', $vocab[$column]).']',
+            );
+        }
+    }
 });

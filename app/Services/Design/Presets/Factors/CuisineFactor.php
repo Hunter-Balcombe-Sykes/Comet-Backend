@@ -40,6 +40,7 @@ class CuisineFactor implements EvidenceFactor
      */
     private const HINT_TARGETS = [
         CuisineLexicon::FINE_DINING => [
+            'border_radius' => '0',             // square — the editorial shape; refines the food bucket's soft corners (44 > 40)
             'weight_regular' => '300',          // light
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'slow',

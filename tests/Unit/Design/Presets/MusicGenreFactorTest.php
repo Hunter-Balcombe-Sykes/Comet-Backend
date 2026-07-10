@@ -77,7 +77,7 @@ it('maps an electronic genre to a heavy club-poster look', function () {
     // Dark ground retired (theme_mode owns bg) — the family reads through the
     // brutalist face + heavy weight + solid blocks + hard shadows.
     expect($out['typography_font_family'])->toBe('reglo')
-        ->and($out['border_radius'])->toBe('0.25rem')
+        ->and($out['border_radius'])->toBe('0') // club-flyer square
         ->and($out['weight_regular'])->toBe('600')
         ->and($out['effect_surface'])->toBe('solid')
         ->and($out['effect_shadow_style'])->toBe('hard');
