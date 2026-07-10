@@ -6,6 +6,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -13,8 +14,12 @@ uses(TestCase::class)->in(__FILE__);
 
 // The job now resolves the active custom domain from the handle when a dispatcher
 // didn't pass one (so every purge busts the custom-domain edge cache too), so handle()
-// reads site.sites — set it up.
-beforeEach(fn () => setupSitesTable());
+// reads site.sites — set it up. Queue is faked because a primary purge dispatches a
+// delayed follow-up purge; on the sync test queue that would execute inline.
+beforeEach(function () {
+    setupSitesTable();
+    Queue::fake();
+});
 
 it('has its own retry policy and queue (not the KV trait — see §28.7)', function () {
     $job = new CloudflareCachePurgeJob('h');
@@ -93,6 +98,57 @@ it('purges handle-only when the resolved custom domain is not active', function 
     $purge = Mockery::mock(CloudflarePurgeService::class);
     $purge->shouldReceive('purgeHandle')->once()->with('jane', null);
     $job->handle($purge);
+});
+
+it('dispatches one delayed follow-up purge after the primary purge', function () {
+    // A visitor racing the primary purge can re-pin payload-stale HTML into the
+    // router's 24h edge cache (the Laravel Cloud edge in front of
+    // api/public/profiles honours s-maxage and our zone purge can't reach it).
+    // The delayed follow-up evicts that re-pin once every payload TTL has lapsed.
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once();
+    $job->handle($purge);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $followUp) {
+        return $followUp->followUp === true
+            && $followUp->handle === 'Jane'
+            && $followUp->customDomain === 'Tuesdae.co'
+            && $followUp->delay !== null;
+    });
+    Queue::assertPushed(CloudflareCachePurgeJob::class, 1);
+});
+
+it('follow-up purges but never chains another follow-up', function () {
+    $job = new CloudflareCachePurgeJob('jane', null, followUp: true);
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->with('jane', null);
+    $job->handle($purge);
+
+    Queue::assertNothingPushed();
+});
+
+it('does not dispatch a follow-up when the handle no-ops', function () {
+    $job = new CloudflareCachePurgeJob('   ');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldNotReceive('purgeHandle');
+    $job->handle($purge);
+
+    Queue::assertNothingPushed();
+});
+
+it('gives follow-ups their own lock namespace and a shorter lock than their delay', function () {
+    $followUp = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co', followUp: true);
+
+    // '|fu' suffix: the primary's in-flight lock must not swallow the follow-up.
+    // uniqueFor (30) < delay (120): a lock outliving the dispatch delay would
+    // coalesce away the follow-up owed to a later edit.
+    expect($followUp->uniqueId())->toBe('jane|tuesdae.co|fu')
+        ->and($followUp->uniqueFor)->toBe(30)
+        ->and($followUp->uniqueFor)->toBeLessThan((int) config('partna.cache.purge_followup_seconds', 120));
 });
 
 it('reports to Nightwatch and logs on terminal failure', function () {

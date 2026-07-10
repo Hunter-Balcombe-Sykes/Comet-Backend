@@ -1565,6 +1565,12 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // Delay before CloudflareCachePurgeJob's follow-up purge. Must exceed the
+        // sum of the payload staleness windows (Laravel Cloud edge s-maxage +
+        // Worker subrequest cacheTtl) so the follow-up is guaranteed to evict any
+        // stale HTML re-pinned by a visitor who raced the primary purge.
+        'purge_followup_seconds' => (int) env('PARTNA_CACHE_PURGE_FOLLOWUP_SECONDS', 120),
+
         'ttls' => [
             'public_payload' => (int) env('PARTNA_CACHE_TTL_PUBLIC_PAYLOAD', env('CACHE_TTL_PUBLIC_PAYLOAD', 900)),                                 // 15m
             'analytics_short' => (int) env('PARTNA_CACHE_TTL_ANALYTICS_SHORT', env('CACHE_TTL_ANALYTICS_SHORT', 300)),                             // 5m
