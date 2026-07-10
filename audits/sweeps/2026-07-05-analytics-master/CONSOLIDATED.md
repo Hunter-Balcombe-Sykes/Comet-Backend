@@ -177,7 +177,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         }
         ```
 
-- [ ] **#OBS-5** `[full-sweep]` · P2 — `AnalyticsQueryService::conversions()` silently swallows `QueryException` with zero logging, unlike every sibling method
+- [x] **#OBS-5** `[full-sweep]` · P2 — `AnalyticsQueryService::conversions()` silently swallows `QueryException` with zero logging, unlike every sibling method
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php, `conversions()`
     - **Affects:** The conversions block (enquiries + subscribers) of the professional dashboard — a broken `site.enquiries` or `notifications.email_subscriptions` table silently reports zero with no Nightwatch signal.
     - **Effort:** S (~0.5h)

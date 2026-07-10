@@ -533,7 +533,8 @@ class AnalyticsQueryService
                 ->where('user_id', $userId)
                 ->whereBetween('created_at', [$from, $to])
                 ->count();
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.conversion_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
             $enquiries = 0;
         }
 
@@ -543,7 +544,8 @@ class AnalyticsQueryService
                 ->where('status', 'subscribed')
                 ->whereBetween('created_at', [$from, $to])
                 ->count();
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            Log::warning('analytics.conversion_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
             $subscribers = 0;
         }
 
