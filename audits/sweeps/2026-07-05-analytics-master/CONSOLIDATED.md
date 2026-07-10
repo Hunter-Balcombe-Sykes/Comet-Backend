@@ -265,7 +265,13 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         }
         ```
 
-- [ ] **#DINT-1** `[full-sweep]` · P2 — Session heartbeat upsert silently drops rows on a session-ID collision across two different sites
+- [x] **#DINT-1** `[full-sweep]` · P2 — Session heartbeat upsert silently drops rows on a session-ID collision across two different sites
+    - **Resolution (2026-07-10):** composite PK `(id, site_id)` on `analytics.site_sessions`, as a **zero-downtime 3-step** (the dev Supabase serves live `api.partna.au`, so no single-step swap is safe). `upsertSession()` now uses `ON CONFLICT (id, site_id)` and drops the dead `WHERE site_id = EXCLUDED.site_id`. Regression test proves two sites sharing a session id now get two rows (fails against the old code). Verified NOT a security finding: session id is attacker-chosen but victim ids are random 122-bit UUIDs (first-writer-wins), so no cross-site suppression — P2 data-integrity is correct.
+    - **⚠️ APPLY SEQUENCE (Josh, dev `glncumufgaqcmqhzwrxm` only — never paused prod):**
+        1. `supabase db push` **Migration A** (`20260711030000` — adds a bare `CREATE UNIQUE INDEX CONCURRENTLY (id, site_id)`; safe with the current live app).
+        2. `git push development` carrying the `PostgresEventWriter` change (`ON CONFLICT (id, site_id)`).
+        3. `supabase db push` **Migration B** (`20260711040000` — drops PK(id), promotes the unique index to PK via `USING INDEX`). **Do NOT run B before step 2's deploy is live.**
+    - **Note (verified in Postgres):** the spec'd `ADD CONSTRAINT ... UNIQUE` would have broken step B (`index already associated with a constraint`) — a bare `CREATE UNIQUE INDEX` is required so `PRIMARY KEY USING INDEX` can adopt it. **Transient window:** between step 2 and step 3, a *genuine* cross-site session-id collision raises an uncaught duplicate-key error (the old PK(id) is still the arbiter-of-last-resort) instead of silently dropping — rare × short window × fire-and-forget beacon (a 500 the client ignores + a Nightwatch blip, no data corruption). Mitigation: apply step 3 promptly after the deploy. A defensive catch was deliberately NOT added — it would contradict the OBS-1/OBS-3 fail-loud work.
     - **Where:** app/Services/Analytics/Writers/PostgresEventWriter.php, `upsertSession()`
     - **Affects:** Session/duration/live-visitor tracking for any two sites that happen to receive a ping carrying the same client-minted session UUID (e.g. a bug in the frontend tracker reusing a session ID across subdomains, rather than a realistic UUID-guessing attack).
     - **Effort:** M (~2–4h)

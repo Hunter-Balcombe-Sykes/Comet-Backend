@@ -89,6 +89,46 @@ it('upserts a session from pings — duration only grows (GREATEST semantics)', 
         ->and($rows[0]->referrer)->toBe('https://instagram.com/');
 });
 
+it('records independent session rows when two different sites receive a ping with the same session id', function () {
+    // #DINT-1 regression: analytics.site_sessions used to be keyed PRIMARY KEY (id)
+    // alone, and upsertSession() paired that with `WHERE site_sessions.site_id =
+    // EXCLUDED.site_id` — so a second site's ping sharing a session id (one visitor
+    // browsing two Partna sites, if the tracker ever reuses an id) conflicted on the
+    // PK, failed the WHERE guard, and Postgres skipped BOTH the UPDATE and the
+    // blocked INSERT: the second site's heartbeat silently vanished. The fix keys
+    // the conflict target on (id, site_id), so each site gets its own row.
+    $siteA = createBrandTenant('cross-site-a');
+    $siteB = createBrandTenant('cross-site-b');
+    $sharedSessionId = (string) Str::uuid();
+
+    $this->withHeader('Origin', 'https://cross-site-a.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/ping', [
+            'site_id' => $siteA->site->id,
+            'session_id' => $sharedSessionId,
+            'seconds' => 5,
+        ])->assertStatus(200);
+
+    $this->withHeader('Origin', 'https://cross-site-b.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/ping', [
+            'site_id' => $siteB->site->id,
+            'session_id' => $sharedSessionId,
+            'seconds' => 8,
+        ])->assertStatus(200);
+
+    // Both pings must land as SEPARATE rows — one per site — neither dropped.
+    $rows = DB::connection('pgsql')->table('analytics.site_sessions')
+        ->where('id', $sharedSessionId)
+        ->get();
+
+    expect($rows)->toHaveCount(2);
+
+    $bySite = $rows->keyBy('site_id');
+    expect($bySite->has($siteA->site->id))->toBeTrue()
+        ->and($bySite->has($siteB->site->id))->toBeTrue()
+        ->and((int) $bySite[$siteA->site->id]->duration_seconds)->toBe(5)
+        ->and((int) $bySite[$siteB->site->id]->duration_seconds)->toBe(8);
+});
+
 it('silently accepts but does not record bot pings', function () {
     $tenant = createBrandTenant('ping-bot');
 

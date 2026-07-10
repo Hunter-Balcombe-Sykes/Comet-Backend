@@ -1,0 +1,54 @@
+-- #DINT-1 step 1 of 3 — add a composite (id, site_id) UNIQUE index on
+-- analytics.site_sessions, in preparation for promoting it to the table's
+-- primary key in step 3 (20260711040000_site_sessions_promote_composite_pk.sql).
+--
+-- WHY: site_sessions_pkey is currently PRIMARY KEY (id) alone, and the
+-- session id is a client-minted UUID with no cross-site scoping.
+-- PostgresEventWriter::upsertSession() does
+-- `ON CONFLICT (id) DO UPDATE ... WHERE site_sessions.site_id = EXCLUDED.site_id`.
+-- When two DIFFERENT sites receive a ping carrying the SAME session id (one
+-- visitor browsing two Partna sites, if the tracker ever reuses an id), the
+-- second write conflicts on the PK but the WHERE guard is false, so Postgres
+-- skips BOTH the UPDATE and the blocked INSERT — the second site's session
+-- heartbeat is silently dropped. Fix: key uniqueness on (id, site_id)
+-- instead of (id) alone, so two sites can each hold their own row for the
+-- same session id.
+--
+-- ROLLOUT — 3 steps, because the dev Supabase project (glncumufgaqcmqhzwrxm)
+-- serves LIVE api.partna.au traffic right now and there is no single-
+-- statement way to swap a table's primary key under live writers:
+--   1. (this file) add an (id, site_id) UNIQUE index alongside the existing
+--      PRIMARY KEY (id). Both the OLD app (`ON CONFLICT (id)`, arbiter =
+--      the existing PK) and the NEW app (`ON CONFLICT (id, site_id)`,
+--      arbiter = this index) resolve correctly after this file lands, so
+--      app and DB stay compatible in EITHER deploy order during rollout.
+--   2. Deploy the app change — PostgresEventWriter::upsertSession() switches
+--      to `ON CONFLICT (id, site_id)` and drops the now-dead WHERE guard.
+--      Tracked in git (app/Services/Analytics/Writers/PostgresEventWriter.php),
+--      shipped via `git push development` — NOT a step in this migrations dir.
+--   3. (20260711040000) drop PRIMARY KEY (id), promote this index to the new
+--      composite primary key. Must not run until step 2's app deploy is
+--      live — see that file's header.
+--
+-- WHY A BARE INDEX, NOT `ADD CONSTRAINT ... UNIQUE (id, site_id)`: verified
+-- against a real Postgres 16 instance that a table UNIQUE constraint's
+-- backing index is "owned" by that constraint (pg_depend records an
+-- internal dependency). Trying to later promote a constraint-owned index
+-- via `ADD CONSTRAINT ... PRIMARY KEY USING INDEX` in step 3 fails with:
+--   ERROR: index "site_sessions_id_site_uk" is already associated with a constraint
+-- A plain `CREATE UNIQUE INDEX` has no owning constraint, so step 3 can
+-- adopt it cleanly (Postgres renames it to the constraint's name; no
+-- leftover duplicate index). A bare unique index is exactly as valid an
+-- arbiter for `ON CONFLICT (id, site_id)` as a named UNIQUE constraint
+-- would be, so nothing is lost by using one here.
+--
+-- LOCKING: built CONCURRENTLY, outside any transaction, per CONVENTIONS.md §1
+-- and enforced by the guard:no-unsafe-migrations CI check (a plain CREATE
+-- INDEX on this pre-existing table would take a write-blocking SHARE lock and
+-- fail CI). A CONCURRENTLY-built bare unique index is still adoptable by
+-- step 3's `ADD CONSTRAINT ... PRIMARY KEY USING INDEX` in its own later
+-- transaction — verified against Postgres — so nothing about CONCURRENTLY
+-- blocks the promotion. `IF NOT EXISTS` makes it idempotent/re-runnable.
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS site_sessions_id_site_uk
+    ON analytics.site_sessions (id, site_id);

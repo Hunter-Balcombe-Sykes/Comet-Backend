@@ -1447,14 +1447,19 @@ function setupLinkClicksTable(): void
 
 /**
  * analytics.site_sessions — v2 session heartbeats (live-now + avg duration).
+ *
+ * #DINT-1: composite PRIMARY KEY (id, site_id), matching the prod end-state
+ * after 20260711030000/20260711040000 — id alone is no longer unique so two
+ * sites can hold a row for the same client-minted session id. site_id is
+ * NOT NULL (matches prod DDL; the writer always supplies it).
  */
 function setupSiteSessionsTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.site_sessions (
-        id TEXT PRIMARY KEY,
+        id TEXT NOT NULL,
         user_id TEXT NULL,
-        site_id TEXT NULL,
+        site_id TEXT NOT NULL,
         visitor_id TEXT NULL,
         started_at TEXT NULL,
         last_seen_at TEXT NULL,
@@ -1463,7 +1468,8 @@ function setupSiteSessionsTable(): void
         region_code TEXT NULL,
         device_type TEXT NULL,
         referrer TEXT NULL,
-        created_at TEXT NULL
+        created_at TEXT NULL,
+        PRIMARY KEY (id, site_id)
     )');
 }
 

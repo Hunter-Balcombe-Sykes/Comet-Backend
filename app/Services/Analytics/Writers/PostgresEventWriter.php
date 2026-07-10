@@ -284,11 +284,19 @@ class PostgresEventWriter implements AnalyticsEventWriter
     }
 
     /**
-     * Upsert one session row from a heartbeat. PK is the client-minted session
-     * UUID; GREATEST() on last_seen/duration makes at-least-once delivery and
-     * out-of-order pings idempotent. The site_id guard stops a hostile client
-     * replaying someone else's session UUID against a different site. Origin
-     * fields (geo/device/referrer/visitor) are first-write-wins by design.
+     * Upsert one session row from a heartbeat. PK is the composite
+     * (client-minted session UUID, site_id) — #DINT-1: a bare id-only PK let
+     * a session id reused across two different sites (one visitor browsing
+     * two Partna sites) silently drop the second site's heartbeat, because
+     * the old id-only conflict target found a row that belonged to the
+     * WRONG site and a WHERE guard blocked the update with nowhere for the
+     * insert to go. Keying the conflict target on (id, site_id) means a
+     * conflict can only ever fire when site_id already matches, so two
+     * sites sharing a session id now get two independent rows instead of
+     * one clobbering silently over the other. GREATEST() on last_seen/
+     * duration makes at-least-once delivery and out-of-order pings
+     * idempotent. Origin fields (geo/device/referrer/visitor) are
+     * first-write-wins by design.
      */
     private function upsertSession(AnalyticsEvent $e): void
     {
@@ -305,10 +313,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 (id, user_id, site_id, visitor_id, started_at, last_seen_at, duration_seconds,
                  country_code, region_code, device_type, referrer, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (id) DO UPDATE SET
+             ON CONFLICT (id, site_id) DO UPDATE SET
                 last_seen_at = {$greatest}(site_sessions.last_seen_at, EXCLUDED.last_seen_at),
-                duration_seconds = {$greatest}(site_sessions.duration_seconds, EXCLUDED.duration_seconds)
-             WHERE site_sessions.site_id = EXCLUDED.site_id",
+                duration_seconds = {$greatest}(site_sessions.duration_seconds, EXCLUDED.duration_seconds)",
             [
                 $e->sessionId,
                 $e->userId,
