@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 // Add a single product by URL (the "add individual product" flow), not tied to
 // a connected store. The product page is scraped server-side (JSON-LD →
-// OpenGraph) by GenericShopScraper::fetchSingleProduct.
+// OpenGraph) by GenericShopScraper::readProductPage.
 class AddShopProductRequest extends FormRequest
 {
     // Authorization is handled at the trait chokepoint, not here.

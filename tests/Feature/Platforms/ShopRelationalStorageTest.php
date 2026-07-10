@@ -148,9 +148,13 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
 
     $this->mock(GenericShopScraper::class, function ($m) {
         foreach (range(1, 21) as $n) {
-            $m->shouldReceive('fetchSingleProduct')
+            $m->shouldReceive('readProductPage')
                 ->with("https://example.com/p{$n}")
-                ->andReturn(['productId' => "p{$n}", 'title' => "Product {$n}", 'url' => "https://example.com/p{$n}"]);
+                ->andReturn([
+                    'outcome' => GenericShopScraper::OUTCOME_PRODUCT,
+                    'product' => ['productId' => "p{$n}", 'title' => "Product {$n}", 'url' => "https://example.com/p{$n}"],
+                    'storeUrl' => null,
+                ]);
         }
     });
 
@@ -180,9 +184,13 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
 it('removeProduct drops the individual bucket once it has no products left', function () {
     $user = shopStorageUser('ind2');
 
-    $this->mock(GenericShopScraper::class, fn ($m) => $m->shouldReceive('fetchSingleProduct')
+    $this->mock(GenericShopScraper::class, fn ($m) => $m->shouldReceive('readProductPage')
         ->with('https://example.com/only')
-        ->andReturn(['productId' => 'only', 'title' => 'Only', 'url' => 'https://example.com/only']));
+        ->andReturn([
+            'outcome' => GenericShopScraper::OUTCOME_PRODUCT,
+            'product' => ['productId' => 'only', 'title' => 'Only', 'url' => 'https://example.com/only'],
+            'storeUrl' => null,
+        ]));
 
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/only'])->assertOk();
 

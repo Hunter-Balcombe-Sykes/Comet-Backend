@@ -29,6 +29,12 @@ class ShopProviderDetector
 
     public const PROVIDER_GENERIC = 'generic';
 
+    // detectDetailed() failure reasons (WS-B1.2) — the controller keys its
+    // 422 `code` off these.
+    public const FAILURE_UNSUPPORTED = 'unsupported';
+
+    public const FAILURE_UNREACHABLE = 'unreachable';
+
     public function __construct(
         private readonly ShopifyScraper $shopify,
         private readonly WooCommerceScraper $woocommerce,
@@ -44,44 +50,71 @@ class ShopProviderDetector
      */
     public function detect(string $url): ?array
     {
+        return $this->detectDetailed($url)['detected'];
+    }
+
+    /**
+     * detect(), plus WHY it failed when it did (WS-B1.2):
+     *
+     *   - `unsupported` — the pasted page itself served fine, but no supported
+     *     platform answered AND the HTML shows none of their tech markers:
+     *     this site isn't a store type we can connect.
+     *   - `unreachable` — the page (or every platform probe) couldn't be
+     *     reached / was blocked, OR a supported platform's markers are present
+     *     but its API is blocked/disabled. In both cases the honest message is
+     *     "we couldn't get in", not "unsupported" — and the dashboard's
+     *     client-assisted Store API fallback may still succeed.
+     *
+     * @return array{detected: array{provider:string, origin:string, sourceUrl:string, page:array|null, store:array|null}|null, failure: ?string}
+     */
+    public function detectDetailed(string $url): array
+    {
         $url = PlatformInput::urlish($url);
         $origin = $this->shopify->originOf($url);
         if (! $origin) {
-            return null;
+            return ['detected' => null, 'failure' => self::FAILURE_UNREACHABLE];
         }
 
         // Host is decisive for Big Cartel — no point probing anything else.
         if ($account = $this->bigcartel->accountFromUrl($url)) {
             $store = $this->bigcartel->fetchStore($account);
 
-            return $store === null ? null : [
-                'provider' => self::PROVIDER_BIGCARTEL,
-                'origin' => $store['origin'],
-                'sourceUrl' => $store['origin'],
-                'page' => null,
-                'store' => $store,
-            ];
+            return $store === null
+                ? ['detected' => null, 'failure' => self::FAILURE_UNREACHABLE]
+                : ['detected' => [
+                    'provider' => self::PROVIDER_BIGCARTEL,
+                    'origin' => $store['origin'],
+                    'sourceUrl' => $store['origin'],
+                    'page' => null,
+                    'store' => $store,
+                ], 'failure' => null];
         }
 
         if ($this->shopify->probe($origin)) {
-            return ['provider' => self::PROVIDER_SHOPIFY, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null];
+            return ['detected' => ['provider' => self::PROVIDER_SHOPIFY, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null], 'failure' => null];
         }
 
         if ($this->woocommerce->probe($origin)) {
-            return ['provider' => self::PROVIDER_WOOCOMMERCE, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null];
+            return ['detected' => ['provider' => self::PROVIDER_WOOCOMMERCE, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null], 'failure' => null];
         }
 
         // sourceUrl = the discovered products-collection URL — product fetches
         // and refreshes hit it directly instead of re-discovering.
         if ($productsUrl = $this->squarespace->discoverProductsUrl($url)) {
-            return ['provider' => self::PROVIDER_SQUARESPACE, 'origin' => $origin, 'sourceUrl' => $productsUrl, 'page' => null, 'store' => null];
+            return ['detected' => ['provider' => self::PROVIDER_SQUARESPACE, 'origin' => $origin, 'sourceUrl' => $productsUrl, 'page' => null, 'store' => null], 'failure' => null];
         }
 
-        $page = $this->generic->fetchPage($url);
-        if ($page !== null) {
-            return ['provider' => self::PROVIDER_GENERIC, 'origin' => $origin, 'sourceUrl' => $url, 'page' => $page, 'store' => null];
+        // Last probe fetches the pasted page itself — its detail doubles as
+        // the reachable/unsupported discriminator.
+        $detail = $this->generic->fetchPageDetailed($url);
+        if ($detail['page'] !== null) {
+            return ['detected' => ['provider' => self::PROVIDER_GENERIC, 'origin' => $origin, 'sourceUrl' => $url, 'page' => $detail['page'], 'store' => null], 'failure' => null];
         }
 
-        return null;
+        $failure = $detail['reachable'] && ! $detail['storefrontMarkers']
+            ? self::FAILURE_UNSUPPORTED
+            : self::FAILURE_UNREACHABLE;
+
+        return ['detected' => null, 'failure' => $failure];
     }
 }
