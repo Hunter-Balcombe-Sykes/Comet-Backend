@@ -2,6 +2,8 @@
 
 namespace App\Mail\Branding;
 
+use App\Services\Design\ThemeModePalettes;
+
 /**
  * Immutable branding bundle for one email send. Pure data — no I/O.
  *
@@ -69,8 +71,10 @@ final class EmailBrand
             palette: new EmailPalette(
                 accent: (string) ($p['accent'] ?? EmailBrandDefaults::ACCENT),
                 accentContrast: (string) ($p['accentContrast'] ?? EmailBrandDefaults::ACCENT_CONTRAST),
-                bg: (string) ($p['bg'] ?? EmailBrandDefaults::BG),
-                text: (string) ($p['text'] ?? EmailBrandDefaults::TEXT),
+                // Pre-rework cached blobs may miss bg/text — fall back to the
+                // bleach (default theme-mode) anchors.
+                bg: (string) ($p['bg'] ?? ThemeModePalettes::anchorsFor(null)['bg']),
+                text: (string) ($p['text'] ?? ThemeModePalettes::anchorsFor(null)['text']),
                 textMuted: (string) ($p['textMuted'] ?? EmailBrandDefaults::TEXT_MUTED),
                 buttonBg: (string) ($p['buttonBg'] ?? EmailBrandDefaults::ACCENT),
                 buttonText: (string) ($p['buttonText'] ?? EmailBrandDefaults::ACCENT_CONTRAST),
