@@ -42,6 +42,9 @@ class Notification extends BaseModel
         'severity',
         'starts_at',
         'ends_at',
+        // OV-A: delivery escalation — true routes through the email dispatcher
+        // (OV-H) in addition to in-app. Independent of display severity.
+        'critical',
     ];
 
     protected $casts = [
@@ -50,6 +53,7 @@ class Notification extends BaseModel
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
         'email_sent_at' => 'datetime',
+        'critical' => 'boolean',
     ];
 
     public function user(): BelongsTo

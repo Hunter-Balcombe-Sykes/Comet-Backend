@@ -1282,12 +1282,21 @@ function setupNotificationsTable(): void
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
         severity TEXT NULL,
+        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         email_sent_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTER for suites that created the table before the OV-A
+    // critical column existed (mirrors migration 20260711000400).
+    try {
+        $conn->statement('ALTER TABLE notifications.notifications ADD COLUMN critical INTEGER NOT NULL DEFAULT 0');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_receipts (
         id TEXT PRIMARY KEY,
@@ -1378,6 +1387,81 @@ function setupPartnaStaffTable(): void
         name TEXT NULL,
         phone TEXT NULL,
         deleted_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * core.user_segments + core.user_segment_members — OV-A staff segments.
+ * Mirrors migration 20260711000100.
+ */
+function setupSegmentsTables(): void
+{
+    attachTestSchemas();
+    $conn = DB::connection('pgsql');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_segments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NULL,
+        filters TEXT NOT NULL DEFAULT \'{}\',
+        created_by TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_segment_members (
+        id TEXT PRIMARY KEY,
+        segment_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        added_by TEXT NULL,
+        created_at TEXT NULL,
+        UNIQUE(segment_id, user_id)
+    )');
+}
+
+/**
+ * core.feature_availability — OV-A staff availability rules.
+ * Mirrors migration 20260711000200.
+ */
+function setupFeatureAvailabilityTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.feature_availability (
+        id TEXT PRIMARY KEY,
+        feature_key TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        segment_id TEXT NULL,
+        created_by TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * core.early_access_signups — OV-A early-access lifecycle rows.
+ * Mirrors migration 20260711000300.
+ */
+function setupEarlyAccessTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        email_lc TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        workplace_or_industry TEXT NULL,
+        platforms TEXT NOT NULL DEFAULT \'[]\',
+        status TEXT NOT NULL DEFAULT \'waitlist\',
+        source TEXT NOT NULL DEFAULT \'marketing\',
+        invited_at TEXT NULL,
+        invite_token_hash TEXT NULL,
+        invite_meta TEXT NULL,
+        invited_by TEXT NULL,
+        signed_up_at TEXT NULL,
+        consent_ip_hash TEXT NULL,
+        consent_user_agent TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

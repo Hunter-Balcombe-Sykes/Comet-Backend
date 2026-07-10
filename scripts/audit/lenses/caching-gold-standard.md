@@ -138,6 +138,7 @@ For every finding:
 ```
 --scope app/Services/PublicSite
 --scope app/Services/Accounts
+--scope app/Services/FeatureAvailability
 --scope app/Http/Middleware
 ```
 

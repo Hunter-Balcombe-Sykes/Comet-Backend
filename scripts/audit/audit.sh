@@ -214,7 +214,7 @@ outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
-account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
+account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
 moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
 connectors|app/Services/Platforms app/Jobs/Platforms
 EOF
@@ -233,7 +233,7 @@ schema|supabase/migrations app/Models
 EOF
         ;;
         caching-gold-standard) cat <<'EOF'
-read-paths|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Http/Middleware
+read-paths|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Services/FeatureAvailability app/Http/Middleware
 write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Services/Analytics app/Services/Notifications app/Services/Streaming
 EOF
         ;;

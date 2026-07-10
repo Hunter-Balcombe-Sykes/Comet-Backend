@@ -30,6 +30,10 @@ const BOT_PROTECTION_EXEMPT = [
     'api/public/signup/availability',
     // Unsubscribe — RFC 8058 token-gated.
     'api/public/unsubscribe/{token}',
+    // Early access (OV-A) — posted cross-origin from the marketing site, which
+    // has no bot-token bootstrap; honeypot + form-timing check + the
+    // waitlist-grade throttle (5/min IP, 12/h email) carry the abuse load.
+    'api/public/early-access',
 ];
 
 const BOT_PROTECTION_URI_PREFIXES = ['api/public/', 'api/v1/public/'];

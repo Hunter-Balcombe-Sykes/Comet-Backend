@@ -51,8 +51,14 @@ class BootstrapRequest extends BaseFormRequest
             'timezone' => ['nullable', 'string', 'max:64'],
             // Account type chosen on the signup first step. Optional (older clients
             // omit it → defaults to Partna in the bootstrap service); 'individual'
-            // is intentionally not accepted.
+            // and 'staff' are intentionally not accepted (staff rows come from
+            // staff tooling only).
             'account_type' => ['sometimes', 'nullable', 'string', Rule::in([AccountType::Partna->value, AccountType::Business->value])],
+
+            // OV-A: early-access invite token (signup?invite=<token>). Validated
+            // against core.early_access_signups in the controller — a valid token
+            // bypasses waitlist gating and pins primary_email to the invited address.
+            'invite' => ['sometimes', 'nullable', 'string', 'max:100'],
             'handle_lc' => [
                 'sometimes',
                 'nullable',

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
+use App\Http\Controllers\Api\PublicSite\PublicEarlyAccessController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
@@ -123,6 +124,16 @@ Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController:
     ->middleware(['throttle:login-identifier', 'bot.token:login-identifier']);
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
     ->middleware(['throttle:waitlist', 'bot.token:waitlist']);
+
+// OV-A: early-access marketing form (no bot.token — the marketing site posts
+// cross-origin without a token bootstrap; honeypot + timing check + the
+// waitlist-grade throttle carry the abuse load) and the invite-token resolve
+// used by /signup?invite=<token> to autofill + lock the email.
+Route::post('/public/early-access', [PublicEarlyAccessController::class, 'store'])
+    ->middleware('throttle:early-access');
+Route::get('/public/early-access/invite/{token}', [PublicEarlyAccessController::class, 'resolveInvite'])
+    ->where('token', '[A-Za-z0-9]+')
+    ->middleware('throttle:signup-availability');
 
 // §28.8 — Individual public profile (Astro Worker subrequest target).
 // Public, unauthenticated. Rate limit + cache key isolated from generic public-site.

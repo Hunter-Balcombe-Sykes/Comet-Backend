@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\Platforms\IntegrationsMetaResource;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -54,6 +56,19 @@ class IntegrationsMetaController extends ApiController
             ];
         }
 
-        return $this->success((new IntegrationsMetaResource($platforms))->resolve());
+        // OV-A: staff-managed availability (core.feature_availability, keys
+        // 'integration.<platform>') for EVERY registry platform — connected or
+        // not — so the dashboard index can hide/grey unavailable integrations.
+        // Absence of rules = available; see FeatureAvailability for the pattern.
+        $availabilityMap = FeatureAvailability::for($professional);
+        $availability = [];
+        foreach (app(PlatformRegistry::class)->keys() as $platformKey) {
+            $availability[$platformKey] = $availabilityMap->allows('integration.'.$platformKey);
+        }
+
+        $payload = (new IntegrationsMetaResource($platforms))->resolve();
+        $payload['availability'] = $availability;
+
+        return $this->success($payload);
     }
 }

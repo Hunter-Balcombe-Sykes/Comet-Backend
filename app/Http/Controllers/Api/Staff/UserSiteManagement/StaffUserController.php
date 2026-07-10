@@ -28,7 +28,8 @@ class StaffUserController extends ApiController
     use ReturnsPaginatedResponse;
 
     /**
-     * GET /api/staff/professionals?q=...&status=...&per_page=...
+     * GET /api/staff/professionals?q=...&status=...&sector=...&account_type=...&per_page=...
+     * OV-A: q also matches sector; sector/account_type are exact-match filters.
      */
     public function index(Request $request): JsonResponse
     {
@@ -44,6 +45,16 @@ class StaffUserController extends ApiController
             $query->where('status', $status);
         }
 
+        $sector = $request->query('sector');
+        if (is_string($sector) && $sector !== '') {
+            $query->where('sector', $sector);
+        }
+
+        $accountType = $request->query('account_type');
+        if (is_string($accountType) && in_array($accountType, ['partna', 'business', 'staff'], true)) {
+            $query->where('account_type', $accountType);
+        }
+
         if ($searchLike) {
             $query->where(function ($qq) use ($searchLike) {
                 $qq->whereRaw('handle ILIKE ?', [$searchLike])
@@ -52,6 +63,7 @@ class StaffUserController extends ApiController
                     ->orWhereRaw('phone ILIKE ?', [$searchLike])
                     ->orWhereRaw('first_name ILIKE ?', [$searchLike])
                     ->orWhereRaw('last_name ILIKE ?', [$searchLike])
+                    ->orWhereRaw('sector ILIKE ?', [$searchLike])
                     ->orWhereHas('site', function ($s) use ($searchLike) {
                         $s->whereRaw('subdomain ILIKE ?', [$searchLike]);
                     });
@@ -77,10 +89,27 @@ class StaffUserController extends ApiController
 
     /**
      * GET /api/staff/professionals/{professional}
+     * OV-A: detail now carries the integrations summary + architecture/design
+     * summary so the staff user page renders from one call.
      */
     public function show(User $professional): JsonResponse
     {
         $professional->load(['site']);
+
+        $integrations = $professional->integrationConnections()
+            ->orderBy('platform')
+            ->get(['id', 'platform', 'is_active', 'last_refreshed_at', 'last_refresh_status'])
+            ->groupBy('platform')
+            ->map(fn ($group, $platform) => [
+                'platform' => (string) $platform,
+                'connection_count' => $group->count(),
+                'is_active' => $group->contains(fn ($row) => (bool) $row->is_active),
+                'last_refreshed_at' => $group->pluck('last_refreshed_at')->max(),
+                'has_refresh_error' => $group->contains(fn ($row) => $row->last_refresh_status === 'error'),
+            ])
+            ->values();
+
+        $designKitVars = $professional->site?->designKitVars() ?? [];
 
         return $this->success([
             'professional' => new UserStaffResource($professional),
@@ -90,6 +119,19 @@ class StaffUserController extends ApiController
                 'is_published' => (bool) $professional->site->is_published,
                 // architecture_id replaces theme — architectures are code constants, not DB rows.
                 'architecture_id' => $professional->site->architecture_id,
+            ] : null,
+            'integrations' => $integrations,
+            'design_summary' => $professional->site ? [
+                'architecture_id' => $professional->site->architecture_id,
+                'stored_var_count' => count($designKitVars),
+                // The high-signal identity vars for an at-a-glance summary; the
+                // full partial kit ships too for the staff design editor.
+                'theme_mode' => $designKitVars['theme_mode'] ?? null,
+                'surface_type' => $designKitVars['surface_type'] ?? null,
+                'font_heading' => $designKitVars['font_heading'] ?? null,
+                'font_body' => $designKitVars['font_body'] ?? null,
+                'accent_color' => $designKitVars['accent_color'] ?? null,
+                'design_kit' => $designKitVars,
             ] : null,
         ]);
     }
