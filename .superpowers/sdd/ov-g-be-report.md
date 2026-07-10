@@ -2,6 +2,9 @@
 
 Status: COMPLETE. `composer test` green (3475 passed, 0 failed); `pint --dirty` clean.
 Real (non-symlink) vendor materialized in the worktree before testing.
+Commit `8a635ab` on `tobias/ov-g-analytics` (rebased onto origin/development past
+OV-A-BE #255 — trivial import conflict in AnalyticsQueryService resolved).
+PR: https://github.com/Hunter-Balcombe-Sykes/partna-backend/pull/256 (do NOT merge — orchestrator merges).
 
 Pre-existing flaky test note: `tests/Feature/Analytics/RankedActionsComputeTest`
 (OV-I-BE's ranked-actions system, not touched here) flaked ONCE under an ad-hoc
