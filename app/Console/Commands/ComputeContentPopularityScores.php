@@ -24,10 +24,13 @@ use Illuminate\Support\Str;
  *   - item scores      : link_clicks.product_id + item_views, keyed
  *                        (item_type, item_id).
  *
- * Formula: score = (W_CLICK·clicks + W_VIEW·impressions) · recency, where
- * recency = exp(-age_days / HALF_LIFE_DAYS). age_days is measured from the most
- * recent contributing event (event recency — a uniform, event-table-only basis
- * that also covers pages, which have no single backing content row).
+ * Formula: score = (W_CLICK·clicks + W_VIEW·impressions + W_DWELL_PER_SECOND·dwell_s)
+ * · recency, where recency = exp(-age_days / HALF_LIFE_DAYS). age_days is measured
+ * from the most recent contributing event (event recency — a uniform,
+ * event-table-only basis that also covers pages, which have no single backing
+ * content row). dwell_s (page grain only) is SUM(section_views.duration_ms)/1000 —
+ * the per-page visible-time signal; at 0.05/s, 20s of dwell ≈ one impression and
+ * 60s ≈ one click. Items have no dwell signal (their term is 0).
  *
  * Anti-thrash: the stored score is blended with the previous (0.7·new + 0.3·old)
  * and a row only overtakes the one ranked above it when its blended score beats
@@ -45,6 +48,11 @@ class ComputeContentPopularityScores extends Command
     private const W_CLICK = 3.0;
 
     private const W_VIEW = 1.0;
+
+    // Per-second dwell weight (pages only): 20s on a page ≈ one impression (1.0),
+    // 60s ≈ one click (3.0). Ingest caps a single report at 600s, so one visitor
+    // contributes at most 30.0 (~10 clicks) of dwell per impression row.
+    private const W_DWELL_PER_SECOND = 0.05;
 
     private const HALF_LIFE_DAYS = 90.0;
 
@@ -185,35 +193,38 @@ class ComputeContentPopularityScores extends Command
     }
 
     /**
-     * Page-level signal: section_views (impressions) + link_clicks (clicks),
-     * bucketed to page-ids, then presence + Business gated. Keyed page-id =>
-     * ['clicks', 'impressions', 'last_at'].
+     * Page-level signal: section_views (impressions + dwell) + link_clicks
+     * (clicks), bucketed to page-ids, then presence + Business gated. Keyed
+     * page-id => ['clicks', 'impressions', 'dwell_ms', 'last_at'].
      *
-     * @return array<string, array{clicks: int, impressions: int, last_at: ?string}>
+     * @return array<string, array{clicks: int, impressions: int, dwell_ms: int, last_at: ?string}>
      */
     private function aggregatePages(Site $site): array
     {
         $pages = [];
 
-        $bump = function (?string $sectionKey, int $clicks, int $impressions, ?string $lastAt) use (&$pages): void {
+        $bump = function (?string $sectionKey, int $clicks, int $impressions, int $dwellMs, ?string $lastAt) use (&$pages): void {
             $page = SitepageId::SECTION_KEY_TO_PAGE[(string) $sectionKey] ?? null;
             if ($page === null) {
                 return;
             }
-            $pages[$page] ??= ['clicks' => 0, 'impressions' => 0, 'last_at' => null];
+            $pages[$page] ??= ['clicks' => 0, 'impressions' => 0, 'dwell_ms' => 0, 'last_at' => null];
             $pages[$page]['clicks'] += $clicks;
             $pages[$page]['impressions'] += $impressions;
+            $pages[$page]['dwell_ms'] += $dwellMs;
             $pages[$page]['last_at'] = $this->maxDate($pages[$page]['last_at'], $lastAt);
         };
 
-        // Impressions from section_views (mirror topSections' GROUP BY).
+        // Impressions + dwell from section_views (mirror topSections' GROUP BY);
+        // duration_ms is NULL until a dwell beacon annotates the row, so SUM needs
+        // the COALESCE.
         DB::connection('pgsql')->table('analytics.section_views')
             ->where('site_id', $site->id)
             ->whereNotNull('section_key')
-            ->selectRaw('section_key, COUNT(*) as impressions, MAX(occurred_at) as last_at')
+            ->selectRaw('section_key, COUNT(*) as impressions, COALESCE(SUM(duration_ms), 0) as dwell_ms, MAX(occurred_at) as last_at')
             ->groupBy('section_key')
             ->get()
-            ->each(fn ($r) => $bump($r->section_key, 0, (int) $r->impressions, $r->last_at));
+            ->each(fn ($r) => $bump($r->section_key, 0, (int) $r->impressions, (int) $r->dwell_ms, $r->last_at));
 
         // Clicks from link_clicks by section_key.
         DB::connection('pgsql')->table('analytics.link_clicks')
@@ -222,7 +233,7 @@ class ComputeContentPopularityScores extends Command
             ->selectRaw('section_key, COUNT(*) as clicks, MAX(occurred_at) as last_at')
             ->groupBy('section_key')
             ->get()
-            ->each(fn ($r) => $bump($r->section_key, (int) $r->clicks, 0, $r->last_at));
+            ->each(fn ($r) => $bump($r->section_key, (int) $r->clicks, 0, 0, $r->last_at));
 
         if ($pages === []) {
             return [];
@@ -299,12 +310,18 @@ class ComputeContentPopularityScores extends Command
     {
         $now = now();
 
-        // Raw computed score per content_key.
+        // Raw computed score per content_key. dwell_ms only exists on the page
+        // grain (items carry no dwell signal — their term is 0).
         $computed = [];
         foreach ($agg as $key => $signal) {
             $ageDays = $this->ageDays($signal['last_at'], $now);
             $recency = exp(-$ageDays / self::HALF_LIFE_DAYS);
-            $computed[$key] = (self::W_CLICK * $signal['clicks'] + self::W_VIEW * $signal['impressions']) * $recency;
+            $dwellSeconds = ($signal['dwell_ms'] ?? 0) / 1000.0;
+            $computed[$key] = (
+                self::W_CLICK * $signal['clicks']
+                + self::W_VIEW * $signal['impressions']
+                + self::W_DWELL_PER_SECOND * $dwellSeconds
+            ) * $recency;
         }
 
         // Previous stored score + rank (for blend + rank hysteresis).

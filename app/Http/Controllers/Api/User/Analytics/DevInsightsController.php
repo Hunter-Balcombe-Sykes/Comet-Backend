@@ -93,6 +93,13 @@ class DevInsightsController extends ApiController
                 ->where('site_id', $siteId)->whereNotNull('section_key')
                 ->selectRaw('section_key, COUNT(*) as n')->groupBy('section_key')->pluck('n', 'section_key')
         );
+        // Dwell (page grain only): SUM of the section-dwell annotations, in ms —
+        // surfaced in seconds since that's the unit the score weights (0.05/s).
+        $dwellMs = $this->foldToPage(
+            DB::connection('pgsql')->table('analytics.section_views')
+                ->where('site_id', $siteId)->whereNotNull('section_key')
+                ->selectRaw('section_key, COALESCE(SUM(duration_ms), 0) as n')->groupBy('section_key')->pluck('n', 'section_key')
+        );
         $clicks = $this->foldToPage(
             DB::connection('pgsql')->table('analytics.link_clicks')
                 ->where('site_id', $siteId)->whereNotNull('section_key')
@@ -108,6 +115,7 @@ class DevInsightsController extends ApiController
             'computed_at' => $scores->get($p)?->computed_at,
             'impressions' => $impressions[$p] ?? 0,
             'clicks' => $clicks[$p] ?? 0,
+            'dwell_seconds' => (int) round(($dwellMs[$p] ?? 0) / 1000),
         ])->sortBy(fn (array $r): int => $r['rank'] ?? PHP_INT_MAX)->values()->all();
     }
 
@@ -198,11 +206,15 @@ class DevInsightsController extends ApiController
         $out = [];
         foreach (DB::connection('pgsql')->table('analytics.section_views')
             ->where('site_id', $siteId)->where('occurred_at', '>=', $since)->whereNotNull('section_key')
-            ->selectRaw('occurred_at::date as day, section_key, COUNT(*) as n')
+            ->selectRaw('occurred_at::date as day, section_key, COUNT(*) as n, COALESCE(SUM(duration_ms), 0) as dwell_ms')
             ->groupByRaw('occurred_at::date, section_key')->get() as $r) {
             $page = SitepageId::SECTION_KEY_TO_PAGE[$r->section_key] ?? null;
             if ($page !== null) {
                 $out[(string) $r->day][$page]['impressions'] = ($out[(string) $r->day][$page]['impressions'] ?? 0) + (int) $r->n;
+                $dwellSeconds = (int) round(((int) $r->dwell_ms) / 1000);
+                if ($dwellSeconds > 0) {
+                    $out[(string) $r->day][$page]['dwell_seconds'] = ($out[(string) $r->day][$page]['dwell_seconds'] ?? 0) + $dwellSeconds;
+                }
             }
         }
         foreach (DB::connection('pgsql')->table('analytics.link_clicks')

@@ -1490,6 +1490,7 @@ function setupSectionViewsTable(): void
         utm_campaign TEXT NULL,
         country_code TEXT NULL,
         device_type TEXT NULL,
+        duration_ms INTEGER NULL,
         created_at TEXT NULL
     )');
 }

@@ -96,6 +96,10 @@ Route::post('/public/analytics/clicks', [AnalyticsController::class, 'click'])
     ->middleware(['throttle:analytics', 'throttle:analytics-click']);
 Route::post('/public/analytics/section-seen', [AnalyticsController::class, 'sectionSeen'])
     ->middleware('throttle:analytics');
+// Per-page dwell (V1 signal) — cumulative visible-time reported on panel-leave,
+// GREATEST-merged onto the section impression row; feeds the page score's dwell term.
+Route::post('/public/analytics/section-dwell', [AnalyticsController::class, 'sectionDwell'])
+    ->middleware('throttle:analytics');
 // Item-impression ingest (analytics v2) — one beacon per scored item entering
 // the viewport; feeds analytics.item_views + the popularity scoring job.
 Route::post('/public/analytics/item-seen', [AnalyticsController::class, 'itemSeen'])
