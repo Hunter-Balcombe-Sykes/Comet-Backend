@@ -32,6 +32,27 @@ class BootstrapController extends ApiController
             return $this->error('Unauthenticated', 401);
         }
 
+        // OV-A hardening: fail CLOSED when the token carries no verified email
+        // claim. This route requires supabase.jwt but NOT require.email_verified,
+        // so an anonymous or phone-only Supabase token (project-valid, has `sub`,
+        // no `email` claim) reaches here. On this account-creation surface we must
+        // never fall back to the attacker-controlled body email — otherwise such a
+        // token could satisfy the personal invite email-match, pass the uniqueness
+        // check, and mint a User row under a victim's address (locking them out).
+        // The normal email/OAuth signup always carries a verified email claim, so
+        // it is unaffected; phone-only signup, if ever wanted, is a separate
+        // deliberate feature. BootstrapRequest::prepareForValidation() binds this
+        // same verified claim over the body on the happy path.
+        $claims = $request->attributes->get('supabase_claims');
+        $verifiedEmail = is_array($claims) ? trim((string) ($claims['email'] ?? '')) : '';
+        if ($verifiedEmail === '') {
+            return $this->error(
+                'A verified email is required to create your account.',
+                422,
+                ['code' => 'EMAIL_VERIFICATION_REQUIRED']
+            );
+        }
+
         // OV-A: early-access invite token. A VALID token must match the email
         // being registered (the invite is personal) and bypasses both waitlist
         // gates below — inviting someone past the velvet rope is its purpose.

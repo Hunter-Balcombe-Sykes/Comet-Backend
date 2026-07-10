@@ -43,7 +43,12 @@ function ovaBootstrapRequest(array $body, string $uid, ?string $claimEmail): Boo
 {
     $request = BootstrapRequest::create('/api/bootstrap', 'POST', $body);
     $request->attributes->set('supabase_uid', $uid);
-    $request->attributes->set('supabase_claims', $claimEmail === null ? [] : ['email' => $claimEmail]);
+    // claimEmail === null models an anonymous / phone-only Supabase token:
+    // project-valid, carries a sub + role but NO verified `email` claim.
+    $request->attributes->set(
+        'supabase_claims',
+        $claimEmail === null ? ['sub' => $uid, 'role' => 'anon'] : ['email' => $claimEmail]
+    );
     $request->setContainer(app())->setRedirector(app('redirect'));
     $request->validateResolved();
 
@@ -154,4 +159,41 @@ it('treats an invite token older than the 14-day TTL as INVITE_INVALID', functio
 
     expect($response->getStatusCode())->toBe(422)
         ->and($response->getData(true)['errors']['code'] ?? null)->toBe('INVITE_INVALID');
+});
+
+it('fails closed (422) for a token with no verified email claim, even when the body spoofs the invite email — no squat', function () {
+    // The bootstrap route requires supabase.jwt but NOT require.email_verified,
+    // so an anonymous/phone token (no email claim) reaches here. The attacker
+    // sets the BODY to a victim's invited address + presents a leaked invite
+    // token — the fail-closed guard must reject before the email-match runs.
+    $row = ovaInvitedRow('victim@example.test');
+
+    $response = app(BootstrapController::class)->bootstrap(ovaBootstrapRequest([
+        'primary_email' => 'victim@example.test',
+        'display_name' => 'Squatter',
+        'invite' => 'tok-victim@example.test',
+    ], 'anon-uid', null));
+
+    expect($response->getStatusCode())->toBe(422)
+        ->and($response->getData(true)['errors']['code'] ?? null)->toBe('EMAIL_VERIFICATION_REQUIRED');
+
+    // Invite NOT burned — still 'invited', still claimable by the real invitee.
+    $row->refresh();
+    expect($row->status)->toBe('invited')
+        ->and($row->invite_token_hash)->not->toBeNull();
+
+    // No User row minted under the attacker's auth id.
+    expect(User::query()->where('auth_user_id', 'anon-uid')->exists())->toBeFalse();
+});
+
+it('fails closed (422) for a token with no verified email claim on a normal signup', function () {
+    $response = app(BootstrapController::class)->bootstrap(ovaBootstrapRequest([
+        'primary_email' => 'phoneuser@example.test',
+        'display_name' => 'Phone User',
+    ], 'phone-only-uid', null));
+
+    expect($response->getStatusCode())->toBe(422)
+        ->and($response->getData(true)['errors']['code'] ?? null)->toBe('EMAIL_VERIFICATION_REQUIRED');
+
+    expect(User::query()->where('auth_user_id', 'phone-only-uid')->exists())->toBeFalse();
 });
