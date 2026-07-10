@@ -365,10 +365,12 @@ async function serveIndividual(env, ctx, request, handleOverride) {
 
   const originRequest = withHandleHeader(request, handleOverride);
 
-  // Preview requests (?skeleton=) render a transient alternate skeleton — never
-  // cache them, or a stale variant would pin in the edge cache. Always fetch
-  // fresh. EDGE-7: still finalise so the preview carries security headers.
-  if (new URL(request.url).searchParams.has("skeleton")) {
+  // Preview requests (?architecture= — current — or legacy ?skeleton=) render a
+  // transient alternate architecture; never cache them, or a stale variant would
+  // pin in the edge cache. Always fetch fresh. EDGE-7: still finalise so the
+  // preview carries security headers.
+  const previewParams = new URL(request.url).searchParams;
+  if (previewParams.has("skeleton") || previewParams.has("architecture")) {
     return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true, noStore: true});
   }
 
