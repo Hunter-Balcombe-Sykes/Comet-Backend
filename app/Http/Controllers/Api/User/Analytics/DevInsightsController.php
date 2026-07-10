@@ -7,6 +7,7 @@ use App\Enums\SitepageId;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Services\Analytics\ContentFreshness;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -29,6 +30,10 @@ class DevInsightsController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
+
+    public function __construct(
+        private readonly ContentFreshness $freshness,
+    ) {}
 
     /**
      * Days of daily-series history to return (the per-entity change-over-time graph).
@@ -64,9 +69,13 @@ class DevInsightsController extends ApiController
         $site = $this->currentSite($this->currentUser($request));
         $since = Carbon::now()->utc()->subDays(self::SERIES_DAYS)->startOfDay();
 
+        // Same freshness boosts the scoring job applies — surfaced so the score
+        // breakdown can show the additive term per page / link item.
+        $fresh = $this->freshness->boostsForSite($site);
+
         return $this->success([
-            'pages' => $this->pageScores($site->id),
-            'items' => $this->itemScores($site->id),
+            'pages' => $this->pageScores($site->id, $fresh['page']),
+            'items' => $this->itemScores($site->id, $fresh['link_item']),
             'daily_series' => [
                 'pages' => $this->pageDailySeries($site->id, $since),
                 'items' => $this->itemDailySeries($site->id, $since),
@@ -79,9 +88,10 @@ class DevInsightsController extends ApiController
      * their page via SECTION_KEY_TO_PAGE. A page has no direct events — it is the
      * sum of its sections' section_views (impressions) and link_clicks (clicks).
      *
-     * @return array<array{page: string, score: float|null, rank: int|null, computed_at: mixed, impressions: int, clicks: int}>
+     * @param  array<string, float>  $freshness  additive boost per page (ContentFreshness)
+     * @return array<array{page: string, score: float|null, rank: int|null, computed_at: mixed, impressions: int, clicks: int, dwell_seconds: int, freshness: float}>
      */
-    private function pageScores(string $siteId): array
+    private function pageScores(string $siteId, array $freshness = []): array
     {
         $scores = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $siteId)->where('content_type', 'page')
@@ -116,6 +126,7 @@ class DevInsightsController extends ApiController
             'impressions' => $impressions[$p] ?? 0,
             'clicks' => $clicks[$p] ?? 0,
             'dwell_seconds' => (int) round(($dwellMs[$p] ?? 0) / 1000),
+            'freshness' => round($freshness[$p] ?? 0.0, 2),
         ])->sortBy(fn (array $r): int => $r['rank'] ?? PHP_INT_MAX)->values()->all();
     }
 
@@ -142,9 +153,10 @@ class DevInsightsController extends ApiController
      * Item scores grouped by content_type, each with the impressions (item_views)
      * and clicks (link_clicks, attributed by section_key) that feed them.
      *
-     * @return array<string, array<array{content_key, title, score, rank, computed_at, impressions, clicks}>>
+     * @param  array<string, float>  $linkFreshness  additive boost per link_item content_key
+     * @return array<string, array<array{content_key, title, score, rank, computed_at, impressions, clicks, freshness: float}>>
      */
-    private function itemScores(string $siteId): array
+    private function itemScores(string $siteId, array $linkFreshness = []): array
     {
         $scores = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $siteId)->where('content_type', '!=', 'page')
@@ -190,6 +202,10 @@ class DevInsightsController extends ApiController
                 'computed_at' => $row->computed_at,
                 'impressions' => $impressions[$key] ?? 0,
                 'clicks' => $clicks[$key] ?? 0,
+                // Only link_items carry freshness (per-URL connection rows).
+                'freshness' => $row->content_type === 'link_item'
+                    ? round($linkFreshness[$row->content_key] ?? 0.0, 2)
+                    : 0.0,
             ];
         }
 

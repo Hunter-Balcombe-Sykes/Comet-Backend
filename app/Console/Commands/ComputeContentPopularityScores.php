@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Enums\SitepageId;
 use App\Models\Core\Site\Site;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Analytics\ContentFreshness;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -25,12 +26,18 @@ use Illuminate\Support\Str;
  *                        (item_type, item_id).
  *
  * Formula: score = (W_CLICK·clicks + W_VIEW·impressions + W_DWELL_PER_SECOND·dwell_s)
- * · recency, where recency = exp(-age_days / HALF_LIFE_DAYS). age_days is measured
- * from the most recent contributing event (event recency — a uniform,
+ * · recency + freshness, where recency = exp(-age_days / HALF_LIFE_DAYS). age_days
+ * is measured from the most recent contributing event (event recency — a uniform,
  * event-table-only basis that also covers pages, which have no single backing
  * content row). dwell_s (page grain only) is SUM(section_views.duration_ms)/1000 —
  * the per-page visible-time signal; at 0.05/s, 20s of dwell ≈ one impression and
  * 60s ≈ one click. Items have no dwell signal (their term is 0).
+ *
+ * freshness (ContentFreshness) is an additive, 14-day-half-life boost from the
+ * owning row's created_at — pages via their newest active connection (+ native
+ * services → book), link_items via their custom connection. Zero-signal keys with
+ * a live boost are SEEDED into the aggregate so brand-new content ranks before
+ * its first event (cold start), then fades back to engagement ranking.
  *
  * Anti-thrash: the stored score is blended with the previous (0.7·new + 0.3·old)
  * and a row only overtakes the one ranked above it when its blended score beats
@@ -102,6 +109,7 @@ class ComputeContentPopularityScores extends Command
 
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
+        private readonly ContentFreshness $freshness,
     ) {
         parent::__construct();
     }
@@ -173,19 +181,32 @@ class ComputeContentPopularityScores extends Command
      */
     private function computeForSite(Site $site): array
     {
+        // Freshness boosts (additive term) + the zero-signal keys they seed so
+        // brand-new content ranks before its first event.
+        $fresh = $this->freshness->boostsForSite($site);
+
         // Raw signals: {score-basis} keyed as content_type => content_key => [clicks, impressions, last_at].
-        $pageAgg = $this->aggregatePages($site);
+        $pageAgg = $this->aggregatePages($site, array_keys($fresh['page']));
         $itemAgg = $this->aggregateItems($site);
+
+        // Seed fresh link_items with zero signals (items have no presence gate;
+        // a null last_at reads as "fresh" so recency doesn't fight the boost).
+        foreach ($fresh['link_item'] as $key => $_boost) {
+            $itemAgg['link_item'][$key] ??= ['clicks' => 0, 'impressions' => 0, 'last_at' => null];
+        }
 
         $rows = [];
 
         if ($pageAgg !== []) {
-            $rows = array_merge($rows, $this->scoreAndRank($site, 'page', $pageAgg));
+            $rows = array_merge($rows, $this->scoreAndRank($site, 'page', $pageAgg, $fresh['page']));
         }
 
         foreach ($itemAgg as $itemType => $agg) {
             if ($agg !== []) {
-                $rows = array_merge($rows, $this->scoreAndRank($site, $itemType, $agg));
+                $rows = array_merge(
+                    $rows,
+                    $this->scoreAndRank($site, $itemType, $agg, $itemType === 'link_item' ? $fresh['link_item'] : []),
+                );
             }
         }
 
@@ -197,9 +218,13 @@ class ComputeContentPopularityScores extends Command
      * (clicks), bucketed to page-ids, then presence + Business gated. Keyed
      * page-id => ['clicks', 'impressions', 'dwell_ms', 'last_at'].
      *
+     * $seedPages (freshness) enter with zero signals BEFORE the presence gate,
+     * so a brand-new page ranks by its boost alone — but only when present.
+     *
+     * @param  list<string>  $seedPages
      * @return array<string, array{clicks: int, impressions: int, dwell_ms: int, last_at: ?string}>
      */
-    private function aggregatePages(Site $site): array
+    private function aggregatePages(Site $site, array $seedPages = []): array
     {
         $pages = [];
 
@@ -234,6 +259,10 @@ class ComputeContentPopularityScores extends Command
             ->groupBy('section_key')
             ->get()
             ->each(fn ($r) => $bump($r->section_key, (int) $r->clicks, 0, 0, $r->last_at));
+
+        foreach ($seedPages as $page) {
+            $pages[$page] ??= ['clicks' => 0, 'impressions' => 0, 'dwell_ms' => 0, 'last_at' => null];
+        }
 
         if ($pages === []) {
             return [];
@@ -304,14 +333,16 @@ class ComputeContentPopularityScores extends Command
      * one content_type on one site.
      *
      * @param  array<string, array{clicks: int, impressions: int, last_at: ?string}>  $agg
+     * @param  array<string, float>  $freshness  additive boost per content_key (ContentFreshness)
      * @return list<array<string, mixed>>
      */
-    private function scoreAndRank(Site $site, string $contentType, array $agg): array
+    private function scoreAndRank(Site $site, string $contentType, array $agg, array $freshness = []): array
     {
         $now = now();
 
         // Raw computed score per content_key. dwell_ms only exists on the page
-        // grain (items carry no dwell signal — their term is 0).
+        // grain (items carry no dwell signal — their term is 0); freshness is an
+        // additive boost OUTSIDE the recency multiplier (it has its own decay).
         $computed = [];
         foreach ($agg as $key => $signal) {
             $ageDays = $this->ageDays($signal['last_at'], $now);
@@ -321,7 +352,7 @@ class ComputeContentPopularityScores extends Command
                 self::W_CLICK * $signal['clicks']
                 + self::W_VIEW * $signal['impressions']
                 + self::W_DWELL_PER_SECOND * $dwellSeconds
-            ) * $recency;
+            ) * $recency + ($freshness[$key] ?? 0.0);
         }
 
         // Previous stored score + rank (for blend + rank hysteresis).
