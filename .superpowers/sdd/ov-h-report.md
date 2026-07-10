@@ -89,5 +89,6 @@ Changed: `NotificationPublisher` (critical param + email gate + null-expiry),
 
 ## Status log
 - Implemented all 4 dispatchers + email path + prune guard + expiry model.
-- `composer test`: 3503 passed, 0 failed (2 deprecated / 1 warning / 1 risky / 119 skipped — all pre-existing). `pint` clean.
-- Rebased onto origin/development (OV-G-BE #256); no conflicts. PR opened.
+- Rebased onto origin/development (OV-G-BE #256); no conflicts.
+- `composer test` (post-rebase): 3531 passed, 0 failed (2 deprecated / 1 warning / 1 risky / 119 skipped — all pre-existing). `pint` clean.
+- PR #259: https://github.com/Hunter-Balcombe-Sykes/partna-backend/pull/259 (base `development`). NOT merged — orchestrator merges.
