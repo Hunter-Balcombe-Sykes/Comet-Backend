@@ -210,7 +210,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         }
         ```
 
-- [ ] **#WHK-1** `[full-sweep]` · P2 — Click/section-seen dedup is skipped entirely when a beacon omits both `visitor_id` and `session_id`
+- [x] **#WHK-1** `[full-sweep]` · P2 — Click/section-seen dedup is skipped entirely when a beacon omits both `visitor_id` and `session_id`
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php, `click()` and `sectionSeen()`
     - **Affects:** Click/section-view counts on any professional's dashboard — a client (or a replayed request) that supplies neither identifier bypasses the dedup guard on every request.
     - **Effort:** S (~0.5–1h)
@@ -401,7 +401,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
             }
         ```
 
-- [ ] **#JOB-1** `[scale-health]` · P2 — Referrer PII reaches the Redis queue payload (and failed-jobs store) unsanitized for all four beacon types
+- [x] **#JOB-1** `[scale-health]` · P2 — Referrer PII reaches the Redis queue payload (and failed-jobs store) unsanitized for all four beacon types
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:60 (pageview — no sanitisation at all), :109/153/192 (click/sectionSeen/ping — call the controller's own `sanitizeReferrer()`, which only validates URL shape); app/Services/Analytics/AnalyticsEventSanitizer.php (the actual PII-stripping `referrer()` method); app/Services/Analytics/Writers/PostgresEventWriter.php (sanitizer only invoked here, after the queue)
     - **Affects:** Every pageview/click/section-seen/ping beacon fleet-wide (100k-1M/day at 10k users). A referrer URL with UTM-embedded PII (e.g. `?utm_content=user@example.com` from an email-marketing click-through) sits unredacted in the Redis job payload, and — per `Schedule::command('queue:prune-failed --hours=72')` in routes/console.php — in the `failed_jobs` table for up to 72 hours if a job ever permanently fails.
     - **Effort:** S (~0.5-1h)
@@ -625,7 +625,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         class PurgeRawAnalyticsEvents extends Command
         ```
 
-- [ ] **#PRIV-1** `[full-sweep]` · P3 — RUM beacon logs raw (capped) User-Agent and country, bypassing the shared `AnalyticsEventSanitizer` path every other event type goes through
+- [x] **#PRIV-1** `[full-sweep]` · P3 — RUM beacon logs raw (capped) User-Agent and country, bypassing the shared `AnalyticsEventSanitizer` path every other event type goes through
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php, `rum()`
     - **Affects:** Every visitor whose browser fires the RUM (real-user-monitoring) beacon — their UA and coarse geolocation are written to the `Log::info('rum', ...)` channel independently of the pipeline's central sanitiser.
     - **Effort:** S (~0.5–1h)
@@ -660,7 +660,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
             CONSTRAINT site_sessions_pkey PRIMARY KEY (id),
         ```
 
-- [ ] **#SEM-1** `[full-sweep]` · P3 — Click dedup key doesn't lowercase `platform`, while the stored event value is lowercased, allowing a casing-variant bypass of the 3-second dedup window
+- [x] **#SEM-1** `[full-sweep]` · P3 — Click dedup key doesn't lowercase `platform`, while the stored event value is lowercased, allowing a casing-variant bypass of the 3-second dedup window
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php, `click()`
     - **Affects:** Click counts within the 3-second dedup window — a client sending `platform=Instagram` then `platform=instagram` back-to-back produces two dedup keys instead of one.
     - **Effort:** S (~0.5–1h)

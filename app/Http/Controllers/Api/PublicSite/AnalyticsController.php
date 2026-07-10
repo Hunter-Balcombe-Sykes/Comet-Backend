@@ -15,6 +15,7 @@ use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\AnalyticsDedupGuard;
 use App\Services\Analytics\AnalyticsEvent;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -58,7 +59,9 @@ class AnalyticsController extends ApiController
             request: $request,
             site: $site,
             data: $data,
-            // pageview stores the RAW referrer (no URL sanitisation — preserved).
+            // pageview still skips the bot/URL-shape filter (sanitizeReferrer(), preserved) —
+            // but buildEvent() now runs every referrer through AnalyticsEventSanitizer, so a
+            // malformed value ends up null here exactly as it already did at write time (JOB-1).
             referrer: $data['referrer'] ?? $request->headers->get('referer'),
         );
 
@@ -92,14 +95,14 @@ class AnalyticsController extends ApiController
         // original key shape; v2 url-clicks scope by site + destination hash. Returns
         // the original id on a duplicate so the response is byte-identical to today's
         // "return existing id".
-        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
+        $identifier = $this->dedupIdentifier($data, $request);
         $blockId = $data['block_id'] ?? null;
-        if ($identifier !== null) {
-            $target = $blockId ?? $site->id.':'.md5(($data['url'] ?? '').'|'.($data['platform'] ?? ''));
-            $claim = $this->dedup->claim("analytics:dedup:click:{$target}:{$identifier}", $id, 3);
-            if (! $claim['novel']) {
-                return $this->success(['message' => 'Click recorded', 'click_id' => $claim['id']], 201);
-            }
+        // SEM-1: lowercase platform so the dedup target matches what buildEvent() stores —
+        // otherwise "Instagram" then "instagram" mint two keys for the same destination.
+        $target = $blockId ?? $site->id.':'.md5(($data['url'] ?? '').'|'.strtolower($data['platform'] ?? ''));
+        $claim = $this->dedup->claim("analytics:dedup:click:{$target}:{$identifier}", $id, 3);
+        if (! $claim['novel']) {
+            return $this->success(['message' => 'Click recorded', 'click_id' => $claim['id']], 201);
         }
 
         $event = $this->buildEvent(
@@ -138,13 +141,11 @@ class AnalyticsController extends ApiController
         $id = (string) Str::orderedUuid();
 
         // Dedup on (site, section_key, strongest identifier) for 5min.
-        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
-        if ($identifier !== null) {
-            $key = "analytics:dedup:section:{$site->id}:{$data['section_key']}:{$identifier}";
-            $claim = $this->dedup->claim($key, $id, 300);
-            if (! $claim['novel']) {
-                return $this->success(['message' => 'Section view recorded', 'view_id' => $claim['id']], 201);
-            }
+        $identifier = $this->dedupIdentifier($data, $request);
+        $key = "analytics:dedup:section:{$site->id}:{$data['section_key']}:{$identifier}";
+        $claim = $this->dedup->claim($key, $id, 300);
+        if (! $claim['novel']) {
+            return $this->success(['message' => 'Section view recorded', 'view_id' => $claim['id']], 201);
         }
 
         $event = $this->buildEvent(
@@ -229,13 +230,11 @@ class AnalyticsController extends ApiController
 
         // Dedup on (site, item_type, item_id, strongest identifier) for 5min —
         // same window + fail-open semantics as section-seen.
-        $identifier = $data['visitor_id'] ?? $data['session_id'] ?? null;
-        if ($identifier !== null) {
-            $key = "analytics:dedup:item:{$site->id}:{$data['item_type']}:{$data['item_id']}:{$identifier}";
-            $claim = $this->dedup->claim($key, $id, 300);
-            if (! $claim['novel']) {
-                return $this->success(['message' => 'Item view recorded', 'view_id' => $claim['id']], 201);
-            }
+        $identifier = $this->dedupIdentifier($data, $request);
+        $key = "analytics:dedup:item:{$site->id}:{$data['item_type']}:{$data['item_id']}:{$identifier}";
+        $claim = $this->dedup->claim($key, $id, 300);
+        if (! $claim['novel']) {
+            return $this->success(['message' => 'Item view recorded', 'view_id' => $claim['id']], 201);
         }
 
         $event = $this->buildEvent(
@@ -402,6 +401,17 @@ class AnalyticsController extends ApiController
         return null;
     }
 
+    /**
+     * Strongest identifier for a dedup claim: visitor_id (persistent) > session_id >
+     * an IP-hash fallback, so a beacon that sends neither doesn't skip dedup entirely
+     * (WHK-1). "ip:" namespaces the fallback — visitor/session values are UUIDs and
+     * never contain a colon, so this can never collide with a real identifier.
+     */
+    private function dedupIdentifier(array $data, Request $request): string
+    {
+        return $data['visitor_id'] ?? $data['session_id'] ?? 'ip:'.$this->hashIp($request->ip());
+    }
+
     // Front-loads every request-derived field into the DTO (occurred_at, geo, device,
     // ip hash, UA). The worker has no request object, so anything not captured here is
     // lost. occurred_at is request-time, ISO-8601.
@@ -430,7 +440,14 @@ class AnalyticsController extends ApiController
             visitorId: $data['visitor_id'] ?? null,
             ipHash: $this->hashIp($request->ip()),
             userAgent: $request->userAgent(),
-            referrer: $referrer,
+            // JOB-1: sanitise here — the single choke point every beacon type funnels
+            // through — so a raw UTM-embedded-PII referrer never reaches the Redis queue
+            // payload. Idempotent with PostgresEventWriter's own call (AnalyticsEventSanitizerTest),
+            // so nothing that ends up in Postgres changes. The one exception is a referrer
+            // long enough to hit the 512-char cap AND carrying astral-plane characters:
+            // Str::limit truncates on display width, which can perturb the second pass.
+            // That drifts toward more redaction, never less, so it cannot leak PII.
+            referrer: AnalyticsEventSanitizer::referrer($referrer),
             utmSource: $data['utm_source'] ?? null,
             utmMedium: $data['utm_medium'] ?? null,
             utmCampaign: $data['utm_campaign'] ?? null,
@@ -464,8 +481,8 @@ class AnalyticsController extends ApiController
     }
 
     /**
-     * Real-user monitoring beacon — unchanged. Logs first-paint / load timings to a
-     * structured channel for offline percentile analysis. No DB writes.
+     * Real-user monitoring beacon. Logs first-paint / load timings to a structured
+     * channel for offline percentile analysis. No DB writes.
      */
     public function rum(Request $request): JsonResponse
     {
@@ -487,7 +504,10 @@ class AnalyticsController extends ApiController
                 'load_ms' => isset($payload['load']) ? (int) $payload['load'] : null,
                 'fcp_ms' => isset($payload['fcp']) ? (int) $payload['fcp'] : null,
                 'lkg' => isset($payload['lkg']) ? (bool) $payload['lkg'] : false,
-                'ua' => substr((string) $request->userAgent(), 0, 256),
+                // PRIV-1: shared cap, not an inline substr — AnalyticsEventSanitizer::userAgent()
+                // passes '' as Str::limit's $end, so there's no truncation-marker mismatch versus
+                // the old substr(). Net behaviour change: absent UA logs as null, not ''.
+                'ua' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
                 'country' => $request->header('cf-ipcountry'),
             ]);
         } catch (\Throwable $e) {
