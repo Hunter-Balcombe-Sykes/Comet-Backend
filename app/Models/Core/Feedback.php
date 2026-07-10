@@ -14,6 +14,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Authenticated dashboard submissions only at first; schema reserves space
  * for anonymous + public-site sources in a future iteration. See
  * docs/superpowers/plans/2026-05-25-feedback-system.md.
+ *
+ * OV-D adds `type` (error/good/bad_ui/idea — the taxonomy the dashboard
+ * feedback picker actually submits) + `area`/`target` (which feature/page/
+ * tool). `type` is a separate taxonomy from the legacy `kind` column, not a
+ * replacement — see FeedbackService::deriveKind() for how the two reconcile
+ * on write. See supabase/migrations/20260711153000_feedback_type_area_target.sql.
  */
 class Feedback extends BaseModel
 {
@@ -30,6 +36,9 @@ class Feedback extends BaseModel
         'reply_email',
         'kind',
         'severity',
+        'type',
+        'area',
+        'target',
         'message',
         'page_url',
         'user_agent',
@@ -44,6 +53,7 @@ class Feedback extends BaseModel
     ];
 
     protected $casts = [
+        'target' => 'array',
         'internal_notes' => 'array',
         'tags' => 'array',
         'created_at' => 'datetime',

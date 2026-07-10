@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\Feedback;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Auth\Access\Response;
@@ -11,9 +12,9 @@ use Illuminate\Auth\Access\Response;
  * Authorization for user-submitted Feedback rows.
  *
  * Owner-only read/list. Create gated on the can_submit_feedback capability
- * (always true now; reserved for future per-account bans). Staff actions
- * (viewAny / update / delete-by-staff) are not yet wired to a controller —
- * the methods exist so the policy is complete when triage UI ships.
+ * (always true now; reserved for future per-account bans). A staff
+ * triage-write ability (update / delete-by-staff) is not yet wired to a
+ * controller — OV-D only shipped the read side (staffView, below).
  */
 class FeedbackPolicy extends BasePolicy
 {
@@ -53,5 +54,16 @@ class FeedbackPolicy extends BasePolicy
         // Owner listing of their own feedback. Scope is applied at query time
         // (where user_id = $actor->id); this just gates access to the endpoint.
         return true;
+    }
+
+    /**
+     * OV-D: staff triage list (GET /staff/feedback) — any staff role, support
+     * or admin. Mirrors EarlyAccessSignupPolicy::staffView / UserSegmentPolicy
+     * ::staffView exactly, matching AccountCapabilities::staffPowers()'s
+     * `staff_view_feedback: $isStaffRole` rule — keep the two in sync.
+     */
+    public function staffView(PartnaStaff $actor, Feedback|string|null $feedback = null): bool
+    {
+        return in_array($actor->role, [PartnaStaff::ROLE_SUPPORT, PartnaStaff::ROLE_ADMIN], true);
     }
 }
