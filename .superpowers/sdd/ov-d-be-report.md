@@ -172,6 +172,24 @@ No staff write/triage endpoint exists yet (status transitions, internal_notes, t
 ## Status
 
 - [x] Plan written
-- [ ] Implementation
-- [ ] Tests green (`composer test`) + pint
-- [ ] Commit + push + PR (no merge)
+- [x] Implementation
+- [x] Tests green (`composer test`) + pint
+- [x] Commit + push + PR (no merge)
+
+## Implementation report
+
+**Status: COMPLETE.** Full suite green both before and after rebasing onto `origin/development` (OV-G-BE's analytics/insight-engine commit landed mid-task, zero file overlap with this change). Pre-rebase run: 3504 passed, one failure in `VerifyBotTokenTest` (unrelated bot-protection middleware, Redis-cooldown-timing-sensitive) — reproduced as a suite-order artifact only: passes 17/17 in isolation, and its test/middleware files were last touched by an old, unrelated commit (`76ebe08`, captcha HTTP-status fix), confirming it's not caused by this branch. **Post-rebase run (the one that ships): `composer test` exit 0 — 3533 passed, 119 skipped, 0 failed** (2 deprecated / 1 warning / 1 risky — pre-existing suite noise; the flaky test passed clean this time). **34 new/updated Pest tests** across four files (18 in `FeedbackApiTest` — 15 updated to send `type`/`area`, 9 new for type/area/target validation + kind-derivation + target round-trip; 3 new `staffView` policy tests; 10 new in `StaffFeedbackListTest` — list/nested-user/filters/pagination/403/401), plus `tests/Pest.php`'s `setupFeedbackTable()` gained the three columns. Migration guard (`scripts/guard-no-unsafe-migrations.php`) and pint both clean.
+
+Decisions locked during implementation (all reflected above + in code comments):
+- `type` is a genuinely separate taxonomy from `kind`, not a rename — `kind` stays NOT NULL at the DB layer and gets a derived value (`FeedbackService::TYPE_TO_KIND`) only when the caller omits it; an explicit caller-supplied `kind` always wins.
+- `area` required, `target` optional — the task's own wording draws this line explicitly ("free-form subject/area string **plus an optional structured target**").
+- Staff gate is the `PartnaStaff`-actor Policy pattern (`FeedbackPolicy::staffView`), not `AccountCapabilities::for($user)->staff_view_feedback`. Verified via the `account-capability-audit` skill + a whole-tree grep: `User::isStaff()` and every `staff_view_*`/`staff_manage_*` `AccountCapabilitySet` field have **zero consumers anywhere in `app/`** outside `AccountCapabilities.php` itself — the capability-set field is forward-looking symmetry OV-A-BE added, not the actual gate. Every existing `/staff/*` "any staff role" endpoint (`StaffAggregateAnalyticsController`, `EarlyAccessSignupPolicy`, `UserSegmentPolicy`) uses the same `PartnaStaff $actor` role-check pattern I followed.
+- No DB `CHECK` on `type`/`area` — the unsafe-migration guard requires `NOT VALID` + a follow-up `VALIDATE CONSTRAINT` migration for any `ADD CONSTRAINT CHECK` (no same-file exemption, unlike its index check), which is disproportionate ceremony for a low-traffic internal tool. `SubmitFeedbackRequest` is the sole enforcement point, matching this table's own existing precedent (`page_url`/`user_agent`/`viewport`/`app_version`/`request_id`/`reply_email` also have no DB CHECK).
+- Indexes on `type`/`area` created inline, not `CONCURRENTLY` — both columns are `ADD COLUMN`-ed in the same migration file, which the guard explicitly exempts from the concurrency requirement (every existing row is NULL for a same-file new column).
+- New staff route named `staff.feedback.index` and added to `RecordStaffAuditEntry::PII_READ_ROUTE_NAMES` — the response includes the submitter's email/handle (nested `user`) and `ip_hash`, which is exactly the PRIV-4 convention this codebase already enforces on every other PII-returning staff GET route.
+
+Concerns / follow-ups (also appended to `docs/superpowers/plans/2026-07-10-dashboard-batch.md`'s `## Tail`):
+- **The "404 not 403" line in this task's brief conflicts with its own Pest-test instruction and with repo convention.** I implemented `403` for non-staff on `GET /staff/feedback` (via the real `EnsurePartnaStaff` middleware, matching literally every other `/staff/*` endpoint and `Comet-Backend/CLAUDE.md`'s explicit "403 only for role/type restrictions (\"staff-only\")" rule) — and per the task's own Pest constraint, "non-staff → 403 on the staff list." I did not find a "missing resource → 404" case that applies to a list endpoint (no per-id lookup), so I read the "404 not 403" phrase as generic boilerplate that doesn't fit this specific endpoint shape. Flagging in case the actual intent was different.
+- No staff triage-write endpoint (status/internal_notes/tags) — wasn't asked for; `status`/`internal_notes`/`tags` are pre-existing schema-ready columns nothing writes yet. Tail item filed with a concrete implementation sketch.
+- `type→kind` derivation map is a judgment call (`bad_ui→bug` in particular) with zero downstream readers to validate against today. Tail item filed.
+- Worktree note: real `composer install` per the task's instruction (no vendor symlink) — confirmed `vendor/` is a real directory, not inherited from the main checkout.
