@@ -19,7 +19,6 @@ beforeEach(function () {
 function invokeTouchParentSite(ServiceObserver $observer, Service $service, ?User $pro): void
 {
     $method = (new ReflectionClass($observer))->getMethod('touchParentSite');
-    $method->setAccessible(true);
     $method->invoke($observer, $service, $pro);
 }
 

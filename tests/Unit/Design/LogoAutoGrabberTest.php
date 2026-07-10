@@ -14,7 +14,6 @@ function upsize(string $url): ?string
 {
     $grabber = (new ReflectionClass(LogoAutoGrabber::class))->newInstanceWithoutConstructor();
     $method = new ReflectionMethod($grabber, 'upsizeUrl');
-    $method->setAccessible(true);
 
     return $method->invoke($grabber, $url);
 }
@@ -23,7 +22,6 @@ function svgSafe(string $svg): bool
 {
     $grabber = (new ReflectionClass(LogoAutoGrabber::class))->newInstanceWithoutConstructor();
     $method = new ReflectionMethod($grabber, 'svgIsSafe');
-    $method->setAccessible(true);
 
     return $method->invoke($grabber, $svg);
 }

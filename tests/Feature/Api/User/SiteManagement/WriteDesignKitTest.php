@@ -112,7 +112,6 @@ function invokeWriteDesignKit(string $siteId, array $designKit): void
 {
     $controller = app(UserSiteController::class);
     $method = (new ReflectionClass($controller))->getMethod('writeDesignKit');
-    $method->setAccessible(true);
     $method->invoke($controller, $siteId, $designKit);
 }
 
