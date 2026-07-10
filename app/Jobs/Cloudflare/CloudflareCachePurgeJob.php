@@ -41,6 +41,11 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      * dispatches from the same request's observer cascade (or a rapid burst of
      * edits) are dropped. Exceeds $timeout so a slow purge can't release the lock
      * early and let a duplicate through.
+     *
+     * Follow-ups keep a SHORT 30s lock instead: their dispatch delay (120s)
+     * exceeds any lock we'd want, and a lock outliving the delay would coalesce
+     * away the follow-up owed to a LATER edit — leaving that edit's stale re-pin
+     * window uncovered for the router's 24h HTML TTL.
      */
     public int $uniqueFor = 120;
 
@@ -48,16 +53,22 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     {
         // Include the custom domain so a purge that must also bust the custom
         // domain isn't coalesced into a handle-only purge already in flight.
-        return strtolower(trim($this->handle)).'|'.strtolower(trim((string) $this->customDomain));
+        // Follow-ups get their own lock namespace so the primary's lock can't
+        // swallow them.
+        return strtolower(trim($this->handle))
+            .'|'.strtolower(trim((string) $this->customDomain))
+            .($this->followUp ? '|fu' : '');
     }
 
     public function __construct(
         public readonly string $handle,
         public readonly ?string $customDomain = null,
+        public readonly bool $followUp = false,
     ) {
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery.
         $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
+        $this->uniqueFor = $followUp ? 30 : 120;
     }
 
     public function handle(CloudflarePurgeService $purge): void
@@ -85,6 +96,20 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         }
 
         $purge->purgeHandle($h, $customDomain);
+
+        // A visitor can hit the just-purged URL while the payload layers are
+        // still inside their staleness windows (Laravel Cloud's OWN Cloudflare
+        // edge honours s-maxage on api/public/profiles and sits outside our
+        // zone's purge reach, + the Worker's subrequest cache) — the router
+        // would then re-pin that stale render under its 24h HTML TTL. One
+        // delayed follow-up purge lands after every payload layer has turned
+        // over, evicting any stale re-pin. Follow-ups never chain.
+        if (! $this->followUp) {
+            self::dispatch($this->handle, $this->customDomain, followUp: true)
+                ->delay(now()->addSeconds(
+                    (int) config('partna.cache.purge_followup_seconds', 120),
+                ));
+        }
     }
 
     public function failed(Throwable $e): void
