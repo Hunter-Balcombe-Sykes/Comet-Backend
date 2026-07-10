@@ -345,7 +345,8 @@ function setupUsersTable(): void
 
 /**
  * core.feedback table for in-app feedback submission tests.
- * Mirrors columns from migration 20260526210001.
+ * Mirrors columns from migration 20260526210001 + OV-D's
+ * 20260711153000_feedback_type_area_target (type/area/target).
  */
 function setupFeedbackTable(): void
 {
@@ -356,6 +357,9 @@ function setupFeedbackTable(): void
         reply_email TEXT NULL,
         kind TEXT NOT NULL,
         severity TEXT NULL,
+        type TEXT NULL,
+        area TEXT NULL,
+        target TEXT NULL,
         message TEXT NOT NULL,
         page_url TEXT NULL,
         user_agent TEXT NULL,
@@ -371,6 +375,17 @@ function setupFeedbackTable(): void
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )");
+
+    // Defensive ALTERs for suites that created core.feedback before the OV-D
+    // columns existed within the same test run (SQLite's CREATE TABLE IF NOT
+    // EXISTS won't add columns to an already-created table).
+    foreach (['type', 'area', 'target'] as $col) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE core.feedback ADD COLUMN {$col} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**

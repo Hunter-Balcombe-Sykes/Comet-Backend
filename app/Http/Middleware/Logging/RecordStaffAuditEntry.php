@@ -51,6 +51,8 @@ class RecordStaffAuditEntry
         'staff.email-subscribers.index',
         'staff.email-subscribers.export',
         'staff.enquiries.index',
+        // OV-D: feedback list — submitter email/handle (nested `user`) + ip_hash.
+        'staff.feedback.index',
     ];
 
     public function __construct(private readonly StaffAuditService $audit) {}

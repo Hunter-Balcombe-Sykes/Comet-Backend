@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Staff\EarlyAccess\StaffEarlyAccessController;
 use App\Http\Controllers\Api\Staff\FeatureAvailability\StaffFeatureAvailabilityController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagOverrideController;
+use App\Http\Controllers\Api\Staff\Feedback\StaffFeedbackController;
 use App\Http\Controllers\Api\Staff\Segments\StaffSegmentController;
 use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
@@ -153,6 +154,12 @@ Route::prefix('staff')
 
         // Early access — read side.
         Route::get('/early-access', [StaffEarlyAccessController::class, 'index']);
+
+        // OV-D: feedback triage list — all users, filterable by type/area/date.
+        // Named + registered in RecordStaffAuditEntry::PII_READ_ROUTE_NAMES —
+        // the response includes submitter email/handle + ip_hash (PRIV-4).
+        Route::get('/feedback', [StaffFeedbackController::class, 'index'])
+            ->name('staff.feedback.index');
     });
 
 // Authorised Staff Admin Editing
