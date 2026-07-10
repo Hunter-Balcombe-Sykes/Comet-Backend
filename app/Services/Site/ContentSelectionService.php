@@ -406,11 +406,28 @@ class ContentSelectionService
     private function googlePhotos(Site $site): array
     {
         $conn = $this->connectionFor($site, Platform::GoogleBusiness->value);
-        if ($conn === null) {
+        if ($conn === null || ! self::googlePhotosEnabled($conn->display_settings)) {
             return [];
         }
 
         return GoogleBusinessPayload::fromArray($conn->payload)->photos();
+    }
+
+    /**
+     * Whether Google photos may flow into the content pipeline (media library +
+     * selection). Stored as `content_photos` in the google-business connection's
+     * display_settings (WS-B2.1) — the same sparse map the display toggles use;
+     * absent/true = included, an explicit false excludes. Kept distinct from the
+     * `photos` display toggle (which governs the sitepage + dashboard GB card) so
+     * the two surfaces are controlled independently. Off makes resolve() drop
+     * every google-photo pick (their refs no longer resolve) AND makes
+     * maybeSeedFromGoogle() seed nothing.
+     *
+     * @param  array<string, mixed>|null  $displaySettings
+     */
+    public static function googlePhotosEnabled(?array $displaySettings): bool
+    {
+        return ($displaySettings['content_photos'] ?? true) !== false;
     }
 
     /**

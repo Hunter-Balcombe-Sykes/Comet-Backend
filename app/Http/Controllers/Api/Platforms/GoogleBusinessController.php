@@ -12,6 +12,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Rules\PlatformInRegistry;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -61,6 +62,11 @@ class GoogleBusinessController extends ApiController
         if ($row->apify_status !== null) {
             $payload['apifyStatus'] = $row->apify_status;
         }
+
+        // WS-B2.2: honour the owner's display toggles on the dashboard card too —
+        // a section switched off in Controls genuinely disappears here, not just
+        // on the public sitepage.
+        $payload = DisplaySettingsFilter::suppress($this->platform(), $payload, $row->display_settings);
 
         $resource = $this->resourceClass();
 
@@ -123,6 +129,9 @@ class GoogleBusinessController extends ApiController
             if ($enrich) {
                 $echo['apifyStatus'] = 'pending';
             }
+            // WS-B2.2: respect display toggles on the connect echo (a reconnect can
+            // carry previously-saved display_settings).
+            $echo = DisplaySettingsFilter::suppress($this->platform(), $echo, $row->display_settings);
             $response = $this->success((new $resource($echo))->resolve());
 
             if ($enrich) {
@@ -139,8 +148,10 @@ class GoogleBusinessController extends ApiController
 
         $this->maybeAdoptGoogleName($user, $place['name'] ?? null);
 
-        $this->writeConnection($user, $place);
+        $row = $this->writeConnection($user, $place);
         $resource = $this->resourceClass();
+        // WS-B2.2: respect display toggles on the legacy link-parse connect echo.
+        $place = DisplaySettingsFilter::suppress($this->platform(), $place, $row->display_settings);
 
         return $this->success((new $resource($place))->resolve());
     }

@@ -236,6 +236,8 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->middleware('throttle:60,1');
         Route::put('/content/instagram-auto', [ContentController::class, 'setInstagramAuto'])
             ->middleware('throttle:30,1');
+        Route::put('/content/google-photos', [ContentController::class, 'setGooglePhotos'])
+            ->middleware('throttle:30,1');
 
         // Image Gallery (gallery-pool ordering & legacy routes)
         Route::get('/gallery', [UserGalleryController::class, 'index']);
