@@ -31,7 +31,6 @@ class DesignRationaleService
      * @var array<string, string>
      */
     private const COLUMN_AREAS = [
-        'color_bg' => 'Colours',
         'color_accent' => 'Colours',
         'text_xs' => 'Typography',
         'text_desktop_xs' => 'Typography',
@@ -46,8 +45,7 @@ class DesignRationaleService
         'layout_density' => 'Layout',
         'border_style' => 'Layout',
         'motion_pace' => 'Motion',
-        'motion_entrance' => 'Motion',
-        'effect_style' => 'Style',
+        'effect_surface' => 'Style',
         'effect_shadow_style' => 'Style',
         'effect_link_style' => 'Style',
         'effect_button_fill' => 'Style',

@@ -15,10 +15,13 @@ namespace App\Services\Design\Presets;
  * blend — that's the intended behaviour of a per-column priority merge over
  * two same-shaped contributions, not a bug.
  *
- * Every bucket sets the same 8 value/selection columns (all in
+ * Every bucket sets the same 7 value/selection columns (all in
  * PresetTargetableColumns) so buckets are directly comparable; differentiation
- * comes from accent hue, font, weight, radius, and motion pace — not from
- * varying which columns are set.
+ * comes from accent hue, font, weight, radius, motion pace, and surface type —
+ * not from varying which columns are set. Backgrounds are OWNED by the
+ * user-picked theme_mode palette (2026-07-10 rework) and entrance animation is
+ * removed entirely, so buckets express character through the surviving axes:
+ * a dark-leaning sector reads dark through weight/surface/accent, never bg.
  */
 final class CategoryStylePresets
 {
@@ -44,117 +47,119 @@ final class CategoryStylePresets
 
     /** @var array<string, array<string, string>> */
     private const BUCKETS = [
-        // Warm, appetite-driving, some character — the original shipped
-        // restaurant recipe, unchanged (ollies' existing frozen contributions
-        // already match this exactly).
+        // Warm, appetite-driving, some character — young-serif artisanal
+        // headlines, tomato accent, quick menu-board energy on solid cards.
+        // (Ollies' frozen contributions predate the 2026-07-10 rework; the
+        // surviving columns still match.)
         self::FOOD_DRINK => [
-            'color_bg' => '#f7f4ee',
             'color_accent' => '#e0491f',
             'text_xs' => '0.8rem',
             'weight_regular' => '300',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'fast',
-            'motion_entrance' => 'stagger',
+            'effect_surface' => 'solid',
         ],
-        // Soft, elegant, a little luxe.
+        // Soft, elegant, a little luxe — glass panels carry the premium-soft
+        // read the old pastel bg used to.
         self::BEAUTY_PERSONAL_CARE => [
-            'color_bg' => '#faf6f3',
             'color_accent' => '#b8375a',
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
             'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'motion_entrance' => 'fade',
+            'effect_surface' => 'glass',
         ],
-        // Calmer, minimal — muted colour, clean type, unhurried motion.
+        // Athletic, poster-energy — gym customers respond to drive, not calm:
+        // condensed caps, medium weight, quick motion, sturdy solid cards.
+        // (Re-tuned 2026-07-10 from the old calm/minimal read; HoursRhythm
+        // still refines pace for the daytime-clinic end of the bucket.)
         self::HEALTH_FITNESS => [
-            'color_bg' => '#f5f6f5',
             'color_accent' => '#2f6b57',
             'text_xs' => '0.85rem',
-            'weight_regular' => '400',
-            'border_radius' => '0.6rem',
+            'weight_regular' => '500',
+            'border_radius' => '0.4rem',
             'typography_font_family' => 'oswald',
-            'motion_pace' => 'slow',
-            'motion_entrance' => 'rise',
+            'motion_pace' => 'fast',
+            'effect_surface' => 'solid',
         ],
-        // Trustworthy, structured, confident.
+        // Trustworthy, structured, confident — outline cards read precise,
+        // nothing-to-hide.
         self::PROFESSIONAL_SERVICES => [
-            'color_bg' => '#f8f8f7',
             'color_accent' => '#1d3557',
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.4rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'motion_entrance' => 'fade',
+            'effect_surface' => 'outline',
         ],
-        // Bold, boutique, fashion-forward.
+        // Bold, boutique, fashion-forward — editorial serif + shoppable
+        // solid-card energy.
         self::RETAIL_SHOPPING => [
-            'color_bg' => '#ffffff',
             'color_accent' => '#d6336c',
             'text_xs' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.3rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
-            'motion_entrance' => 'stagger',
+            'effect_surface' => 'solid',
         ],
-        // Practical, sturdy, high-visibility trade colour.
+        // Practical, sturdy, high-visibility trade colour — homeowners want
+        // legible text and dependable filled panels, no design flourish.
         self::HOME_SERVICES => [
-            'color_bg' => '#f9f9f7',
             'color_accent' => '#d97706',
             'text_xs' => '0.9rem',
             'weight_regular' => '500',
             'border_radius' => '0.5rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'motion_entrance' => 'rise',
+            'effect_surface' => 'solid',
         ],
-        // Warm, inviting, relaxed.
+        // Warm, inviting, relaxed — airy glass + unhurried motion, the lounge
+        // welcome.
         self::HOSPITALITY => [
-            'color_bg' => '#f6f1e7',
             'color_accent' => '#7c2d12',
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'slow',
-            'motion_entrance' => 'fade',
+            'effect_surface' => 'glass',
         ],
-        // Bold, industrial, high-contrast.
+        // Bold, industrial, high-contrast — garage-signage confidence: heavy
+        // weight, near-square corners, filled panels.
         self::AUTOMOTIVE => [
-            'color_bg' => '#f2f2f2',
             'color_accent' => '#c81e1e',
             'text_xs' => '0.85rem',
             'weight_regular' => '600',
             'border_radius' => '0.2rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
-            'motion_entrance' => 'rise',
+            'effect_surface' => 'solid',
         ],
-        // Expressive, distinctive, gallery-like.
+        // Expressive, distinctive, gallery-like — outline frames let the work
+        // speak.
         self::CREATIVE_ENTERTAINMENT => [
-            'color_bg' => '#fafafa',
             'color_accent' => '#7c3aed',
             'text_xs' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.3rem',
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
-            'motion_entrance' => 'stagger',
+            'effect_surface' => 'outline',
         ],
-        // Approachable, clear, encouraging.
+        // Approachable, clear, encouraging — larger text, friendly rounding,
+        // modern-app glass.
         self::EDUCATION_COACHING => [
-            'color_bg' => '#f7f8fa',
             'color_accent' => '#2563eb',
             'text_xs' => '0.9rem',
             'weight_regular' => '400',
             'border_radius' => '0.8rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'motion_entrance' => 'rise',
+            'effect_surface' => 'glass',
         ],
     ];
 

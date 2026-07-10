@@ -16,13 +16,14 @@ use App\Services\Design\Presets\IdentityEvidence;
  * today — there is no structured serves-cuisine field).
  *
  * Cuisine hint → sparse nudge (colours/font largely stay with the category
- * recipe; this leans the CHARACTER):
- *   fine_dining  → editorial + restrained (dark ground, elegant serif, flat) —
- *                  also feeds the fine-dining-editorial launch recipe as a signal.
+ * recipe; this leans the CHARACTER — backgrounds are theme_mode-owned since
+ * 2026-07-10, so darkness/brightness reads through weight/surface instead):
+ *   fine_dining  → editorial + restrained (light weight, elegant serif, outline,
+ *                  flat) — also feeds the fine-dining-editorial launch recipe.
  *   cafe         → warm + rounded + friendly.
- *   fast_casual  → bold + bright + energetic.
- *   specific     → a restrained, considered palette (a specific cuisine reads as
- *                  "established", so calm motion + a refined serif).
+ *   fast_casual  → bold + heavy + energetic solid.
+ *   specific     → a restrained, considered read (a specific cuisine reads as
+ *                  "established", so calm motion + a refined serif + outline).
  * Not a food business, or an unreadable cuisine → ABSTAIN (spec §4.1).
  *
  * OneShot: cuisine is identity-stable. SAFETY: only design VALUES persist; the
@@ -39,16 +40,14 @@ class CuisineFactor implements EvidenceFactor
      */
     private const HINT_TARGETS = [
         CuisineLexicon::FINE_DINING => [
-            'color_bg' => '#151515',            // dark ground (StyleTiers dark)
             'weight_regular' => '300',          // light
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'slow',
-            'effect_style' => 'editorial',
+            'effect_surface' => 'outline',      // hairline editorial restraint
             'effect_shadow_style' => 'flat',
             'effect_image_treatment' => 'duotone',
         ],
         CuisineLexicon::CAFE => [
-            'color_bg' => '#f7f4ee',            // warm light
             'border_radius' => '1rem',          // rounded/friendly
             'weight_regular' => '400',
             'motion_pace' => 'normal',
@@ -56,22 +55,25 @@ class CuisineFactor implements EvidenceFactor
             'effect_image_treatment' => 'warm',
         ],
         CuisineLexicon::FAST_CASUAL => [
-            'color_bg' => '#ffffff',            // bright
             'border_radius' => '0.25rem',       // sharp
             'weight_regular' => '600',          // chunky
             'motion_pace' => 'fast',
-            'effect_style' => 'bold',
+            'effect_surface' => 'solid',        // counter-service confidence
             'effect_shadow_style' => 'hard',
         ],
     ];
 
-    /** The restrained overlay for any specific named cuisine (italian, japanese, …). */
+    /**
+     * The restrained overlay for any specific named cuisine (italian, japanese, …).
+     * Image treatment stays WARM, not muted — appetite rules food photography;
+     * the restraint reads through the serif + slow pace + outline surface.
+     */
     private const SPECIFIC_TARGET = [
         'weight_regular' => '400',
         'typography_font_family' => 'origin', // refined humanist serif (17->9 swap; PROVISIONAL)
         'motion_pace' => 'slow',
-        'effect_style' => 'editorial',
-        'effect_image_treatment' => 'muted',
+        'effect_surface' => 'outline',
+        'effect_image_treatment' => 'warm',
     ];
 
     public function key(): string
