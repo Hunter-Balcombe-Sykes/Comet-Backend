@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -98,4 +100,55 @@ it('suppresses toggled-off sections from the public integrations payload', funct
     expect($body)->not->toHaveKeys(['reviews', 'reviewSummary', 'rating', 'reviewCount', 'photos'])
         ->and($body['hours'] ?? null)->not->toBeNull()
         ->and($body['address'] ?? null)->toBe('1 Test St');
+});
+
+// ── WS-B2.2: toggles gate the DASHBOARD card + the scheduled refresh, not just
+// the public sitepage ────────────────────────────────────────────────────────
+
+it('suppresses toggled-off sections from the dashboard google-business selection', function () {
+    $pro = createTenant('toggles-dash');
+    displaySeedConnection($pro->id, [
+        'placeId' => 'places/X',
+        'name' => 'Cafe',
+        'rating' => 4.5,
+        'reviewCount' => 12,
+        'reviewSummary' => 'Lovely',
+        'reviews' => [['author' => 'A', 'text' => 'Great']],
+        'hours' => ['weekdays' => ['Monday: 9-5']],
+        'photos' => [['ref' => 'places/X/photos/1', 'url' => 'https://lh3/1.jpg']],
+        'address' => '1 Test St',
+    ], displaySettings: ['reviews' => false, 'photos' => false]);
+
+    $selection = actingAsUser($pro)
+        ->getJson('/api/platforms/google-business/selection')
+        ->assertOk()
+        ->json('selection');
+
+    expect($selection)->not->toHaveKeys(['reviews', 'reviewSummary', 'rating', 'reviewCount', 'photos'])
+        ->and($selection['hours'] ?? null)->not->toBeNull()
+        ->and($selection['address'] ?? null)->toBe('1 Test St');
+});
+
+it('does not refresh switched-off sections into the stored google-business payload', function () {
+    $pro = createTenant('toggles-refresh');
+    $id = displaySeedConnection($pro->id, ['placeId' => 'places/X'], displaySettings: ['reviews' => false]);
+    $connection = IntegrationConnection::query()->find($id);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->once()->andReturn([
+        'name' => 'Cafe',
+        'rating' => 4.9,
+        'reviewCount' => 99,
+        'reviewSummary' => 'Fresh',
+        'reviews' => [['author' => 'new', 'text' => 'fresh review']],
+        'hours' => ['weekdays' => ['Monday: 8-6']],
+    ]);
+
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+
+    // reviews toggle off → the fresh reviews/rating/reviewCount/reviewSummary are
+    // NOT written into storage; hours (still on) + name flow through unchanged.
+    expect($merged)->not->toHaveKeys(['reviews', 'reviewSummary', 'rating', 'reviewCount'])
+        ->and($merged['hours'] ?? null)->not->toBeNull()
+        ->and($merged['name'] ?? null)->toBe('Cafe');
 });

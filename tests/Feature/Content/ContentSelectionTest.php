@@ -465,3 +465,92 @@ it('GET selection returns resolved rows plus IG flags', function () {
     $res->assertJsonPath('instagramAutoEnabled', true);
     $res->assertJsonStructure(['selection', 'instagramAutoEnabled', 'instagramConnected']);
 });
+
+// ── WS-B2.1: Google-photos content-inclusion toggle ──────────────────────────
+
+it('content_photos off excludes google photos from the library', function () {
+    [$user] = contentUserWithSite('gp1');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    actingAsUser($user)->getJson('/api/content/library')
+        ->assertOk()
+        ->assertJsonCount(0, 'googlePhotos');
+});
+
+it('content_photos off drops google photos from the resolved selection', function () {
+    [$user, $site] = contentUserWithSite('gp2');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    app(ContentSelectionService::class)->replace($site, [
+        ['type' => 'google-photo', 'ref' => 'places/A/photos/1'],
+    ]);
+
+    expect(app(ContentSelectionService::class)->resolve($site))->toBe([]);
+});
+
+it('content_photos off makes a GB connect seed no google photos', function () {
+    [$user, $site] = contentUserWithSite('gp3');
+
+    // display_settings present AT create time → the connect-seed hook sees the
+    // toggle off and seeds nothing.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [
+            ['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg'],
+            ['ref' => 'places/A/photos/2', 'url' => 'https://lh3/2.jpg'],
+        ]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(0);
+});
+
+it('PUT google-photos toggles content inclusion and stores it sparsely', function () {
+    [$user] = contentUserWithSite('gp4');
+    $conn = gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])
+        ->assertOk()
+        ->assertJsonPath('googlePhotosEnabled', false)
+        ->assertJsonPath('googlePhotosConnected', true);
+
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Re-enabling removes the key entirely (sparse deviations only).
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => true])
+        ->assertOk()
+        ->assertJsonPath('googlePhotosEnabled', true);
+
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBeNull();
+});
+
+it('PUT google-photos 404s without a google-business connection', function () {
+    [$user] = contentUserWithSite('gp5');
+
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])
+        ->assertStatus(404);
+});
+
+it('GET selection reports the googlePhotos flags', function () {
+    [$user] = contentUserWithSite('gp6');
+    gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    actingAsUser($user->fresh()->load('site'))->getJson('/api/content/selection')
+        ->assertOk()
+        ->assertJsonPath('googlePhotosConnected', true)
+        ->assertJsonPath('googlePhotosEnabled', true);
+});

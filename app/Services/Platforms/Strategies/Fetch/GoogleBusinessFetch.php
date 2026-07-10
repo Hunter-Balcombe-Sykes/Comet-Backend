@@ -3,8 +3,10 @@
 namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 
 // Re-pulls a Google Business Place Details snapshot by stored placeId. The
@@ -45,6 +47,12 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
         if ($details === null) {
             throw new FetchUnavailableException('google_details_fetch_failed');
         }
+
+        // WS-B2.2: sections the owner switched off are not refreshed into storage —
+        // drop them from the fresh snapshot so the stored payload never gains (or
+        // updates) data we won't serve. Existing stored values are left untouched
+        // (non-destructive); serve-gating hides them everywhere regardless.
+        $details = Arr::except($details, DisplaySettingsFilter::disabledKeys('google-business', $connection->display_settings));
 
         return [...$payload, ...$details];
     }
