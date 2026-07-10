@@ -119,7 +119,8 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
 
 ## P2 — Should fix
 
-- [ ] **#SCHEMA-1** `[full-sweep]` · P2 — `analytics.site_sessions` has RLS enabled but not forced
+- [x] **#SCHEMA-1** `[full-sweep]` · P2 — `analytics.site_sessions` has RLS enabled but not forced — **re-tiered P3 (2026-07-10)**
+    - **Resolution:** `supabase/migrations/20260711000000_analytics_force_rls_parity.sql` forces RLS on `site_sessions` plus its two identical-gap siblings `item_views` and `content_popularity_scores`. **Re-tiered P2→P3**: the finding's premise ("every sibling table that enables RLS also forces it") is false — only `core.partna_staff` forces it in the baseline, and the four sibling event tables all enable-without-force. FORCE has ~nil practical effect here anyway: owner is `postgres` (superuser, bypasses RLS regardless) and the app connects as `app_backend` (BYPASSRLS) — FORCE only bites a non-superuser owner, which doesn't exist. Consistency hygiene, not defence-in-depth. `AnalyticsSessionsRlsTest` guards it (Postgres-only). Dead `site_metrics_daily/_hourly` deliberately excluded (should be dropped, not hardened). **⚠️ Josh must `supabase db push` to dev.**
     - **Where:** supabase/migrations/20260610000000_analytics_v2_clicks_sessions.sql (site_sessions block)
     - **Affects:** Defense-in-depth for `analytics.site_sessions` against the `postgres`/table-owner role bypassing RLS via the Supabase `authenticated` client path. `app_backend` already has `BYPASSRLS`, so the main application path is unaffected.
     - **Effort:** S (~0.5–1h)
