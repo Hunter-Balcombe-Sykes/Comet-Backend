@@ -57,7 +57,7 @@ beforeEach(function () {
         primary_action_label TEXT NULL,
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
-        severity TEXT NOT NULL DEFAULT "info",
+        severity TEXT NOT NULL DEFAULT "info",        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         created_at TEXT NULL,

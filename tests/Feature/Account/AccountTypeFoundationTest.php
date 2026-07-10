@@ -1,8 +1,9 @@
 <?php
 
-// account_type foundation tests: the two-type enum (partna + business, with a
-// legacy 'individual' value kept only so casting never throws on a pre-backfill
-// row), the enum cast on the User model, and the account_type field on the
+// account_type foundation tests: the user-selectable enum (partna + business),
+// the internal staff value (OV-A, never user-selectable), the legacy
+// 'individual' value kept only so casting never throws on a pre-backfill row,
+// the enum cast on the User model, and the account_type field on the
 // dashboard resource.
 
 use App\Enums\AccountType;
@@ -11,11 +12,11 @@ use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 
 describe('AccountType enum', function () {
-    it('exposes partna + business (plus the legacy individual value)', function () {
+    it('exposes partna + business + staff (plus the legacy individual value)', function () {
         $values = array_map(fn (AccountType $c) => $c->value, AccountType::cases());
         sort($values);
 
-        expect($values)->toBe(['business', 'individual', 'partna']);
+        expect($values)->toBe(['business', 'individual', 'partna', 'staff']);
     });
 });
 

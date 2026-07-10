@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
+use App\Services\Segments\SegmentResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -28,7 +29,7 @@ beforeEach(function () {
         primary_action_label TEXT NULL,
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
-        severity TEXT NOT NULL DEFAULT "info",
+        severity TEXT NOT NULL DEFAULT "info",        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         created_at TEXT NULL,
@@ -92,7 +93,7 @@ it('indexForProfessional returns the same payload shape as the self-service endp
     staffNotif_seedNotificationForPro($pro->id, 'Targeted B');
     staffNotif_seedGlobalNotification('Global');
 
-    $controller = new StaffNotificationController(app(NotificationListingService::class));
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
     $response = $controller->indexForProfessional(Request::create('/', 'GET'), $pro);
 
     expect($response->status())->toBe(200);
@@ -110,7 +111,7 @@ it('markReadForProfessional writes a receipt and the next index call no longer f
     $notification = staffNotif_seedNotificationForPro($pro->id);
 
     $listing = app(NotificationListingService::class);
-    $controller = new StaffNotificationController($listing);
+    $controller = new StaffNotificationController($listing, app(SegmentResolver::class));
 
     // before: 1 unread
     $before = json_decode($controller->indexForProfessional(Request::create('/', 'GET'), $pro)->getContent(), true);
@@ -131,7 +132,7 @@ it('dismissForProfessional hides the notification from the default index variant
     $pro = staffNotif_makeBrand();
     $notification = staffNotif_seedNotificationForPro($pro->id);
 
-    $controller = new StaffNotificationController(app(NotificationListingService::class));
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
     $controller->dismissForProfessional(Request::create('/', 'POST'), $pro, $notification);
 
@@ -148,7 +149,7 @@ it('markReadForProfessional returns 404 when the notification belongs to a diffe
     $otherPro = staffNotif_makeBrand();
     $notification = staffNotif_seedNotificationForPro($otherPro->id);
 
-    $controller = new StaffNotificationController(app(NotificationListingService::class));
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
     expect(fn () => $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $notification))
         ->toThrow(NotFoundHttpException::class);
@@ -158,7 +159,7 @@ it('global broadcasts are visible to staff acting on behalf of any pro', functio
     $pro = staffNotif_makeBrand();
     $broadcast = staffNotif_seedGlobalNotification('Maintenance window');
 
-    $controller = new StaffNotificationController(app(NotificationListingService::class));
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
     // mark-read on a global broadcast should succeed (a global is "visible to" anyone)
     $response = $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $broadcast);

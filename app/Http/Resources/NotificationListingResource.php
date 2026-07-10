@@ -27,6 +27,8 @@ class NotificationListingResource extends ApiResource
             'secondary_action_label' => $this->secondary_action_label,
             'secondary_action_url' => $this->secondary_action_url,
             'severity' => $this->severity,
+            // OV-A: delivery escalation flag (in-app + email when true).
+            'critical' => (bool) ($this->critical ?? false),
             'starts_at' => $this->formatTimestamp($this->starts_at),
             'ends_at' => $this->formatTimestamp($this->ends_at),
             'created_at' => $this->formatTimestamp($this->created_at),

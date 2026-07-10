@@ -112,6 +112,14 @@ class User extends BaseModel
         return $this->account_type === AccountType::Business;
     }
 
+    // Internal staff account (no site, no integrations). Like isBusiness(),
+    // this is read ONLY inside AccountCapabilities — everything else gates on
+    // the derived capabilities (is_staff + staff_* powers).
+    public function isStaff(): bool
+    {
+        return $this->account_type === AccountType::Staff;
+    }
+
     // Account is in the post-confirm grace period: read-only HTTP, write-blocked
     // policies. Canonical predicate — middleware and Policies both consult this
     // so the literal status string lives in exactly one place.

@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -88,10 +89,9 @@ class AnalyticsQueryService
         return "CASE\n".implode("\n", $whens)."\nEND";
     }
 
-    public function visitsAggregate(string $userId, Carbon $from, Carbon $to): stdClass
+    public function visitsAggregate(string|array|null $userScope, Carbon $from, Carbon $to): stdClass
     {
-        return DB::table('analytics.site_visits')
-            ->where('user_id', $userId)
+        return $this->scopedTable('analytics.site_visits', $userScope)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw('COUNT(*) as total_visits')
             ->selectRaw("COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_visitors")
@@ -99,18 +99,17 @@ class AnalyticsQueryService
             ->first() ?? (object) ['total_visits' => 0, 'unique_visitors' => 0, 'last_visit_at' => null];
     }
 
-    public function clicksAggregate(string $userId, Carbon $from, Carbon $to): stdClass
+    public function clicksAggregate(string|array|null $userScope, Carbon $from, Carbon $to): stdClass
     {
         try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.link_clicks', $userScope)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw('COUNT(*) as total_clicks')
                 ->selectRaw("COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
                 ->selectRaw('MAX(occurred_at) as last_click_at')
                 ->first() ?? (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
         } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
         }
@@ -123,12 +122,11 @@ class AnalyticsQueryService
      * also COUNT(*). Unique-visitor reach lives in the *Aggregate methods +
      * demographics (countries/regions/referrers stay COUNT(DISTINCT)).
      */
-    public function visitsByBucket(string $userId, Carbon $from, Carbon $to, bool $hourly): Collection
+    public function visitsByBucket(string|array|null $userScope, Carbon $from, Carbon $to, bool $hourly): Collection
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
-        return DB::table('analytics.site_visits')
-            ->where('user_id', $userId)
+        return $this->scopedTable('analytics.site_visits', $userScope)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
             ->groupByRaw($bucketGroup)
@@ -136,20 +134,19 @@ class AnalyticsQueryService
             ->get();
     }
 
-    public function clicksByBucket(string $userId, Carbon $from, Carbon $to, bool $hourly): Collection
+    public function clicksByBucket(string|array|null $userScope, Carbon $from, Carbon $to, bool $hourly): Collection
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
         try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.link_clicks', $userScope)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
                 ->groupByRaw($bucketGroup)
                 ->orderBy('day')
                 ->get();
         } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return collect();
         }
@@ -262,14 +259,13 @@ class AnalyticsQueryService
         }
     }
 
-    public function topSections(string $userId, Carbon $from, Carbon $to): Collection
+    public function topSections(string|array|null $userScope, Carbon $from, Carbon $to): Collection
     {
         try {
             // v2: section opens recorded by the architecture tracker into
             // analytics.section_views (per-session dedup happens at ingest). The
             // legacy derivation from block clicks is gone with the block model.
-            return DB::table('analytics.section_views')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.section_views', $userScope)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->selectRaw("section_key, COUNT(*) as views, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_viewers")
                 ->groupBy('section_key')
@@ -288,7 +284,7 @@ class AnalyticsQueryService
                 })
                 ->values();
         } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return collect();
         }
@@ -300,11 +296,10 @@ class AnalyticsQueryService
      *
      * @return array<int, array{platform:string, clicks:int, unique_clickers:int}>
      */
-    public function platformClicks(string $userId, Carbon $from, Carbon $to): array
+    public function platformClicks(string|array|null $userScope, Carbon $from, Carbon $to): array
     {
         try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.link_clicks', $userScope)
                 ->whereBetween('occurred_at', [$from, $to])
                 ->whereNotNull('platform')
                 ->selectRaw("platform, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
@@ -318,7 +313,7 @@ class AnalyticsQueryService
                 ])
                 ->all();
         } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return [];
         }
@@ -482,20 +477,19 @@ class AnalyticsQueryService
      * heartbeats (≥10s visible); the average ignores drive-by bounces so it reads
      * as "time people actually spent".
      */
-    public function sessionsAggregate(string $userId, Carbon $from, Carbon $to): stdClass
+    public function sessionsAggregate(string|array|null $userScope, Carbon $from, Carbon $to): stdClass
     {
         $empty = (object) ['total_sessions' => 0, 'engaged_sessions' => 0, 'avg_duration_seconds' => 0];
 
         try {
-            return DB::table('analytics.site_sessions')
-                ->where('user_id', $userId)
+            return $this->scopedTable('analytics.site_sessions', $userScope)
                 ->whereBetween('started_at', [$from, $to])
                 ->selectRaw('COUNT(*) as total_sessions')
                 ->selectRaw('COUNT(*) FILTER (WHERE duration_seconds >= 10) as engaged_sessions')
                 ->selectRaw('COALESCE(ROUND(AVG(duration_seconds) FILTER (WHERE duration_seconds >= 10)), 0) as avg_duration_seconds')
                 ->first() ?? $empty;
         } catch (QueryException $e) {
-            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
             return $empty;
         }
@@ -548,6 +542,35 @@ class AnalyticsQueryService
         }
 
         return ['enquiries' => $enquiries, 'subscribers' => $subscribers];
+    }
+
+    /**
+     * OV-A scope injection: staff aggregate endpoints reuse these read queries
+     * across ALL users (null) or a segment's user-id set (array); a plain string
+     * keeps the original single-user behaviour for every existing caller.
+     * Widened methods: visitsAggregate, clicksAggregate, visitsByBucket,
+     * clicksByBucket, topSections, platformClicks, sessionsAggregate.
+     */
+    private function scopedTable(string $table, string|array|null $userScope): Builder
+    {
+        $query = DB::table($table);
+
+        if (is_string($userScope)) {
+            $query->where('user_id', $userScope);
+        } elseif (is_array($userScope)) {
+            $query->whereIn('user_id', $userScope);
+        }
+
+        return $query;
+    }
+
+    private function scopeForLog(string|array|null $userScope): string
+    {
+        if (is_string($userScope)) {
+            return $userScope;
+        }
+
+        return is_array($userScope) ? 'segment('.count($userScope).' users)' : 'all-users';
     }
 
     /**
