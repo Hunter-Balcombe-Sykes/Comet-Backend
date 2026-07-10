@@ -87,6 +87,88 @@ it('maps Store-API products to the canonical product shape with permalink urls',
     expect($out[1]['image'])->toBeNull();
 });
 
+// ── Live-site fixtures (WS-B1.3: bluelane.co + fearnoevil.com.au) ─────────────
+//
+// Real Store-API payloads saved from the two stores that were the WooCommerce
+// repro (SiteGround's WAF 403'd our browser-spoof UA; SafeUrlFetcher now
+// retries with an honest bot UA — see SafeUrlFetcherTest). Parsing them here
+// pins the mapping path against genuine WooCommerce output, no network.
+
+/** @see tests/Unit/Platforms/GenericShopScraperTest.php shopFixture() — duplicated to keep unit files standalone. */
+function wooFixture(string $name): string
+{
+    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/shop/'.$name);
+}
+
+it('probes positive on the real bluelane.co Store API payload', function () {
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => wooFixture('bluelane-store-api.json'), 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    expect($scraper->probe('https://bluelane.co'))->toBeTrue();
+});
+
+it('maps the real bluelane.co Store API catalog to the canonical shape', function () {
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => wooFixture('bluelane-store-api.json'), 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('https://bluelane.co');
+
+    expect($out)->toHaveCount(2);
+    expect($out[0])->toMatchArray([
+        'productId' => '3539',
+        'title' => 'Pink Lobster Swim Short',
+        'handle' => 'lobster-swim-short-pink',
+        'price' => '100.00',
+        'currency' => 'AUD',
+        'available' => true,
+        'url' => 'https://bluelane.co/product/lobster-swim-short-pink/',
+    ]);
+    expect($out[0]['image'])->toBe('https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-scaled.jpeg');
+    expect($out[0]['variants'])->toHaveCount(4);
+    expect($out[0]['variants'][0])->toMatchArray(['id' => '3540', 'title' => 'small']);
+});
+
+it('maps the real fearnoevil.com.au catalog including out-of-stock and unicode titles', function () {
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => wooFixture('fearnoevil-store-api.json'), 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('https://fearnoevil.com.au');
+
+    expect($out)->toHaveCount(2);
+    expect($out[0])->toMatchArray([
+        'productId' => '2964',
+        'title' => 'Bulwark Jacket',
+        'price' => '280.00',
+        'currency' => 'AUD',
+        'available' => true,
+        'url' => 'https://fearnoevil.com.au/product/bulwark-jacket/',
+    ]);
+    expect($out[1])->toMatchArray([
+        'productId' => '2595',
+        'title' => 'Kōji Pants',
+        'price' => '180.00',
+        'available' => false,
+    ]);
+});
+
+it('reads the brand off the real bluelane.co homepage with the WP-root site name', function () {
+    $scraper = wooScraperWith([
+        '/wp-json/wc' => ['status' => 404, 'body' => '', 'finalUrl' => 'x', 'contentType' => ''],
+        // Real WP-root `name` verified live (the homepage og:site_name says
+        // "My WordPress" — the WP-root name wins, as fetchBrand prefers it).
+        '/wp-json' => ['status' => 200, 'body' => '{"name":"Blue Lane"}', 'finalUrl' => 'x', 'contentType' => 'application/json'],
+        'https://bluelane.co/' => ['status' => 200, 'body' => wooFixture('bluelane-homepage-head.html'), 'finalUrl' => 'https://bluelane.co/', 'contentType' => 'text/html'],
+    ]);
+
+    $brand = $scraper->fetchBrand('https://bluelane.co');
+
+    expect($brand['id'])->toBe('bluelane-co');
+    expect($brand['name'])->toBe('Blue Lane');
+});
+
 it('reads the site name from the WP REST root when fetching the brand', function () {
     $scraper = wooScraperWith([
         '/wp-json/wc' => ['status' => 404, 'body' => '', 'finalUrl' => 'x', 'contentType' => ''],

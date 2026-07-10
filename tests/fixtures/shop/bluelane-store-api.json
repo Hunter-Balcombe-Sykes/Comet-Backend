@@ -1,0 +1,454 @@
+[
+    {
+        "id": 3539,
+        "name": "Pink Lobster Swim Short",
+        "slug": "lobster-swim-short-pink",
+        "parent": 0,
+        "type": "variable",
+        "variation": "",
+        "permalink": "https://bluelane.co/product/lobster-swim-short-pink/",
+        "sku": "00001-3",
+        "on_sale": false,
+        "prices": {
+            "price": "10000",
+            "regular_price": "10000",
+            "sale_price": "10000",
+            "price_range": null,
+            "currency_code": "AUD",
+            "currency_symbol": "$",
+            "currency_minor_unit": 2,
+            "currency_decimal_separator": ".",
+            "currency_thousand_separator": ",",
+            "currency_prefix": "$",
+            "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>100.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [
+            {
+                "id": 3563,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0313-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0313",
+                "alt": ""
+            },
+            {
+                "id": 3557,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0080-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0080",
+                "alt": ""
+            },
+            {
+                "id": 3558,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0114-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0114",
+                "alt": ""
+            },
+            {
+                "id": 3560,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0139-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0139",
+                "alt": ""
+            }
+        ],
+        "categories": [
+            {
+                "id": 31,
+                "name": "Shorts",
+                "slug": "shorts",
+                "link": "https://bluelane.co/product-category/shop-all/shorts/"
+            }
+        ],
+        "tags": [],
+        "brands": [],
+        "attributes": [
+            {
+                "id": 1,
+                "name": "Shorts Size",
+                "taxonomy": "pa_shorts-size",
+                "has_variations": true,
+                "terms": [
+                    {
+                        "id": 43,
+                        "name": "Extra Large",
+                        "slug": "extra-large"
+                    },
+                    {
+                        "id": 42,
+                        "name": "Large",
+                        "slug": "large"
+                    },
+                    {
+                        "id": 41,
+                        "name": "Medium",
+                        "slug": "medium"
+                    },
+                    {
+                        "id": 40,
+                        "name": "Small",
+                        "slug": "small"
+                    }
+                ]
+            }
+        ],
+        "variations": [
+            {
+                "id": 3540,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "small"
+                    }
+                ]
+            },
+            {
+                "id": 3541,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "medium"
+                    }
+                ]
+            },
+            {
+                "id": 3542,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "large"
+                    }
+                ]
+            },
+            {
+                "id": 3543,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "extra-large"
+                    }
+                ]
+            }
+        ],
+        "grouped_products": [],
+        "has_options": true,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+            "text": "102 in stock",
+            "class": "in-stock"
+        },
+        "sold_individually": false,
+        "weight": "",
+        "dimensions": {
+            "length": "",
+            "width": "",
+            "height": ""
+        },
+        "formatted_weight": "N/A",
+        "formatted_dimensions": "N/A",
+        "add_to_cart": {
+            "text": "Select options",
+            "description": "Select options for &ldquo;Pink Lobster Swim Short&rdquo;",
+            "url": "https://bluelane.co/product/lobster-swim-short-pink/",
+            "single_text": "Add to cart",
+            "minimum": 1,
+            "maximum": 102,
+            "multiple_of": 1
+        },
+        "is_password_protected": false,
+        "extensions": [],
+        "_links": {
+            "self": [
+                {
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products/3539",
+                    "targetHints": {
+                        "allow": [
+                            "GET"
+                        ]
+                    }
+                }
+            ],
+            "collection": [
+                {
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products"
+                }
+            ],
+            "related": [
+                {
+                    "embeddable": true,
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products?related=3539&per_page=10"
+                }
+            ]
+        }
+    },
+    {
+        "id": 3533,
+        "name": "Blue Lobster Swim Short",
+        "slug": "lobster-swim-short-blue",
+        "parent": 0,
+        "type": "variable",
+        "variation": "",
+        "permalink": "https://bluelane.co/product/lobster-swim-short-blue/",
+        "sku": "00001-2",
+        "on_sale": false,
+        "prices": {
+            "price": "10000",
+            "regular_price": "10000",
+            "sale_price": "10000",
+            "price_range": null,
+            "currency_code": "AUD",
+            "currency_symbol": "$",
+            "currency_minor_unit": 2,
+            "currency_decimal_separator": ".",
+            "currency_thousand_separator": ",",
+            "currency_prefix": "$",
+            "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>100.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [
+            {
+                "id": 3549,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0331",
+                "alt": ""
+            },
+            {
+                "id": 3544,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0194-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0194",
+                "alt": ""
+            },
+            {
+                "id": 3545,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0206-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0206",
+                "alt": ""
+            },
+            {
+                "id": 3546,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0179-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0179",
+                "alt": ""
+            },
+            {
+                "id": 3547,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0214-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0214",
+                "alt": ""
+            },
+            {
+                "id": 3548,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0230-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0230",
+                "alt": ""
+            },
+            {
+                "id": 3549,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0331-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0331",
+                "alt": ""
+            },
+            {
+                "id": 3550,
+                "src": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-scaled.jpeg",
+                "thumbnail": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-300x300.jpeg",
+                "srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-scaled.jpeg 2048w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-240x300.jpeg 240w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-819x1024.jpeg 819w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-768x960.jpeg 768w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-1229x1536.jpeg 1229w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-1638x2048.jpeg 1638w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-600x750.jpeg 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-300x300.jpeg 300w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-150x150.jpeg 150w, https://bluelane.co/wp-content/uploads/2025/12/Blue-Lane_Dec25_0354-100x100.jpeg 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Blue Lane_Dec25_0354",
+                "alt": ""
+            }
+        ],
+        "categories": [
+            {
+                "id": 31,
+                "name": "Shorts",
+                "slug": "shorts",
+                "link": "https://bluelane.co/product-category/shop-all/shorts/"
+            }
+        ],
+        "tags": [],
+        "brands": [],
+        "attributes": [
+            {
+                "id": 1,
+                "name": "Shorts Size",
+                "taxonomy": "pa_shorts-size",
+                "has_variations": true,
+                "terms": [
+                    {
+                        "id": 43,
+                        "name": "Extra Large",
+                        "slug": "extra-large"
+                    },
+                    {
+                        "id": 42,
+                        "name": "Large",
+                        "slug": "large"
+                    },
+                    {
+                        "id": 41,
+                        "name": "Medium",
+                        "slug": "medium"
+                    },
+                    {
+                        "id": 40,
+                        "name": "Small",
+                        "slug": "small"
+                    }
+                ]
+            }
+        ],
+        "variations": [
+            {
+                "id": 3535,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "small"
+                    }
+                ]
+            },
+            {
+                "id": 3536,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "medium"
+                    }
+                ]
+            },
+            {
+                "id": 3537,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "large"
+                    }
+                ]
+            },
+            {
+                "id": 3538,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "extra-large"
+                    }
+                ]
+            }
+        ],
+        "grouped_products": [],
+        "has_options": true,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+            "text": "102 in stock",
+            "class": "in-stock"
+        },
+        "sold_individually": false,
+        "weight": "",
+        "dimensions": {
+            "length": "",
+            "width": "",
+            "height": ""
+        },
+        "formatted_weight": "N/A",
+        "formatted_dimensions": "N/A",
+        "add_to_cart": {
+            "text": "Select options",
+            "description": "Select options for &ldquo;Blue Lobster Swim Short&rdquo;",
+            "url": "https://bluelane.co/product/lobster-swim-short-blue/",
+            "single_text": "Add to cart",
+            "minimum": 1,
+            "maximum": 102,
+            "multiple_of": 1
+        },
+        "is_password_protected": false,
+        "extensions": [],
+        "_links": {
+            "self": [
+                {
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products/3533",
+                    "targetHints": {
+                        "allow": [
+                            "GET"
+                        ]
+                    }
+                }
+            ],
+            "collection": [
+                {
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products"
+                }
+            ],
+            "related": [
+                {
+                    "embeddable": true,
+                    "href": "https://bluelane.co/wp-json/wc/store/v1/products?related=3533&per_page=10"
+                }
+            ]
+        }
+    }
+]

@@ -12,10 +12,10 @@ use App\Http\Requests\Platforms\SetShopProductsRequest;
 use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
-use App\Models\Core\Site\Site;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
@@ -32,7 +32,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
 // A user connects up to 5 stores by URL alone; ShopProviderDetector works out
@@ -114,7 +113,8 @@ class ShopController extends ApiController
 
         // Detection + scrape run outside the lock (slow external HTTP).
         // Only the read→mutate→write cycle is serialised.
-        $detected = $this->detector->detect($validated['url']);
+        $detection = $this->detector->detectDetailed($validated['url']);
+        $detected = $detection['detected'];
 
         // Server-side probe failed AND the dashboard supplied a browser-fetched
         // Store API payload — stores whose WAF blocks datacenter IPs (403s every
@@ -124,9 +124,21 @@ class ShopController extends ApiController
         }
 
         if ($detected === null) {
+            // Distinct code per failure kind (WS-B1.2) — the dashboard offers
+            // an add-as-custom-link fallback on `unsupported_store`, and its
+            // client-assisted Store API retry on `store_unreachable`.
+            if ($detection['failure'] === ShopProviderDetector::FAILURE_UNSUPPORTED) {
+                return $this->error(
+                    "This site isn't on a store platform we can connect — we support Shopify, WooCommerce, Squarespace, Big Cartel, and pages with standard product markup. You can add it as a custom link instead, or add individual products by their product page URLs.",
+                    422,
+                    extra: ['code' => 'unsupported_store'],
+                );
+            }
+
             return $this->error(
                 "Couldn't connect that as a store — we look for Shopify, WooCommerce, or standard product markup on the page. Some sites block automated requests. You can still add individual products from any store: paste a product's own page URL instead.",
                 422,
+                extra: ['code' => 'store_unreachable'],
             );
         }
 
@@ -445,11 +457,25 @@ class ShopController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        $product = $this->generic->fetchSingleProduct($request->validated()['url']);
+        $read = $this->generic->readProductPage($request->validated()['url']);
+
+        // Distinct code when the "product" URL is really a storefront homepage
+        // (WS-B1.1) — the dashboard suggests connecting it as a brand instead,
+        // prefilled with `storeUrl`.
+        if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE) {
+            return $this->error(
+                "That looks like a store's homepage, not a product page. Connect it as a brand to import its products, or paste a specific product's page URL.",
+                422,
+                extra: ['code' => 'store_homepage', 'storeUrl' => $read['storeUrl']],
+            );
+        }
+
+        $product = $read['product'];
         if ($product === null) {
             return $this->error(
                 "Couldn't read a product from that link. Open the product's own page and paste its URL — it needs a title and price in standard product markup.",
                 422,
+                extra: ['code' => 'no_product_found'],
             );
         }
 

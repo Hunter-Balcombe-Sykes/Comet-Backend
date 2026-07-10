@@ -2,6 +2,7 @@
 
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -85,6 +86,77 @@ it('drops a URL once its redirect chain exceeds the configured max-redirects', f
     $out = app(SafeUrlFetcher::class)->fetchMany(['http://1.1.1.1/a']);
 
     expect($out['http://1.1.1.1/a'])->toBeNull();
+});
+
+// ── 403 honest-UA fallback retry (WS-B1.3) ────────────────────────────────────
+//
+// Some hosting WAFs (SiteGround et al. — bluelane.co / fearnoevil.com.au were
+// the live repro) 403 any `Mozilla/…` UA whose TLS fingerprint isn't a real
+// browser, while an honest non-Mozilla bot UA passes. fetch() retries such
+// 403s once with FALLBACK_USER_AGENT. Literal public IPs keep these hermetic.
+
+it('retries a 403 once with the honest bot UA and returns the passing response', function () {
+    Http::fake(function ($request) {
+        $ua = $request->header('User-Agent')[0] ?? '';
+
+        return str_starts_with($ua, 'Mozilla/')
+            ? Http::response('blocked', 403)
+            : Http::response('[{"id":1}]', 200, ['Content-Type' => 'application/json']);
+    });
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/wp-json/wc/store/v1/products', [
+        'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    ]);
+
+    expect($out['status'])->toBe(200);
+    expect($out['body'])->toBe('[{"id":1}]');
+    Http::assertSentCount(2);
+    Http::assertSent(fn ($request) => ($request->header('User-Agent')[0] ?? '') === SafeUrlFetcher::FALLBACK_USER_AGENT);
+});
+
+it('keeps the original 403 when the honest-UA retry is also blocked', function () {
+    Http::fake(['*' => Http::response('nope', 403)]);
+
+    // No UA passed → the default (Mozilla-prefixed) UA applies, so the retry fires.
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/x');
+
+    expect($out['status'])->toBe(403);
+    Http::assertSentCount(2);
+});
+
+it('keeps the original 403 when the retry leg fails at transport level', function () {
+    // The retry must never worsen the outcome: a ConnectionException on the
+    // fallback-UA leg is swallowed, not propagated over the 403 we already have.
+    Http::fake(function ($request) {
+        $ua = $request->header('User-Agent')[0] ?? '';
+
+        return str_starts_with($ua, 'Mozilla/')
+            ? Http::response('blocked', 403)
+            : throw new ConnectionException('timed out');
+    });
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/x');
+
+    expect($out['status'])->toBe(403);
+    expect($out['body'])->toBe('blocked');
+});
+
+it('does not retry a 403 when the caller already sent a non-Mozilla UA', function () {
+    Http::fake(['*' => Http::response('nope', 403)]);
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/x', ['User-Agent' => SafeUrlFetcher::FALLBACK_USER_AGENT]);
+
+    expect($out['status'])->toBe(403);
+    Http::assertSentCount(1);
+});
+
+it('does not retry non-403 error statuses', function () {
+    Http::fake(['*' => Http::response('missing', 404)]);
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/x');
+
+    expect($out['status'])->toBe(404);
+    Http::assertSentCount(1);
 });
 
 it('pools multiple URLs concurrently and keys results by the original URL', function () {

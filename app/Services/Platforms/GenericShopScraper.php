@@ -11,6 +11,15 @@ use App\Services\Http\SafeUrlFetcher;
 // `sourceUrl` so re-fetches read the same page.
 class GenericShopScraper extends PlatformScraper
 {
+    // readProductPage() outcomes — the controller keys 422 codes off these.
+    public const OUTCOME_PRODUCT = 'product';
+
+    public const OUTCOME_STORE_PAGE = 'store_page';
+
+    public const OUTCOME_NO_PRODUCT = 'no_product';
+
+    public const OUTCOME_UNREACHABLE = 'unreachable';
+
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
     /**
@@ -22,16 +31,30 @@ class GenericShopScraper extends PlatformScraper
      */
     public function fetchPage(string $url): ?array
     {
+        return $this->fetchPageDetailed($url)['page'];
+    }
+
+    /**
+     * fetchPage() plus the discriminators ShopProviderDetector needs to tell
+     * "unsupported store type" apart from "blocked/unreachable" (WS-B1.2):
+     * whether the page itself served 200 HTML, and whether that HTML carries
+     * supported-storefront tech markers (platform present but its API
+     * blocked/disabled ≠ not a store platform at all).
+     *
+     * @return array{page: array{brand: array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}, products: list<array<string,mixed>>}|null, reachable: bool, storefrontMarkers: bool}
+     */
+    public function fetchPageDetailed(string $url): array
+    {
         $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
         if ($res === null || $res['status'] !== 200) {
-            return null;
+            return ['page' => null, 'reachable' => false, 'storefrontMarkers' => false];
         }
         $html = $res['body'];
         $origin = $this->originOf($res['finalUrl']) ?? $this->originOf($url) ?? $url;
 
         $products = $this->productsFromJsonLd($html, $res['finalUrl'], $origin);
         if ($products === []) {
-            return null;
+            return ['page' => null, 'reachable' => true, 'storefrontMarkers' => $this->looksLikeStorefront($html)];
         }
 
         $name = $this->metaContent($html, 'og:site_name')
@@ -40,14 +63,18 @@ class GenericShopScraper extends PlatformScraper
                 : null);
 
         return [
-            'brand' => [
-                'id' => preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST))),
-                'name' => $name,
-                'currency' => $products[0]['currency'] ?? null,
-                'favicon' => $this->favicon($html, $origin),
-                'logo' => $this->logo($html, $origin),
+            'page' => [
+                'brand' => [
+                    'id' => preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST))),
+                    'name' => $name,
+                    'currency' => $products[0]['currency'] ?? null,
+                    'favicon' => $this->favicon($html, $origin),
+                    'logo' => $this->logo($html, $origin),
+                ],
+                'products' => $products,
             ],
-            'products' => $products,
+            'reachable' => true,
+            'storefrontMarkers' => true,
         ];
     }
 
@@ -61,27 +88,98 @@ class GenericShopScraper extends PlatformScraper
      */
     public function fetchSingleProduct(string $url): ?array
     {
+        return $this->readProductPage($url)['product'];
+    }
+
+    /**
+     * fetchSingleProduct() with a tagged outcome (WS-B1.1), so the add-product
+     * endpoint can tell "you pasted a store homepage — connect it as a brand"
+     * apart from a plain unreadable page:
+     *
+     *   - `product`     — a product was extracted; `product` is set.
+     *   - `store_page`  — no single product, but the URL is a site-root page
+     *                     that is clearly a storefront (platform tech markers,
+     *                     or a multi-product JSON-LD list). `storeUrl` carries
+     *                     the origin for a "connect as brand" prefill.
+     *   - `no_product`  — page served, but no product markup we recognise.
+     *                     Deliberately NOT classified further: a deep URL that
+     *                     fails extraction may still be a real product page,
+     *                     so it must never be false-blocked as a store.
+     *   - `unreachable` — the page itself couldn't be fetched (non-200).
+     *
+     * @return array{outcome: string, product: ?array, storeUrl: ?string}
+     */
+    public function readProductPage(string $url): array
+    {
         $res = $this->fetcher->tryFetch($url, ['User-Agent' => self::USER_AGENT]);
         if ($res === null || $res['status'] !== 200) {
-            return null;
+            return ['outcome' => self::OUTCOME_UNREACHABLE, 'product' => null, 'storeUrl' => null];
         }
         $html = $res['body'];
         $origin = $this->originOf($res['finalUrl']) ?? $this->originOf($url) ?? $url;
 
         $products = $this->productsFromJsonLd($html, $res['finalUrl'], $origin);
 
-        return $products[0] ?? $this->productFromOpenGraph($html, $res['finalUrl'], $origin);
+        // A site-root page carrying a whole product LIST is a storefront, not
+        // "a product" — don't silently import an arbitrary first item.
+        if (count($products) >= 2 && $this->isRootUrl($res['finalUrl'])) {
+            return ['outcome' => self::OUTCOME_STORE_PAGE, 'product' => null, 'storeUrl' => $origin];
+        }
+
+        $product = $products[0] ?? $this->productFromOpenGraph($html, $res['finalUrl'], $origin);
+        if ($product !== null) {
+            return ['outcome' => self::OUTCOME_PRODUCT, 'product' => $product, 'storeUrl' => null];
+        }
+
+        if ($this->isRootUrl($res['finalUrl']) && $this->looksLikeStorefront($html)) {
+            return ['outcome' => self::OUTCOME_STORE_PAGE, 'product' => null, 'storeUrl' => $origin];
+        }
+
+        return ['outcome' => self::OUTCOME_NO_PRODUCT, 'product' => null, 'storeUrl' => null];
+    }
+
+    /** True when the URL has no path beyond "/" — a homepage, not a product page. */
+    private function isRootUrl(string $url): bool
+    {
+        return rtrim((string) (parse_url($url, PHP_URL_PATH) ?? ''), '/') === '';
+    }
+
+    /**
+     * Deterministic storefront-tech markers for the platforms we can connect
+     * as a brand. Asset/runtime signatures only (not prose mentioning a
+     * platform), so a positive means a brand connect is likely to work.
+     */
+    private function looksLikeStorefront(string $html): bool
+    {
+        return (bool) preg_match(
+            '~cdn\.shopify\.com|/cdn/shop/|window\.Shopify|Shopify\.theme'
+            .'|plugins/woocommerce|class=["\'][^"\']*\bwoocommerce'
+            .'|Static\.SQUARESPACE_CONTEXT|assets\.squarespace\.com'
+            .'|bigcartel\.com~i',
+            $html,
+        );
     }
 
     /**
      * OpenGraph product fallback — many storefronts (Shopify product pages,
      * WooCommerce, custom) emit og:title/og:image + product:price:amount even
-     * when the page carries no Product JSON-LD.
+     * when the page carries no Product JSON-LD. Requires a deterministic
+     * product signal (og:type contains "product", or an explicit price meta):
+     * og:title alone is ANY webpage — a brand homepage must not become a
+     * "product" (WS-B1.1, abovetheground.co regression).
      *
      * @return array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}|null
      */
     private function productFromOpenGraph(string $html, string $pageUrl, string $origin): ?array
     {
+        $price = $this->metaContent($html, 'product:price:amount')
+            ?? $this->metaContent($html, 'og:price:amount');
+        $ogType = strtolower((string) $this->metaContent($html, 'og:type'));
+
+        if (! str_contains($ogType, 'product') && ($price === null || trim($price) === '')) {
+            return null;
+        }
+
         $title = $this->metaContent($html, 'og:title')
             ?? (preg_match('~<title[^>]*>([^<]+)</title>~i', $html, $m)
                 ? html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5)
@@ -92,8 +190,6 @@ class GenericShopScraper extends PlatformScraper
         $title = trim($title);
 
         $image = $this->metaContent($html, 'og:image');
-        $price = $this->metaContent($html, 'product:price:amount')
-            ?? $this->metaContent($html, 'og:price:amount');
         $currency = $this->metaContent($html, 'product:price:currency')
             ?? $this->metaContent($html, 'og:price:currency');
         $url = $this->absoluteUrl($this->metaContent($html, 'og:url') ?? $pageUrl, $origin);
@@ -147,7 +243,12 @@ class GenericShopScraper extends PlatformScraper
         $out = [];
         $seen = [];
         foreach ($productNodes as $node) {
-            $title = is_string($node['name'] ?? null) ? trim($node['name']) : '';
+            // SEO plugins (Yoast/Rank Math) HTML-encode entities inside JSON-LD
+            // strings ("FEAR NO EVIL &bull; Bulwark Jacket") — decode like the
+            // platform scrapers do for their titles.
+            $title = is_string($node['name'] ?? null)
+                ? html_entity_decode(trim($node['name']), ENT_QUOTES | ENT_HTML5)
+                : '';
             if ($title === '') {
                 continue;
             }
