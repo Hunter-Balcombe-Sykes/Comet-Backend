@@ -25,6 +25,9 @@ it('blocks bootstrap for new users when waitlist mode is enabled', function () {
     $controller = app(BootstrapController::class);
     $request = BootstrapRequest::create('/api/bootstrap', 'POST');
     $request->attributes->set('supabase_uid', 'new-user-uid');
+    // Verified email claim present so this isolates the waitlist gate from the
+    // new fail-closed EMAIL_VERIFICATION_REQUIRED guard.
+    $request->attributes->set('supabase_claims', ['email' => 'newuser@example.com']);
 
     $response = $controller->bootstrap($request);
 
@@ -73,6 +76,7 @@ it('does not gate existing professionals when waitlist mode is enabled', functio
         'handle' => 'existing',
     ]);
     $request->attributes->set('supabase_uid', 'existing-user-uid');
+    $request->attributes->set('supabase_claims', ['email' => 'existing@example.com']);
     $request->setContainer(app())->setRedirector(app('redirect'));
     $request->validateResolved();
 

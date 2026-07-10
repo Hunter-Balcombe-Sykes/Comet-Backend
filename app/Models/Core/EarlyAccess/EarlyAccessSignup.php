@@ -24,6 +24,14 @@ class EarlyAccessSignup extends BaseModel
 
     public const STATUS_SIGNED_UP = 'signed_up';
 
+    /**
+     * Invite tokens die this many days after they were minted (invited_at). A
+     * leaked finish-signup link must not grant PII (resolveInvite) or waitlist
+     * bypass (bootstrap) indefinitely — both paths resolve through
+     * findByInviteToken(), so the age gate there covers both surfaces.
+     */
+    public const INVITE_TTL_DAYS = 14;
+
     protected $table = 'core.early_access_signups';
 
     public $incrementing = false;
@@ -69,15 +77,33 @@ class EarlyAccessSignup extends BaseModel
         return $query->where('status', $status);
     }
 
-    /** Locate a row by its plaintext invite token (sha256 at rest). */
+    /**
+     * Locate a row by its plaintext invite token (sha256 at rest). Returns null
+     * for an expired token (older than INVITE_TTL_DAYS) so a leaked link stops
+     * resolving to PII or a waitlist bypass — the single gate for both the
+     * bootstrap and resolveInvite callers.
+     */
     public static function findByInviteToken(string $token): ?self
     {
         if (trim($token) === '') {
             return null;
         }
 
-        return self::query()
+        $signup = self::query()
             ->where('invite_token_hash', hash('sha256', $token))
             ->first();
+
+        if ($signup === null) {
+            return null;
+        }
+
+        // Token still hashes to a row, but the invite was minted too long ago —
+        // treat as not-found. A null invited_at (hash present without a mint
+        // timestamp) is unexpected and fails closed.
+        if ($signup->invited_at === null || $signup->invited_at->lt(now()->subDays(self::INVITE_TTL_DAYS))) {
+            return null;
+        }
+
+        return $signup;
     }
 }

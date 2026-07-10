@@ -5,12 +5,17 @@
  * segment/selected → one in-app row per member; critical flag persists.
  */
 
+use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
+use App\Http\Requests\Api\Staff\Notifications\StaffStoreNotificationRequest;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Staff\PartnaStaff;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\ParameterBag;
+use Symfony\Component\HttpFoundation\Request as SymfonyHttpRequest;
 
 beforeEach(function () {
     setupUsersTable();
@@ -139,4 +144,32 @@ it('rejects a segment audience without segment_id', function () {
         ->postJson('/api/staff/notifications', ovaNotifPayload(['audience' => ['type' => 'segment']]))
         ->assertStatus(422)
         ->assertJsonValidationErrors(['audience.segment_id']);
+});
+
+it('denies store for a non-admin staff at the policy layer (defense-in-depth)', function () {
+    // Direct controller call bypasses the staff.admin middleware so the
+    // authorizeForUser(staffManage) policy call — not the middleware — is what
+    // rejects the support-role actor. Proves the policy gate stands on its own.
+    $support = new PartnaStaff;
+    $support->id = (string) Str::uuid();
+    $support->role = PartnaStaff::ROLE_SUPPORT;
+
+    $request = Mockery::mock(StaffStoreNotificationRequest::class)->makePartial();
+    $request->shouldReceive('validated')->andReturn(ovaNotifPayload(['audience' => ['type' => 'all']]));
+    (new ReflectionProperty(SymfonyHttpRequest::class, 'attributes'))->setValue($request, new ParameterBag);
+    $request->attributes->set('partna_staff', $support);
+
+    expect(fn () => app(StaffNotificationController::class)->store($request))
+        ->toThrow(AuthorizationException::class);
+
+    // Admin passes the same gate and creates the row.
+    $admin = ovaNotifStaff();
+    $adminReq = Mockery::mock(StaffStoreNotificationRequest::class)->makePartial();
+    $adminReq->shouldReceive('validated')->andReturn(ovaNotifPayload(['audience' => ['type' => 'all']]));
+    (new ReflectionProperty(SymfonyHttpRequest::class, 'attributes'))->setValue($adminReq, new ParameterBag);
+    $adminReq->attributes->set('partna_staff', $admin);
+
+    app(StaffNotificationController::class)->store($adminReq);
+
+    expect(Notification::query()->count())->toBe(1);
 });
