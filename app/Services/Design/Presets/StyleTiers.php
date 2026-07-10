@@ -22,7 +22,7 @@ final class StyleTiers
     public const SIGNAL_COLUMNS = [
         'font' => 'typography_font_family',
         'weight' => 'weight_regular',
-        'text' => 'text_xs',
+        'text' => 'text_body',
         'radius' => 'border_radius',
         'space' => 'space_regular',
         'motion' => 'motion_pace',
@@ -55,10 +55,13 @@ final class StyleTiers
             'regular' => '0.85rem',
             'large' => '0.9rem',
         ],
+        // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem: sharp and
+        // moderate deliberately share 0.25rem (0 = true square is a user-only
+        // extreme factors never emit).
         'radius' => [
             'sharp' => '0.25rem',
-            'moderate' => '0.6rem',
-            'rounded' => '1rem',
+            'moderate' => '0.25rem',
+            'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',
         ],
         'space' => [

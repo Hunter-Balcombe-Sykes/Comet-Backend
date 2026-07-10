@@ -55,7 +55,7 @@ it('concludes fine-dining editorial look for a fine-dining category', function (
 it('concludes a warm cafe look for a coffee shop', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Coffee shop']));
 
-    expect($out['border_radius'])->toBe('1rem')
+    expect($out['border_radius'])->toBe('0.85rem')
         ->and($out['effect_shadow_style'])->toBe('soft')
         ->and($out['effect_image_treatment'])->toBe('warm')
         ->and($out)->not->toHaveKey('color_bg');

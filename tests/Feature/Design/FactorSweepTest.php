@@ -224,7 +224,7 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('origin')
-        ->and($r['kit']['border_radius'])->toBe('1rem')
+        ->and($r['kit']['border_radius'])->toBe('0.85rem')
         ->and($r['kit']['effect_surface'])->toBe('solid'); // tactile craft, not glass
     assertCoherent($r['kit']);
 });

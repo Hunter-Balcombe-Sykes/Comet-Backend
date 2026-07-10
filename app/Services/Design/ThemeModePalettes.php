@@ -12,8 +12,11 @@ class ThemeModePalettes
     /** @var array<string, array{bg: string, text: string}> */
     public const ANCHORS = [
         'bleach' => ['bg' => '#ffffff', 'text' => '#111113'],
+        // dust: the sitepage ink (#999490) is deliberately soft/low-contrast;
+        // email body text must stay legible, so the mirror pins the previous
+        // dark ink instead of tracking the sitepage value.
         'dust' => ['bg' => '#f2f2f0', 'text' => '#1e1e21'],
-        'warm' => ['bg' => '#faf5ea', 'text' => '#2a2318'],
+        'warm' => ['bg' => '#faf4f0', 'text' => '#111111'],
         'dusk' => ['bg' => '#26262c', 'text' => '#e8e8ec'],
         'midnight' => ['bg' => '#000000', 'text' => '#f2f2f2'],
     ];

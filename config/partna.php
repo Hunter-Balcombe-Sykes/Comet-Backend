@@ -953,7 +953,7 @@ return [
     // that adds or drops a site.design_kits column — the old cache key orphans
     // and TTLs out, so picking up the new column set needs no `artisan
     // cache:clear`. (LIFE-2)
-    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-10'),
+    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-10.2'),
 
     /*
     |----------------------------------------------------------------------
@@ -985,7 +985,7 @@ return [
             'single_token_prefixes' => [
                 'color' => 'colors',
                 'typography' => 'typography',
-                'text' => 'text',      // text scale (text_xs, text_sm, ...)
+                'text' => 'text',      // text scale (text_body, text_caption, text_h1, ...)
                 'weight' => 'weight',    // weight scale (weight_regular, weight_medium, ...)
                 'border' => 'borders',
                 'space' => 'space',

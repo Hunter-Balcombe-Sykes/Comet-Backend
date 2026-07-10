@@ -17,6 +17,10 @@ namespace App\Http\Requests\Concerns;
 // 2026-07-10 theme/surface rework (migration 20260710160000): the bg colour,
 // visual-style bundle and entrance-animation columns dropped; theme_mode is now
 // the 5-value palette selection; effect_surface + theme_night_shift_auto added.
+//
+// 2026-07-10 semantic text scale (migration 20260710190000): the seven
+// size-named text_* columns became the nine semantic slots (caption/body/
+// h3/h2/h1/display + desktop body/h1/display).
 trait DesignKitValidationRules
 {
     /**
@@ -54,15 +58,18 @@ trait DesignKitValidationRules
             'design_kit.typography_logo_height' => $len,
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
 
-            // Text scale — xs is the value base; the rest are inferred but
-            // keep nullable columns for promotion.
-            'design_kit.text_xs' => $size,
-            'design_kit.text_sm' => $size,
-            'design_kit.text_md' => $size,
-            'design_kit.text_lg' => $size,
-            'design_kit.text_xl' => $size,
-            'design_kit.text_xxl' => $size,
-            'design_kit.text_desktop_xs' => $size,
+            // Text scale — semantic slots (2026-07-10): body is the value
+            // base; the rest are inferred but keep nullable columns for
+            // promotion.
+            'design_kit.text_caption' => $size,
+            'design_kit.text_body' => $size,
+            'design_kit.text_h3' => $size,
+            'design_kit.text_h2' => $size,
+            'design_kit.text_h1' => $size,
+            'design_kit.text_display' => $size,
+            'design_kit.text_desktop_body' => $size,
+            'design_kit.text_desktop_h1' => $size,
+            'design_kit.text_desktop_display' => $size,
 
             // Weight scale — regular is the value base; light/medium/semibold/
             // bold are inferred (base∓100/200/300).

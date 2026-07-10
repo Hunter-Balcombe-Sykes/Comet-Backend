@@ -53,7 +53,7 @@ final class CategoryStylePresets
         // surviving columns still match.)
         self::FOOD_DRINK => [
             'color_accent' => '#e0491f',
-            'text_xs' => '0.8rem',
+            'text_body' => '0.8rem',
             'weight_regular' => '300',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'young-serif',
@@ -64,7 +64,7 @@ final class CategoryStylePresets
         // read the old pastel bg used to.
         self::BEAUTY_PERSONAL_CARE => [
             'color_accent' => '#b8375a',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
             'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
@@ -77,9 +77,9 @@ final class CategoryStylePresets
         // still refines pace for the daytime-clinic end of the bucket.)
         self::HEALTH_FITNESS => [
             'color_accent' => '#2f6b57',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '500',
-            'border_radius' => '0.4rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'oswald',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
@@ -88,9 +88,9 @@ final class CategoryStylePresets
         // nothing-to-hide.
         self::PROFESSIONAL_SERVICES => [
             'color_accent' => '#1d3557',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '500',
-            'border_radius' => '0.4rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'outline',
@@ -99,9 +99,9 @@ final class CategoryStylePresets
         // solid-card energy.
         self::RETAIL_SHOPPING => [
             'color_accent' => '#d6336c',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '500',
-            'border_radius' => '0.3rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
@@ -110,9 +110,9 @@ final class CategoryStylePresets
         // legible text and dependable filled panels, no design flourish.
         self::HOME_SERVICES => [
             'color_accent' => '#d97706',
-            'text_xs' => '0.9rem',
+            'text_body' => '0.9rem',
             'weight_regular' => '500',
-            'border_radius' => '0.5rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',
@@ -121,9 +121,9 @@ final class CategoryStylePresets
         // welcome.
         self::HOSPITALITY => [
             'color_accent' => '#7c2d12',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '400',
-            'border_radius' => '1rem',
+            'border_radius' => '0.85rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'slow',
             'effect_surface' => 'glass',
@@ -132,9 +132,9 @@ final class CategoryStylePresets
         // weight, near-square corners, filled panels.
         self::AUTOMOTIVE => [
             'color_accent' => '#c81e1e',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '600',
-            'border_radius' => '0.2rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
@@ -143,9 +143,9 @@ final class CategoryStylePresets
         // speak.
         self::CREATIVE_ENTERTAINMENT => [
             'color_accent' => '#7c3aed',
-            'text_xs' => '0.85rem',
+            'text_body' => '0.85rem',
             'weight_regular' => '400',
-            'border_radius' => '0.3rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
             'effect_surface' => 'outline',
@@ -154,9 +154,9 @@ final class CategoryStylePresets
         // modern-app glass.
         self::EDUCATION_COACHING => [
             'color_accent' => '#2563eb',
-            'text_xs' => '0.9rem',
+            'text_body' => '0.9rem',
             'weight_regular' => '400',
-            'border_radius' => '0.8rem',
+            'border_radius' => '0.85rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'glass',

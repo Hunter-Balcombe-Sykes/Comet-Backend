@@ -78,7 +78,7 @@ it('classifies a casual median (<= A$40) to the compact recipe', function () {
     $out = (new StorePricePointFactor)->detect(spEvidence([15, 20, 25, 35]));
 
     expect($out['space_regular'])->toBe('0.8rem')
-        ->and($out['border_radius'])->toBe('1rem')
+        ->and($out['border_radius'])->toBe('0.85rem')
         ->and($out['weight_regular'])->toBe('500')
         ->and($out['effect_surface'])->toBe('solid'); // filled, friendly, accessible
 });
