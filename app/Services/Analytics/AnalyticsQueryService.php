@@ -12,11 +12,11 @@ use stdClass;
 /**
  * Read-side queries for the professional analytics summary dashboard.
  *
- * Every method is a pure DB read keyed by (user_id, from, to).
- * Queries that touch click-side tables (analytics.link_clicks) catch
- * QueryException and return an empty/default so the page-view analytics
- * still render if the click ingestion pipeline is broken or missing
- * (e.g. SQLite test envs that don't have all migrations applied).
+ * Every method is a pure DB read keyed by (user_id, from, to). DB faults are
+ * allowed to bubble: a broken/missing table 500s the professional's OWN
+ * dashboard (Nightwatch-visible) rather than being written into the summary
+ * cache as a false-zero for up to 24h (see #OBS-1). The one deliberate
+ * exception is conversions(), which still degrades-and-logs (see #OBS-5).
  */
 class AnalyticsQueryService
 {
@@ -101,19 +101,13 @@ class AnalyticsQueryService
 
     public function clicksAggregate(string $userId, Carbon $from, Carbon $to): stdClass
     {
-        try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->selectRaw('COUNT(*) as total_clicks')
-                ->selectRaw("COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
-                ->selectRaw('MAX(occurred_at) as last_click_at')
-                ->first() ?? (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
-        }
+        return DB::table('analytics.link_clicks')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->selectRaw('COUNT(*) as total_clicks')
+            ->selectRaw("COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
+            ->selectRaw('MAX(occurred_at) as last_click_at')
+            ->first() ?? (object) ['total_clicks' => 0, 'unique_clickers' => 0, 'last_click_at' => null];
     }
 
     /**
@@ -140,19 +134,13 @@ class AnalyticsQueryService
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
-        try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
-                ->groupByRaw($bucketGroup)
-                ->orderBy('day')
-                ->get();
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return collect();
-        }
+        return DB::table('analytics.link_clicks')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
+            ->groupByRaw($bucketGroup)
+            ->orderBy('day')
+            ->get();
     }
 
     /**
@@ -242,56 +230,44 @@ class AnalyticsQueryService
 
     public function topLinks(string $userId, Carbon $from, Carbon $to): Collection
     {
-        try {
-            // v2: clicks self-describe (url/platform/label captured at the anchor).
-            // Legacy block-era rows have url IS NULL and are excluded — the block
-            // model is gone with the skeleton pivot.
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->whereNotNull('url')
-                ->selectRaw('url, MAX(platform) as platform, MAX(label) as label, MAX(section_key) as section_key, COUNT(*) as clicks')
-                ->groupBy('url')
-                ->orderByDesc('clicks')
-                ->limit(10)
-                ->get();
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return collect();
-        }
+        // v2: clicks self-describe (url/platform/label captured at the anchor).
+        // Legacy block-era rows have url IS NULL and are excluded — the block
+        // model is gone with the skeleton pivot.
+        return DB::table('analytics.link_clicks')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->whereNotNull('url')
+            ->selectRaw('url, MAX(platform) as platform, MAX(label) as label, MAX(section_key) as section_key, COUNT(*) as clicks')
+            ->groupBy('url')
+            ->orderByDesc('clicks')
+            ->limit(10)
+            ->get();
     }
 
     public function topSections(string $userId, Carbon $from, Carbon $to): Collection
     {
-        try {
-            // v2: section opens recorded by the skeleton tracker into
-            // analytics.section_views (per-session dedup happens at ingest). The
-            // legacy derivation from block clicks is gone with the block model.
-            return DB::table('analytics.section_views')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->selectRaw("section_key, COUNT(*) as views, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_viewers")
-                ->groupBy('section_key')
-                ->orderByDesc('views')
-                ->limit(12)
-                ->get()
-                ->map(function ($entry) {
-                    $sectionKey = (string) $entry->section_key;
+        // v2: section opens recorded by the skeleton tracker into
+        // analytics.section_views (per-session dedup happens at ingest). The
+        // legacy derivation from block clicks is gone with the block model.
+        return DB::table('analytics.section_views')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->selectRaw("section_key, COUNT(*) as views, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_viewers")
+            ->groupBy('section_key')
+            ->orderByDesc('views')
+            ->limit(12)
+            ->get()
+            ->map(function ($entry) {
+                $sectionKey = (string) $entry->section_key;
 
-                    return [
-                        'key' => $sectionKey,
-                        'title' => $this->sectionTitle($sectionKey),
-                        'views' => (int) ($entry->views ?? 0),
-                        'unique_viewers' => (int) ($entry->unique_viewers ?? 0),
-                    ];
-                })
-                ->values();
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return collect();
-        }
+                return [
+                    'key' => $sectionKey,
+                    'title' => $this->sectionTitle($sectionKey),
+                    'views' => (int) ($entry->views ?? 0),
+                    'unique_viewers' => (int) ($entry->unique_viewers ?? 0),
+                ];
+            })
+            ->values();
     }
 
     /**
@@ -302,26 +278,20 @@ class AnalyticsQueryService
      */
     public function platformClicks(string $userId, Carbon $from, Carbon $to): array
     {
-        try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->whereNotNull('platform')
-                ->selectRaw("platform, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
-                ->groupBy('platform')
-                ->orderByDesc('clicks')
-                ->get()
-                ->map(fn ($r) => [
-                    'platform' => (string) $r->platform,
-                    'clicks' => (int) $r->clicks,
-                    'unique_clickers' => (int) $r->unique_clickers,
-                ])
-                ->all();
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return [];
-        }
+        return DB::table('analytics.link_clicks')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->whereNotNull('platform')
+            ->selectRaw("platform, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
+            ->groupBy('platform')
+            ->orderByDesc('clicks')
+            ->get()
+            ->map(fn ($r) => [
+                'platform' => (string) $r->platform,
+                'clicks' => (int) $r->clicks,
+                'unique_clickers' => (int) $r->unique_clickers,
+            ])
+            ->all();
     }
 
     /**
@@ -375,30 +345,24 @@ class AnalyticsQueryService
      */
     private function topItemsBySection(string $userId, Carbon $from, Carbon $to, array $sectionKeys, int $limit = 8): array
     {
-        try {
-            return DB::table('analytics.link_clicks')
-                ->where('user_id', $userId)
-                ->whereBetween('occurred_at', [$from, $to])
-                ->whereNotNull('product_id')
-                ->whereIn('section_key', $sectionKeys)
-                ->selectRaw("product_id, MAX(product_title) as title, MAX(url) as url, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
-                ->groupBy('product_id')
-                ->orderByDesc('clicks')
-                ->limit($limit)
-                ->get()
-                ->map(fn ($r) => [
-                    'product_id' => (string) $r->product_id,
-                    'title' => $r->title !== null ? (string) $r->title : null,
-                    'url' => $r->url !== null ? (string) $r->url : null,
-                    'clicks' => (int) $r->clicks,
-                    'unique_clickers' => (int) $r->unique_clickers,
-                ])
-                ->all();
-        } catch (QueryException $e) {
-            Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return [];
-        }
+        return DB::table('analytics.link_clicks')
+            ->where('user_id', $userId)
+            ->whereBetween('occurred_at', [$from, $to])
+            ->whereNotNull('product_id')
+            ->whereIn('section_key', $sectionKeys)
+            ->selectRaw("product_id, MAX(product_title) as title, MAX(url) as url, COUNT(*) as clicks, COUNT(DISTINCT {$this->uniqueVisitorExpr()}) as unique_clickers")
+            ->groupBy('product_id')
+            ->orderByDesc('clicks')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'product_id' => (string) $r->product_id,
+                'title' => $r->title !== null ? (string) $r->title : null,
+                'url' => $r->url !== null ? (string) $r->url : null,
+                'clicks' => (int) $r->clicks,
+                'unique_clickers' => (int) $r->unique_clickers,
+            ])
+            ->all();
     }
 
     /**
@@ -486,19 +450,13 @@ class AnalyticsQueryService
     {
         $empty = (object) ['total_sessions' => 0, 'engaged_sessions' => 0, 'avg_duration_seconds' => 0];
 
-        try {
-            return DB::table('analytics.site_sessions')
-                ->where('user_id', $userId)
-                ->whereBetween('started_at', [$from, $to])
-                ->selectRaw('COUNT(*) as total_sessions')
-                ->selectRaw('COUNT(*) FILTER (WHERE duration_seconds >= 10) as engaged_sessions')
-                ->selectRaw('COALESCE(ROUND(AVG(duration_seconds) FILTER (WHERE duration_seconds >= 10)), 0) as avg_duration_seconds')
-                ->first() ?? $empty;
-        } catch (QueryException $e) {
-            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return $empty;
-        }
+        return DB::table('analytics.site_sessions')
+            ->where('user_id', $userId)
+            ->whereBetween('started_at', [$from, $to])
+            ->selectRaw('COUNT(*) as total_sessions')
+            ->selectRaw('COUNT(*) FILTER (WHERE duration_seconds >= 10) as engaged_sessions')
+            ->selectRaw('COALESCE(ROUND(AVG(duration_seconds) FILTER (WHERE duration_seconds >= 10)), 0) as avg_duration_seconds')
+            ->first() ?? $empty;
     }
 
     /**
@@ -507,16 +465,10 @@ class AnalyticsQueryService
      */
     public function liveVisitors(string $userId): int
     {
-        try {
-            return (int) DB::table('analytics.site_sessions')
-                ->where('user_id', $userId)
-                ->where('last_seen_at', '>=', now()->subSeconds(75))
-                ->count();
-        } catch (QueryException $e) {
-            Log::warning('analytics.session_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
-
-            return 0;
-        }
+        return (int) DB::table('analytics.site_sessions')
+            ->where('user_id', $userId)
+            ->where('last_seen_at', '>=', now()->subSeconds(75))
+            ->count();
     }
 
     /**

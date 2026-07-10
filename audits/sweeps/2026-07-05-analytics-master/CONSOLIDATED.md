@@ -360,7 +360,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         }
         ```
 
-- [ ] **#OBS-1** `[scale-health]` · P2 — Swallowed exceptions in `AnalyticsQueryService` + `StaffAnalyticsController` get cached as false-zero results for up to 24h
+- [x] **#OBS-1** `[scale-health]` · P2 — Swallowed exceptions in `AnalyticsQueryService` + `StaffAnalyticsController` get cached as false-zero results for up to 24h
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:79-93 (`clicksAggregate`), :109-126 (`clicksByBucket`), and the identical pattern in `topLinks`/`topSections`/`platformClicks`/`topProducts`/`sessionsAggregate`; app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php:84-135
     - **Affects:** Every professional's own analytics dashboard (`AnalyticsCacheService::summary()` — 5min TTL for ranges including today, 24h otherwise) and every staff analytics view (`StaffAnalyticsController::summary()` — 60s TTL). A transient failure on any click/session/section-adjacent table gets written into Redis as the cached answer and served to everyone reading that key for the rest of the TTL.
     - **Effort:** M (~2-4h)
