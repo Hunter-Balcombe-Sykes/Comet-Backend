@@ -47,10 +47,17 @@ class SiteMedia extends BaseModel
 
     /**
      * Design-pool singleton purposes — one row per (site, purpose): the two brand
-     * logos plus one cover image per cover-capable platform. The cover slots are
-     * DERIVED from the platform registry (PlatformDescriptor::isCoverable) so adding
-     * a cover for a new platform is a one-line descriptor flag, not a new const +
-     * list entry + migration.
+     * logos, the brand placeholder image, plus one cover image per cover-capable
+     * platform. The cover slots are DERIVED from the platform registry
+     * (PlatformDescriptor::isCoverable) so adding a cover for a new platform is a
+     * one-line descriptor flag, not a new const + list entry + migration.
+     *
+     * `placeholder` joined 2026-07-10 (surfaces/content plan): it IS a singleton —
+     * the composite unique index site_media_design_singleton_purpose_uq (migration
+     * 20260701210000) already enforces one live row per (site, purpose) across the
+     * WHOLE design pool, and uploads flow through uploadSingleton's replace-on-upload
+     * path — so it rides the same allowlist and reaches the public payload as
+     * siteImages.placeholder, rather than a separate list shape.
      *
      * Registry keys are hyphenated (`apple-music`) but media purposes are underscored
      * (`cover_apple_music`): IndividualProfilePayloadBuilder derives the camelCase
@@ -73,7 +80,10 @@ class SiteMedia extends BaseModel
             array_keys(app(PlatformRegistry::class)->coverable()),
         );
 
-        return array_merge([self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE], array_values($covers));
+        return array_merge(
+            [self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE, self::PURPOSE_PLACEHOLDER],
+            array_values($covers),
+        );
     }
 
     /**

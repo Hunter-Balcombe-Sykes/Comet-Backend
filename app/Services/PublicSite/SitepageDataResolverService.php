@@ -487,11 +487,12 @@ class SitepageDataResolverService
             ->all();
     }
 
-    // ── Design singletons (logos + integration covers) ──────────────────
+    // ── Design singletons (logos + placeholder + integration covers) ────
 
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
-     * (logo_full / logo_square) and the per-integration cover images
+     * (logo_full / logo_square), the brand placeholder image (placeholder)
+     * and the per-integration cover images
      * (cover_youtube, cover_apple_music, ...; registry-derived). Each maps to {url, url_hd, url_svg}
      * from the ready WebP variants (url_svg only for vectorized logos); purposes
      * with no uploaded/ready image are absent.

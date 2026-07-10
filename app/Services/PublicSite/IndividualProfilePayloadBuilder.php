@@ -224,9 +224,10 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Site image singletons — brand logos + per-integration cover images, keyed
-     * by camelCase purpose (logoFull, logoSquare, coverFresha, coverYoutube,
-     * coverAppleMusic, coverApplePodcast, coverEventbrite). Each value is
+     * Site image singletons — brand logos, the brand placeholder image +
+     * per-integration cover images, keyed by camelCase purpose (logoFull,
+     * logoSquare, placeholder, coverYoutube, coverAppleMusic,
+     * coverApplePodcast, coverEventbrite). Each value is
      * {url, urlHd, urlSvg, urlIcon} (urlSvg only for vectorized logos; urlIcon
      * only for square logos — the sitepage favicon source); absent purposes
      * have no uploaded/ready image. Empty object when nothing is set. partna-pages

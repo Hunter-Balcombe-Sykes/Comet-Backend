@@ -14,7 +14,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Design-layer singleton images: the two brand logos (logo_full, logo_square)
-// edited in /account/design, and one cover image per cover-capable platform
+// edited in /account/design, the brand placeholder image (placeholder), and one
+// cover image per cover-capable platform
 // (cover_youtube, cover_apple_music, cover_apple_podcast, cover_eventbrite —
 // registry-derived, see SiteMedia::designSingletonPurposes()). One row per
 // (site, purpose); re-uploading replaces. Free ratio — the pipeline resizes
