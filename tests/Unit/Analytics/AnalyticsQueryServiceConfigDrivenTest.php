@@ -23,7 +23,6 @@ function invokeSectionTitle(string $sectionKey): string
 {
     $service = (new ReflectionClass(AnalyticsQueryService::class))->newInstanceWithoutConstructor();
     $method = new ReflectionMethod($service, 'sectionTitle');
-    $method->setAccessible(true);
 
     return $method->invoke($service, $sectionKey);
 }
@@ -34,7 +33,6 @@ function invokeSectionTitle(string $sectionKey): string
 function invokeSourceCase(): string
 {
     $method = new ReflectionMethod(AnalyticsQueryService::class, 'sourceCase');
-    $method->setAccessible(true);
 
     return $method->invoke(null);
 }

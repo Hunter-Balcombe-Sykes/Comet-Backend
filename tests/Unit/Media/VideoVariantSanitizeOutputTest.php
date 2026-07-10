@@ -16,7 +16,6 @@ function sanitize(string $output): string
 {
     $service = app(VideoVariantService::class);
     $ref = new ReflectionMethod($service, 'sanitizeOutput');
-    $ref->setAccessible(true);
 
     return $ref->invoke($service, $output);
 }

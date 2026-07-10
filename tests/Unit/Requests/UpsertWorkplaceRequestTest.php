@@ -18,7 +18,6 @@ function validateWorkplacePayload(array $payload): array
 
     // Mirror Laravel's pre-validation hook so the trim/normalize stage runs.
     $reflection = new ReflectionMethod($request, 'prepareForValidation');
-    $reflection->setAccessible(true);
     $reflection->invoke($request);
 
     $validator = Validator::make($request->all(), $request->rules());
@@ -108,7 +107,6 @@ it('trims whitespace and treats blank strings as null', function () {
     ]);
 
     $reflection = new ReflectionMethod($request, 'prepareForValidation');
-    $reflection->setAccessible(true);
     $reflection->invoke($request);
 
     expect($request->input('name'))->toBe('Studio');

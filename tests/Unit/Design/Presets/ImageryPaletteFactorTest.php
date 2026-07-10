@@ -63,7 +63,6 @@ it('is an auto factor in band 22', function () {
 function ipTreatmentFor(array $palette): ?string
 {
     $method = new ReflectionMethod(ImageryPaletteFactor::class, 'treatmentFor');
-    $method->setAccessible(true);
 
     return $method->invoke(new ImageryPaletteFactor, $palette);
 }
