@@ -10,6 +10,7 @@
  * dropping a google-photo whose ref vanished.
  */
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -527,6 +528,10 @@ it('PUT google-photos toggles content inclusion and stores it sparsely', functio
         ->assertOk()
         ->assertJsonPath('googlePhotosEnabled', false)
         ->assertJsonPath('googlePhotosConnected', true);
+
+    // Toggling purges the sitepage profile cache (backgrounds are fed by the
+    // content selection) — proves it "genuinely stops flowing", not client-hidden.
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 
     expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
 

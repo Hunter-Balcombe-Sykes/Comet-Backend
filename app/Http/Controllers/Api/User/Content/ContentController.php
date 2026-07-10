@@ -219,9 +219,16 @@ class ContentController extends ApiController
         } else {
             $settings['content_photos'] = false;
         }
-        // Save through the model so IntegrationConnectionObserver purges the cache.
         $conn->display_settings = $settings === [] ? null : $settings;
         $conn->save();
+
+        // content_photos changes the resolved content selection, which feeds the
+        // sitepage BACKGROUNDS (SitepageDataResolverService) — part of the profile
+        // payload, NOT the platforms cache the connection observer purges. Touch the
+        // site so SiteObserver purges the profile edge cache too (mirrors how
+        // setInstagramAuto persists through the site); otherwise the toggle would
+        // only reach the live sitepage after the edge TTL lapsed.
+        $site->touch();
 
         return $this->success($this->selectionPayload($pro, $site));
     }
