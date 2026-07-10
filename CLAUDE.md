@@ -90,7 +90,7 @@ See what the server is actually saying. THEN form a hypothesis. The user reads t
 - **Never create Laravel migration files.** A composer guard (`guard:no-laravel-migrations`) will reject them.
 - All schema changes go in `supabase/migrations/` as raw SQL files.
 - The database uses a single consolidated baseline migration: `supabase/migrations/20260526000000_baseline_standalone_user.sql`. The 147 historical migrations are archived in `supabase/migrations-archive/`.
-- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas. `site.themes` table is being removed via the skeleton-system cleanup (see "Skeleton system" below).
+- PostgreSQL schemas: `public` (Laravel infrastructure), `core` (users, staff, feature flags, handle aliases, platform config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, subdomain aliases), `notifications`, `analytics`, `audit` (append-only compliance trails — `app_backend` has SELECT/INSERT only). No `brand`, `commerce`, or `billing` schemas. The old `site.themes` table is gone (skeleton-system cleanup).
 
 ### Code Organization
 ```
@@ -345,7 +345,7 @@ Account capabilities (backend: `App\Services\Accounts\AccountCapabilities`)
 are the source of truth for what features are available. Every notification
 dispatcher, route guard, and API response checks capabilities before acting.
 
-Per-user styling is being migrated from `site.sites.settings.design` JSONB → `site.design_kits` table (one row per site, column-per-var). The `settings.design.*` JSONB path is being removed via the cleanup deploy. See "Skeleton system" below + spec doc at `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`.
+Per-user styling lives in the `site.design_kits` table (one row per site, column-per-var). The old `site.sites.settings.design` JSONB path is gone and `settings.design.*` is rejected on write. See "Skeleton system" below + spec doc at `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`.
 
 Worker responses are NOT auto-cached from `Cache-Control` alone. The router
 Worker MUST call `caches.default.put(request, response.clone())` to populate
@@ -359,14 +359,14 @@ the edge cache. The cache-purge job invalidates by URL.
 - `SyncSubdomainToKvJob` is the ONLY writer to `SUBDOMAIN_KV`. All routing
   changes go through it.
 
-## Skeleton system (current architectural shift)
+## Skeleton system (live — single skeleton)
 
-🚧 **In progress.** Full spec: `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`. The V3+V4 theme model is being replaced with a skeleton + design-kit system.
+**Live.** Full spec: `../docs/superpowers/specs/2026-05-26-skeleton-system-design.md`. The V3+V4 theme model is replaced with a skeleton + design-kit system — and the platform is **single-skeleton**: `one` is the only layout (2026-07-10; the bento/dock/flick/deck/atlas era is over and the dashboard picker was removed).
 
 **Backend changes at cleanup (spec §8):**
 
-- `site.sites.theme_id` (UUID FK) → REPLACED with `site.sites.skeleton_id` TEXT NOT NULL CHECK enum (`'bento' | 'dock' | 'flick' | 'deck' | 'sheet' | 'thread'` — sheet/thread added and hub/stories/flow renamed to bento-class names 2026-07-07). Default `'bento'`.
-- `site.themes` table → DROPPED entirely. Skeletons are code constants in `partna-monorepo/apps/pages/src/skeletons/`, not DB records.
+- `site.sites.skeleton_id` TEXT NOT NULL, CHECK `skeleton_id = 'one'`, default `'one'` (migration `20260710170000`). The column is effectively vestigial — every write path collapses historical ids (`skeleton-N`, hub/stories/flow, sheet/thread, bento/dock/flick/deck/atlas) to `'one'` via `UpdateSiteRequest::LEGACY_SKELETON_IDS`.
+- `site.themes` table → DROPPED entirely. The skeleton is a code constant (`partna-monorepo/apps/pages/src/skeletons/one/`), not a DB record.
 - `set_default_theme_for_site()` Postgres function → DROPPED with CASCADE (kills the trigger too).
 - `site.sites.settings.design.*` JSONB path → STRIPPED via `UPDATE site.sites SET settings = settings - 'design'`.
 - NEW `site.design_kits` table → 1:1 with `site.sites` (PK = site_id, FK with ON DELETE CASCADE). All columns NULLABLE. Per-user design vars stored column-per-var. Trigger `trg_create_empty_design_kit` auto-inserts an empty row on site creation.
@@ -374,14 +374,14 @@ the edge cache. The cache-purge job invalidates by URL.
 
 **API changes:**
 
-- `GET /api/public/profiles/{handle}` payload reshaped: drops `themeMode`, `accent`, `fontFamily` from styling; adds `designKit` (partial, only stored non-null values) and `skeletonId` (one of `bento | dock | flick | deck | sheet | thread`; legacy ids — `skeleton-N` and hub/stories/flow — normalized on write). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
-- `PATCH /api/professional/site` mutation: writes `skeleton_id` and individual `design_kits` columns. No longer accepts `settings.design.*`.
+- `GET /api/public/profiles/{handle}` payload: `designKit` (partial, only stored non-null values, factor preset layer merged at read) + `skeletonId` (always reads as `one` after normalization). The Astro sitepage app (partna-monorepo/apps/pages) does the read-time merge with defaults before passing to the skeleton.
+- `PATCH /api/professional/site` mutation: writes individual `design_kits` columns. `skeleton_id` is accepted for backwards compatibility but every value collapses to `'one'`. No longer accepts `settings.design.*`.
 
 **Hard rules:**
 
 - Adding a new design kit var = new SQL migration in `supabase/migrations/` adding a NULLABLE column to `site.design_kits`. Never with a DB-level DEFAULT — defaults live in the package.
-- `site.sites.skeleton_id` values are constrained by the CHECK. Adding a new skeleton means: (1) update the CHECK constraint via migration, (2) add `partna-monorepo/apps/pages/src/skeletons/<name>/`, (3) wire the dispatcher in `partna-monorepo/apps/pages/src/pages/index.astro`. No new DB tables.
-- Don't reintroduce `site.themes`, `settings.design.*`, or any "theme" terminology after the cleanup lands.
+- `site.sites.skeleton_id` is constrained to `'one'`. Adding a second skeleton is a **platform decision, not a task**: it needs the CHECK widened via migration, the request-layer collapse in `UpdateSiteRequest` undone, a new `partna-monorepo/apps/pages/src/skeletons/<name>/` + `/s/<name>.astro` page, and a rebuilt dashboard picker. No new DB tables.
+- Don't reintroduce `site.themes`, `settings.design.*`, or theme-picker machinery. The ONLY sanctioned use of the word "theme" is the design kit's **theme mode** (`theme_mode`: bleach/dust/warm/dusk/midnight — palette selection, user-only, never factor-set).
 
 ## Do NOT
 
