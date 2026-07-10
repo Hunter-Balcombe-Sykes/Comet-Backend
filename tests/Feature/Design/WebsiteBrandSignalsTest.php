@@ -341,8 +341,12 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    expect($layer['color_bg'])->toBe('#151515')       // previous-website (84) beats Google (40)
-        ->and($layer['color_accent'])->toBe('#123abc') // raw accent passes through
+    // color_bg is no longer factor-targetable, so the allowlist filter drops
+    // it (WS5 re-tunes factor values — see plan 2026-07-10). The band-F win
+    // still shows on border_radius: previous-website 'sharp' (84) beats
+    // nothing here, but accent + radius prove the factor landed.
+    expect($layer)->not->toHaveKey('color_bg');
+    expect($layer['color_accent'])->toBe('#123abc') // raw accent passes through
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('young-serif'); // Google still wins uncontested columns (FOOD_DRINK bucket)
 });
@@ -387,8 +391,11 @@ it('contributes nothing when the stored analysis is stale (URL changed since)', 
 
 it('sweeps previous-website contributions when the URL is cleared', function () {
     $user = createTenant('pw-cleared');
+    // radius signal added: bg alone no longer produces a visible contribution
+    // (color_bg untargetable — WS5 re-tunes factor values, see plan 2026-07-10),
+    // and this test needs a non-empty layer to prove the sweep empties it.
     wbsSeedWorkplace($user->site->id, 'https://old.example', wbsAnalysis(
-        'https://old.example', null, ['bg' => 'dark'],
+        'https://old.example', null, ['bg' => 'dark', 'radius' => 'sharp'],
     ));
     wbsResolver()->resolveForUser($user);
     expect(wbsResolver()->presetLayer($user->site->id))->not->toBe([]);
@@ -421,7 +428,10 @@ it('applies the mode across outside websites: 4 dark + 1 light -> dark', functio
     wbsResolver()->resolveForUser($user);
     $layer = wbsResolver()->presetLayer($user->site->id);
 
-    expect($layer['color_bg'])->toBe('#151515')                          // 4 dark vs 1 warm → dark
+    // The bg vote (4 dark vs 1 warm) still happens factor-side but color_bg is
+    // untargetable (WS5 re-tunes factor values — see plan 2026-07-10); the
+    // unopposed font vote remains the observable outcome.
+    expect($layer)->not->toHaveKey('color_bg')
         ->and($layer['typography_font_family'])->toBe('geist'); // 2 votes, unopposed
 });
 
@@ -446,21 +456,28 @@ it('skips a column when the outside-website vote is tied', function () {
 it('loses every contested column to Instagram (30 beats 10)', function () {
     $user = createTenant('outside-loses');
     wbsSeedConnection($user, ['businessCategory' => 'Restaurant'], 'instagram'); // food bucket @30
+    // Contest moved to border_radius: color_bg is untargetable now (WS5
+    // re-tunes factor values — see plan 2026-07-10). Outside sites vote
+    // 'rounded' (1rem) at priority 10; the food bucket's 0.25rem (30) must win.
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://c.test',
-        'styleAnalysis' => wbsAnalysis('https://c.test', null, ['bg' => 'dark']),
+        'styleAnalysis' => wbsAnalysis('https://c.test', null, ['bg' => 'dark', 'radius' => 'rounded']),
     ], 'custom');
 
     wbsResolver()->resolveForUser($user);
 
-    expect(wbsResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
+    expect(wbsResolver()->presetLayer($user->site->id)['border_radius'])->toBe('0.25rem');
 });
 
 it('ignores failed, missing, and v1 analyses in the vote', function () {
+    // Discriminator moved bg → radius: color_bg is untargetable now (WS5
+    // re-tunes factor values — see plan 2026-07-10). The valid analysis votes
+    // 'sharp'; the v1 doc votes a CONFLICTING 'very_rounded' — if the v1 doc
+    // were (wrongly) counted, the 1–1 tie would drop border_radius entirely.
     $user = createTenant('outside-failed');
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://ok.test',
-        'styleAnalysis' => wbsAnalysis('https://ok.test', null, ['bg' => 'cool_light']),
+        'styleAnalysis' => wbsAnalysis('https://ok.test', null, ['bg' => 'cool_light', 'radius' => 'sharp']),
     ], 'custom');
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://broken.test',
@@ -468,13 +485,13 @@ it('ignores failed, missing, and v1 analyses in the vote', function () {
     ], 'custom');
     wbsSeedConnection($user, [
         'kind' => 'link', 'url' => 'https://legacy.test',
-        'styleAnalysis' => wbsAnalysis('https://legacy.test', null, ['bg' => 'dark'], v: 1),
+        'styleAnalysis' => wbsAnalysis('https://legacy.test', null, ['bg' => 'dark', 'radius' => 'very_rounded'], v: 1),
     ], 'custom');
     wbsSeedConnection($user, ['kind' => 'link', 'url' => 'https://new.test'], 'custom');
 
     wbsResolver()->resolveForUser($user);
 
-    expect(wbsResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f8fa');
+    expect(wbsResolver()->presetLayer($user->site->id)['border_radius'])->toBe('0.25rem');
 });
 
 // ── Observer + reconciliation wiring ───────────────────────────────────────

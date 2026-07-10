@@ -63,8 +63,10 @@ it('stamps beauty-soft when two independent sources concur on beauty', function 
         lrConnection('google-business', ['category' => 'Beauty salon']),
     ])));
 
-    expect($out['color_bg'])->toBe('#faf6f7')
-        ->and($out['border_radius'])->toBe('1.5rem')
+    // color_bg is no longer factor-targetable, so detect()'s internal
+    // allowlist filter drops it. WS5 re-tunes factor values — see plan 2026-07-10.
+    expect($out)->not->toHaveKey('color_bg');
+    expect($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
         ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_button_fill'])->toBe('ghost');
@@ -79,8 +81,9 @@ it('stamps fitness-bold when sector and Google concur on fitness', function () {
     // Only fires if the declared sector 'personal-trainer' maps to the fitness
     // family; if the taxonomy slug differs this asserts the shape when it does.
     if ($out !== []) {
-        expect($out['color_bg'])->toBe('#ffffff')
-            ->and($out['border_radius'])->toBe('0.25rem')
+        // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+        expect($out)->not->toHaveKey('color_bg');
+        expect($out['border_radius'])->toBe('0.25rem')
             ->and($out['weight_regular'])->toBe('600')
             ->and($out['typography_font_family'])->toBe('oswald');
     } else {
@@ -95,9 +98,10 @@ it('stamps fine-dining-editorial for a fine-dining cuisine plus a premium price'
         lrShop([180, 220, 260, 300]), // premium median
     ])));
 
-    expect($out['color_bg'])->toBe('#151515')
-        ->and($out['typography_font_family'])->toBe('young-serif')
-        ->and($out['effect_style'])->toBe('editorial')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
+    expect($out)->not->toHaveKey('color_bg');
+    expect($out)->not->toHaveKey('effect_style');
+    expect($out['typography_font_family'])->toBe('young-serif')
         ->and($out['effect_link_style'])->toBe('underline-always');
 });
 
@@ -107,8 +111,9 @@ it('stamps hospitality-warm for a cafe with two category sources (not fine dinin
         lrConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    expect($out['color_bg'])->toBe('#f7f4ee')
-        ->and($out['typography_font_family'])->toBe('geist')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($out)->not->toHaveKey('color_bg');
+    expect($out['typography_font_family'])->toBe('geist')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
 
@@ -118,9 +123,10 @@ it('stamps creative-editorial when sector and Google concur on creative', functi
         lrConnection('instagram', ['businessCategory' => 'Photographer']),
     ])));
 
-    expect($out['color_bg'])->toBe('#fafafa')
-        ->and($out['typography_font_family'])->toBe('geist')
-        ->and($out['effect_style'])->toBe('editorial')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
+    expect($out)->not->toHaveKey('color_bg');
+    expect($out)->not->toHaveKey('effect_style');
+    expect($out['typography_font_family'])->toBe('geist')
         ->and($out['effect_link_style'])->toBe('underline-always');
 });
 
@@ -130,8 +136,9 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
         lrShop([25, 30, 35, 38]), // accessible median
     ])));
 
-    expect($out['color_bg'])->toBe('#f7f4ee')
-        ->and($out['border_radius'])->toBe('1rem')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($out)->not->toHaveKey('color_bg');
+    expect($out['border_radius'])->toBe('1rem')
         ->and($out['typography_font_family'])->toBe('origin')
         ->and($out['effect_button_fill'])->toBe('outline');
 });

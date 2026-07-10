@@ -150,9 +150,12 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
         swConnection('google-business', ['category' => 'Beauty salon']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#faf6f7')          // recipe fired
-        ->and($r['kit']['color_bg'])->toBe('#faf6f7')          // and won the column
-        ->and($r['kit']['border_radius'])->toBe('1.5rem');
+    // WS5 re-tunes factor values — see plan 2026-07-10: color_bg is no longer
+    // factor-targetable, so the allowlist filter drops it from recipe + kit.
+    expect($r['recipe'])->not->toBe([]);                       // recipe fired
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit'])->not->toHaveKey('color_bg');
+    expect($r['kit']['border_radius'])->toBe('1.5rem');
     assertCoherent($r['kit']);
 });
 
@@ -164,8 +167,10 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
         ]),
     ));
 
-    expect($r['recipe']['color_bg'])->toBe('#ffffff')
-        ->and($r['kit']['weight_regular'])->toBe('600')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit']['weight_regular'])->toBe('600')
         ->and($r['kit']['border_radius'])->toBe('0.25rem');
     assertCoherent($r['kit']);
 });
@@ -176,8 +181,10 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
         swConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('geist');
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit']['typography_font_family'])->toBe('geist');
     assertCoherent($r['kit']);
 });
 
@@ -187,9 +194,11 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
         swShop([180, 220, 260, 300]),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#151515')
-        ->and($r['kit']['effect_style'])->toBe('editorial')
-        ->and($r['kit']['typography_font_family'])->toBe('young-serif');
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit'])->not->toHaveKey('effect_style');
+    expect($r['kit']['typography_font_family'])->toBe('young-serif');
     assertCoherent($r['kit']);
 });
 
@@ -199,8 +208,10 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
         swConnection('instagram', ['businessCategory' => 'Photographer']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#fafafa')
-        ->and($r['kit']['typography_font_family'])->toBe('geist');
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit']['typography_font_family'])->toBe('geist');
     assertCoherent($r['kit']);
 });
 
@@ -210,8 +221,10 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
         swShop([25, 30, 35, 38]),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('origin')
+    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['recipe'])->not->toHaveKey('color_bg');
+    expect($r['kit']['typography_font_family'])->toBe('origin')
         ->and($r['kit']['border_radius'])->toBe('1rem');
     assertCoherent($r['kit']);
 });

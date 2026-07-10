@@ -9,6 +9,7 @@ use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\DesignPresetResolver;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
+use App\Services\Design\Presets\PresetTargetableColumns;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -56,8 +57,10 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
 
     expect($changed)->toBeTrue();
     $layer = dkPresetResolver()->presetLayer($user->site->id);
-    expect($layer['color_bg'])->toBe('#f7f4ee')
-        ->and($layer['color_accent'])->toBe('#e0491f')
+    // color_bg is no longer factor-targetable, so the allowlist filter drops
+    // it. WS5 re-tunes factor values — see plan 2026-07-10.
+    expect($layer)->not->toHaveKey('color_bg');
+    expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['text_xs'])->toBe('0.8rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
@@ -90,7 +93,9 @@ it('freezes the one-shot contribution when the category later changes', function
     $user = createTenant('was-a-restaurant');
     $connId = dkSeedConnection($user, ['category' => 'Restaurant']);
     dkPresetResolver()->resolveForUser($user);
-    expect(dkPresetResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
+    // Freeze marker moved color_bg → color_accent: color_bg is no longer
+    // factor-targetable (WS5 re-tunes factor values — see plan 2026-07-10).
+    expect(dkPresetResolver()->presetLayer($user->site->id)['color_accent'])->toBe('#e0491f');
 
     // The business re-categorises to a cafe; the frozen one-shot must not move.
     DB::connection('pgsql')->table('site.platform_connections')
@@ -99,7 +104,7 @@ it('freezes the one-shot contribution when the category later changes', function
     $changed = dkPresetResolver()->resolveForUser($user);
 
     expect($changed)->toBeFalse();
-    expect(dkPresetResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
+    expect(dkPresetResolver()->presetLayer($user->site->id)['color_accent'])->toBe('#e0491f');
 });
 
 it('sweeps contributions when the integration disconnects', function () {
@@ -124,18 +129,19 @@ it('lets a manual design_kit value win over the preset layer', function () {
     dkSeedConnection($user, ['category' => 'Restaurant']);
     dkPresetResolver()->resolveForUser($user);
 
-    // User manually set their own background.
+    // User manually set their own accent. (Was color_bg pre-2026-07-10; that
+    // column is gone — theme_mode owns the background now.)
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $user->site->id,
-        'color_bg' => '#123456',
+        'color_accent' => '#123456',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
     $merged = dkPresetResolver()->mergedFlatKit($user->site->id);
 
-    expect($merged['color_bg'])->toBe('#123456')          // manual wins
-        ->and($merged['color_accent'])->toBe('#e0491f');   // preset fills the rest
+    expect($merged['color_accent'])->toBe('#123456')                 // manual wins over the preset's #e0491f
+        ->and($merged['typography_font_family'])->toBe('young-serif'); // preset fills the rest
 });
 
 it('resolves the highest-priority contribution per column, order-independent', function () {
@@ -192,8 +198,11 @@ it('classifies a range of Google Business types into their expected bucket', fun
 
     dkPresetResolver()->resolveForUser($user);
 
+    // Buckets still declare color_bg (WS5 re-tunes factor values — see plan
+    // 2026-07-10); the resolver's allowlist filter drops the untargetable
+    // columns, so the layer equals the FILTERED bucket.
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)));
 })->with([
     'Barber shop' => ['Barber shop', CategoryStylePresets::BEAUTY_PERSONAL_CARE],   // collision guard: NOT food_drink via 'bar'
     'Hair salon' => ['Hair salon', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
@@ -216,8 +225,9 @@ it('classifies a range of Instagram business categories into their expected buck
 
     dkPresetResolver()->resolveForUser($user);
 
+    // Filtered comparison — see the GB bucket test above (WS5 / plan 2026-07-10).
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)));
 })->with([
     'Beauty, Cosmetic & Personal Care' => ['Beauty, Cosmetic & Personal Care', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
     'Gym/Physical Fitness Center' => ['Gym/Physical Fitness Center', CategoryStylePresets::HEALTH_FITNESS],
@@ -253,7 +263,9 @@ it('lets Instagram fill the preset layer when Google is not connected', function
     dkPresetResolver()->resolveForUser($user);
 
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::BEAUTY_PERSONAL_CARE));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
+            CategoryStylePresets::forBucket(CategoryStylePresets::BEAUTY_PERSONAL_CARE),
+        ));
 });
 
 it('lets Instagram fill the layer when Google is connected but does not match a bucket', function () {
@@ -264,7 +276,9 @@ it('lets Instagram fill the layer when Google is connected but does not match a 
     dkPresetResolver()->resolveForUser($user);
 
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::HEALTH_FITNESS));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
+            CategoryStylePresets::forBucket(CategoryStylePresets::HEALTH_FITNESS),
+        ));
 });
 
 it('fully overrides Instagram with Google when both match DIFFERENT buckets (every column overlaps)', function () {
@@ -277,7 +291,9 @@ it('fully overrides Instagram with Google when both match DIFFERENT buckets (eve
     // Every bucket sets the same 7 keys, so Google's priority (40 > 30) wins
     // ALL of them — not a partial blend of the two buckets.
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
+            CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK),
+        ));
 });
 
 it('produces the identical merged result regardless of which platform connects first', function () {

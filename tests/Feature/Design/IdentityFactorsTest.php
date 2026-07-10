@@ -65,10 +65,11 @@ it('applies the sector bucket preset for a manually declared sector', function (
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    // therapist → HEALTH_FITNESS bucket
+    // therapist → HEALTH_FITNESS bucket. motion_entrance is no longer
+    // factor-targetable (WS5 re-tunes factor values — see plan 2026-07-10).
     expect($layer['color_accent'])->toBe('#2f6b57')
         ->and($layer['typography_font_family'])->toBe('oswald')
-        ->and($layer['motion_entrance'])->toBe('rise');
+        ->and($layer)->not->toHaveKey('motion_entrance');
 });
 
 it('contributes nothing for a google-derived sector (GB type already covers it)', function () {
@@ -109,7 +110,9 @@ it('refines a bucket with nightlife attributes — stagger + fast override, colo
     expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['typography_font_family'])->toBe('young-serif')
         // … while the attribute refinement (band D, 52 > 40) owns motion.
-        ->and($layer['motion_entrance'])->toBe('stagger')
+        // motion_entrance is no longer factor-targetable (WS5 re-tunes factor
+        // values — see plan 2026-07-10).
+        ->and($layer)->not->toHaveKey('motion_entrance')
         ->and($layer['motion_pace'])->toBe('fast');
 });
 
@@ -123,8 +126,10 @@ it('refines an upscale listing to the composed treatment', function () {
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    expect($layer['motion_entrance'])->toBe('fade')
-        ->and($layer['motion_pace'])->toBe('slow')
+    // motion_entrance is no longer factor-targetable (WS5 re-tunes factor
+    // values — see plan 2026-07-10).
+    expect($layer)->not->toHaveKey('motion_entrance');
+    expect($layer['motion_pace'])->toBe('slow')
         ->and($layer['weight_regular'])->toBe('300');
 });
 

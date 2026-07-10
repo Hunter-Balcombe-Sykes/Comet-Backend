@@ -15,13 +15,18 @@ namespace App\Services\Design\Presets;
  * column, but contributions store TEXT values; a preset-set 'true'/'false'
  * string would break the boolean semantics downstream. If preset-controlled
  * uppercase is ever wanted, add boolean coercion first.
+ *
+ * `theme_mode` and `theme_night_shift_auto` are likewise EXCLUDED: the theme
+ * palette and Night Shift Auto are user-only selections (locked decision,
+ * plan 2026-07-10) — factors must never set them. (night_shift_auto is also
+ * a boolean, so the coercion caveat above applies to it too.)
  */
 final class PresetTargetableColumns
 {
     /** @var list<string> */
     public const COLUMNS = [
-        // Palette (value) — only bg + accent; the rest of the palette is inferred.
-        'color_bg',
+        // Palette (value) — accent only; bg/text are owned by the user-picked
+        // theme_mode palette (2026-07-10 rework), the rest is inferred.
         'color_accent',
         // Typography (value + selection)
         'text_xs',
@@ -39,8 +44,7 @@ final class PresetTargetableColumns
         'border_style',             // selection (solid | double | none)
         // Animation + effects (selection)
         'motion_pace',
-        'motion_entrance',
-        'effect_style',
+        'effect_surface',           // glass | solid | outline — storage-only Surface type
         // R6 identity axes (migration 20260707130000) — the factor system is the
         // PRIMARY setter of these; the dashboard exposes only the Visual Style
         // preset + Customize expando (spec §1, §6).

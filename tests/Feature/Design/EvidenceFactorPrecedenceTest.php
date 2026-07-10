@@ -106,8 +106,10 @@ it('resolves evidence factors end-to-end: platform-mix ambient vibe lands', func
 
     expect($changed)->toBeTrue();
     $layer = evpResolver()->presetLayer($user->site->id);
-    expect($layer['effect_style'])->toBe('soft-glass')    // social-lifestyle vibe
-        ->and($layer['effect_shadow_style'])->toBe('soft');
+    // effect_style is no longer factor-targetable, so the allowlist filter
+    // drops it. WS5 re-tunes factor values — see plan 2026-07-10.
+    expect($layer)->not->toHaveKey('effect_style');
+    expect($layer['effect_shadow_style'])->toBe('soft');  // social-lifestyle vibe
 });
 
 it('lets a category factor (band C) beat the platform-mix ambient factor (band A) on motion_pace', function () {
@@ -138,10 +140,11 @@ it('lets the declared aesthetic-expression factor (band E) beat a category facto
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
-    // Declared expression (64) wins border_radius + color_bg over both the
-    // food_drink bucket (Google 40) and the Instagram beauty bucket (30).
+    // Declared expression (64) wins border_radius over both the food_drink
+    // bucket (Google 40) and the Instagram beauty bucket (30). color_bg is no
+    // longer factor-targetable (WS5 re-tunes factor values — see plan 2026-07-10).
     expect($layer['border_radius'])->toBe('1.5rem')
-        ->and($layer['color_bg'])->toBe('#faf6f7');
+        ->and($layer)->not->toHaveKey('color_bg');
 });
 
 it('lets a manual design_kits value beat every evidence factor', function () {
@@ -149,20 +152,21 @@ it('lets a manual design_kits value beat every evidence factor', function () {
     evpConnection($user, 'instagram', [
         'businessCategory' => 'Beauty, Cosmetic & Personal Care',
         'fullName' => 'Petal & Bloom Skincare',
-    ]); // expression SOFT sets color_bg #faf6f7
+    ]); // expression SOFT sets border_radius 1.5rem
 
     evpResolver()->resolveForUser($user);
 
-    // User manually overrides the background.
+    // User manually overrides the radius. (Was color_bg pre-2026-07-10; that
+    // column is gone — theme_mode owns the background now.)
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $user->site->id,
-        'color_bg' => '#0a0a0a',
+        'border_radius' => '3rem',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
     $merged = evpResolver()->mergedFlatKit($user->site->id);
-    expect($merged['color_bg'])->toBe('#0a0a0a'); // manual wins over the SOFT recipe
+    expect($merged['border_radius'])->toBe('3rem'); // manual wins over the SOFT recipe's 1.5rem
 });
 
 it('resolves the store price-point factor from seeded products (luxury)', function () {
@@ -172,8 +176,10 @@ it('resolves the store price-point factor from seeded products (luxury)', functi
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
+    // effect_style is no longer factor-targetable (WS5 re-tunes factor values
+    // — see plan 2026-07-10).
     expect($layer['space_regular'])->toBe('1.15rem')     // airy
-        ->and($layer['effect_style'])->toBe('editorial');
+        ->and($layer)->not->toHaveKey('effect_style');
 });
 
 it('freezes the one-shot aesthetic-expression contribution when IG data later changes', function () {
@@ -183,7 +189,10 @@ it('freezes the one-shot aesthetic-expression contribution when IG data later ch
         'fullName' => 'Petal & Bloom Skincare',
     ]);
     evpResolver()->resolveForUser($user);
-    expect(evpResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#faf6f7'); // SOFT
+    // Freeze marker moved color_bg → border_radius (SOFT's 1.5rem vs BOLD's
+    // 0.25rem still discriminates): color_bg is no longer factor-targetable
+    // (WS5 re-tunes factor values — see plan 2026-07-10).
+    expect(evpResolver()->presetLayer($user->site->id)['border_radius'])->toBe('1.5rem'); // SOFT
 
     // The account re-brands to a bold gym; the frozen one-shot must not move.
     DB::connection('pgsql')->table('site.platform_connections')->where('id', $connId)->update([
@@ -192,5 +201,5 @@ it('freezes the one-shot aesthetic-expression contribution when IG data later ch
 
     $changed = evpResolver()->resolveForUser($user);
     expect($changed)->toBeFalse();
-    expect(evpResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#faf6f7'); // still SOFT
+    expect(evpResolver()->presetLayer($user->site->id)['border_radius'])->toBe('1.5rem'); // still SOFT
 });
