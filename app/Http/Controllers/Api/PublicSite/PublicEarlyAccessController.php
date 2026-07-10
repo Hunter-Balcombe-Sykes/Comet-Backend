@@ -26,12 +26,14 @@ class PublicEarlyAccessController extends ApiController
     {
         $data = $request->validated();
 
-        // 1) Honeypot: pretend success so bots can't fingerprint the gate.
+        // 1) Honeypot: pretend success so bots can't fingerprint the gate. Uses
+        // the same uniform 200 as the real path below — a distinct status would
+        // itself be a fingerprint.
         $honeypot = $data['website'] ?? null;
         if (is_string($honeypot) && trim($honeypot) !== '') {
             Log::info('early_access.honeypot_hit', ['email_hash' => hash('sha256', mb_strtolower(trim((string) ($data['email'] ?? ''))))]);
 
-            return $this->success(['ok' => true], 201);
+            return $this->success(['ok' => true], 200);
         }
 
         // 2) Timing check: enforce only when form_started_at_ms is present.
@@ -46,7 +48,9 @@ class PublicEarlyAccessController extends ApiController
             }
         }
 
-        $result = $this->service->signupFromMarketing([
+        // Return value intentionally discarded: the created-vs-existing split it
+        // carries must NOT reach the response (see the uniform status below).
+        $this->service->signupFromMarketing([
             'email' => $data['email'],
             'type' => $data['type'],
             'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
@@ -55,7 +59,10 @@ class PublicEarlyAccessController extends ApiController
             'consent_user_agent' => mb_substr((string) ($request->userAgent() ?? ''), 0, 500) ?: null,
         ]);
 
-        return $this->success(['ok' => true], $result['created'] ? 201 : 200);
+        // Uniform 200 whether the upsert created a new row or matched an existing
+        // one — a 201-vs-200 split leaks whether the email was already on the list
+        // (email enumeration). Upsert behaviour is unchanged; only the status is.
+        return $this->success(['ok' => true], 200);
     }
 
     /**

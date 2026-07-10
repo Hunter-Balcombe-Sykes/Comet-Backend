@@ -31,6 +31,13 @@ class StaffNotificationController extends ApiController
     /** POST /staff/notifications */
     public function store(StaffStoreNotificationRequest $request): JsonResponse
     {
+        // Defence-in-depth: the route already sits in the staff.admin group, but
+        // gate the broadcast power at the policy layer too (admin only), matching
+        // the other staff write controllers. staff.admin middleware could be
+        // removed/misconfigured; this keeps the authorization co-located.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', Notification::class);
+
         $data = $request->validated();
 
         $data['type'] = Notification::normalizeFrontendType($data['type'] ?? null, $data['severity'] ?? null);

@@ -28,8 +28,9 @@ function ovaEarlyAccessPayload(array $overrides = []): array
 }
 
 it('creates a waitlist row and queues the thank-you email', function () {
+    // Uniform 200 (was 201): new-vs-existing must not be distinguishable by status.
     $this->postJson('/api/public/early-access', ovaEarlyAccessPayload())
-        ->assertStatus(201)
+        ->assertStatus(200)
         ->assertJson(['ok' => true]);
 
     $signup = EarlyAccessSignup::query()->where('email_lc', 'jess@example.test')->first();
@@ -59,7 +60,7 @@ it('validates type and the 2-3 platforms requirement', function () {
 
 it('pretends success on honeypot hits without writing a row', function () {
     $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['website' => 'http://spam.example']))
-        ->assertStatus(201)
+        ->assertStatus(200)
         ->assertJson(['ok' => true]);
 
     expect(EarlyAccessSignup::query()->count())->toBe(0);
@@ -67,7 +68,8 @@ it('pretends success on honeypot hits without writing a row', function () {
 });
 
 it('refreshes fields on repeat waitlist submissions without a second email', function () {
-    $this->postJson('/api/public/early-access', ovaEarlyAccessPayload())->assertStatus(201);
+    // Both submissions now return 200 (uniform status) — the second was already 200.
+    $this->postJson('/api/public/early-access', ovaEarlyAccessPayload())->assertStatus(200);
     $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['type' => 'business', 'platforms' => ['square', 'google-business']]))
         ->assertStatus(200);
 
@@ -137,4 +139,31 @@ it('resolves a valid invite token to its prefill payload and 404s otherwise', fu
 
     $this->getJson('/api/public/early-access/invite/'.$token)
         ->assertStatus(404);
+});
+
+it('treats an invite token older than the 14-day TTL as invalid', function () {
+    $token = 'ExpiredToken000000000000000000000000000000000000';
+    EarlyAccessSignup::query()->create([
+        'email' => 'stale@example.test',
+        'email_lc' => 'stale@example.test',
+        'type' => 'partna',
+        'status' => 'invited',
+        'source' => 'manual',
+        // Minted 15 days ago — one day past INVITE_TTL_DAYS.
+        'invited_at' => now()->subDays(15),
+        'invite_token_hash' => hash('sha256', $token),
+    ]);
+
+    // Model-level: the shared resolver refuses the expired token.
+    expect(EarlyAccessSignup::findByInviteToken($token))->toBeNull();
+
+    // Endpoint-level: no PII prefill, indistinguishable from unknown.
+    $this->getJson('/api/public/early-access/invite/'.$token)
+        ->assertStatus(404);
+
+    // A row minted just inside the window still resolves.
+    EarlyAccessSignup::query()->where('email_lc', 'stale@example.test')
+        ->update(['invited_at' => now()->subDays(13)]);
+
+    expect(EarlyAccessSignup::findByInviteToken($token)?->email_lc)->toBe('stale@example.test');
 });
