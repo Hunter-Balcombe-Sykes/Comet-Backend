@@ -55,7 +55,6 @@ class DesignRationaleService
         'effect_surface' => 'Style',
         'effect_shadow_style' => 'Style',
         'effect_link_style' => 'Style',
-        'effect_button_fill' => 'Style',
         'effect_image_treatment' => 'Style',
     ];
 

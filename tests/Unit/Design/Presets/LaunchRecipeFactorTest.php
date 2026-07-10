@@ -67,7 +67,7 @@ it('stamps beauty-soft when two independent sources concur on beauty', function 
         ->and($out['weight_regular'])->toBe('300')
         ->and($out['typography_font_family'])->toBe('melodrama') // the beauty-premium display serif
         ->and($out['effect_surface'])->toBe('glass')
-        ->and($out['effect_button_fill'])->toBe('ghost');
+        ->and($out)->not->toHaveKey('effect_button_fill'); // retired 2026-07-10 — surface owns button treatment
 });
 
 it('stamps fitness-bold when sector and Google concur on fitness', function () {
@@ -134,8 +134,7 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
 
     expect($out['border_radius'])->toBe('0.85rem')
         ->and($out['typography_font_family'])->toBe('origin')
-        ->and($out['effect_surface'])->toBe('solid') // tactile, not digital-luxe glass
-        ->and($out['effect_button_fill'])->toBe('outline');
+        ->and($out['effect_surface'])->toBe('solid'); // tactile, not digital-luxe glass
 });
 
 // ── Abstention + independence ────────────────────────────────────────────────

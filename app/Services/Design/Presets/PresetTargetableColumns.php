@@ -50,8 +50,10 @@ final class PresetTargetableColumns
         // preset + Customize expando (spec §1, §6).
         'effect_shadow_style',      // flat | soft | hard
         'effect_link_style',        // underline-hover | underline-always | plain  (NOT underline-grow — unrenderable; the sitepage renderer + kit validator only accept these three, a stray 'underline-grow' silently falls back to hover)
-        'effect_button_fill',       // solid | outline | ghost
         'effect_image_treatment',   // none | mono | duotone | warm | muted
+        // effect_button_fill retired 2026-07-10 (surfaces): buttons render as
+        // the effect_surface chip. The glass knobs (effect_glass_blur,
+        // motion_glass_shine_duration) are deliberately NOT factor-targetable.
     ];
 
     public static function isValid(string $column): bool

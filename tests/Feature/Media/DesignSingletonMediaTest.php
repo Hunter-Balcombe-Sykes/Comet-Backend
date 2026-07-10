@@ -95,18 +95,27 @@ it('rejects the retired cover_shopify slot', function () {
     expect($result['errors'])->toHaveKey('purpose');
 });
 
-it('derives the design singleton purposes from the registry (2 logos + 4 covers, no dead shopify)', function () {
+it('derives the design singleton purposes from the registry (2 logos + placeholder + 4 covers, no dead shopify)', function () {
     $purposes = SiteMedia::designSingletonPurposes();
     sort($purposes);
 
     $expected = [
-        'logo_full', 'logo_square',
+        'logo_full', 'logo_square', 'placeholder',
         'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite',
     ];
     sort($expected);
 
     expect($purposes)->toBe($expected);
     expect($purposes)->not->toContain('cover_shopify'); // retired dead slot — no shopify platform exists
+});
+
+it('accepts the brand placeholder purpose (singleton since 2026-07-10)', function () {
+    $result = validateDesignMediaRequest(
+        ['purpose' => 'placeholder'],
+        ['image' => UploadedFile::fake()->image('placeholder.png', 400, 300)],
+    );
+
+    expect($result['errors'] ?? [])->not->toHaveKey('purpose');
 });
 
 it('rejects an unknown purpose', function () {
@@ -226,6 +235,19 @@ it('exposes design singletons as camelCase siteImages in the public profile payl
 
     expect($payload['siteImages']['logoFull']['url'])->toBe('https://cdn.example.com/img/logo.webp');
     expect($payload['siteImages']['coverAppleMusic']['url'])->toBe('https://cdn.example.com/img/am.webp');
+});
+
+it('exposes a placeholder-purpose row in the payload siteImages (gap fix 2026-07-10)', function () {
+    // Pre-fix, purpose='placeholder' was outside designSingletonPurposes(), so a
+    // stored placeholder image never reached the profile payload at all.
+    $pro = createTenant('placeholderhost');
+    $site = $pro->site;
+
+    seedReadyDesignSingleton($site->id, 'placeholder', 'img/ph.webp');
+
+    $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
+
+    expect($payload['siteImages']['placeholder']['url'])->toBe('https://cdn.example.com/img/ph.webp');
 });
 
 // ── Routes ──────────────────────────────────────────────────────────────────

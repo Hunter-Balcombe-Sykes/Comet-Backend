@@ -84,7 +84,6 @@ final class LaunchRecipes
                     'effect_surface' => 'glass',        // soft translucency carries the luxe read
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
-                    'effect_button_fill' => 'ghost',
                     'effect_image_treatment' => 'warm',
                 ],
             ],
@@ -117,7 +116,6 @@ final class LaunchRecipes
                     'effect_surface' => 'solid',        // filled poster blocks
                     'effect_shadow_style' => 'hard',
                     'effect_link_style' => 'plain',
-                    'effect_button_fill' => 'solid',
                     'effect_image_treatment' => 'mono',
                 ],
             ],
@@ -153,7 +151,6 @@ final class LaunchRecipes
                     'effect_surface' => 'glass',        // soft, welcoming panels
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
-                    'effect_button_fill' => 'solid',
                     'effect_image_treatment' => 'warm',
                 ],
             ],
@@ -202,7 +199,6 @@ final class LaunchRecipes
                     'effect_surface' => 'outline',      // hairline editorial restraint
                     'effect_shadow_style' => 'flat',
                     'effect_link_style' => 'underline-always',
-                    'effect_button_fill' => 'outline',
                     'effect_image_treatment' => 'duotone',
                 ],
             ],
@@ -238,7 +234,6 @@ final class LaunchRecipes
                     // to a value the sitepage can actually render (matches the
                     // editorial link treatment fine-dining uses).
                     'effect_link_style' => 'underline-always',
-                    'effect_button_fill' => 'outline',
                     // A portfolio's imagery IS the product — never filter it. (Was
                     // duotone pre-2026-07-10, which misrepresented photographers'
                     // actual work; duotone stays a fine-dining/jazz MOOD treatment.)
@@ -282,7 +277,6 @@ final class LaunchRecipes
                     'effect_surface' => 'solid',
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
-                    'effect_button_fill' => 'outline',
                     'effect_image_treatment' => 'warm',
                 ],
             ],

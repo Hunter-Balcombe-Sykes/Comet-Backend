@@ -331,7 +331,6 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
         'effect_surface' => ['glass', 'solid', 'outline'],
         'effect_shadow_style' => ['flat', 'soft', 'hard'],
         'effect_link_style' => ['underline-hover', 'underline-always', 'plain'],
-        'effect_button_fill' => ['solid', 'outline', 'ghost'],
         'effect_image_treatment' => ['none', 'mono', 'duotone', 'warm', 'muted'],
     ];
 
