@@ -65,51 +65,6 @@ it('site_media_pool_check constraint exists and is validated', function () {
     assertCheckConstraintExists('site', 'site_media', 'site_media_pool_check');
 });
 
-// ─── billing.subscriptions ──────────────────────────────────────────────────
-
-it('subscriptions_status_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-    assertCheckConstraintExists('billing', 'subscriptions', 'subscriptions_status_check');
-});
-
-// ─── commerce.commission_movements ──────────────────────────────────────────
-
-it('commission_movements_rate_source_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-    assertCheckConstraintExists('commerce', 'commission_movements', 'commission_movements_rate_source_check');
-});
-
-it('legacy commission_ledger_rate_source_not_blank constraint has been dropped', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-
-    $row = DB::selectOne(
-        "SELECT 1 FROM pg_constraint c
-          JOIN pg_class t ON c.conrelid = t.oid
-          JOIN pg_namespace n ON t.relnamespace = n.oid
-         WHERE n.nspname = 'commerce'
-           AND t.relname = 'commission_movements'
-           AND c.conname = 'commission_ledger_rate_source_not_blank'",
-        []
-    );
-
-    expect($row)->toBeNull('Expected legacy constraint to be dropped but it still exists.');
-});
-
-// ─── core.professional_integrations ─────────────────────────────────────────
-
-it('professional_integrations_provider_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-    assertCheckConstraintExists('core', 'professional_integrations', 'professional_integrations_provider_check');
-});
-
 // ─── notifications.email_subscriptions ──────────────────────────────────────
 
 it('email_subscriptions_status_check constraint exists and is validated', function () {
@@ -128,41 +83,68 @@ it('partna_staff_role_check constraint exists and is validated', function () {
     assertCheckConstraintExists('core', 'partna_staff', 'partna_staff_role_check');
 });
 
-// ─── core.brand_status_history ──────────────────────────────────────────────
+// ─── feature_flag_overrides scope ───────────────────────────────────────────
+// #TEST-1 stale-file cleanup: the original XOR constraint enforced
+// "exactly one of brand_id/professional_id set". brand_id was dropped along
+// with the brand concept (baseline 20260526000000's comment on this table:
+// "brand_id column + the scope_xor constraint + 2 brand indexes dropped; the
+// surviving scope constraint is a plain professional_id-not-null check") —
+// the constraint was RENAMED, not just left as-is, so the old
+// feature_flag_overrides_scope_xor name no longer exists on real Postgres.
 
-it('brand_status_history_from_status_check constraint exists and is validated', function () {
+it('feature_flag_overrides_scope_set constraint exists and is validated', function () {
     if (! checkConstraintsSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
-    assertCheckConstraintExists('core', 'brand_status_history', 'brand_status_history_from_status_check');
+    assertCheckConstraintExists('core', 'feature_flag_overrides', 'feature_flag_overrides_scope_set');
 });
 
-it('brand_status_history_to_status_check constraint exists and is validated', function () {
+it('legacy feature_flag_overrides_scope_xor constraint has been dropped', function () {
     if (! checkConstraintsSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
-    assertCheckConstraintExists('core', 'brand_status_history', 'brand_status_history_to_status_check');
-});
 
-// ─── feature_flag_overrides XOR scope ───────────────────────────────────────
+    $row = DB::selectOne(
+        "SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          JOIN pg_namespace n ON t.relnamespace = n.oid
+         WHERE n.nspname = 'core'
+           AND t.relname = 'feature_flag_overrides'
+           AND c.conname = 'feature_flag_overrides_scope_xor'",
+        []
+    );
 
-it('feature_flag_overrides_scope_xor constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-    assertCheckConstraintExists('core', 'feature_flag_overrides', 'feature_flag_overrides_scope_xor');
+    expect($row)->toBeNull('Expected legacy constraint to be dropped but it still exists.');
 });
 
 // ─── site.platform_connections (CONS-27) ─────────────────────────────────────
-// The platform allow-list CHECK and the dedup partial-unique index were never
-// covered by a test; a migration refactor that silently dropped either would
-// pass CI. These assert both still exist on the real schema.
+// The dedup partial-unique index was never covered by a test; a migration
+// refactor that silently dropped it would pass CI. This asserts it still
+// exists on the real schema.
 
-it('platform_connections_platform_check constraint exists and is validated', function () {
+// #TEST-1 stale-file cleanup: the platform allow-list CHECK itself was
+// deliberately DROPPED by migration 20260629120000_drop_platform_connections_check.sql
+// (Platform Integrations Registry Redesign — PlatformRegistry is now the single
+// source of truth for valid platforms, not a DB CHECK). The old "exists and is
+// validated" assertion below was asserting something no longer true on real
+// Postgres; flipped to match the established "has been dropped" pattern.
+
+it('legacy platform_connections_platform_check constraint has been dropped', function () {
     if (! checkConstraintsSuiteIsPostgres()) {
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
-    assertCheckConstraintExists('site', 'platform_connections', 'platform_connections_platform_check');
+
+    $row = DB::selectOne(
+        "SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          JOIN pg_namespace n ON t.relnamespace = n.oid
+         WHERE n.nspname = 'site'
+           AND t.relname = 'platform_connections'
+           AND c.conname = 'platform_connections_platform_check'",
+        []
+    );
+
+    expect($row)->toBeNull('Expected legacy constraint to be dropped but it still exists.');
 });
 
 it('platform_connections unique-active partial index exists and is UNIQUE + partial', function () {
@@ -183,4 +165,16 @@ it('platform_connections unique-active partial index exists and is UNIQUE + part
     // UNIQUE (the dedup) and the partial WHERE deleted_at IS NULL (so soft-deleted rows don't collide).
     expect($row->indexdef)->toContain('UNIQUE');
     expect($row->indexdef)->toContain('WHERE');
+});
+
+// ─── analytics.site_sessions ────────────────────────────────────────────────
+// #TEST-1 sub-item 5 — duration_seconds is capped so a stuck client heartbeat
+// can't manufacture an absurd average session length (see migration
+// 20260610000000_analytics_v2_clicks_sessions.sql's comment on the column).
+
+it('site_sessions_duration_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('analytics', 'site_sessions', 'site_sessions_duration_check');
 });

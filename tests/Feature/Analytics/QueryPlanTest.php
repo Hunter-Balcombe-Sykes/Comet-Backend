@@ -1,74 +1,84 @@
 <?php
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+// tests/Feature/Analytics/QueryPlanTest.php
+//
+// #TEST-1 stale-file cleanup — REWRITTEN, not deleted. The original file EXPLAIN'd
+// commerce.brand_affiliate_rollup / commerce.orders, both of which were dropped
+// along with the whole commerce schema in the standalone strip-down (2026-05-22 —
+// CLAUDE.md: "No brand, commerce, or billing schemas"). Those tables don't exist in
+// supabase/migrations/ at all anymore (archive-only), so the old assertions could
+// only ever fail-or-skip; the file was dead weight.
+//
+// Rewritten to give #SCALE-2's new timestamp-leading purge indexes
+// (20260711020000_add_analytics_purge_indexes.sql) a PLAN-level guard.
+// tests/Feature/Database/IndexCoverageTest.php already proves each index EXISTS
+// and is VALID (pg_index introspection); this file proves the query planner can
+// actually USE one for PurgeRawAnalyticsEvents' exact predicate shape — a wrong
+// column, wrong operator, or a type mismatch would pass IndexCoverageTest but
+// still force a sequential scan in production.
+//
+// `SET enable_seqscan = off`: these tables are pre-beta and near-empty, so on row
+// count alone the planner's cost estimate would happily pick a Seq Scan over any
+// index regardless of whether the index actually applies — telling us nothing.
+// Disabling seq scans forces Postgres to use any index that CAN service the
+// predicate; if the predicate shape stopped matching the index, Postgres would be
+// forced back to Seq Scan anyway (disabled, not forbidden) — that's the exact
+// regression this test exists to catch. Reset in afterEach so the session-level
+// GUC never leaks to another test file sharing the same connection.
+//
+// Postgres-only — skipped on the SQLite test default (no real EXPLAIN/planner).
 
-/**
- * Postgres-only query plan inspection tests.
- * Asserts that the analytics read-path queries use index scans, not sequential scans,
- * on the commerce tables. Requires the indexes created by
- * supabase/migrations/20260506000000_create_orders_schema.sql to be present.
- *
- * Skipped automatically on SQLite (the test environment default).
- */
+use Illuminate\Support\Facades\DB;
+
 beforeEach(function () {
     if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('Postgres-only — query plan inspection requires real EXPLAIN.');
+        $this->markTestSkipped('Postgres-only — query plan inspection requires a real EXPLAIN/planner.');
+    }
+
+    DB::statement('SET enable_seqscan = off');
+});
+
+afterEach(function () {
+    if (DB::connection()->getDriverName() === 'pgsql') {
+        DB::statement('SET enable_seqscan = on');
     }
 });
 
-it('per-affiliate rollup query uses an index scan and not a sequential scan', function () {
-    $userId = (string) Str::uuid();
-    $from = now()->subDays(30)->toDateString();
-    $to = now()->toDateString();
-    $currencyCode = 'AUD';
+/**
+ * Assert that PurgeRawAnalyticsEvents' retention-cutoff predicate on
+ * analytics.$table uses the SCALE-2 timestamp-leading index, not a Seq Scan.
+ *
+ * Mirrors the actual query shape Laravel's Postgres grammar compiles for the
+ * command's batched delete — `->where($tsColumn, '<', $cutoff)->limit($batchSize)
+ * ->delete()` becomes `delete from "table" where "ctid" in (select "ctid" from
+ * "table" where "<ts>" < ? limit ?)` — so this EXPLAINs the inner SELECT directly.
+ */
+function assertPurgeCutoffUsesIndex(string $table, string $column, string $index): void
+{
+    $cutoff = now()->subDays(90)->toDateTimeString();
+    $batchSize = (int) config('partna.analytics.purge_batch_size', 10_000);
 
-    $sql = <<<'SQL'
-        SELECT
-            affiliate_user_id,
-            SUM(orders_count) AS orders_count,
-            SUM(gross_cents) AS gross_cents,
-            SUM(gross_cents - refund_cents) AS net_cents,
-            SUM(commission_cents - reversed_commission_cents) AS commission_net_cents
-        FROM commerce.brand_affiliate_rollup
-        WHERE brand_user_id = ?
-          AND day BETWEEN ? AND ?
-          AND currency_code = ?
-        GROUP BY affiliate_user_id
-        ORDER BY SUM(commission_cents - reversed_commission_cents) DESC
-        LIMIT 100
-    SQL;
-
-    $rows = DB::select('EXPLAIN '.$sql, [$userId, $from, $to, $currencyCode]);
+    $rows = DB::select(
+        "EXPLAIN SELECT ctid FROM analytics.{$table} WHERE {$column} < ? LIMIT {$batchSize}",
+        [$cutoff]
+    );
     $plan = implode("\n", array_map(fn ($r) => $r->{'QUERY PLAN'}, $rows));
 
-    expect($plan)->toContain('Index Scan');
-    expect($plan)->not->toContain('Seq Scan on brand_affiliate_rollup');
-});
+    expect($plan)->toContain($index)
+        ->and($plan)->not->toContain("Seq Scan on {$table}");
+}
 
-it('brand totals query on commerce.orders uses an index', function () {
-    $userId = (string) Str::uuid();
-    $from = now()->subDays(30)->format('Y-m-d').' 00:00:00';
-    $to = now()->endOfDay()->format('Y-m-d H:i:s');
-    $excluded = "('stub','cancelled','voided','refunded')";
+// Keep in lockstep with PurgeRawAnalyticsEvents::TABLES + the SCALE-2 migration —
+// same dataset shape as IndexCoverageTest's analyticsPurgeIndexes.
+dataset('purgeCutoffPredicates', [
+    'link_clicks'      => ['link_clicks', 'occurred_at', 'link_clicks_occurred_at_idx'],
+    'site_visits'      => ['site_visits', 'occurred_at', 'site_visits_occurred_at_idx'],
+    'lead_submissions' => ['lead_submissions', 'occurred_at', 'lead_submissions_occurred_at_idx'],
+    'section_views'    => ['section_views', 'occurred_at', 'section_views_occurred_at_idx'],
+    'item_views'       => ['item_views', 'occurred_at', 'item_views_occurred_at_idx'],
+    'site_sessions'    => ['site_sessions', 'last_seen_at', 'site_sessions_last_seen_at_idx'],
+]);
 
-    $sql = <<<SQL
-        SELECT
-            COUNT(*) AS orders_count,
-            COALESCE(SUM(gross_cents), 0) AS gross_cents,
-            COALESCE(SUM(refund_cents), 0) AS refunded_cents,
-            COALESCE(SUM(net_cents), 0) AS net_cents
-        FROM commerce.orders
-        WHERE brand_user_id = ?
-          AND status NOT IN {$excluded}
-          AND occurred_at >= ?
-          AND occurred_at <= ?
-    SQL;
-
-    $rows = DB::select('EXPLAIN '.$sql, [$userId, $from, $to]);
-    $plan = implode("\n", array_map(fn ($r) => $r->{'QUERY PLAN'}, $rows));
-
-    // Expect the planner to pick up the idx_orders_brand_status_occurred composite index
-    expect($plan)->toContain('Index Scan');
-    expect($plan)->not->toContain('Seq Scan on orders');
-});
+it('purge retention-cutoff predicate uses the timestamp-leading index, not a sequential scan', function (string $table, string $column, string $index) {
+    assertPurgeCutoffUsesIndex($table, $column, $index);
+})->with('purgeCutoffPredicates');
