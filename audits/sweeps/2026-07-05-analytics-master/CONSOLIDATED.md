@@ -287,7 +287,8 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         );
         ```
 
-- [ ] **#SCALE-2** `[scale-health]` · P2 — `PurgeRawAnalyticsEvents` sequentially scans all five analytics tables on every run; none has a timestamp-leading index
+- [x] **#SCALE-2** `[scale-health]` · P2 — `PurgeRawAnalyticsEvents` sequentially scans all five analytics tables on every run; none has a timestamp-leading index
+    - **Resolution (2026-07-10):** `supabase/migrations/20260711020000_add_analytics_purge_indexes.sql` adds a plain btree timestamp index to all **six** raw tables (the scope grew — `item_views` was added post-audit and shares the gap): `occurred_at` on link_clicks/site_visits/lead_submissions/section_views/item_views, `last_seen_at` on site_sessions. `CREATE INDEX CONCURRENTLY`, no transaction, `IF NOT EXISTS`. `IndexCoverageTest` repurposed to guard all six (Postgres-only). Confirmed the batched `->limit()->delete()` compiles to a `ctid IN (SELECT … LIMIT n)` subquery on Postgres, so the loop was never silently deleting everything — no separate defect. **⚠️ Josh must `supabase db push` this to dev (`glncumufgaqcmqhzwrxm`) — migrations don't auto-run on deploy.**
     - **Where:** app/Console/Commands/PurgeRawAnalyticsEvents.php:95-115
     - **Affects:** The daily scheduled purge (`Schedule::command('partna:analytics:purge-raw-events')->dailyAt('03:00')->withoutOverlapping(30)` in routes/console.php) as well as manual `--dry-run` invocations. At 10k users generating 100k-1M page views/day, `analytics.site_visits`/`link_clicks`/`lead_submissions`/`section_views`/`site_sessions` will each hold tens of millions of rows within the 90-day retention window.
     - **Effort:** M (~2-4h)

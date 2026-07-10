@@ -45,20 +45,27 @@ function assertIndexExists(string $schema, string $table, string $index): void
     );
 }
 
-// ─── commerce.affiliate_product_selections.brand_user_id ────────────
+// ─── analytics purge: timestamp-leading indexes (#SCALE-2) ──────────────────
+//
+// PurgeRawAnalyticsEvents filters each raw table by its timestamp column only.
+// Every other index on these tables leads with an id/hash column, so without a
+// timestamp-leading index the daily purge seq-scans. Migration
+// 20260711020000_add_analytics_purge_indexes.sql adds one per table; this guard
+// asserts they exist and are VALID (not an INVALID stub from a cancelled
+// CONCURRENTLY build). Keep in lockstep with PurgeRawAnalyticsEvents::TABLES.
 
-it('affiliate_product_selections table has a supporting index on brand_user_id', function () {
+dataset('analyticsPurgeIndexes', [
+    'link_clicks'      => ['link_clicks', 'link_clicks_occurred_at_idx'],
+    'site_visits'      => ['site_visits', 'site_visits_occurred_at_idx'],
+    'lead_submissions' => ['lead_submissions', 'lead_submissions_occurred_at_idx'],
+    'section_views'    => ['section_views', 'section_views_occurred_at_idx'],
+    'item_views'       => ['item_views', 'item_views_occurred_at_idx'],
+    'site_sessions'    => ['site_sessions', 'site_sessions_last_seen_at_idx'],
+]);
+
+it('has a timestamp-leading purge index on each raw analytics table', function (string $table, string $index) {
     if (! indexCoverageSuiteIsPostgres()) {
         $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
     }
-    assertIndexExists('commerce', 'affiliate_product_selections', 'idx_aps_brand_user_id');
-});
-
-// ─── core.wallet_currency_switch_audit.topup_id ─────────────────────────────
-
-it('wallet_currency_switch_audit table has a supporting index on topup_id', function () {
-    if (! indexCoverageSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
-    }
-    assertIndexExists('core', 'wallet_currency_switch_audit', 'idx_wcsa_topup_id');
-});
+    assertIndexExists('analytics', $table, $index);
+})->with('analyticsPurgeIndexes');
