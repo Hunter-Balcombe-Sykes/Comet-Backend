@@ -645,7 +645,8 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         ]);
         ```
 
-- [ ] **#SCHEMA-2** `[full-sweep]` · P3 — `analytics.site_sessions.id` has no DB-level default
+- [x] **#SCHEMA-2** `[full-sweep]` · P3 — `analytics.site_sessions.id` has no DB-level default — **WON'T FIX (2026-07-10)**
+    - **Resolution:** the "fix" would be a latent bug, not a hardening. `site_sessions.id` is *deliberately* the client-minted session UUID (`PingRequest` `required|uuid`); every ping upserts on that id. A `DEFAULT gen_random_uuid()` would only ever fire when a writer forgot the id — and would then silently mint a *server-side* random id that no subsequent ping can ever match, producing an orphan row and masking the bug, instead of the loud `NOT NULL` failure that correctly surfaces it. On a client-minted PK a default trades a loud failure for silent bad data. `#DINT-1` makes `id` non-standalone anyway (composite PK). Left as-is by design.
     - **Where:** supabase/migrations/20260610000000_analytics_v2_clicks_sessions.sql (`CREATE TABLE analytics.site_sessions`)
     - **Affects:** Any future raw INSERT or ops/reconcile script writing directly to this table without supplying an `id`. The application path is unaffected today (the client-minted session UUID is always supplied by `PingRequest`'s `required|uuid` rule).
     - **Effort:** S (~0.5h)
@@ -746,7 +747,8 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
             ->get();
         ```
 
-- [ ] **#API-4** `[full-sweep]` · P3 — Staff analytics response shape is missing breakdowns, top sections/products, and conversions that the professional's own dashboard has
+- [x] **#API-4** `[full-sweep]` · P3 — Staff analytics response shape is missing breakdowns, top sections/products, and conversions that the professional's own dashboard has — **WON'T FIX (2026-07-10)**
+    - **Resolution:** no longer a defect. After `#FOUND-1` landed, the staff view routes through `AnalyticsCacheService::staffSummary()`, whose docblock states the narrower payload (`range`/`professional`/`site`/`totals`/`charts`/`top_links`) is a deliberate scope decision matching the staff UI's actual needs, and `StaffAnalyticsControllerTest` locks exactly that six-key shape as a regression guard. Expanding it is a product decision (support staff have not requested the extra sections), not a bug fix — the finding's premise of an *accidental* gap no longer holds. Revisit if staff hit the limitation.
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffAnalyticsController.php, `summary()` return shape vs app/Services/Analytics/AnalyticsCacheService.php, `compose()` return shape
     - **Affects:** Staff support capability — staff can't answer questions about a professional's device/geo/referrer/platform breakdowns or conversions without asking the professional to check their own dashboard.
     - **Effort:** M (~2–4h)
