@@ -31,6 +31,12 @@ final class AnalyticsEvent
     // TYPE_SECTION_VIEW but swaps the section grain for item_type/item_id.
     public const TYPE_ITEM_VIEW = 'item_view';
 
+    // Per-page dwell (V1 signal): the client's cumulative visible-time for one
+    // section, reported on panel-leave. The writer GREATEST-merges durationMs onto
+    // the matching section_views row — an UPDATE, never an INSERT, so a dwell
+    // without its impression row drops instead of fabricating an impression.
+    public const TYPE_SECTION_DWELL = 'section_dwell';
+
     public function __construct(
         public readonly string $id,
         public readonly string $type,
@@ -64,6 +70,8 @@ final class AnalyticsEvent
         public readonly ?string $itemType = null,
         public readonly ?string $itemId = null,
         public readonly ?string $itemTitle = null,
+        // Per-section dwell (TYPE_SECTION_DWELL only): cumulative visible-time in ms.
+        public readonly ?int $durationMs = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -100,6 +108,7 @@ final class AnalyticsEvent
             'item_type' => $this->itemType,
             'item_id' => $this->itemId,
             'item_title' => $this->itemTitle,
+            'duration_ms' => $this->durationMs,
         ];
     }
 
@@ -137,6 +146,7 @@ final class AnalyticsEvent
             itemType: $d['item_type'] ?? null,
             itemId: $d['item_id'] ?? null,
             itemTitle: $d['item_title'] ?? null,
+            durationMs: isset($d['duration_ms']) ? (int) $d['duration_ms'] : null,
         );
     }
 }

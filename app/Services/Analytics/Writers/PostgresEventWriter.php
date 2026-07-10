@@ -46,6 +46,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
         $sectionRows = [];
         $itemRows = [];
         $sessionEvents = [];
+        $dwellEvents = [];
 
         foreach ($events as $event) {
             match ($event->type) {
@@ -54,6 +55,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 AnalyticsEvent::TYPE_SECTION_VIEW => $this->appendSectionRow($event, $blocks, $sectionRows),
                 AnalyticsEvent::TYPE_ITEM_VIEW => $this->appendItemRow($event, $itemRows),
                 AnalyticsEvent::TYPE_SESSION_PING => $sessionEvents[] = $event,
+                AnalyticsEvent::TYPE_SECTION_DWELL => $dwellEvents[] = $event,
                 default => $this->drop($event, 'unknown_type'),
             };
         }
@@ -72,6 +74,11 @@ class PostgresEventWriter implements AnalyticsEventWriter
         }
         foreach ($sessionEvents as $event) {
             $this->upsertSession($event);
+        }
+        // Dwell AFTER section inserts so a same-batch impression row exists
+        // before its dwell annotation looks for it.
+        foreach ($dwellEvents as $event) {
+            $this->applySectionDwell($event);
         }
     }
 
@@ -318,6 +325,60 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 now()->toISOString(),
             ]
         );
+    }
+
+    /**
+     * Annotate the matching section impression row with cumulative dwell.
+     *
+     * Targets the LATEST section_views row for (site, section, visitor|session)
+     * within 24h and GREATEST-merges duration_ms — the client reports CUMULATIVE
+     * visible-time per section, so retries, out-of-order delivery and re-entry
+     * reports are all idempotent (ping's pattern). UPDATE only, never INSERT:
+     * a dwell whose impression beacon was lost drops (impressions stay exact),
+     * which is the right degradation — dwell is the garnish, the impression the meal.
+     */
+    private function applySectionDwell(AnalyticsEvent $e): void
+    {
+        if ($e->sectionKey === null || $e->durationMs === null) {
+            $this->drop($e, 'dwell_fields_missing');
+
+            return;
+        }
+
+        // Prefer the visitor id (persistent) over the session id — the seen beacon
+        // sends both, so either matches its row; the dwell request guarantees one.
+        [$idColumn, $idValue] = $e->visitorId !== null
+            ? ['visitor_id', $e->visitorId]
+            : ['session_id', $e->sessionId];
+        if ($idValue === null) {
+            $this->drop($e, 'dwell_identity_missing');
+
+            return;
+        }
+
+        $ms = max(0, min(600_000, $e->durationMs));
+
+        $targetId = DB::connection('pgsql')->table('analytics.section_views')
+            ->where('site_id', $e->siteId)
+            ->where('section_key', $e->sectionKey)
+            ->where($idColumn, $idValue)
+            ->where('occurred_at', '>=', Carbon::parse($e->occurredAt)->subDay()->toISOString())
+            ->orderByDesc('occurred_at')
+            ->limit(1)
+            ->value('id');
+
+        if ($targetId === null) {
+            $this->drop($e, 'dwell_row_missing');
+
+            return;
+        }
+
+        $greatest = DB::connection('pgsql')->getDriverName() === 'sqlite' ? 'MAX' : 'GREATEST';
+
+        DB::connection('pgsql')->table('analytics.section_views')
+            ->where('id', $targetId)
+            // $ms is int-clamped above — safe to interpolate.
+            ->update(['duration_ms' => DB::raw("{$greatest}(COALESCE(duration_ms, 0), {$ms})")]);
     }
 
     // Breadcrumb only — Nightwatch surfaces sustained spikes via log-channel

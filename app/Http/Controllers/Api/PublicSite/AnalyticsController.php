@@ -10,6 +10,7 @@ use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PingRequest;
+use App\Http\Requests\Api\PublicSite\Analytics\SectionDwellRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\AnalyticsDedupGuard;
@@ -160,6 +161,45 @@ class AnalyticsController extends ApiController
         $this->ingestor->ingest($event);
 
         return $this->success(['message' => 'Section view recorded', 'view_id' => $event->id], 201);
+    }
+
+    /**
+     * Per-page dwell (V1 signal). The client reports a section's CUMULATIVE
+     * visible-time on panel-leave; the writer GREATEST-merges it onto the matching
+     * section_views row. No dedup guard — the merge is idempotent under retries
+     * and out-of-order delivery (ping's pattern). Always 200 (no row id minted;
+     * bot and non-bot responses are indistinguishable by design).
+     */
+    public function sectionDwell(SectionDwellRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        $site = $this->resolvePublishedSite($data, $error);
+        if (! $site) {
+            return $error;
+        }
+
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'ok'], 200);
+        }
+
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_SECTION_DWELL,
+            request: $request,
+            site: $site,
+            data: $data,
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            sectionKey: $data['section_key'],
+            durationMs: (int) $data['duration_ms'],
+        );
+
+        $this->ingestor->ingest($event);
+
+        return $this->success(['message' => 'ok'], 200);
     }
 
     /**
@@ -378,6 +418,7 @@ class AnalyticsController extends ApiController
         ?string $itemType = null,
         ?string $itemId = null,
         ?string $itemTitle = null,
+        ?int $durationMs = null,
     ): AnalyticsEvent {
         return new AnalyticsEvent(
             id: $id ?? (string) Str::orderedUuid(),
@@ -412,6 +453,7 @@ class AnalyticsController extends ApiController
             itemType: $itemType,
             itemId: $itemId,
             itemTitle: $itemTitle,
+            durationMs: $durationMs,
         );
     }
 
