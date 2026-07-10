@@ -42,9 +42,11 @@ it('concludes SOFT when category and name both lean soft', function () {
         'fullName' => 'Petal & Bloom Skincare',
     ]));
 
-    expect($out['color_bg'])->toBe('#faf6f7')
+    // Surface carries the soft material read (bg is theme_mode-owned now).
+    expect($out['effect_surface'])->toBe('glass')
         ->and($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
+        ->and($out['motion_pace'])->toBe('slow')
         ->and($out['effect_shadow_style'])->toBe('soft');
 });
 
@@ -54,11 +56,11 @@ it('concludes BOLD when category and name both lean bold', function () {
         'fullName' => 'Iron Forge Strength',
     ]));
 
-    expect($out['color_bg'])->toBe('#ffffff')
+    expect($out['effect_surface'])->toBe('solid')
         ->and($out['border_radius'])->toBe('0.25rem')
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_shadow_style'])->toBe('hard')
-        ->and($out['effect_style'])->toBe('bold');
+        ->and($out['motion_pace'])->toBe('fast')
+        ->and($out['effect_shadow_style'])->toBe('hard');
 });
 
 it('abstains when the two signals disagree (soft vs bold)', function () {
@@ -108,12 +110,7 @@ it('only ever emits whitelisted design-kit recipe columns — never a demographi
         expect($out)->not->toBe([]);
         foreach (array_keys($out) as $column) {
             // Every emitted key is a legitimate design-kit target column …
-            // (retired columns excepted: WS5 re-tunes factor values — see plan
-            // 2026-07-10 — until then these emissions are dead weight the
-            // resolver's allowlist filter drops)
-            if (! in_array($column, ['color_bg', 'effect_style', 'motion_entrance'], true)) {
-                expect(PresetTargetableColumns::isValid($column))->toBeTrue();
-            }
+            expect(PresetTargetableColumns::isValid($column))->toBeTrue("non-targetable column emitted: {$column}");
             // … and NONE is a demographic/identity attribute.
             expect($column)->not->toContain('gender')
                 ->and($column)->not->toContain('sex')

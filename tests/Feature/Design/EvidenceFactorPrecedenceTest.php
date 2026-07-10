@@ -106,10 +106,8 @@ it('resolves evidence factors end-to-end: platform-mix ambient vibe lands', func
 
     expect($changed)->toBeTrue();
     $layer = evpResolver()->presetLayer($user->site->id);
-    // effect_style is no longer factor-targetable, so the allowlist filter
-    // drops it. WS5 re-tunes factor values — see plan 2026-07-10.
-    expect($layer)->not->toHaveKey('effect_style');
-    expect($layer['effect_shadow_style'])->toBe('soft');  // social-lifestyle vibe
+    expect($layer['effect_surface'])->toBe('glass')       // social-lifestyle vibe
+        ->and($layer['effect_shadow_style'])->toBe('soft');
 });
 
 it('lets a category factor (band C) beat the platform-mix ambient factor (band A) on motion_pace', function () {
@@ -140,11 +138,10 @@ it('lets the declared aesthetic-expression factor (band E) beat a category facto
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
-    // Declared expression (64) wins border_radius over both the food_drink
-    // bucket (Google 40) and the Instagram beauty bucket (30). color_bg is no
-    // longer factor-targetable (WS5 re-tunes factor values — see plan 2026-07-10).
+    // Declared expression (64) wins border_radius + surface over both the
+    // food_drink bucket (Google 40, solid) and the Instagram beauty bucket (30).
     expect($layer['border_radius'])->toBe('1.5rem')
-        ->and($layer)->not->toHaveKey('color_bg');
+        ->and($layer['effect_surface'])->toBe('glass'); // SOFT lean's material
 });
 
 it('lets a manual design_kits value beat every evidence factor', function () {
@@ -176,10 +173,8 @@ it('resolves the store price-point factor from seeded products (luxury)', functi
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
-    // effect_style is no longer factor-targetable (WS5 re-tunes factor values
-    // — see plan 2026-07-10).
     expect($layer['space_regular'])->toBe('1.15rem')     // airy
-        ->and($layer)->not->toHaveKey('effect_style');
+        ->and($layer['effect_surface'])->toBe('outline'); // hairline boutique restraint
 });
 
 it('freezes the one-shot aesthetic-expression contribution when IG data later changes', function () {
@@ -189,9 +184,7 @@ it('freezes the one-shot aesthetic-expression contribution when IG data later ch
         'fullName' => 'Petal & Bloom Skincare',
     ]);
     evpResolver()->resolveForUser($user);
-    // Freeze marker moved color_bg → border_radius (SOFT's 1.5rem vs BOLD's
-    // 0.25rem still discriminates): color_bg is no longer factor-targetable
-    // (WS5 re-tunes factor values — see plan 2026-07-10).
+    // border_radius discriminates the lean (SOFT 1.5rem vs BOLD 0.25rem).
     expect(evpResolver()->presetLayer($user->site->id)['border_radius'])->toBe('1.5rem'); // SOFT
 
     // The account re-brands to a bold gym; the frozen one-shot must not move.

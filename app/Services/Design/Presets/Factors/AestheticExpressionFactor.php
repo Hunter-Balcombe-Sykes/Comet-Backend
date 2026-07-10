@@ -84,21 +84,22 @@ class AestheticExpressionFactor implements EvidenceFactor
      * concordance bar), which is exactly the conservative behaviour we want.
      */
     private const DIRECTION_TARGETS = [
+        // The surface axis IS the soft↔bold material axis — with backgrounds
+        // theme_mode-owned (2026-07-10 rework) it carries the direction each
+        // lean used to express through its ground tint.
         self::SOFT => [
-            'color_bg' => '#faf6f7',        // pastel-tinted
             'border_radius' => '1.5rem',    // very rounded
             'weight_regular' => '300',      // light
             'motion_pace' => 'slow',
-            'motion_entrance' => 'fade',
+            'effect_surface' => 'glass',    // soft translucency
             'effect_shadow_style' => 'soft',
         ],
         self::BOLD => [
-            'color_bg' => '#ffffff',        // high-contrast ground
             'border_radius' => '0.25rem',   // sharp
             'weight_regular' => '600',      // chunky
             'motion_pace' => 'fast',
+            'effect_surface' => 'solid',    // filled high-contrast blocks
             'effect_shadow_style' => 'hard',
-            'effect_style' => 'bold',
         ],
     ];
 

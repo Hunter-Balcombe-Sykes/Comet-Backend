@@ -108,12 +108,14 @@ function swResolve(IdentityEvidence $evidence): array
 }
 
 /**
- * Assert a merged kit is internally coherent. The axes bg / radius / weight /
- * motion must not pull in contradictory directions. Concretely (spec §1c):
- *   • a SOFT background (pastel/light tint) must NOT co-occur with a SHARP radius
- *     AND a HEAVY weight — that is the canonical "ugly" combination.
- *   • a DARK background must NOT co-occur with a VERY-ROUNDED radius and a LIGHT
- *     weight AND fast motion (dark editorial should read restrained, not bouncy).
+ * Assert a merged kit is internally coherent. The axes surface / radius /
+ * weight / shadow must not pull in contradictory directions (backgrounds are
+ * theme_mode-owned since 2026-07-10, so the material axis is effect_surface).
+ * Concretely (spec §1c, re-based for the theme/surface era):
+ *   • a GLASS surface (the soft material) must NOT co-occur with a HARD shadow
+ *     — translucent panels with brutal drop shadows is the canonical mash-up.
+ *   • a VERY-ROUNDED radius (1.5rem, the soft shape) must NOT co-occur with a
+ *     HEAVY weight — soft shapes want light-to-regular type.
  * These are deliberately narrow, high-confidence contradiction checks — they
  * catch a factor stamping across another's coherent set, without over-constraining
  * legitimate combinations.
@@ -122,23 +124,19 @@ function swResolve(IdentityEvidence $evidence): array
  */
 function assertCoherent(array $kit): void
 {
-    $bg = $kit['color_bg'] ?? null;
+    $surface = $kit['effect_surface'] ?? null;
+    $shadow = $kit['effect_shadow_style'] ?? null;
     $radius = $kit['border_radius'] ?? null;
     $weight = $kit['weight_regular'] ?? null;
 
-    $softBg = in_array($bg, ['#faf6f7', '#f7f4ee', '#faf6f3', '#f6f1e7'], true);
-    $sharpRadius = in_array($radius, ['0.25rem', '0.2rem', '0.3rem'], true);
     $heavyWeight = in_array($weight, ['600', '700'], true);
 
-    expect($softBg && $sharpRadius && $heavyWeight)->toBeFalse(
-        "incoherent: soft bg ({$bg}) + sharp radius ({$radius}) + heavy weight ({$weight})",
+    expect($surface === 'glass' && $shadow === 'hard')->toBeFalse(
+        "incoherent: glass surface + hard shadow (weight {$weight}, radius {$radius})",
     );
 
-    // A soft/pastel ground with a chunky weight is itself a contradiction even
-    // without the radius — soft grounds want light-to-regular type.
-    $veryLightGround = $bg === '#faf6f7';
-    expect($veryLightGround && $heavyWeight)->toBeFalse(
-        "incoherent: pastel ground ({$bg}) + heavy weight ({$weight})",
+    expect($radius === '1.5rem' && $heavyWeight)->toBeFalse(
+        "incoherent: very-rounded radius ({$radius}) + heavy weight ({$weight})",
     );
 }
 
@@ -150,12 +148,12 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
         swConnection('google-business', ['category' => 'Beauty salon']),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10: color_bg is no longer
-    // factor-targetable, so the allowlist filter drops it from recipe + kit.
     expect($r['recipe'])->not->toBe([]);                       // recipe fired
-    expect($r['recipe'])->not->toHaveKey('color_bg');
-    expect($r['kit'])->not->toHaveKey('color_bg');
-    expect($r['kit']['border_radius'])->toBe('1.5rem');
+    expect($r['kit']['border_radius'])->toBe('1.5rem')
+        ->and($r['kit']['weight_regular'])->toBe('300')
+        ->and($r['kit']['typography_font_family'])->toBe('melodrama')
+        ->and($r['kit']['effect_surface'])->toBe('glass')
+        ->and($r['kit']['effect_shadow_style'])->toBe('soft');
     assertCoherent($r['kit']);
 });
 
@@ -167,11 +165,12 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
         ]),
     ));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
     expect($r['recipe'])->not->toBe([]);
-    expect($r['recipe'])->not->toHaveKey('color_bg');
     expect($r['kit']['weight_regular'])->toBe('600')
-        ->and($r['kit']['border_radius'])->toBe('0.25rem');
+        ->and($r['kit']['border_radius'])->toBe('0.25rem')
+        ->and($r['kit']['effect_surface'])->toBe('solid')
+        ->and($r['kit']['effect_shadow_style'])->toBe('hard')
+        ->and($r['kit']['color_accent'])->toBe('#c81e1e');
     assertCoherent($r['kit']);
 });
 
@@ -181,10 +180,10 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
         swConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
     expect($r['recipe'])->not->toBe([]);
-    expect($r['recipe'])->not->toHaveKey('color_bg');
-    expect($r['kit']['typography_font_family'])->toBe('geist');
+    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+        ->and($r['kit']['effect_surface'])->toBe('glass')
+        ->and($r['kit']['effect_image_treatment'])->toBe('warm');
     assertCoherent($r['kit']);
 });
 
@@ -194,11 +193,13 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
         swShop([180, 220, 260, 300]),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg/effect_style untargetable).
+    // Dark-luxury without a bg column: gold accent + light weight + outline.
     expect($r['recipe'])->not->toBe([]);
-    expect($r['recipe'])->not->toHaveKey('color_bg');
-    expect($r['kit'])->not->toHaveKey('effect_style');
-    expect($r['kit']['typography_font_family'])->toBe('young-serif');
+    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+        ->and($r['kit']['color_accent'])->toBe('#c9a24b')
+        ->and($r['kit']['weight_regular'])->toBe('300')
+        ->and($r['kit']['effect_surface'])->toBe('outline')
+        ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
     assertCoherent($r['kit']);
 });
 
@@ -208,10 +209,10 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
         swConnection('instagram', ['businessCategory' => 'Photographer']),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
     expect($r['recipe'])->not->toBe([]);
-    expect($r['recipe'])->not->toHaveKey('color_bg');
-    expect($r['kit']['typography_font_family'])->toBe('geist');
+    expect($r['kit']['typography_font_family'])->toBe('geist')
+        ->and($r['kit']['effect_surface'])->toBe('outline')
+        ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
     assertCoherent($r['kit']);
 });
 
@@ -221,11 +222,10 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
         swShop([25, 30, 35, 38]),
     ])));
 
-    // WS5 re-tunes factor values — see plan 2026-07-10 (color_bg untargetable).
     expect($r['recipe'])->not->toBe([]);
-    expect($r['recipe'])->not->toHaveKey('color_bg');
     expect($r['kit']['typography_font_family'])->toBe('origin')
-        ->and($r['kit']['border_radius'])->toBe('1rem');
+        ->and($r['kit']['border_radius'])->toBe('1rem')
+        ->and($r['kit']['effect_surface'])->toBe('solid'); // tactile craft, not glass
     assertCoherent($r['kit']);
 });
 

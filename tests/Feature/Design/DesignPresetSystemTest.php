@@ -57,15 +57,13 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
 
     expect($changed)->toBeTrue();
     $layer = dkPresetResolver()->presetLayer($user->site->id);
-    // color_bg is no longer factor-targetable, so the allowlist filter drops
-    // it. WS5 re-tunes factor values — see plan 2026-07-10.
-    expect($layer)->not->toHaveKey('color_bg');
     expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['text_xs'])->toBe('0.8rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('young-serif')
-        ->and($layer['motion_pace'])->toBe('fast');
+        ->and($layer['motion_pace'])->toBe('fast')
+        ->and($layer['effect_surface'])->toBe('solid');
 });
 
 it('contributes nothing for a Google Business type with no matching bucket', function () {
@@ -93,8 +91,6 @@ it('freezes the one-shot contribution when the category later changes', function
     $user = createTenant('was-a-restaurant');
     $connId = dkSeedConnection($user, ['category' => 'Restaurant']);
     dkPresetResolver()->resolveForUser($user);
-    // Freeze marker moved color_bg → color_accent: color_bg is no longer
-    // factor-targetable (WS5 re-tunes factor values — see plan 2026-07-10).
     expect(dkPresetResolver()->presetLayer($user->site->id)['color_accent'])->toBe('#e0491f');
 
     // The business re-categorises to a cafe; the frozen one-shot must not move.
@@ -148,7 +144,7 @@ it('resolves the highest-priority contribution per column, order-independent', f
     $user = createTenant('priority-test');
     $siteId = $user->site->id;
 
-    // Two sources set color_bg; higher priority wins regardless of row order.
+    // Two sources set the accent; higher priority wins regardless of row order.
     foreach ([['a-source', 40, '#aaaaaa'], ['z-source', 60, '#bbbbbb']] as [$source, $prio, $val]) {
         DesignKitContribution::query()->create([
             'site_id' => $siteId,
@@ -156,12 +152,12 @@ it('resolves the highest-priority contribution per column, order-independent', f
             'integration' => 'test',
             'priority' => $prio,
             'mode' => 'one_shot',
-            'target_var' => 'color_bg',
+            'target_var' => 'color_accent',
             'value' => $val,
         ]);
     }
 
-    expect(dkPresetResolver()->presetLayer($siteId)['color_bg'])->toBe('#bbbbbb');
+    expect(dkPresetResolver()->presetLayer($siteId)['color_accent'])->toBe('#bbbbbb');
 });
 
 it('is a no-op when no factors are registered (dark launch)', function () {
@@ -198,11 +194,11 @@ it('classifies a range of Google Business types into their expected bucket', fun
 
     dkPresetResolver()->resolveForUser($user);
 
-    // Buckets still declare color_bg (WS5 re-tunes factor values — see plan
-    // 2026-07-10); the resolver's allowlist filter drops the untargetable
-    // columns, so the layer equals the FILTERED bucket.
+    // Buckets emit only targetable columns since the 2026-07-10 factor pass;
+    // the filter() wrap is belt-and-braces (it must be an identity here).
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)));
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)))
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
 })->with([
     'Barber shop' => ['Barber shop', CategoryStylePresets::BEAUTY_PERSONAL_CARE],   // collision guard: NOT food_drink via 'bar'
     'Hair salon' => ['Hair salon', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
@@ -225,9 +221,8 @@ it('classifies a range of Instagram business categories into their expected buck
 
     dkPresetResolver()->resolveForUser($user);
 
-    // Filtered comparison — see the GB bucket test above (WS5 / plan 2026-07-10).
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)));
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
 })->with([
     'Beauty, Cosmetic & Personal Care' => ['Beauty, Cosmetic & Personal Care', CategoryStylePresets::BEAUTY_PERSONAL_CARE],
     'Gym/Physical Fitness Center' => ['Gym/Physical Fitness Center', CategoryStylePresets::HEALTH_FITNESS],
@@ -263,9 +258,7 @@ it('lets Instagram fill the preset layer when Google is not connected', function
     dkPresetResolver()->resolveForUser($user);
 
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
-            CategoryStylePresets::forBucket(CategoryStylePresets::BEAUTY_PERSONAL_CARE),
-        ));
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::BEAUTY_PERSONAL_CARE));
 });
 
 it('lets Instagram fill the layer when Google is connected but does not match a bucket', function () {
@@ -276,9 +269,7 @@ it('lets Instagram fill the layer when Google is connected but does not match a 
     dkPresetResolver()->resolveForUser($user);
 
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
-            CategoryStylePresets::forBucket(CategoryStylePresets::HEALTH_FITNESS),
-        ));
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::HEALTH_FITNESS));
 });
 
 it('fully overrides Instagram with Google when both match DIFFERENT buckets (every column overlaps)', function () {
@@ -291,9 +282,7 @@ it('fully overrides Instagram with Google when both match DIFFERENT buckets (eve
     // Every bucket sets the same 7 keys, so Google's priority (40 > 30) wins
     // ALL of them — not a partial blend of the two buckets.
     expect(dkPresetResolver()->presetLayer($user->site->id))
-        ->toEqualCanonicalizing(PresetTargetableColumns::filter(
-            CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK),
-        ));
+        ->toEqualCanonicalizing(CategoryStylePresets::forBucket(CategoryStylePresets::FOOD_DRINK));
 });
 
 it('produces the identical merged result regardless of which platform connects first', function () {

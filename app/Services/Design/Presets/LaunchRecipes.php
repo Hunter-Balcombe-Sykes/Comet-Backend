@@ -19,13 +19,20 @@ namespace App\Services\Design\Presets;
  *   - minGroups — independent concordant groups required to fire (default 2).
  *   - values    — a COMPLETE, coherent [design_kit column => value] set. Every
  *                 value is drawn from the established vocabulary (StyleTiers::TIERS
- *                 literals + AestheticExpression DIRECTION_TARGETS forms + the four
- *                 effect_* identity-axis enums). Fonts are roster slugs.
+ *                 literals + AestheticExpression DIRECTION_TARGETS forms + the
+ *                 effect_* identity-axis enums incl. effect_surface). Fonts are
+ *                 roster slugs.
+ *
+ * Backgrounds are theme_mode-owned (2026-07-10 rework) and entrance animation is
+ * removed, so a recipe's identity rides accent/weight/surface/shadow/imagery —
+ * e.g. fine-dining reads "dark luxury" through gold + light weight + outline +
+ * duotone on ANY user-picked theme, rather than forcing a dark ground.
  *
  * COHERENCE CONTRACT: the golden-profiles sweep (FactorSweepTest) asserts every
- * recipe's value set is internally coherent — no "soft bg + sharp radius + heavy
- * weight" contradictions. When editing a recipe, keep the bg/radius/weight/motion
- * axis pulling the SAME direction (soft⇢rounded/light/slow, bold⇢sharp/heavy/fast).
+ * recipe's value set is internally coherent — no "glass surface + hard shadow +
+ * heavy weight" contradictions. When editing a recipe, keep the surface/radius/
+ * weight/motion axis pulling the SAME direction (soft⇢glass/rounded/light/slow,
+ * bold⇢solid/sharp/heavy/fast, editorial⇢outline/flat/light/slow).
  */
 final class LaunchRecipes
 {
@@ -65,15 +72,13 @@ final class LaunchRecipes
                     return $groups + $confirmations;
                 },
                 'values' => [
-                    'color_bg' => '#faf6f7',            // pastel-tinted (AE soft)
                     'color_accent' => '#b8375a',        // muted rose (beauty bucket)
                     'border_radius' => '1.5rem',        // very rounded
                     'weight_regular' => '300',          // light
-                    'typography_font_family' => 'origin', // soft humanist serif (17->9 swap; PROVISIONAL)
+                    'typography_font_family' => 'melodrama', // the roster's beauty-premium display serif (matches the beauty bucket)
                     'space_regular' => '1.15rem',       // generous/airy
                     'motion_pace' => 'slow',
-                    'motion_entrance' => 'fade',
-                    'effect_style' => 'soft-glass',
+                    'effect_surface' => 'glass',        // soft translucency carries the luxe read
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_button_fill' => 'ghost',
@@ -100,15 +105,13 @@ final class LaunchRecipes
                     return $groups + $confirmations;
                 },
                 'values' => [
-                    'color_bg' => '#ffffff',            // high-contrast ground
                     'color_accent' => '#c81e1e',        // hard red
                     'border_radius' => '0.25rem',       // sharp
                     'weight_regular' => '600',          // chunky
                     'typography_font_family' => 'oswald', // condensed grotesque
                     'space_regular' => '0.8rem',        // compact/energetic
                     'motion_pace' => 'fast',
-                    'motion_entrance' => 'rise',
-                    'effect_style' => 'bold',
+                    'effect_surface' => 'solid',        // filled poster blocks
                     'effect_shadow_style' => 'hard',
                     'effect_link_style' => 'plain',
                     'effect_button_fill' => 'solid',
@@ -138,15 +141,13 @@ final class LaunchRecipes
                     return $groups;
                 },
                 'values' => [
-                    'color_bg' => '#f7f4ee',            // warm light (StyleTiers warm_light)
                     'color_accent' => '#7c2d12',        // warm brown (hospitality bucket)
                     'border_radius' => '0.6rem',        // moderate
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'geist', // friendly humanist (17->9 swap; PROVISIONAL)
+                    'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
-                    'motion_entrance' => 'fade',
-                    'effect_style' => 'soft-glass',
+                    'effect_surface' => 'glass',        // soft, welcoming panels
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_button_fill' => 'solid',
@@ -185,16 +186,17 @@ final class LaunchRecipes
 
                     return 0;
                 },
+                // Dark-luxury identity without a bg column: gold + light weight +
+                // outline + flat + duotone read restrained on any theme mode (and
+                // become the full old look if the user picks midnight).
                 'values' => [
-                    'color_bg' => '#151515',            // dark ground (StyleTiers dark)
                     'color_accent' => '#c9a24b',        // restrained gold
                     'border_radius' => '0.25rem',       // sharp
                     'weight_regular' => '300',          // light
                     'typography_font_family' => 'young-serif', // elegant serif
                     'space_regular' => '1.15rem',       // generous
                     'motion_pace' => 'slow',
-                    'motion_entrance' => 'fade',
-                    'effect_style' => 'editorial',
+                    'effect_surface' => 'outline',      // hairline editorial restraint
                     'effect_shadow_style' => 'flat',
                     'effect_link_style' => 'underline-always',
                     'effect_button_fill' => 'outline',
@@ -218,15 +220,13 @@ final class LaunchRecipes
                     return $groups;
                 },
                 'values' => [
-                    'color_bg' => '#fafafa',            // neutral (StyleTiers light)
                     'color_accent' => '#7c3aed',        // distinctive violet (creative bucket)
                     'border_radius' => '0.6rem',        // moderate
                     'weight_regular' => '500',          // medium
-                    'typography_font_family' => 'geist', // clean grotesque sans (17->9 swap; PROVISIONAL)
+                    'typography_font_family' => 'geist', // gallery-neutral grotesque — the chrome recedes, the work speaks
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
-                    'motion_entrance' => 'stagger',
-                    'effect_style' => 'editorial',
+                    'effect_surface' => 'outline',      // gallery frames
                     'effect_shadow_style' => 'flat',
                     // NB: use 'underline-always' — 'underline-grow' is in the spec's
                     // vocabulary list but the renderer + design-kit validator only
@@ -236,7 +236,10 @@ final class LaunchRecipes
                     // editorial link treatment fine-dining uses).
                     'effect_link_style' => 'underline-always',
                     'effect_button_fill' => 'outline',
-                    'effect_image_treatment' => 'duotone',
+                    // A portfolio's imagery IS the product — never filter it. (Was
+                    // duotone pre-2026-07-10, which misrepresented photographers'
+                    // actual work; duotone stays a fine-dining/jazz MOOD treatment.)
+                    'effect_image_treatment' => 'none',
                 ],
             ],
 
@@ -265,15 +268,15 @@ final class LaunchRecipes
                     return $makerGroups + 1; // +1 for the independent, price-backed store group
                 },
                 'values' => [
-                    'color_bg' => '#f7f4ee',            // warm light
                     'color_accent' => '#a15c2b',        // terracotta/craft
                     'border_radius' => '1rem',          // rounded
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
-                    'motion_entrance' => 'rise',
-                    'effect_style' => 'soft-glass',
+                    // Solid, not glass: handmade goods read tactile on filled cards;
+                    // glass is a digital-luxe texture that fights the earthy register.
+                    'effect_surface' => 'solid',
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_button_fill' => 'outline',

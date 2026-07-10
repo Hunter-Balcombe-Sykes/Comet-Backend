@@ -14,9 +14,9 @@ namespace App\Http\Requests\Concerns;
 // information_schema.columns so stale keys were harmless, but the trait is
 // the documented contract and should mirror the schema exactly.
 //
-// 2026-07-10 theme/surface rework (migration 20260710160000): color_bg,
-// effect_style and motion_entrance dropped; theme_mode is now the 5-value
-// palette selection; effect_surface + theme_night_shift_auto added.
+// 2026-07-10 theme/surface rework (migration 20260710160000): the bg colour,
+// visual-style bundle and entrance-animation columns dropped; theme_mode is now
+// the 5-value palette selection; effect_surface + theme_night_shift_auto added.
 trait DesignKitValidationRules
 {
     /**

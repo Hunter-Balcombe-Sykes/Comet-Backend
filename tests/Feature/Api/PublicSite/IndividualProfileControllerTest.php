@@ -35,7 +35,6 @@ beforeEach(function () {
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
-        color_bg TEXT NULL,
         color_text TEXT NULL,
         typography_font_heading TEXT NULL,
         typography_font_body TEXT NULL,

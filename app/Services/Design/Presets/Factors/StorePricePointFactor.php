@@ -14,11 +14,13 @@ use Illuminate\Support\Facades\Cache;
  * look alike. Median (not mean) so one outlier product can't skew the read;
  * currency roughly normalised to AUD. Abstains under 4 products (spec §2 row 10).
  *
- * Band → sparse targets (space + border + motion + effect bundle; colours/font
+ * Band → sparse targets (space + border + motion + surface; colours/font
  * still come from the category recipe underneath):
- *   luxury  (median ≳ A$150) → airy space, hairline borders, slow motion, editorial bundle
+ *   luxury  (median ≳ A$150) → airy space, hairline borders, slow motion, outline surface
  *   mid                       → neutral: regular space, standard border, normal motion
- *   casual  (median ≲ A$40)  → compact space, rounded corners, friendly weight, sharp bundle
+ *   casual  (median ≲ A$40)  → compact space, rounded corners, friendly weight, solid surface
+ * Luxury=outline vs casual=solid is the tier contrast: hairline restraint
+ * against filled market-stall confidence.
  *
  * Auto mode with ANTI-FLICKER HYSTERESIS (spec §5): a store must not restyle
  * because someone added three cheap accessories. A band only FLIPS when the new
@@ -72,7 +74,7 @@ class StorePricePointFactor implements EvidenceFactor
             'space_regular' => '1.15rem',   // generous
             'border_thickness' => '0.5px',  // hairline
             'motion_pace' => 'slow',
-            'effect_style' => 'editorial',
+            'effect_surface' => 'outline',  // hairline boutique restraint
         ],
         self::BAND_MID => [
             'space_regular' => '0.95rem',   // regular
@@ -84,7 +86,7 @@ class StorePricePointFactor implements EvidenceFactor
             'border_radius' => '1rem',      // rounded/friendly
             'weight_regular' => '500',
             'motion_pace' => 'normal',
-            'effect_style' => 'sharp',
+            'effect_surface' => 'solid',    // filled, friendly, accessible
         ],
     ];
 

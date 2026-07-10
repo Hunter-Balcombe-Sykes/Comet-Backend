@@ -20,12 +20,12 @@ use App\Services\Platforms\Registry\PlatformRegistry;
  * Auto mode: recomputes as platforms connect/disconnect (the mix is live state).
  * Abstains unless one vibe has a strict plurality (a genuine lean, not a tie).
  *
- * Vibe → sparse targets (spec §2 row 9). effect_style values are the four
- * Visual-Style bundle names (soft-glass | sharp | bold | editorial):
- *   creator-av       → media-forward + energetic: fast motion, hard shadows, bold bundle
- *   social-lifestyle → imagery-led + soft: normal motion, soft shadows, soft-glass bundle
- *   local-service    → trustworthy + calm: slow motion, soft shadows, soft-glass bundle
- *   retail           → clean + flat: normal motion, flat shadows, sharp bundle
+ * Vibe → sparse targets (spec §2 row 9). effect_surface values are the Surface
+ * types (glass | solid | outline):
+ *   creator-av       → media-forward + energetic: fast motion, hard shadows, solid panels (frame the thumbnails)
+ *   social-lifestyle → imagery-led + soft: normal motion, soft shadows, glass
+ *   local-service    → trustworthy + calm: slow motion, soft shadows, glass
+ *   retail           → clean + flat: normal motion, flat shadows, outline (product-grid minimalism)
  */
 class PlatformMixFactor implements EvidenceFactor
 {
@@ -44,22 +44,22 @@ class PlatformMixFactor implements EvidenceFactor
         self::VIBE_CREATOR_AV => [
             'motion_pace' => 'fast',
             'effect_shadow_style' => 'hard',
-            'effect_style' => 'bold',
+            'effect_surface' => 'solid',
         ],
         self::VIBE_SOCIAL_LIFESTYLE => [
             'motion_pace' => 'normal',
             'effect_shadow_style' => 'soft',
-            'effect_style' => 'soft-glass',
+            'effect_surface' => 'glass',
         ],
         self::VIBE_LOCAL_SERVICE => [
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
-            'effect_style' => 'soft-glass',
+            'effect_surface' => 'glass',
         ],
         self::VIBE_RETAIL => [
             'motion_pace' => 'normal',
             'effect_shadow_style' => 'flat',
-            'effect_style' => 'sharp',
+            'effect_surface' => 'outline',
         ],
     ];
 

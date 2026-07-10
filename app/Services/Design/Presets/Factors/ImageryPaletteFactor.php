@@ -9,23 +9,18 @@ use App\Services\Design\Presets\IdentityEvidence;
 /**
  * Media factor (band 22, Auto — just above OwnMediaAccent 20, refining it): the
  * dominant PALETTE of a user's own gallery imagery is a genuine style signal — a
- * warm-toned gallery wants a warm image treatment + a warm bg tint; a
- * low-saturation gallery wants a muted/mono read. It reads palette metadata via
- * IdentityEvidence::mediaPalette().
+ * warm-toned gallery wants a warm image treatment; a low-saturation gallery
+ * wants a muted/mono read. It reads palette metadata via
+ * IdentityEvidence::mediaPalette() (populated by ImageVariantService since #76
+ * Part A — the factor is LIVE).
  *
- * CURRENT STATE (spec §2 row 2 + §5): site.site_media stores NO colour metadata
- * today (verified — no dominant_color / palette / saturation column, no data
- * blob). mediaPalette() therefore returns [] and this factor ABSTAINS for every
- * user. The mapping below is complete and correct so that when the deferred
- * pixel-extraction job lands and populates the palette, this factor lights up
- * with no further change. Until then it is a provable no-op.
- *
- * When a palette IS present:
- *   warm-dominant   → warm image treatment + a warm bg tint.
+ * When a palette is present:
+ *   warm-dominant   → warm image treatment.
  *   low-saturation  → muted image treatment (or mono when very desaturated).
  *   high-saturation → keep accent, treatment none (let the vibrant imagery speak).
- * It emits image-treatment + at most a bg tint — NEVER the accent column (that
- * stays OwnMediaAccent's, band 20).
+ * It emits the image treatment ONLY — never the accent column (that stays
+ * OwnMediaAccent's, band 20), and no bg tint since 2026-07-10 (backgrounds are
+ * owned by the user-picked theme_mode palette).
  *
  * Auto: recomputes as the gallery changes. Abstains on absent/ambiguous palette.
  */
@@ -73,15 +68,7 @@ class ImageryPaletteFactor implements EvidenceFactor
             return [];
         }
 
-        $out = ['effect_image_treatment' => $treatment];
-
-        // A warm-dominant palette also earns a warm background tint (never the
-        // accent — that's OwnMediaAccent's column).
-        if ($treatment === 'warm') {
-            $out['color_bg'] = '#f7f4ee'; // warm light (StyleTiers warm_light)
-        }
-
-        return $out;
+        return ['effect_image_treatment' => $treatment];
     }
 
     /**

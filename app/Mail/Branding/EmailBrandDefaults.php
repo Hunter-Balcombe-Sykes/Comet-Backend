@@ -16,7 +16,7 @@ use App\Services\Design\ThemeModePalettes;
  *  - 4 STATIC tokens have literal defaults below.
  *  - bg/text come from the theme-mode palette (2026-07-10 rework): the kit's
  *    theme_mode selects its ThemeModePalettes default-variant anchors — the
- *    old color_bg column is gone, and emails don't night-shift.
+ *    old bg column is gone, and emails don't night-shift.
  *  - 2 DERIVED tokens (button_primary_bg / button_primary_text) are NULLABLE
  *    columns with no DB default and no defaults.ts entry; the design system
  *    derives them from accent / accent-contrast at render time, so we do the same.

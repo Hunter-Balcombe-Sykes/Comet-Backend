@@ -431,7 +431,6 @@ class DataExportTestCase
         $conn->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
             site_id TEXT PRIMARY KEY,
             color_accent TEXT,
-            color_bg TEXT,
             color_text TEXT,
             typography_font_heading TEXT,
             typography_font_body TEXT

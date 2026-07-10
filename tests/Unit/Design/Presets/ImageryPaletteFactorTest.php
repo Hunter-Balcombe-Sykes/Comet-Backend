@@ -91,10 +91,11 @@ it('returns null for an empty or ambiguous palette', function () {
 // ── Safety contract ──────────────────────────────────────────────────────────
 
 it('never emits the accent column: no such symbol exists in the factor CODE', function () {
-    // detect() only ever sets effect_image_treatment and (for a warm treatment)
-    // color_bg — the accent column is exclusively OwnMediaAccent's (band 20).
-    // Proven structurally: the string 'color_accent' never appears in the
-    // factor's source at all, so no code path could ever emit it.
+    // detect() only ever sets effect_image_treatment — the accent column is
+    // exclusively OwnMediaAccent's (band 20), and the old warm bg tint retired
+    // with the 2026-07-10 theme_mode rework. Proven structurally: the string
+    // 'color_accent' never appears in the factor's source at all, so no code
+    // path could ever emit it.
     $source = file_get_contents(
         (new ReflectionClass(ImageryPaletteFactor::class))->getFileName(),
     );

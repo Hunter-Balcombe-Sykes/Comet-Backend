@@ -105,8 +105,11 @@ it('reads outside-website analyses from the passed-in collection, not a DB query
 
     $result = (new OutsideWebsitesFactor)->detect($user, $site, $connections);
 
+    // The bg signal is deliberately unmapped since 2026-07-10 (theme_mode owns
+    // the background), so the 4-dark-vs-1-warm bg vote yields nothing; the
+    // unopposed font vote is the whole contribution — and it could only have
+    // come from the passed-in collection.
     expect($result)->toBe([
-        'color_bg' => '#151515',                       // 4 dark vs 1 warm_light -> dark
         'typography_font_family' => 'geist',  // 2 votes, unopposed
     ]);
 });
