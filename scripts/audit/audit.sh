@@ -53,6 +53,26 @@
 #   PLUS a CONSOLIDATED.md, into audits/sweeps/<date>-<bundle>/.
 #   --scope / --lens are not allowed with --codebase.
 #
+# Changed-scope mode (audit a body of work, not the whole repo):
+#   scripts/audit/audit.sh --codebase --bundle full-sweep \
+#     --changed-since <git-ref> --name <name>
+#
+#   Same execution as codebase mode, but every lens's scope map is narrowed to
+#   the files changed between <git-ref> and HEAD. A lens chunk with no changed
+#   file drops out; an oversized one re-packs into <chunk>-1, <chunk>-2, ...
+#   Scans see only the diff; adjudication still runs with --no-source, so the
+#   adjudicator Reads the surrounding code to verify. Use this to sweep a
+#   feature branch or a week of commits with the full lens battery.
+#
+# Resuming a partial sweep (a lens died mid-run — API 402, session limit, ...):
+#   scripts/audit/audit.sh --codebase --bundle full-sweep --changed-since <ref> \
+#     --name <same-name> --run-date <the run's date> --only-lenses <csv of missing>
+#
+#   --run-date pins the output folder to the original run's date so the new lens
+#   files land beside the ones that already succeeded. CONSOLIDATED.md is then
+#   rebuilt from every audit-*.md in the folder, not just the resumed lenses.
+#   Codebase mode exits non-zero if any lens produced nothing.
+#
 # Parallelism:
 #   DeepSeek scans run in parallel waves (--scan-jobs N, default 4) — they are
 #   independent stateless API calls. Claude adjudications run SEQUENTIALLY by
@@ -106,7 +126,15 @@ NAME=""            # short run name (e.g. frontpage, shopify-integration)
 KEEP_DRAFTS=false
 CODEBASE=false
 SCAN_JOBS=4
+ONLY_LENSES=""     # csv of lens basenames to keep from a bundle (resume after partial failure)
+CHANGED_SINCE=""   # git ref: narrow every lens's codebase scope to files changed since it
+CHANGED_LIST=""    # internal: tmp file of "path<TAB>bytes" for the changed set
+RUN_DATE_OVERRIDE="" # --run-date: write into an existing run folder (resume a partial sweep)
 OUT=""             # internal: computed path to the folder's CONSOLIDATED.md
+
+# Max source bytes per scan chunk. Mirrors the ~350KB ceiling the codebase scope
+# map is hand-sized against; scan recall degrades on oversized payloads.
+CHUNK_MAX_BYTES=300000
 
 # Print the whole comment header (everything up to `set -euo`) as help text,
 # so the header can grow without the range going stale.
@@ -121,8 +149,11 @@ slugify() {
 
 # Count finding-header checkbox lines for a given tier (P0/P1/P2/P3) in a file.
 # Matches the canonical line:  - [ ] **#ID** · P0 — title
+# The `#` is optional: adjudications occasionally emit `**ID**` without it, and
+# a `#`-required matcher silently undercounts those (missed 9 findings incl. a
+# P0 on the 2026-07-08 full-sweep). Count both `**#ID**` and `**ID**` forms.
 tier_count() {
-    grep -cE "^- \[[ x]\] \*\*#.*· $1 " "$2" 2>/dev/null || true
+    grep -cE "^- \[[ x]\] \*\*#?[A-Z].*· $1 " "$2" 2>/dev/null || true
 }
 
 # Emit the shared Execution-policy block. Single source of truth for the model
@@ -329,6 +360,47 @@ EOF
     esac
 }
 
+# The single source of scan chunks for codebase mode. Without --changed-since it
+# is a pass-through to codebase_chunks(). With it, each chunk keeps only the
+# changed files that live under its paths, then re-packs greedily into
+# CHUNK_MAX_BYTES sub-chunks (named <chunk>-1, <chunk>-2, ...). Chunks whose
+# paths saw no change drop out, so a lens only scans the part of the diff it
+# owns. Must be deterministic: phase 1 (scan) and phase 2 (draft assembly) both
+# call it and rely on identical chunk names.
+lens_chunks() {
+    local lens="$1" lines
+    lines="$(codebase_chunks "$lens" || true)"
+    [[ -n "$lines" ]] || return 0
+    [[ -n "$CHANGED_LIST" ]] || { printf '%s\n' "$lines"; return 0; }
+
+    # awk, not bash: a bash implementation would fork `wc -c` once per
+    # (lens x chunk x changed file) — ~16k subprocesses across a full sweep.
+    printf '%s\n' "$lines" | awk -v maxb="$CHUNK_MAX_BYTES" -v listf="$CHANGED_LIST" '
+    BEGIN {
+        while ((getline line < listf) > 0) {
+            split(line, a, "\t"); n++; cf[n] = a[1]; cs[n] = a[2] + 0
+        }
+    }
+    /\|/ {
+        bar = index($0, "|")
+        cname = substr($0, 1, bar - 1)
+        np = split(substr($0, bar + 1), paths, /[ \t]+/)
+        split("", parts); out_n = 0; part = ""; bytes = 0
+        for (i = 1; i <= n; i++) {
+            keep = 0
+            for (j = 1; j <= np; j++) {
+                p = paths[j]; sub(/\/$/, "", p)
+                if (cf[i] == p || index(cf[i], p "/") == 1) { keep = 1; break }
+            }
+            if (!keep) continue
+            if (part != "" && bytes + cs[i] > maxb) { parts[++out_n] = part; part = ""; bytes = 0 }
+            part = (part == "" ? cf[i] : part " " cf[i]); bytes += cs[i]
+        }
+        if (part != "") parts[++out_n] = part
+        for (k = 1; k <= out_n; k++) print (out_n == 1 ? cname : cname "-" k) "|" parts[k]
+    }'
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --scope)         SCOPE_ARGS+=("--scope" "$2"); shift 2 ;;
@@ -337,6 +409,9 @@ while [[ $# -gt 0 ]]; do
         --full)          FULL=true; shift ;;
         --bundle)        BUNDLE="$2"; shift 2 ;;
         --codebase)      CODEBASE=true; shift ;;
+        --only-lenses)   ONLY_LENSES="$2"; shift 2 ;;
+        --changed-since) CHANGED_SINCE="$2"; shift 2 ;;
+        --run-date)      RUN_DATE_OVERRIDE="$2"; shift 2 ;;
         --scan-jobs)     SCAN_JOBS="$2"; shift 2 ;;
         --category)      CATEGORY="$2"; shift 2 ;;
         --name)          NAME="$2"; shift 2 ;;
@@ -364,9 +439,43 @@ if $CODEBASE; then
 else
     [[ ${#SCOPE_ARGS[@]} -gt 0 ]]   || { echo "--scope is required (one or more)" >&2; exit 2; }
 fi
+[[ -z "$ONLY_LENSES" || -n "$BUNDLE" ]] || { echo "--only-lenses requires --bundle/--full (it filters a bundle's lenses)" >&2; exit 2; }
+[[ -z "$CHANGED_SINCE" ]] || $CODEBASE || { echo "--changed-since requires --codebase (it narrows the per-lens scope maps)" >&2; exit 2; }
+[[ -z "$RUN_DATE_OVERRIDE" || "$RUN_DATE_OVERRIDE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "--run-date must be YYYY-MM-DD (got: $RUN_DATE_OVERRIDE)" >&2; exit 2; }
 [[ "$SCAN_JOBS" =~ ^[0-9]+$ && "$SCAN_JOBS" -ge 1 ]] || { echo "--scan-jobs must be a positive integer" >&2; exit 2; }
 [[ -n "${DEEPSEEK_API_KEY:-}" ]]  || { echo "DEEPSEEK_API_KEY not found (set in scripts/audit/.env or export)" >&2; exit 2; }
 command -v claude >/dev/null      || { echo "claude CLI not on PATH — install from claude.ai/code" >&2; exit 2; }
+
+# Preflight the DeepSeek balance. A mid-run 402 is expensive and quiet: the
+# 2026-07-10 sweep spent 12 scans, then lost the remaining 36 to Insufficient
+# Balance and left a 5/20 sweep behind. Network trouble here is not fatal —
+# only an explicit is_available:false aborts.
+DS_BALANCE="$(curl -s --max-time 10 https://api.deepseek.com/user/balance \
+    -H "Authorization: Bearer $DEEPSEEK_API_KEY" 2>/dev/null || true)"
+if [[ "$DS_BALANCE" == *'"is_available":false'* ]]; then
+    echo "DeepSeek balance exhausted — top up before running a sweep." >&2
+    echo "  $DS_BALANCE" >&2
+    exit 2
+fi
+
+# --- --changed-since: materialise the diff as "path<TAB>bytes" --------------
+# Added+modified only (a deleted file has nothing to audit). Filtered to the
+# file types audit-scan.sh globs — anything else would be read as zero bytes.
+if [[ -n "$CHANGED_SINCE" ]]; then
+    git rev-parse --verify --quiet "${CHANGED_SINCE}^{commit}" >/dev/null \
+        || { echo "--changed-since: not a commit-ish: $CHANGED_SINCE" >&2; exit 2; }
+    CHANGED_LIST="$(mktemp)"
+    git diff --name-only --diff-filter=AM "${CHANGED_SINCE}..HEAD" \
+        | grep -Ev '^(audits|docs)/' \
+        | grep -E '\.(php|blade\.php|sql|js|ts|yml|yaml|sh)$' \
+        | sort \
+        | while IFS= read -r f; do
+              [[ -f "$f" ]] && printf '%s\t%s\n' "$f" "$(wc -c < "$f" | tr -d ' ')"
+          done > "$CHANGED_LIST" || true
+    [[ -s "$CHANGED_LIST" ]] \
+        || { echo "--changed-since $CHANGED_SINCE: no changed files match the scanner's file types" >&2; exit 2; }
+    echo "→ --changed-since $CHANGED_SINCE: $(wc -l < "$CHANGED_LIST" | tr -d ' ') changed files in scope" >&2
+fi
 
 # --- Output folder: one folder per audit run -------------------------------
 # Nested + sortable so it's easy to look back over time:
@@ -374,7 +483,7 @@ command -v claude >/dev/null      || { echo "claude CLI not on PATH — install 
 #   bundle / codebase sweep → audits/sweeps/<date>-<name>/
 # Each folder always gets a CONSOLIDATED.md (the canonical tracked file the
 # `execute audit` flow reads). --category/--name override the derived defaults.
-RUN_DATE="$(date +%F)"
+RUN_DATE="${RUN_DATE_OVERRIDE:-$(date +%F)}"
 if $FULL || $CODEBASE; then
     RUN_NAME="${NAME:-$BUNDLE}"
     BASE_DIR="audits/sweeps/${RUN_DATE}-${RUN_NAME}"
@@ -547,6 +656,33 @@ if $FULL; then
             exit 2
             ;;
     esac
+
+    # The bundle's full lens list, before --only-lenses narrows it. CONSOLIDATED.md
+    # is assembled in this order from whatever lens files exist in the folder, so a
+    # resumed run re-emits the lenses it skipped rather than dropping them.
+    ALL_BUNDLE_LENS_FILES=("${LENS_FILES[@]}")
+
+    # --only-lenses <csv>: keep only the named lens basenames from the resolved
+    # bundle. Purpose is resuming a bundle after a partial adjudication failure
+    # (e.g. the Claude session limit hit mid-run) — re-scan + re-adjudicate ONLY
+    # the lenses that failed, instead of re-running (and re-exhausting) the whole
+    # bundle. Names must match lens file basenames (e.g. "edge-worker,api-contract").
+    if [[ -n "$ONLY_LENSES" ]]; then
+        IFS=',' read -ra _ONLY <<< "$ONLY_LENSES"
+        _FILTERED=()
+        for _o in "${_ONLY[@]}"; do
+            _o="${_o// /}"  # tolerate spaces after commas
+            _match=""
+            for lf in "${LENS_FILES[@]}"; do
+                [[ "$(basename "$lf" .md)" == "$_o" ]] && { _match="$lf"; break; }
+            done
+            [[ -n "$_match" ]] || { echo "--only-lenses: '$_o' is not a lens in bundle '$BUNDLE'" >&2; exit 2; }
+            _FILTERED+=("$_match")
+        done
+        LENS_FILES=("${_FILTERED[@]}")
+        echo "→ --only-lenses: restricted bundle '$BUNDLE' to ${#LENS_FILES[@]} lens(es): ${ONLY_LENSES}" >&2
+    fi
+
     LENS_COUNT=${#LENS_FILES[@]}
 
     # Verify all lens files exist BEFORE starting expensive scans
@@ -559,7 +695,9 @@ if $FULL; then
     # adjudication with --no-source (the adjudicator verifies via Read/Grep),
     # emitting one audit file per lens. A failed lens doesn't abort the run.
     if $CODEBASE; then
-        RUN_DATE=$(date +%F)
+        # RUN_DATE is already resolved (honouring --run-date) alongside BASE_DIR;
+        # re-deriving it here would name lens files with today's date inside a
+        # folder pinned to another, breaking resume.
         FAILED_LENSES=()
         WRITTEN=()
 
@@ -570,7 +708,7 @@ if $FULL; then
         TASKS=()
         for lf in "${LENS_FILES[@]}"; do
             LENS_NAME=$(basename "$lf" .md)
-            CHUNK_LINES="$(codebase_chunks "$LENS_NAME" || true)"
+            CHUNK_LINES="$(lens_chunks "$LENS_NAME" || true)"
             if [[ -z "$CHUNK_LINES" ]]; then
                 echo "WARNING: no codebase scope map for lens '$LENS_NAME' — skipping" >&2
                 FAILED_LENSES+=("$LENS_NAME (no scope map)")
@@ -629,7 +767,7 @@ if $FULL; then
         for lf in "${LENS_FILES[@]}"; do
             LENS_NUM=$((LENS_NUM + 1))
             LENS_NAME=$(basename "$lf" .md)
-            CHUNK_LINES="$(codebase_chunks "$LENS_NAME" || true)"
+            CHUNK_LINES="$(lens_chunks "$LENS_NAME" || true)"
             [[ -n "$CHUNK_LINES" ]] || continue  # no scope map — already recorded
 
             LENS_DRAFTS="$DRAFTS_DIR/drafts-${LENS_NAME}.md"
@@ -686,9 +824,30 @@ if $FULL; then
         # Build CONSOLIDATED.md: header + every per-lens file concatenated
         # (each lens already carries its own bundling section). Cross-lens
         # dedup happens at fix time. Mechanical = deterministic, never fails.
+        #
+        # Assembled from the lens files PRESENT IN THE FOLDER, in bundle order —
+        # not from the lenses this invocation happened to run. A resumed sweep
+        # (--only-lenses after a mid-run failure) would otherwise rebuild the file
+        # from the resumed lenses alone and silently drop the earlier ones, while
+        # their audit-*.md sat on disk unreferenced. If a lens was re-run on a
+        # later date, the newest dated file wins.
+        # Glob, not `ls | sort | tail` — under `set -o pipefail` an unmatched ls
+        # fails the command substitution and `set -e` kills the run before this
+        # file is written. Glob expansion is already lexicographic, which for
+        # audit-YYYY-MM-DD-<lens>.md is date order, so the last hit is the newest.
+        MERGED_LENS_FILES=()
+        for lf in "${ALL_BUNDLE_LENS_FILES[@]}"; do
+            ln="$(basename "$lf" .md)"
+            cand=""
+            for f in "$BASE_DIR"/audit-*-"${ln}".md; do
+                if [[ -e "$f" ]]; then cand="$f"; fi
+            done
+            if [[ -n "$cand" ]]; then MERGED_LENS_FILES+=("$cand"); fi
+        done
+
         CONSOLIDATED="$BASE_DIR/CONSOLIDATED.md"
         MERGED="$(mktemp)"
-        for f in ${WRITTEN[@]+"${WRITTEN[@]}"}; do
+        for f in ${MERGED_LENS_FILES[@]+"${MERGED_LENS_FILES[@]}"}; do
             {
                 echo ""
                 echo "<!-- ═══════════ $(basename "$f") ═══════════ -->"
@@ -698,20 +857,39 @@ if $FULL; then
             } >> "$MERGED"
         done
         cp "$MERGED" "$CONSOLIDATED"; rm -f "$MERGED"
+
+        # Header must describe what the file actually contains, not what the bundle
+        # intended: a partial sweep that claims its bundle's lens count reads as
+        # complete to anyone (or any runbook) that trusts the header.
+        MERGED_COUNT=${#MERGED_LENS_FILES[@]}
+        BUNDLE_TOTAL=${#ALL_BUNDLE_LENS_FILES[@]}
+        LENS_TALLY="${MERGED_COUNT}/${BUNDLE_TOTAL} lenses"
+        [[ "$MERGED_COUNT" -eq "$BUNDLE_TOTAL" ]] || LENS_TALLY="${LENS_TALLY} (INCOMPLETE — $((BUNDLE_TOTAL - MERGED_COUNT)) never produced findings)"
+        if [[ -n "$CHANGED_SINCE" ]]; then
+            SWEEP_TITLE="${BUNDLE} changed-scope sweep"
+            SWEEP_LENS="bundle '${BUNDLE}' — ${LENS_TALLY} over the $(wc -l < "$CHANGED_LIST" | tr -d ' ') files changed since \`${CHANGED_SINCE}\` ($(git rev-parse --short "$CHANGED_SINCE")..$(git rev-parse --short HEAD))"
+        else
+            SWEEP_TITLE="${BUNDLE} codebase sweep"
+            SWEEP_LENS="bundle '${BUNDLE}' — whole-repo sweep across ${LENS_TALLY}"
+        fi
         write_consolidated "$CONSOLIDATED" \
-            "${BUNDLE} codebase sweep" \
-            "bundle '${BUNDLE}' — whole-repo sweep across ${LENS_COUNT} lenses" \
-            "$(printf '%s\n' "${WRITTEN[@]##*/}")"
+            "$SWEEP_TITLE" \
+            "$SWEEP_LENS" \
+            "$(printf '%s\n' "${MERGED_LENS_FILES[@]##*/}")"
 
         echo "" >&2
         echo "════════ Codebase audit complete ════════" >&2
         for f in ${WRITTEN[@]+"${WRITTEN[@]}"}; do echo "  ✓ $f" >&2; done
-        echo "  ✓ $CONSOLIDATED" >&2
+        echo "  ✓ $CONSOLIDATED — ${LENS_TALLY}" >&2
         if [[ ${#FAILED_LENSES[@]} -gt 0 ]]; then
             echo "  Incomplete lenses (re-run individually with --bundle/--lens):" >&2
             for fl in "${FAILED_LENSES[@]}"; do echo "    ✗ $fl" >&2; done
         fi
         $KEEP_DRAFTS && echo "Per-lens drafts kept in: $DRAFTS_DIR" >&2
+        # Non-zero when any lens produced nothing. A partial sweep exiting 0 reads as
+        # a clean full-sweep to callers and CI — the 2026-07-10 run lost 15 of 20
+        # lenses to a DeepSeek 402 and still exited 0.
+        [[ ${#FAILED_LENSES[@]} -eq 0 ]] || exit 1
         exit 0
     fi
 
