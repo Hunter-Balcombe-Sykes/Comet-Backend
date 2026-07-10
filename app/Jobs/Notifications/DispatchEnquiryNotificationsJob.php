@@ -4,6 +4,7 @@ namespace App\Jobs\Notifications;
 
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
+use App\Services\Notifications\Dispatchers\AchievementNotifier;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -40,7 +41,7 @@ class DispatchEnquiryNotificationsJob implements ShouldBeUnique, ShouldQueue
         return $this->enquiryId;
     }
 
-    public function handle(EnquiryNotificationDispatcher $dispatcher): void
+    public function handle(EnquiryNotificationDispatcher $dispatcher, AchievementNotifier $achievements): void
     {
         $enquiry = Enquiry::query()->find($this->enquiryId);
         if (! $enquiry) {
@@ -65,6 +66,13 @@ class DispatchEnquiryNotificationsJob implements ShouldBeUnique, ShouldQueue
         }
 
         $dispatcher->dispatch($enquiry, $block);
+
+        // Achievement: the user's first-ever enquiry. The enquiry is already persisted,
+        // so a lifetime count of 1 means this is the first. The dispatcher is dedupe-keyed,
+        // so the soft-delete edge (count returns to 1 after a delete) can't re-fire it.
+        if (Enquiry::query()->where('user_id', $enquiry->user_id)->count() === 1) {
+            $achievements->firstEnquiry((string) $enquiry->user_id);
+        }
 
         Cache::put('enquiry:notified:'.$this->enquiryId, true, now()->addDay());
     }

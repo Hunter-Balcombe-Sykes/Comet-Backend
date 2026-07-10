@@ -44,6 +44,7 @@ beforeEach(function () {
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
         severity TEXT NULL,
+        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         dedupe_key TEXT NULL,

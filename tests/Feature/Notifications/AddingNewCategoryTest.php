@@ -45,7 +45,7 @@ beforeEach(function () {
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY, user_id TEXT NULL, type TEXT, category TEXT, title TEXT, body TEXT,
         cta_url TEXT, primary_action_label TEXT, secondary_action_label TEXT, secondary_action_url TEXT,
-        severity TEXT, starts_at TEXT, ends_at TEXT, dedupe_key TEXT, email_sent_at TEXT,
+        severity TEXT, critical INTEGER NOT NULL DEFAULT 0, starts_at TEXT, ends_at TEXT, dedupe_key TEXT, email_sent_at TEXT,
         created_at TEXT, updated_at TEXT
     )');
     // SQLite requires schema prefix on the index name, not the table in ON clause.

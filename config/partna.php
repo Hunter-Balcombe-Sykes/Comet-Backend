@@ -1,5 +1,6 @@
 <?php
 
+use App\Mail\Notifications\CriticalNotificationMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
@@ -1368,6 +1369,11 @@ return [
         'feature_announcement' => 30,
         'default' => 30,
         'profile_task' => 180,
+        // OV-H non-critical auto-dispatchers. These get an `ends_at` so the prune
+        // auto-cleans them; critical notifications ignore this (ends_at = null, persist).
+        'achievement' => 60,       // celebratory — keep visible a while
+        'content_scrape' => 14,    // transient; self-heals, don't linger
+        'analytics_weekly' => 14,  // superseded by next week's summary
     ],
 
     'notifications' => [
@@ -1408,6 +1414,16 @@ return [
             'inbox' => null,  // in-app only — enquiry inbox; no mailable (email goes via SendEnquiryNotificationJob)
             'policy_update' => PolicyUpdateMail::class,
             'profile_tasks' => ProfileTaskMail::class,
+
+            // OV-H automatic dispatchers. Only the `critical` ones carry a mailable
+            // (email fires only for critical notifications — see NotificationPublisher).
+            // The generic CriticalNotificationMail renders the notification through the
+            // shared OTP layout family; SendTransactionalNotificationEmailJob also falls
+            // back to it for any critical notification whose category is unmapped.
+            'achievement' => null,                                // in-app only (milestones / first-enquiry)
+            'platform_connection' => CriticalNotificationMail::class, // critical: connection needs reconnecting → email
+            'content_scrape' => null,                             // in-app only (transient scrape/menu warnings)
+            'analytics_weekly' => null,                           // in-app only (weekly summary stub)
         ],
 
         /*

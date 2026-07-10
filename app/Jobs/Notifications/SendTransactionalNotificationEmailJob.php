@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Notifications;
 
+use App\Mail\Notifications\CriticalNotificationMail;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -86,13 +87,21 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
         // Avoids unnecessary DB queries when there's nothing to send.
         $class = config("partna.notifications.mailables.{$this->category}");
         if (! is_string($class) || ! class_exists($class)) {
-            if (config('app.debug')) {
-                Log::debug('Notification email skipped: category has no mailable', [
-                    'category' => $this->category,
-                ]);
-            }
+            // OV-H hard guarantee: a `critical` notification always emails, even when
+            // its category has no category-specific template — fall back to the generic
+            // CriticalNotificationMail (same shared layout family). Only this no-mailable
+            // path pays the extra flag lookup; mapped categories are unaffected.
+            if (Notification::query()->whereKey($this->notificationId)->value('critical')) {
+                $class = CriticalNotificationMail::class;
+            } else {
+                if (config('app.debug')) {
+                    Log::debug('Notification email skipped: category has no mailable', [
+                        'category' => $this->category,
+                    ]);
+                }
 
-            return;
+                return;
+            }
         }
 
         // Capability gate: check account_type restrictions for categories that have them.
