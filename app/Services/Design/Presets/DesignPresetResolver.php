@@ -57,7 +57,13 @@ class DesignPresetResolver
                 }
             }
 
-            return array_map(static fn (array $w): string => $w['value'], $winners);
+            // Belt-and-braces: drop any row whose target_var is no longer a
+            // targetable column (write-side filters + the vocab migration
+            // should make this a no-op, but a stale row must never leak an
+            // unknown key into the public designKit payload / email kit).
+            return PresetTargetableColumns::filter(
+                array_map(static fn (array $w): string => $w['value'], $winners),
+            );
         } catch (\Throwable $e) {
             report($e); // never break a render over a preset bug
 

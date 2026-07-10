@@ -79,7 +79,7 @@ it('stamps fitness-bold when sector and Google concur on fitness', function () {
     // Only fires if the declared sector 'personal-trainer' maps to the fitness
     // family; if the taxonomy slug differs this asserts the shape when it does.
     if ($out !== []) {
-        expect($out['border_radius'])->toBe('0.25rem')
+        expect($out['border_radius'])->toBe('0') // square poster shape
             ->and($out['weight_regular'])->toBe('600')
             ->and($out['typography_font_family'])->toBe('oswald')
             ->and($out['effect_surface'])->toBe('solid');

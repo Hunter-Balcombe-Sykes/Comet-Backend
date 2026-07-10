@@ -95,7 +95,7 @@ class InstagramCategoryFactor implements DesignFactor
 
     public function priority(): int
     {
-        // Lower than GoogleBusinessTypeFactor's 50 — Google wins contested columns.
+        // Lower than GoogleBusinessTypeFactor's 40 — Google wins contested columns.
         return 30;
     }
 

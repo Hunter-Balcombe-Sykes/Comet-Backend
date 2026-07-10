@@ -16,7 +16,7 @@ use App\Services\Design\Presets\IdentityEvidence;
  *
  * Genre lexicon → look nudge (backgrounds are theme_mode-owned since the
  * 2026-07-10 rework — the old dark grounds now read through weight/surface):
- *   electronic / hip-hop / techno / trap → heavy, sharp, fast, solid, brutalist type.
+ *   electronic / hip-hop / techno / trap → heavy, square, fast, solid, brutalist type.
  *   acoustic / folk / singer-songwriter  → warm, soft, serif, slow.
  *   classical / jazz / ambient           → editorial, elegant, restrained outline.
  *   pop / indie                          → clean medium-weight outline.
@@ -76,7 +76,7 @@ class MusicGenreFactor implements EvidenceFactor
     /** Style family → sparse overlay. Values from the established vocabulary. */
     private const FAMILY_TARGETS = [
         self::ELECTRONIC => [
-            'border_radius' => '0.25rem',       // sharp
+            'border_radius' => '0',             // square — club-flyer geometry; reglo is a brutalist face and the genre is a declared fact, not an inference
             'weight_regular' => '600',          // chunky
             // reglo IS the DJ/producer face (knowledge base §2) — with the dark
             // ground gone this is the family's identity anchor.

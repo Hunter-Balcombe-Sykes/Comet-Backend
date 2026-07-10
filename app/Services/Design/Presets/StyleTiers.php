@@ -55,11 +55,14 @@ final class StyleTiers
             'regular' => '0.85rem',
             'large' => '0.9rem',
         ],
-        // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem: sharp and
-        // moderate deliberately share 0.25rem (0 = true square is a user-only
-        // extreme factors never emit).
+        // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem — the four
+        // analyzer tiers map 1:1 onto the four stops. 'sharp' means the old
+        // site's median radius was under 4px (a population dominated by true
+        // 0px designs), so the faithful match is the Square stop, not Soft;
+        // collapsing sharp+moderate onto 0.25rem made two distinct analyzer
+        // conclusions indistinguishable downstream.
         'radius' => [
-            'sharp' => '0.25rem',
+            'sharp' => '0',
             'moderate' => '0.25rem',
             'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',

@@ -87,6 +87,7 @@ it('classifies a mid median to the neutral recipe', function () {
     $out = (new StorePricePointFactor)->detect(spEvidence([60, 80, 90, 110]));
 
     expect($out['space_regular'])->toBe('0.95rem')
+        ->and($out['border_thickness'])->toBe('1px') // standard — deliberately NOT luxury's 0.5px hairline
         ->and($out['motion_pace'])->toBe('normal')
         ->and($out)->not->toHaveKey('effect_surface'); // mid stays neutral
 });

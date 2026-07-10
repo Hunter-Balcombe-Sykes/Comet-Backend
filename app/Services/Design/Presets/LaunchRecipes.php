@@ -31,8 +31,11 @@ namespace App\Services\Design\Presets;
  * COHERENCE CONTRACT: the golden-profiles sweep (FactorSweepTest) asserts every
  * recipe's value set is internally coherent — no "glass surface + hard shadow +
  * heavy weight" contradictions. When editing a recipe, keep the surface/radius/
- * weight/motion axis pulling the SAME direction (soft⇢glass/rounded/light/slow,
- * bold⇢solid/sharp/heavy/fast, editorial⇢outline/flat/light/slow).
+ * weight/motion axis pulling the SAME direction (soft⇢glass/rounded-or-pill/
+ * light/slow, bold⇢solid/square/heavy/fast, editorial⇢outline/flat/square/
+ * light/slow). Recipes MAY use the Square (0) corner stop — a 2+-signal
+ * archetype has earned the extreme — while broad category buckets stay on the
+ * tempered stops (automotive excepted).
  */
 final class LaunchRecipes
 {
@@ -106,7 +109,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#c81e1e',        // hard red
-                    'border_radius' => '0.25rem',       // sharp
+                    'border_radius' => '0',             // square — full poster-brutalist shape (2-signal archetype earns the extreme stop)
                     'weight_regular' => '600',          // chunky
                     'typography_font_family' => 'oswald', // condensed grotesque
                     'space_regular' => '0.8rem',        // compact/energetic
@@ -142,7 +145,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#7c2d12',        // warm brown (hospitality bucket)
-                    'border_radius' => '0.25rem',       // moderate (2026-07-10 vocab: shares the sharp stop)
+                    'border_radius' => '0.85rem',       // rounded — sharp corners contradicted the glass/soft/warm read (soft direction ⇢ rounded)
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
                     'space_regular' => '0.95rem',       // regular
@@ -191,7 +194,7 @@ final class LaunchRecipes
                 // become the full old look if the user picks midnight).
                 'values' => [
                     'color_accent' => '#c9a24b',        // restrained gold
-                    'border_radius' => '0.25rem',       // sharp
+                    'border_radius' => '0',             // square — luxury print is square; completes the editorial outline/flat register
                     'weight_regular' => '300',          // light
                     'typography_font_family' => 'young-serif', // elegant serif
                     'space_regular' => '1.15rem',       // generous
@@ -221,7 +224,7 @@ final class LaunchRecipes
                 },
                 'values' => [
                     'color_accent' => '#7c3aed',        // distinctive violet (creative bucket)
-                    'border_radius' => '0.25rem',       // moderate (2026-07-10 vocab: shares the sharp stop)
+                    'border_radius' => '0',             // square — gallery/editorial media frames are square by convention
                     'weight_regular' => '500',          // medium
                     'typography_font_family' => 'geist', // gallery-neutral grotesque — the chrome recedes, the work speaks
                     'space_regular' => '0.95rem',       // regular
