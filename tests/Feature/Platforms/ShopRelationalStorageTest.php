@@ -244,6 +244,27 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
     ]);
 });
 
+it('keys public popularityRank by product HANDLE, matching the scoring pipeline', function () {
+    // content_popularity_scores keys shop_product rows by the product's handle
+    // slug (what beacons and click signals carry) — NEVER by productId. A map
+    // keyed by productId must not match; a handle-keyed map must.
+    $brand = new ShopBrand([
+        'brand_id' => 'b1', 'provider' => 'shopify', 'url' => 'https://x.example.com',
+    ]);
+    $brand->setRelation('products', collect([
+        new ShopProduct([
+            'product_id' => 'p1',
+            'data' => ['productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug'],
+        ]),
+    ]));
+
+    $handleKeyed = $brand->toBrandArray(['mug' => 3]);
+    expect($handleKeyed['products'][0]['popularityRank'])->toBe(3);
+
+    $productIdKeyed = $brand->toBrandArray(['p1' => 3]);
+    expect($productIdKeyed['products'][0]['popularityRank'])->toBeNull();
+});
+
 // ── FOUND-25 regression: edge-cache purge must survive past the first write ──
 //
 // IntegrationConnectionObserver only purges on wasRecentlyCreated / a

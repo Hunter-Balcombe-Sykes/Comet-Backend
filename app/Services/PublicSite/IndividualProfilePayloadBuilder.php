@@ -177,7 +177,7 @@ class IndividualProfilePayloadBuilder
      *
      * @param  Collection<string, Block>  $sections
      * @param  array<string, int>  $ranks  gallery_item content_key (media id) → rank
-     * @return list<array{url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null, popularityRank: int|null}>
+     * @return list<array{id: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null, popularityRank: int|null}>
      */
     private function buildGallery(?Site $site, Collection $sections, array $ranks = []): array
     {
@@ -185,6 +185,10 @@ class IndividualProfilePayloadBuilder
         $items = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
 
         return array_values(array_map(static fn (array $item): array => [
+            // The SiteMedia UUID — gallery_item scores + item beacons key by it;
+            // without it on the wire the sitepage can never emit scoreable
+            // gallery impressions/clicks.
+            'id' => (string) ($item['id'] ?? ''),
             'url' => (string) ($item['url'] ?? ''),
             'urlHd' => $item['url_hd'] ?? null,
             'alt' => $item['alt_text'] ?? null,
