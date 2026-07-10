@@ -231,7 +231,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         }
         ```
 
-- [ ] **#OBS-3** `[full-sweep]` · P2 — Fail-open catch blocks across the ingest pipeline log via `Log::warning`, which Nightwatch never alerts on
+- [x] **#OBS-3** `[full-sweep]` · P2 — Fail-open catch blocks across the ingest pipeline log via `Log::warning`, which Nightwatch never alerts on
     - **Where:** app/Services/Analytics/Ingestors/QueuedIngestor.php (`ingest()`), app/Services/Analytics/AnalyticsCacheService.php (`bumpVersion()`), app/Services/Analytics/AnalyticsDedupGuard.php (`claim()`)
     - **Affects:** Operations — a sustained Redis outage silently degrades queue dispatch, cache-version busting, and click/section dedup simultaneously, with zero paging signal. Each failure mode is individually harmless (that's the intended fail-open design) but the *sustained* case is currently invisible.
     - **Effort:** S (~0.5–1h)
@@ -326,7 +326,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         CREATE INDEX site_visits_site_time_idx ON analytics.site_visits (site_id, occurred_at);
         ```
 
-- [ ] **#OBS-2** `[scale-health]` · P2 — `QueuedIngestor`'s per-event fail-open has no aggregate signal for a sustained beacon-dispatch outage
+- [x] **#OBS-2** `[scale-health]` · P2 — `QueuedIngestor`'s per-event fail-open has no aggregate signal for a sustained beacon-dispatch outage
     - **Where:** app/Services/Analytics/Ingestors/QueuedIngestor.php:21-32
     - **Affects:** Every public analytics beacon (pageview/click/section-seen/ping) fleet-wide during any Redis/queue-driver disruption — the client always receives a 2xx response regardless of whether the event was actually queued.
     - **Effort:** S (~0.5-1h)

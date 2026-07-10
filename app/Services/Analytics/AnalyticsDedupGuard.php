@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -17,6 +18,8 @@ use Throwable;
 // degrades to a possible duplicate rather than a dropped beacon or a 500.
 class AnalyticsDedupGuard
 {
+    use EscalatesRepeatedFaults;
+
     /** @return array{novel: bool, id: string} */
     public function claim(string $key, string $mintedUuid, int $ttlSeconds): array
     {
@@ -32,6 +35,12 @@ class AnalyticsDedupGuard
             return ['novel' => false, 'id' => is_string($original) ? $original : $mintedUuid];
         } catch (Throwable $e) {
             Log::warning('analytics.dedup_fault', ['key' => $key, 'error' => $e->getMessage()]);
+
+            // A single blip stays a breadcrumb; a sustained run (Redis genuinely down)
+            // escalates to Nightwatch — see EscalatesRepeatedFaults. Only runs once
+            // Cache::add above has already thrown, so this hot path pays nothing
+            // when the cache is healthy.
+            self::escalateIfSustained($e, 'dedup');
 
             return ['novel' => true, 'id' => $mintedUuid];
         }

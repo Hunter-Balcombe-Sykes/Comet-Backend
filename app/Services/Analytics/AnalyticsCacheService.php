@@ -4,6 +4,7 @@ namespace App\Services\Analytics;
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Support\Carbon;
@@ -25,6 +26,8 @@ use Throwable;
  */
 class AnalyticsCacheService
 {
+    use EscalatesRepeatedFaults;
+
     public function __construct(
         private readonly CacheLockService $cacheLock,
         private readonly AnalyticsQueryService $queries,
@@ -46,6 +49,10 @@ class AnalyticsCacheService
             }
         } catch (Throwable $e) {
             Log::warning('analytics.cache_bump_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+
+            // A single blip stays a breadcrumb; a sustained run (Redis genuinely down)
+            // escalates to Nightwatch — see EscalatesRepeatedFaults.
+            self::escalateIfSustained($e, 'cache_bump');
         }
     }
 

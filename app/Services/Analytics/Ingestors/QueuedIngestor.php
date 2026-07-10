@@ -4,6 +4,7 @@ namespace App\Services\Analytics\Ingestors;
 
 use App\Jobs\Analytics\RecordAnalyticsEventJob;
 use App\Services\Analytics\AnalyticsEvent;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Log;
@@ -14,8 +15,13 @@ use Throwable;
 // do NOT fall back to an inline write (unlike the image pipeline): that would reintroduce
 // the request-path DB coupling this whole design removes, and a single lost beacon is
 // acceptable. The visitor beacon is fire-and-forget; never throw at it.
+//
+// Only bound outside local/testing when queue.default !== 'sync' (see
+// AppServiceProvider) — its fault escalation is latent until a queue worker is provisioned.
 class QueuedIngestor implements AnalyticsIngestor
 {
+    use EscalatesRepeatedFaults;
+
     public function __construct(private readonly Dispatcher $bus) {}
 
     public function ingest(AnalyticsEvent $event): void
@@ -28,6 +34,10 @@ class QueuedIngestor implements AnalyticsIngestor
                 'site_id' => $event->siteId,
                 'error' => $e->getMessage(),
             ]);
+
+            // A single blip stays a breadcrumb; a sustained run (queue/Redis genuinely
+            // down) escalates to Nightwatch — see EscalatesRepeatedFaults.
+            self::escalateIfSustained($e, 'ingest');
         }
     }
 }

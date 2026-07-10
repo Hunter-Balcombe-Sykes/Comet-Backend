@@ -98,6 +98,11 @@ return [
             'driver' => 'octane',
         ],
 
+        // WARNING: selecting this as CACHE_STORE silently disables the analytics
+        // fault escalation — FailoverStore swallows the redis leg's Throwable, so
+        // the catch blocks in AnalyticsCacheService/AnalyticsDedupGuard (via the
+        // EscalatesRepeatedFaults trait) never run. Guarded by
+        // tests/Feature/Architecture/CacheStoreFailoverGuardTest.php.
         'failover' => [
             'driver' => 'failover',
             'stores' => ['redis', 'array'],
