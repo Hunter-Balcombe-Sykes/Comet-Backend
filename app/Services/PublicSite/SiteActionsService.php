@@ -54,6 +54,10 @@ class SiteActionsService
     // keeps the ranked list CTA-sized instead of drowning it in catalog rows.
     private const ITEMS_PER_TYPE = 2;
 
+    // Defensive cap on a CUSTOM action label at emit time (mirrors the request
+    // validator's max:80). Bounds a stray/unvalidated write, not a normal one.
+    private const CUSTOM_LABEL_MAX = 80;
+
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentPopularityReader $popularity,
@@ -326,10 +330,19 @@ class SiteActionsService
                     continue;
                 }
                 if (($manual['kind'] ?? null) === 'custom') {
-                    $label = trim((string) ($manual['label'] ?? ''));
-                    $url = trim((string) ($manual['url'] ?? ''));
-                    if ($label === '' || $url === '') {
+                    $label = is_string($manual['label'] ?? null) ? trim($manual['label']) : '';
+                    // Defense-in-depth on the EMIT path: only http(s) hrefs reach
+                    // the payload. UpdateSiteRequest validates url:http,https, but
+                    // StaffUpdateSiteRequest writes settings via a generic array
+                    // passthrough with NO per-kind validation — so an unvalidated
+                    // javascript:/data:/relative url could otherwise become a
+                    // button href. Re-check the scheme here regardless of writer.
+                    $url = $this->safeHref($manual['url'] ?? null);
+                    if ($label === '' || $url === null) {
                         continue;
+                    }
+                    if (mb_strlen($label) > self::CUSTOM_LABEL_MAX) {
+                        $label = mb_substr($label, 0, self::CUSTOM_LABEL_MAX);
                     }
                     $out[] = [
                         'kind' => 'custom', 'ref' => null, 'label' => $label, 'url' => $url,
@@ -386,18 +399,41 @@ class SiteActionsService
     public function toWire(array $entry, ?float $score = null): array
     {
         $label = is_string($entry['label'] ?? null) ? trim((string) $entry['label']) : '';
-        $url = is_string($entry['url'] ?? null) ? trim((string) $entry['url']) : '';
+        // Same emit-path scheme gate as the custom branch — a button href
+        // ultimately traces to a user-set link block, so keep the wire http(s)-only.
+        $url = $this->safeHref($entry['url'] ?? null);
 
         return [
             'kind' => (string) $entry['kind'],
             'ref' => (string) $entry['ref'],
             'label' => $label !== '' ? $label : null,
-            'url' => $url !== '' ? $url : null,
+            'url' => $url,
             'pageId' => $entry['pageId'] ?? null,
             'itemType' => $entry['itemType'] ?? null,
             'itemKey' => $entry['itemKey'] ?? null,
             'score' => $score !== null ? round($score, 4) : null,
         ];
+    }
+
+    /**
+     * Emit-path href gate: return the trimmed URL only when its scheme is
+     * http/https, else null. Parses the scheme (fail-closed — a missing/
+     * malformed scheme, javascript:, data:, or a relative/scheme-less URL all
+     * return null) so no non-navigational URL can land in the payload as a
+     * button href, regardless of which writer populated the source.
+     */
+    private function safeHref(mixed $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return ($scheme === 'http' || $scheme === 'https') ? $url : null;
     }
 
     // ── Ordering settings ───────────────────────────────────────────────

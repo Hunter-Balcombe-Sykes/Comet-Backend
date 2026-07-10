@@ -144,6 +144,43 @@ it('serves the manual action list verbatim when smart_actions is off — customs
         ->and(count($ordering['manualActions']))->toBe(4);
 });
 
+it('drops custom actions with a non-http(s) url on the emit path (defense-in-depth vs unvalidated writers)', function () {
+    $tenant = createTenant('pay-href');
+    // Written DIRECTLY to settings, bypassing UpdateSiteRequest's url:http,https
+    // rule — simulates StaffUpdateSiteRequest's generic settings passthrough (no
+    // per-kind validation). The EMIT path must still refuse a script/data/relative
+    // href so it can never reach the public payload as a button.
+    setSiteSettings($tenant, [
+        'smart_actions' => false,
+        'manual_actions' => [
+            ['kind' => 'custom', 'label' => 'XSS', 'url' => 'javascript:alert(1)'],
+            ['kind' => 'custom', 'label' => 'Data', 'url' => 'data:text/html,<script>alert(1)</script>'],
+            ['kind' => 'custom', 'label' => 'Scheme-less', 'url' => '//evil.example/x'],
+            ['kind' => 'custom', 'label' => 'Relative', 'url' => '/not-absolute'],
+            ['kind' => 'custom', 'label' => 'Safe', 'url' => 'https://safe.example/x'],
+        ],
+    ]);
+
+    $actions = buildProfilePayload($tenant)['rankedActions'];
+
+    expect(collect($actions)->pluck('url')->all())->toBe(['https://safe.example/x'])
+        ->and($actions[0])->toMatchArray(['kind' => 'custom', 'label' => 'Safe', 'url' => 'https://safe.example/x']);
+});
+
+it('truncates an over-long custom label defensively at emit time', function () {
+    $tenant = createTenant('pay-label');
+    setSiteSettings($tenant, [
+        'smart_actions' => false,
+        'manual_actions' => [
+            ['kind' => 'custom', 'label' => str_repeat('a', 200), 'url' => 'https://safe.example/x'],
+        ],
+    ]);
+
+    $actions = buildProfilePayload($tenant)['rankedActions'];
+
+    expect(mb_strlen($actions[0]['label']))->toBe(80);
+});
+
 it('applies manual page order when smart_page_order is off — unknown dropped, missing present pages appended', function () {
     $tenant = createTenant('pay-pageorder');
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']); // links page
