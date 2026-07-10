@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
+use App\Services\Cache\Concerns\JitteredTtl;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +28,7 @@ use Throwable;
 class AnalyticsCacheService
 {
     use EscalatesRepeatedFaults;
+    use JitteredTtl;
 
     public function __construct(
         private readonly CacheLockService $cacheLock,
@@ -35,7 +37,8 @@ class AnalyticsCacheService
 
     /**
      * Debounced bust of every cached summary variant for a user: increments the
-     * version token (at most once per 30s/user) that summary() folds into the cache
+     * version token (at most once per debounce window/user — config-driven, jittered,
+     * ~30s default) that summary() folds into the cache
      * key, atomically invalidating all (range, granularity) variants. Called after a
      * new ingest lands — inline by SyncIngestor and from RecordAnalyticsEventJob — so
      * both ingest paths share one implementation. Fail-open: a cache fault is swallowed
@@ -44,7 +47,11 @@ class AnalyticsCacheService
     public function bumpVersion(string $userId): void
     {
         try {
-            if (Cache::add("analytics:ingest-debounce:{$userId}", 1, 30)) {
+            // CCH-1: jittered so a burst of ingests across many users doesn't debounce
+            // (and re-bump) in lockstep every exact 30s.
+            $ttl = self::applyJitter((int) config('partna.analytics.ingest_debounce_seconds', 30));
+
+            if (Cache::add(CacheKeyGenerator::analyticsIngestDebounce($userId), 1, $ttl)) {
                 Cache::increment(CacheKeyGenerator::analyticsSummaryVersion($userId));
             }
         } catch (Throwable $e) {
@@ -80,11 +87,13 @@ class AnalyticsCacheService
             $to->format('YmdH')
         ).':'.($useHourlyBuckets ? 'hour' : 'day').":v{$summaryVersion}";
 
-        // 5min TTL for live (today's) data; 24h for fully-historical ranges.
+        // CFG-1: TTL for live (today's) data vs. fully-historical ranges, config-driven.
         // Int seconds (not Carbon) so CacheLockService applies ±20% jitter on
         // write — without it every dashboard cache fills at the same moment
         // and expires together, hammering the DB on each rollover.
-        $cacheTTL = $to->isToday() ? 300 : 86400;
+        $cacheTTL = $to->isToday()
+            ? (int) config('partna.analytics.summary_ttl_today_seconds', 300)
+            : (int) config('partna.analytics.summary_ttl_historical_seconds', 86400);
 
         return $this->cacheLock->rememberLocked(
             $cacheKey,
@@ -190,8 +199,10 @@ class AnalyticsCacheService
             $to->toDateString(),
         ).":v{$version}";
 
-        // 60s TTL — byte-identical staff cache-key contract to the legacy controller (CACHE-3 guard).
-        return $this->cacheLock->rememberLocked($cacheKey, 60, fn () => $this->composeStaff($professional, $site, $from, $to));
+        // CFG-1: byte-identical staff cache-key contract to the legacy controller (CACHE-3 guard) — TTL now config-driven.
+        $ttl = (int) config('partna.analytics.staff_summary_ttl_seconds', 60);
+
+        return $this->cacheLock->rememberLocked($cacheKey, $ttl, fn () => $this->composeStaff($professional, $site, $from, $to));
     }
 
     /**

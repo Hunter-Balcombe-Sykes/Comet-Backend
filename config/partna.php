@@ -1670,6 +1670,43 @@ return [
         // analytics.lead_submissions row, keyed by (ip_hash, subdomain).
         'lead_rate_limit_dedup_seconds' => (int) env('PARTNA_ANALYTICS_LEAD_RATE_LIMIT_DEDUP_SECONDS', 10),
 
+        // CFG-1: RecordAnalyticsEventJob hygiene. Typed properties can't call config()
+        // in their initialiser, so these are read in the job's constructor instead —
+        // JobHygienePolicyTest only requires the properties to be *declared*, not
+        // assigned a literal default, so this stays config-driven without changing shape.
+        'job_tries' => (int) env('PARTNA_ANALYTICS_JOB_TRIES', 3),
+        'job_backoff_seconds' => (int) env('PARTNA_ANALYTICS_JOB_BACKOFF_SECONDS', 10),
+        'job_timeout_seconds' => (int) env('PARTNA_ANALYTICS_JOB_TIMEOUT_SECONDS', 30),
+
+        // CFG-1: AnalyticsCacheService::summary() cache-key contract TTLs — 5min while
+        // today's data is still live, 24h once the range is fully historical.
+        'summary_ttl_today_seconds' => (int) env('PARTNA_ANALYTICS_SUMMARY_TTL_TODAY_SECONDS', 300),
+        'summary_ttl_historical_seconds' => (int) env('PARTNA_ANALYTICS_SUMMARY_TTL_HISTORICAL_SECONDS', 86400),
+        // CFG-1: staffSummary()'s cache-key contract TTL (CACHE-3 guard) — short-lived,
+        // the staff view has no hourly toggle so a stale minute is low-stakes.
+        'staff_summary_ttl_seconds' => (int) env('PARTNA_ANALYTICS_STAFF_SUMMARY_TTL_SECONDS', 60),
+
+        // CFG-1 / CCH-1: AnalyticsCacheService::bumpVersion() debounce window — at most
+        // one summary-version bump per user per this many seconds. Jittered ±20% (see
+        // JitteredTtl) so a burst of ingests across many users doesn't re-bump in lockstep.
+        'ingest_debounce_seconds' => (int) env('PARTNA_ANALYTICS_INGEST_DEBOUNCE_SECONDS', 30),
+
+        // CFG-1: public ingest dedup TTLs (AnalyticsController). Click window is short
+        // (rapid double-taps); section/item dedup windows are long (one view per visit).
+        'click_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_CLICK_DEDUP_TTL_SECONDS', 3),
+        'section_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_SECTION_DEDUP_TTL_SECONDS', 300),
+        'item_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ITEM_DEDUP_TTL_SECONDS', 300),
+
+        // CFG-1: PurgeRawAnalyticsEvents batch delete size — bounds each DELETE's row
+        // count so the purge never holds one long-running transaction.
+        'purge_batch_size' => (int) env('PARTNA_ANALYTICS_PURGE_BATCH_SIZE', 10_000),
+
+        // API-5: ?group_by=hour is forced regardless of the requested range (up to the
+        // 730-day cap). Beyond this many days the hourly bucket count is never usefully
+        // rendered, so UserAnalyticsController::summary() clamps the LOOKBACK to this
+        // window instead of the full range.
+        'hourly_bucket_max_days' => (int) env('PARTNA_ANALYTICS_HOURLY_BUCKET_MAX_DAYS', 7),
+
         // Section-key → display label for the analytics "top sections" chart. Add a new
         // skeleton section here — no code deploy needed. Unknown keys fall back to a
         // humanized version of the raw key in AnalyticsQueryService::sectionTitle().

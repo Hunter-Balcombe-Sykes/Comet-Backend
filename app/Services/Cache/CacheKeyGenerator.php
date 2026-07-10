@@ -204,6 +204,42 @@ class CacheKeyGenerator
     }
 
     /**
+     * Debounce key gating AnalyticsCacheService::bumpVersion() — at most one
+     * summary-version bump per user per TTL window (#CCH-1).
+     */
+    public static function analyticsIngestDebounce(string $userId): string
+    {
+        return "analytics:ingest-debounce:{$userId}";
+    }
+
+    /**
+     * Click dedup claim key (AnalyticsController::click(), #CCH-1). $target is the
+     * block_id, or a site+destination hash for self-describing v2 url clicks;
+     * $identifier is the strongest available visitor signal (visitor_id > session_id
+     * > ip hash — see AnalyticsController::dedupIdentifier()).
+     */
+    public static function analyticsClickDedup(string $target, string $identifier): string
+    {
+        return "analytics:dedup:click:{$target}:{$identifier}";
+    }
+
+    /**
+     * Section-seen dedup claim key (AnalyticsController::sectionSeen(), #CCH-1).
+     */
+    public static function analyticsSectionDedup(string $siteId, string $sectionKey, string $identifier): string
+    {
+        return "analytics:dedup:section:{$siteId}:{$sectionKey}:{$identifier}";
+    }
+
+    /**
+     * Item-seen dedup claim key (AnalyticsController::itemSeen(), #CCH-1).
+     */
+    public static function analyticsItemDedup(string $siteId, string $itemType, string $itemId, string $identifier): string
+    {
+        return "analytics:dedup:item:{$siteId}:{$itemType}:{$itemId}:{$identifier}";
+    }
+
+    /**
      * Short-TTL resolve map: handle → {pro_id, site_id, updated_at_ts}.
      * Consumers: IndividualProfileController (read/write) and
      * SiteCacheService::invalidateSitePayload (bust).

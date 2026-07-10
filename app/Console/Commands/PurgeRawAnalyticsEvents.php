@@ -6,7 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-// V2: Deletes raw analytics events older than retention window (min 30 days). Aggregate data preserved in hourly/daily tables.
+// V2: Deletes raw analytics events older than retention window (min 30 days).
 class PurgeRawAnalyticsEvents extends Command
 {
     protected $signature = 'partna:analytics:purge-raw-events
@@ -14,10 +14,7 @@ class PurgeRawAnalyticsEvents extends Command
                             {--dry-run : Report row counts without deleting}';
 
     protected $description = 'Delete raw analytics event rows older than the retention window. '
-        .'Aggregate data is preserved in the hourly/daily tables. '
         .'Runs in batches to avoid long-running transactions.';
-
-    private const BATCH_SIZE = 10_000;
 
     private const TABLES = [
         'analytics.link_clicks' => 'occurred_at',
@@ -101,16 +98,19 @@ class PurgeRawAnalyticsEvents extends Command
 
     private function purgeBatched(string $table, string $tsColumn, \DateTimeImmutable $cutoff): int
     {
+        // CFG-1: batch size bounds each DELETE's row count so the purge never holds
+        // one long-running transaction.
+        $batchSize = (int) config('partna.analytics.purge_batch_size', 10_000);
         $deleted = 0;
 
         do {
             $count = DB::table($table)
                 ->where($tsColumn, '<', $cutoff)
-                ->limit(self::BATCH_SIZE)
+                ->limit($batchSize)
                 ->delete();
 
             $deleted += $count;
-        } while ($count === self::BATCH_SIZE);
+        } while ($count === $batchSize);
 
         return $deleted;
     }

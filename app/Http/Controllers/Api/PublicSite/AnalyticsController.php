@@ -17,6 +17,7 @@ use App\Services\Analytics\AnalyticsDedupGuard;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -91,16 +92,20 @@ class AnalyticsController extends ApiController
 
         $id = (string) Str::orderedUuid();
 
-        // Dedup on (target, strongest identifier) for 3s. Legacy block clicks keep the
-        // original key shape; v2 url-clicks scope by site + destination hash. Returns
-        // the original id on a duplicate so the response is byte-identical to today's
-        // "return existing id".
+        // Dedup on (target, strongest identifier) for a short window (config-driven,
+        // CFG-1). Legacy block clicks keep the original key shape; v2 url-clicks scope
+        // by site + destination hash. Returns the original id on a duplicate so the
+        // response is byte-identical to today's "return existing id".
         $identifier = $this->dedupIdentifier($data, $request);
         $blockId = $data['block_id'] ?? null;
         // SEM-1: lowercase platform so the dedup target matches what buildEvent() stores —
         // otherwise "Instagram" then "instagram" mint two keys for the same destination.
         $target = $blockId ?? $site->id.':'.md5(($data['url'] ?? '').'|'.strtolower($data['platform'] ?? ''));
-        $claim = $this->dedup->claim("analytics:dedup:click:{$target}:{$identifier}", $id, 3);
+        $claim = $this->dedup->claim(
+            CacheKeyGenerator::analyticsClickDedup($target, $identifier),
+            $id,
+            (int) config('partna.analytics.click_dedup_ttl_seconds', 3),
+        );
         if (! $claim['novel']) {
             return $this->success(['message' => 'Click recorded', 'click_id' => $claim['id']], 201);
         }
@@ -140,10 +145,10 @@ class AnalyticsController extends ApiController
 
         $id = (string) Str::orderedUuid();
 
-        // Dedup on (site, section_key, strongest identifier) for 5min.
+        // Dedup on (site, section_key, strongest identifier) for a config-driven window (CFG-1).
         $identifier = $this->dedupIdentifier($data, $request);
-        $key = "analytics:dedup:section:{$site->id}:{$data['section_key']}:{$identifier}";
-        $claim = $this->dedup->claim($key, $id, 300);
+        $key = CacheKeyGenerator::analyticsSectionDedup($site->id, $data['section_key'], $identifier);
+        $claim = $this->dedup->claim($key, $id, (int) config('partna.analytics.section_dedup_ttl_seconds', 300));
         if (! $claim['novel']) {
             return $this->success(['message' => 'Section view recorded', 'view_id' => $claim['id']], 201);
         }
@@ -228,11 +233,11 @@ class AnalyticsController extends ApiController
 
         $id = (string) Str::orderedUuid();
 
-        // Dedup on (site, item_type, item_id, strongest identifier) for 5min —
-        // same window + fail-open semantics as section-seen.
+        // Dedup on (site, item_type, item_id, strongest identifier) for a config-driven
+        // window (CFG-1) — same default + fail-open semantics as section-seen.
         $identifier = $this->dedupIdentifier($data, $request);
-        $key = "analytics:dedup:item:{$site->id}:{$data['item_type']}:{$data['item_id']}:{$identifier}";
-        $claim = $this->dedup->claim($key, $id, 300);
+        $key = CacheKeyGenerator::analyticsItemDedup($site->id, $data['item_type'], $data['item_id'], $identifier);
+        $claim = $this->dedup->claim($key, $id, (int) config('partna.analytics.item_dedup_ttl_seconds', 300));
         if (! $claim['novel']) {
             return $this->success(['message' => 'Item view recorded', 'view_id' => $claim['id']], 201);
         }

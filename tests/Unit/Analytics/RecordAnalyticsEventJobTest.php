@@ -58,6 +58,30 @@ it('targets the analytics queue', function () {
     expect((new RecordAnalyticsEventJob(['id' => 'x']))->queue)->toBe('analytics');
 });
 
+// #CFG-1 — tries/backoff/timeout are assigned in the constructor from config (typed
+// properties can't call config() at declaration), so an override must flow through.
+it('reads tries/backoff/timeout from config at construction time', function () {
+    config([
+        'partna.analytics.job_tries' => 7,
+        'partna.analytics.job_backoff_seconds' => 42,
+        'partna.analytics.job_timeout_seconds' => 99,
+    ]);
+
+    $job = new RecordAnalyticsEventJob(['id' => 'x']);
+
+    expect($job->tries)->toBe(7)
+        ->and($job->backoff)->toBe(42)
+        ->and($job->timeout)->toBe(99);
+});
+
+it('defaults tries/backoff/timeout to the pre-CFG-1 hardcoded values', function () {
+    $job = new RecordAnalyticsEventJob(['id' => 'x']);
+
+    expect($job->tries)->toBe(3)
+        ->and($job->backoff)->toBe(10)
+        ->and($job->timeout)->toBe(30);
+});
+
 // FOUND-5 guard: payload is AnalyticsEvent::toArray(), whose key is 'type' — a
 // regression back to reading 'event_type' would make this fail (logs 'unknown').
 it('logs the real event type, site_id, and user_id on permanent failure', function () {

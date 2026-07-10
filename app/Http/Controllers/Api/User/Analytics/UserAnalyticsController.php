@@ -77,6 +77,13 @@ class UserAnalyticsController extends ApiController
             $from = $to->copy()->subDays(730)->startOfDay();
         }
 
+        // API-5: the 730-day clamp above bounds total range width, not per-bucket
+        // cost — group_by=hour over a wide custom range would still emit thousands
+        // of hourly rows a chart never usefully renders. Clamp (not 422) the
+        // LOOKBACK when hourly is forced, matching this endpoint's existing
+        // "wide ranges clamp" contract rather than introducing a new error case.
+        $from = $this->clampHourlyLookback($from, $to, $forceHourly);
+
         $site = $professional->site;
         if (! $site) {
             return $this->error('professional has no site.', 404);
@@ -102,6 +109,26 @@ class UserAnalyticsController extends ApiController
         );
 
         return $this->success($data);
+    }
+
+    /**
+     * Bounds hourly-bucket cardinality (#API-5): when hour granularity is forced,
+     * shrink the lookback to config('partna.analytics.hourly_bucket_max_days')
+     * (default 7) if the requested range is wider — a year of hourly buckets is
+     * never usefully rendered by the dashboard chart. No-op for daily granularity
+     * or a range already inside the window.
+     */
+    private function clampHourlyLookback(Carbon $from, Carbon $to, bool $forceHourly): Carbon
+    {
+        if (! $forceHourly) {
+            return $from;
+        }
+
+        $maxDays = (int) config('partna.analytics.hourly_bucket_max_days', 7);
+
+        return $from->diffInDays($to) > $maxDays
+            ? $to->copy()->subDays($maxDays)->startOfDay()
+            : $from;
     }
 
     /**

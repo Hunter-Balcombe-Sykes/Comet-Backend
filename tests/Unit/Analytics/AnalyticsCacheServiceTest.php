@@ -6,6 +6,7 @@
 // blip and only escalate to Nightwatch on a sustained run (EscalatesRepeatedFaults).
 
 use App\Services\Analytics\AnalyticsCacheService;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
@@ -69,4 +70,27 @@ it('escalates to Nightwatch once a sustained run of cache faults crosses the thr
     // The threshold-th consecutive failure inside the window escalates.
     $service->bumpVersion('user-1');
     Exceptions::assertReported(RuntimeException::class);
+});
+
+// #CCH-1 — the 30s ingest-debounce TTL is jittered ±20% (JitteredTtl), so a burst of
+// ingests across many users doesn't debounce (and re-bump) in lockstep.
+it('jitters the ingest-debounce TTL within ±20% of the configured base', function () {
+    config(['partna.analytics.ingest_debounce_seconds' => 30]);
+
+    $capturedTtl = null;
+
+    Cache::shouldReceive('add')
+        ->withArgs(function (string $key, $value, $ttl) use (&$capturedTtl) {
+            $capturedTtl = $ttl;
+
+            return $key === CacheKeyGenerator::analyticsIngestDebounce('user-jitter');
+        })
+        ->once()
+        // Return false so bumpVersion() skips Cache::increment() — only the TTL arg
+        // passed to add() is under test here.
+        ->andReturn(false);
+
+    app(AnalyticsCacheService::class)->bumpVersion('user-jitter');
+
+    expect($capturedTtl)->toBeGreaterThanOrEqual(24)->toBeLessThanOrEqual(36);
 });

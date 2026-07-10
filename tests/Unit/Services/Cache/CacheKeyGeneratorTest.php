@@ -27,3 +27,27 @@ it('enumerates cache-bust variants in lockstep with the controller filter inputs
         ->toEqual($expected)
         ->toHaveCount(9);
 });
+
+// #CCH-1 — these four analytics keys used to be built inline at each call site.
+// The generator's output must stay byte-identical to the old literals (representative
+// inputs below) — a changed format silently invalidates in-flight dedup/debounce state.
+
+it('builds the ingest-debounce key byte-identical to the old inline literal', function () {
+    expect(CacheKeyGenerator::analyticsIngestDebounce('user-1'))
+        ->toBe('analytics:ingest-debounce:user-1');
+});
+
+it('builds the click dedup key byte-identical to the old inline literal', function () {
+    expect(CacheKeyGenerator::analyticsClickDedup('block-9', 'visitor-abc'))
+        ->toBe('analytics:dedup:click:block-9:visitor-abc');
+});
+
+it('builds the section dedup key byte-identical to the old inline literal', function () {
+    expect(CacheKeyGenerator::analyticsSectionDedup('site-1', 'about', 'visitor-abc'))
+        ->toBe('analytics:dedup:section:site-1:about:visitor-abc');
+});
+
+it('builds the item dedup key byte-identical to the old inline literal', function () {
+    expect(CacheKeyGenerator::analyticsItemDedup('site-1', 'shop_product', 'prod-42', 'visitor-abc'))
+        ->toBe('analytics:dedup:item:site-1:shop_product:prod-42:visitor-abc');
+});

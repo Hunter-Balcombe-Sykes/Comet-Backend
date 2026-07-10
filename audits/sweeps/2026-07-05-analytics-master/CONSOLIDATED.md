@@ -612,7 +612,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** `[full-sweep]` · P3 — `PurgeRawAnalyticsEvents` docblock describes an "aggregate preservation" feature that doesn't exist
+- [x] **#SLOP-1** `[full-sweep]` · P3 — `PurgeRawAnalyticsEvents` docblock describes an "aggregate preservation" feature that doesn't exist
     - **Where:** app/Console/Commands/PurgeRawAnalyticsEvents.php (class docblock)
     - **Affects:** Developers reading the purge command; zero runtime impact.
     - **Effort:** S (~0.25h)
@@ -677,7 +677,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         'platform' => isset($data['platform']) ? strtolower($data['platform']) : null,
         ```
 
-- [ ] **#CCH-1** `[full-sweep]` · P3 — Several analytics cache/dedup keys are built with ad-hoc string concatenation instead of `CacheKeyGenerator`
+- [x] **#CCH-1** `[full-sweep]` · P3 — Several analytics cache/dedup keys are built with ad-hoc string concatenation instead of `CacheKeyGenerator`
     - **Where:** app/Services/Analytics/AnalyticsCacheService.php (`bumpVersion()` debounce key); app/Http/Controllers/Api/PublicSite/AnalyticsController.php (`click()`/`sectionSeen()` dedup keys)
     - **Affects:** No user-visible impact today (single call sites each) — the risk is future drift if a second code path builds a similarly-shaped key with a slightly different format and silently misses collisions.
     - **Effort:** S (~0.5–1h)
@@ -697,7 +697,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         $key = "analytics:dedup:section:{$site->id}:{$data['section_key']}:{$identifier}";
         ```
 
-- [ ] **#CFG-1** `[full-sweep]` · P3 — Several tunable analytics parameters are hardcoded as literals instead of sourced from `config/partna.php`
+- [x] **#CFG-1** `[full-sweep]` · P3 — Several tunable analytics parameters are hardcoded as literals instead of sourced from `config/partna.php`
     - **Where:** app/Jobs/Analytics/RecordAnalyticsEventJob.php (`$tries=3`, `$backoff=10`, `$timeout=30`); app/Services/Analytics/AnalyticsCacheService.php (300s/86400s TTL ternary); app/Http/Controllers/Api/PublicSite/AnalyticsController.php (3s click / 300s section dedup TTLs); app/Console/Commands/PurgeRawAnalyticsEvents.php (`BATCH_SIZE = 10_000`)
     - **Affects:** Operational tunability — adjusting retry counts, cache freshness, dedup windows, or purge batch size currently requires a code deploy rather than a config/env change.
     - **Effort:** M (~2–4h)
@@ -722,7 +722,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         private const BATCH_SIZE = 10_000;
         ```
 
-- [ ] **#API-5** `[full-sweep]` · P3 — Chart data arrays (`visits_by_day`, `clicks_by_day`) have no upper bound on the number of buckets returned
+- [x] **#API-5** `[full-sweep]` · P3 — Chart data arrays (`visits_by_day`, `clicks_by_day`) have no upper bound on the number of buckets returned
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php (`visitsByBucket`, `clicksByBucket`); app/Http/Controllers/Api/User/Analytics/UserAnalyticsController.php (`summary()`)
     - **Affects:** API response size and client render time for a request combining a long date range with `?group_by=hour`.
     - **Effort:** S (~0.5–1h)
@@ -790,7 +790,7 @@ Per-run raw totals before merge: full-sweep 22 (P2:12, P3:10) · scale-health 7 
         it('targets the analytics queue', function () { ... });
         ```
 
-- [ ] **#CCH-1** `[scale-health]` · P3 — Unjittered 30s TTL on the ingest-debounce key in `AnalyticsCacheService::bumpVersion`
+- [x] **#CCH-1** `[scale-health]` · P3 — Unjittered 30s TTL on the ingest-debounce key in `AnalyticsCacheService::bumpVersion`
     - **Where:** app/Services/Analytics/AnalyticsCacheService.php:41-50
     - **Affects:** The version-bump debounce window; practical impact is low because the bumped value is a single Redis `INCR`, not a re-run of the expensive `compose()` query set (which already carries its own jitter via `CacheLockService::rememberLocked`, per the adjacent comment in `summary()`).
     - **Effort:** S (~0.5-1h)
