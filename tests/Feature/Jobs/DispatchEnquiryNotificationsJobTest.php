@@ -3,6 +3,7 @@
 use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
+use App\Services\Notifications\Dispatchers\AchievementNotifier;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
 use Illuminate\Support\Str;
 
@@ -26,7 +27,7 @@ it('resolves enquiry + active contact block then invokes dispatcher', function (
         ->once();
     app()->instance(EnquiryNotificationDispatcher::class, $dispatcher);
 
-    (new DispatchEnquiryNotificationsJob((string) $enquiry->id))->handle($dispatcher);
+    (new DispatchEnquiryNotificationsJob((string) $enquiry->id))->handle($dispatcher, app(AchievementNotifier::class));
 });
 
 it('silently no-ops when the enquiry has been deleted before the job runs', function () {
@@ -37,7 +38,7 @@ it('silently no-ops when the enquiry has been deleted before the job runs', func
     $dispatcher = Mockery::mock(EnquiryNotificationDispatcher::class);
     $dispatcher->shouldNotReceive('dispatch');
 
-    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher);
+    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher, app(AchievementNotifier::class));
 });
 
 it('no-ops when no active contact block exists', function () {
@@ -48,5 +49,5 @@ it('no-ops when no active contact block exists', function () {
     $dispatcher = Mockery::mock(EnquiryNotificationDispatcher::class);
     $dispatcher->shouldNotReceive('dispatch');
 
-    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher);
+    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher, app(AchievementNotifier::class));
 });

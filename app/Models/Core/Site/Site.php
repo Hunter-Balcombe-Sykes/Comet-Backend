@@ -17,19 +17,18 @@ use Illuminate\Support\Facades\DB;
 /**
  * @property mixed $id
  */
-// A user's public-facing site. Owns blocks, media, skeleton selection, and publish state. One site per user.
-// `skeleton_id` is a TEXT enum constrained by the DB CHECK to bento/dock/flick/deck/atlas/one
-// — the renderer (partna-pages) picks a code-side skeleton layout from that
-// value (thread/sheet removed 2026-07-08 #78; atlas = Business-only multi-page;
-// 'one' reserved for the upcoming ONE skeleton — accepted on write, not yet
-// rendered or picker-exposed, both land in V1). Per-user design vars live in
-// site.design_kits (separate table).
+// A user's public-facing site. Owns blocks, media, architecture selection, and publish state. One site per user.
+// `architecture_id` is a TEXT enum. An "architecture" is how the sitepage is
+// laid out / how its pages connect — the renderer (partna-pages) picks a
+// code-side architecture from that value. Vestigial: the DB CHECK constrains it
+// to 'one' and every write collapses historical ids to 'one' (single-architecture
+// platform). Per-user design vars live in site.design_kits (separate table).
 class Site extends BaseModel
 {
     use HasFactory, HasUuids;
 
-    /** Default skeleton when none has been explicitly chosen. Must match the DB CHECK constraint. */
-    public const DEFAULT_SKELETON_ID = 'bento';
+    /** Default architecture when none has been explicitly chosen. Must match the DB CHECK constraint. */
+    public const DEFAULT_ARCHITECTURE_ID = 'one';
 
     /**
      * Allowed GLOBAL shop link modes — mirrors the value the shop-settings
@@ -73,7 +72,7 @@ class Site extends BaseModel
 
     protected $fillable = [
         'subdomain',
-        'skeleton_id',
+        'architecture_id',
         'is_published',
         'unpublished_at',
         'settings',

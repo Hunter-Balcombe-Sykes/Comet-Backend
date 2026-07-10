@@ -41,6 +41,7 @@ class NotificationPublisher
         ?string $secondaryActionLabel = 'Dismiss',
         ?string $secondaryActionUrl = null,
         ?string $retentionConfigKey = null,
+        bool $critical = false,
     ): ?Notification {
         $userId = trim($userId);
         if ($userId === '') {
@@ -113,8 +114,11 @@ class NotificationPublisher
             'secondary_action_label' => $secondaryActionLabel,
             'secondary_action_url' => $secondaryActionUrl,
             'severity' => Notification::severityForFrontendType($type),
+            'critical' => $critical,
             'starts_at' => $now,
-            'ends_at' => $now->copy()->addDays((int) $days),
+            // Critical notifications persist (no auto-expiry) until resolved/dismissed;
+            // non-critical get an ends_at so the prune command auto-cleans them.
+            'ends_at' => $critical ? null : $now->copy()->addDays((int) $days),
             'dedupe_key' => $dedupeKey,
             'created_at' => $now,
             'updated_at' => $now,
@@ -128,9 +132,10 @@ class NotificationPublisher
             ->where('dedupe_key', $dedupeKey)
             ->first();
 
-        // Only dispatch the email job for genuinely-new rows. insertOrIgnore()
-        // returns the number of rows actually inserted (0 on conflict).
-        if ($inserted > 0 && config('partna.notifications.email_enabled', false)) {
+        // Email is the CRITICAL delivery escalation (OV-H): only critical notifications
+        // route to email; non-critical stay in-app only. Dispatch only for genuinely-new
+        // rows — insertOrIgnore() returns 0 on dedupe conflict.
+        if ($inserted > 0 && $critical && config('partna.notifications.email_enabled', false)) {
             SendTransactionalNotificationEmailJob::dispatch(
                 $notificationId,
                 $category,
@@ -162,6 +167,7 @@ class NotificationPublisher
      *     secondaryActionLabel?: string|null,
      *     secondaryActionUrl?: string|null,
      *     retentionConfigKey?: string|null,
+     *     critical?: bool,
      * }>  $items
      */
     public function publishMany(array $items): void
@@ -214,6 +220,7 @@ class NotificationPublisher
             $retentionKey = $item['retentionConfigKey'] ?? 'default';
             $days = config("partna.notification_retention_days.{$retentionKey}")
                 ?? config('partna.notification_retention_days.default', 30);
+            $critical = (bool) ($item['critical'] ?? false);
             $notificationId = (string) Str::uuid();
 
             $rows[] = [
@@ -228,14 +235,16 @@ class NotificationPublisher
                 'secondary_action_label' => $item['secondaryActionLabel'] ?? 'Dismiss',
                 'secondary_action_url' => $item['secondaryActionUrl'] ?? null,
                 'severity' => Notification::severityForFrontendType($type),
+                'critical' => $critical,
                 'starts_at' => $now,
-                'ends_at' => $now->copy()->addDays((int) $days),
+                // Critical persists (no expiry); non-critical auto-cleans via the prune.
+                'ends_at' => $critical ? null : $now->copy()->addDays((int) $days),
                 'dedupe_key' => $dedupeKey,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
 
-            $idToCategoryAndPro[$notificationId] = [$category, $userId];
+            $idToCategoryAndPro[$notificationId] = [$category, $userId, $critical];
         }
 
         if ($rows === []) {
@@ -262,7 +271,11 @@ class NotificationPublisher
             ->all();
 
         foreach ($insertedIds as $id) {
-            [$category, $userId] = $idToCategoryAndPro[$id];
+            [$category, $userId, $critical] = $idToCategoryAndPro[$id];
+            // Only critical notifications escalate to email (OV-H) — matches publish().
+            if (! $critical) {
+                continue;
+            }
             SendTransactionalNotificationEmailJob::dispatch($id, $category, $userId)
                 ->onQueue('mail');
         }

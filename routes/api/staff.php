@@ -1,7 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\Staff\Analytics\StaffAggregateAnalyticsController;
+use App\Http\Controllers\Api\Staff\EarlyAccess\StaffEarlyAccessController;
+use App\Http\Controllers\Api\Staff\FeatureAvailability\StaffFeatureAvailabilityController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagController;
 use App\Http\Controllers\Api\Staff\FeatureFlag\StaffFeatureFlagOverrideController;
+use App\Http\Controllers\Api\Staff\Feedback\StaffFeedbackController;
+use App\Http\Controllers\Api\Staff\Segments\StaffSegmentController;
 use App\Http\Controllers\Api\Staff\StaffCaseController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
@@ -15,6 +20,7 @@ use App\Http\Controllers\Api\Staff\StaffSite\StaffStatsController;
 use App\Http\Controllers\Api\Staff\StaffSite\StaffWorkplaceController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffCustomerManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffIntegrationManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffLinkBlockManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSectionManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceCategoryManagementController;
@@ -127,6 +133,33 @@ Route::prefix('staff')
 
         // Workplace snapshot stored at site.settings.workplace.
         Route::get('/professionals/{professional}/site/workplace', [StaffWorkplaceController::class, 'show']);
+
+        // ── OV-A: staff-dashboard read surface (any staff role; policies add
+        //    the role gate — UserSegmentPolicy / EarlyAccessSignupPolicy /
+        //    FeatureAvailabilityPolicy ::staffView). ──────────────────────────
+
+        // Aggregate analytics — all users or ?segment_id= scope.
+        Route::get('/analytics/summary', [StaffAggregateAnalyticsController::class, 'summary']);
+
+        // Notification history (global + fan-out rows) for the composer view.
+        Route::get('/notifications', [StaffNotificationController::class, 'index']);
+
+        // Segments — read side.
+        Route::get('/segments', [StaffSegmentController::class, 'index']);
+        Route::get('/segments/{segment}', [StaffSegmentController::class, 'show'])->whereUuid('segment');
+        Route::get('/segments/{segment}/users', [StaffSegmentController::class, 'users'])->whereUuid('segment');
+
+        // Feature availability — read side.
+        Route::get('/feature-availability', [StaffFeatureAvailabilityController::class, 'index']);
+
+        // Early access — read side.
+        Route::get('/early-access', [StaffEarlyAccessController::class, 'index']);
+
+        // OV-D: feedback triage list — all users, filterable by type/area/date.
+        // Named + registered in RecordStaffAuditEntry::PII_READ_ROUTE_NAMES —
+        // the response includes submitter email/handle + ip_hash (PRIV-4).
+        Route::get('/feedback', [StaffFeedbackController::class, 'index'])
+            ->name('staff.feedback.index');
     });
 
 // Authorised Staff Admin Editing
@@ -218,6 +251,31 @@ Route::prefix('staff')
             ->withTrashed();
         Route::post('/professionals/{professional}/deletion/cancel', [StaffAccountDeletionController::class, 'cancel'])
             ->withTrashed();
+
+        // ── OV-A: staff-dashboard write surface (staff.admin group; policies
+        //    ::staffManage add defence-in-depth). ──────────────────────────────
+
+        // Segments — CRUD + manual members.
+        Route::post('/segments', [StaffSegmentController::class, 'store']);
+        Route::patch('/segments/{segment}', [StaffSegmentController::class, 'update'])->whereUuid('segment');
+        Route::delete('/segments/{segment}', [StaffSegmentController::class, 'destroy'])->whereUuid('segment');
+        Route::post('/segments/{segment}/members', [StaffSegmentController::class, 'addMembers'])->whereUuid('segment');
+        Route::delete('/segments/{segment}/members', [StaffSegmentController::class, 'removeMembers'])->whereUuid('segment');
+
+        // Feature availability — upsert + delete.
+        Route::put('/feature-availability', [StaffFeatureAvailabilityController::class, 'upsert']);
+        Route::delete('/feature-availability/{rule}', [StaffFeatureAvailabilityController::class, 'destroy'])->whereUuid('rule');
+
+        // Early access — manual add, edit, delete, invite sends.
+        Route::post('/early-access', [StaffEarlyAccessController::class, 'store']);
+        Route::post('/early-access/invite', [StaffEarlyAccessController::class, 'invite']);
+        Route::patch('/early-access/{signup}', [StaffEarlyAccessController::class, 'update'])->whereUuid('signup');
+        Route::delete('/early-access/{signup}', [StaffEarlyAccessController::class, 'destroy'])->whereUuid('signup');
+
+        // Integrations — view + enable/disable per platform for a professional.
+        Route::get('/professionals/{professional}/integrations', [StaffIntegrationManagementController::class, 'index']);
+        Route::patch('/professionals/{professional}/integrations/{platform}', [StaffIntegrationManagementController::class, 'update'])
+            ->where('platform', '[a-z][a-z0-9_-]*');
 
         // Feature flag admin — create/update/delete flags and per-tenant overrides.
         Route::prefix('feature-flags')->group(function (): void {

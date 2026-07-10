@@ -10,7 +10,7 @@ namespace App\Services\Analytics;
 // are likewise request-derived and front-loaded here because the worker has no
 // request object.
 //
-// v2 (skeleton sitepages): clicks describe their destination directly —
+// v2 (architecture sitepages): clicks describe their destination directly —
 // url/platform/product/section/label — instead of requiring a site.blocks FK
 // (legacy rows keep blockId). TYPE_SESSION_PING upserts analytics.site_sessions;
 // durationSeconds is the client's cumulative visible-time, idempotent under the

@@ -71,24 +71,25 @@ it('classifies a luxury median (>= A$150) to the airy recipe', function () {
     expect($out['space_regular'])->toBe('1.15rem')
         ->and($out['border_thickness'])->toBe('0.5px')
         ->and($out['motion_pace'])->toBe('slow')
-        ->and($out['effect_style'])->toBe('editorial');
+        ->and($out['effect_surface'])->toBe('outline'); // hairline boutique restraint
 });
 
 it('classifies a casual median (<= A$40) to the compact recipe', function () {
     $out = (new StorePricePointFactor)->detect(spEvidence([15, 20, 25, 35]));
 
     expect($out['space_regular'])->toBe('0.8rem')
-        ->and($out['border_radius'])->toBe('1rem')
+        ->and($out['border_radius'])->toBe('0.85rem')
         ->and($out['weight_regular'])->toBe('500')
-        ->and($out['effect_style'])->toBe('sharp');
+        ->and($out['effect_surface'])->toBe('solid'); // filled, friendly, accessible
 });
 
 it('classifies a mid median to the neutral recipe', function () {
     $out = (new StorePricePointFactor)->detect(spEvidence([60, 80, 90, 110]));
 
     expect($out['space_regular'])->toBe('0.95rem')
+        ->and($out['border_thickness'])->toBe('1px') // standard — deliberately NOT luxury's 0.5px hairline
         ->and($out['motion_pace'])->toBe('normal')
-        ->and($out)->not->toHaveKey('effect_style'); // mid stays neutral
+        ->and($out)->not->toHaveKey('effect_surface'); // mid stays neutral
 });
 
 it('normalises currency before banding (a US$120 median is luxury in AUD)', function () {

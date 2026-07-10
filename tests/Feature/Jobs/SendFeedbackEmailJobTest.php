@@ -126,7 +126,6 @@ it('includes user_id in failed() log context after permanent failure (LIFE-4c)',
     // mail failed — set $userId via reflection as if handle() ran to that point.
     $row = Feedback::find($id);
     $prop = new ReflectionProperty($job, 'userId');
-    $prop->setAccessible(true);
     $prop->setValue($job, $row->user_id);
 
     $job->failed(new RuntimeException('smtp down'));

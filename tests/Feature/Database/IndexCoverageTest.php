@@ -50,7 +50,7 @@ function assertIndexExists(string $schema, string $table, string $index): void
 // PurgeRawAnalyticsEvents filters each raw table by its timestamp column only.
 // Every other index on these tables leads with an id/hash column, so without a
 // timestamp-leading index the daily purge seq-scans. Migration
-// 20260711020000_add_analytics_purge_indexes.sql adds one per table; this guard
+// 20260711160100_add_analytics_purge_indexes.sql adds one per table; this guard
 // asserts they exist and are VALID (not an INVALID stub from a cancelled
 // CONCURRENTLY build). Keep in lockstep with PurgeRawAnalyticsEvents::TABLES.
 

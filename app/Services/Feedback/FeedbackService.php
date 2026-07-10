@@ -22,6 +22,21 @@ use Illuminate\Support\Facades\Log;
 class FeedbackService
 {
     /**
+     * OV-D `type` → legacy `kind` fallback map. core.feedback.kind stays
+     * NOT NULL at the DB layer; new callers submit `type` only, so this
+     * supplies a value when the caller doesn't also send `kind` explicitly.
+     * Caller-supplied `kind` always wins — see submit() below.
+     *
+     * @var array<string, string>
+     */
+    private const TYPE_TO_KIND = [
+        'error' => 'bug',
+        'bad_ui' => 'bug',
+        'good' => 'praise',
+        'idea' => 'idea',
+    ];
+
+    /**
      * @param  array<string, mixed>  $data  Validated input from SubmitFeedbackRequest.
      */
     public function submit(User $actor, array $data, Request $request): Feedback
@@ -64,8 +79,11 @@ class FeedbackService
             return Feedback::create([
                 'user_id' => $actor->id,
                 'reply_email' => $data['reply_email'] ?? null,
-                'kind' => $data['kind'],
+                'kind' => $data['kind'] ?? self::TYPE_TO_KIND[$data['type']] ?? 'other',
                 'severity' => $data['severity'] ?? null,
+                'type' => $data['type'],
+                'area' => $data['area'],
+                'target' => $data['target'] ?? null,
                 'message' => $message,
                 'page_url' => $data['page_url'] ?? null,
                 // user_agent: validated input wins, then header. Capped to 1024

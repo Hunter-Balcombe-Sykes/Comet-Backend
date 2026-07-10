@@ -65,10 +65,13 @@ it('applies the sector bucket preset for a manually declared sector', function (
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    // therapist → HEALTH_FITNESS bucket
+    // therapist → HEALTH_FITNESS bucket (poster-athletic since the 2026-07-10
+    // factor pass: medium weight, fast pace, solid cards).
     expect($layer['color_accent'])->toBe('#2f6b57')
         ->and($layer['typography_font_family'])->toBe('oswald')
-        ->and($layer['motion_entrance'])->toBe('rise');
+        ->and($layer['weight_regular'])->toBe('500')
+        ->and($layer['motion_pace'])->toBe('fast')
+        ->and($layer['effect_surface'])->toBe('solid');
 });
 
 it('contributes nothing for a google-derived sector (GB type already covers it)', function () {
@@ -95,7 +98,7 @@ it('lets a declared sector outrank the Google Business category on contested col
         ->and($layer['typography_font_family'])->toBe('oswald');
 });
 
-it('refines a bucket with nightlife attributes — stagger + fast override, colours intact', function () {
+it('refines a bucket with nightlife attributes — fast pace + glass override, colours intact', function () {
     $user = createTenant('cocktail-bar');
     identitySeedConnection($user, [
         'category' => 'Bar',
@@ -108,9 +111,10 @@ it('refines a bucket with nightlife attributes — stagger + fast override, colo
     // Bucket (food_drink) colours/font survive …
     expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['typography_font_family'])->toBe('young-serif')
-        // … while the attribute refinement (band D, 52 > 40) owns motion.
-        ->and($layer['motion_entrance'])->toBe('stagger')
-        ->and($layer['motion_pace'])->toBe('fast');
+        // … while the attribute refinement (band D, 52 > 40) owns pace and
+        // flips the bucket's solid cards to night-venue glass.
+        ->and($layer['motion_pace'])->toBe('fast')
+        ->and($layer['effect_surface'])->toBe('glass');
 });
 
 it('refines an upscale listing to the composed treatment', function () {
@@ -123,9 +127,10 @@ it('refines an upscale listing to the composed treatment', function () {
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    expect($layer['motion_entrance'])->toBe('fade')
-        ->and($layer['motion_pace'])->toBe('slow')
-        ->and($layer['weight_regular'])->toBe('300');
+    // Premium restraint: slow + light + outline (52) over the food bucket (40).
+    expect($layer['motion_pace'])->toBe('slow')
+        ->and($layer['weight_regular'])->toBe('300')
+        ->and($layer['effect_surface'])->toBe('outline');
 });
 
 it('contributes no attribute refinement when no signal is present', function () {

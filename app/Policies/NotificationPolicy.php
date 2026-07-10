@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
@@ -54,5 +55,17 @@ class NotificationPolicy extends BasePolicy
     public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
+    }
+
+    /**
+     * OV-A hardening: staff broadcast composer (StaffNotificationController::store)
+     * — admin only, mirroring the `staff.admin` route middleware for
+     * defence-in-depth parity with the other staff write controllers
+     * (UserSegmentPolicy / EarlyAccessSignupPolicy ::staffManage). Accepts the
+     * class-string form (`authorizeForUser($staff, 'staffManage', Notification::class)`).
+     */
+    public function staffManage(PartnaStaff $actor, Notification|string|null $notification = null): bool
+    {
+        return $actor->isAdmin();
     }
 }

@@ -26,10 +26,19 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Design\Presets\CategoryStylePresets;
 use App\Services\Design\Presets\DesignFactorRegistry;
+use App\Services\Design\Presets\Factors\AestheticExpressionFactor;
+use App\Services\Design\Presets\Factors\CuisineFactor;
+use App\Services\Design\Presets\Factors\HoursRhythmFactor;
 use App\Services\Design\Presets\Factors\LaunchRecipeFactor;
+use App\Services\Design\Presets\Factors\MusicGenreFactor;
+use App\Services\Design\Presets\Factors\PlatformMixFactor;
+use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\Design\Presets\IdentityEvidence;
+use App\Services\Design\Presets\LaunchRecipes;
 use App\Services\Design\Presets\PresetTargetableColumns;
+use App\Services\Design\Presets\StyleTiers;
 use Illuminate\Support\Collection;
 
 // Feature tests inherit Tests\TestCase from tests/Pest.php — no per-file uses().
@@ -108,12 +117,14 @@ function swResolve(IdentityEvidence $evidence): array
 }
 
 /**
- * Assert a merged kit is internally coherent. The axes bg / radius / weight /
- * motion must not pull in contradictory directions. Concretely (spec §1c):
- *   • a SOFT background (pastel/light tint) must NOT co-occur with a SHARP radius
- *     AND a HEAVY weight — that is the canonical "ugly" combination.
- *   • a DARK background must NOT co-occur with a VERY-ROUNDED radius and a LIGHT
- *     weight AND fast motion (dark editorial should read restrained, not bouncy).
+ * Assert a merged kit is internally coherent. The axes surface / radius /
+ * weight / shadow must not pull in contradictory directions (backgrounds are
+ * theme_mode-owned since 2026-07-10, so the material axis is effect_surface).
+ * Concretely (spec §1c, re-based for the theme/surface era):
+ *   • a GLASS surface (the soft material) must NOT co-occur with a HARD shadow
+ *     — translucent panels with brutal drop shadows is the canonical mash-up.
+ *   • a VERY-ROUNDED radius (1.5rem, the soft shape) must NOT co-occur with a
+ *     HEAVY weight — soft shapes want light-to-regular type.
  * These are deliberately narrow, high-confidence contradiction checks — they
  * catch a factor stamping across another's coherent set, without over-constraining
  * legitimate combinations.
@@ -122,23 +133,27 @@ function swResolve(IdentityEvidence $evidence): array
  */
 function assertCoherent(array $kit): void
 {
-    $bg = $kit['color_bg'] ?? null;
+    $surface = $kit['effect_surface'] ?? null;
+    $shadow = $kit['effect_shadow_style'] ?? null;
     $radius = $kit['border_radius'] ?? null;
     $weight = $kit['weight_regular'] ?? null;
 
-    $softBg = in_array($bg, ['#faf6f7', '#f7f4ee', '#faf6f3', '#f6f1e7'], true);
-    $sharpRadius = in_array($radius, ['0.25rem', '0.2rem', '0.3rem'], true);
     $heavyWeight = in_array($weight, ['600', '700'], true);
 
-    expect($softBg && $sharpRadius && $heavyWeight)->toBeFalse(
-        "incoherent: soft bg ({$bg}) + sharp radius ({$radius}) + heavy weight ({$weight})",
+    expect($surface === 'glass' && $shadow === 'hard')->toBeFalse(
+        "incoherent: glass surface + hard shadow (weight {$weight}, radius {$radius})",
     );
 
-    // A soft/pastel ground with a chunky weight is itself a contradiction even
-    // without the radius — soft grounds want light-to-regular type.
-    $veryLightGround = $bg === '#faf6f7';
-    expect($veryLightGround && $heavyWeight)->toBeFalse(
-        "incoherent: pastel ground ({$bg}) + heavy weight ({$weight})",
+    expect($radius === '1.5rem' && $heavyWeight)->toBeFalse(
+        "incoherent: very-rounded radius ({$radius}) + heavy weight ({$weight})",
+    );
+
+    // Pill + hard shadow: every soft-shape emitter pairs 1.5rem with soft/flat
+    // deliberately; a merged pill+hard can only be a cross-factor accident.
+    // (Square + hard/solid is fine — that IS the poster register; outline +
+    // hard is neubrutalist and legitimate; neither is banned.)
+    expect($radius === '1.5rem' && $shadow === 'hard')->toBeFalse(
+        "incoherent: pill radius ({$radius}) + hard shadow",
     );
 }
 
@@ -150,9 +165,12 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
         swConnection('google-business', ['category' => 'Beauty salon']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#faf6f7')          // recipe fired
-        ->and($r['kit']['color_bg'])->toBe('#faf6f7')          // and won the column
-        ->and($r['kit']['border_radius'])->toBe('1.5rem');
+    expect($r['recipe'])->not->toBe([]);                       // recipe fired
+    expect($r['kit']['border_radius'])->toBe('1.5rem')
+        ->and($r['kit']['weight_regular'])->toBe('300')
+        ->and($r['kit']['typography_font_family'])->toBe('melodrama')
+        ->and($r['kit']['effect_surface'])->toBe('glass')
+        ->and($r['kit']['effect_shadow_style'])->toBe('soft');
     assertCoherent($r['kit']);
 });
 
@@ -164,9 +182,12 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
         ]),
     ));
 
-    expect($r['recipe']['color_bg'])->toBe('#ffffff')
-        ->and($r['kit']['weight_regular'])->toBe('600')
-        ->and($r['kit']['border_radius'])->toBe('0.25rem');
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['kit']['weight_regular'])->toBe('600')
+        ->and($r['kit']['border_radius'])->toBe('0') // square — the 2-signal poster archetype earns the extreme stop
+        ->and($r['kit']['effect_surface'])->toBe('solid')
+        ->and($r['kit']['effect_shadow_style'])->toBe('hard')
+        ->and($r['kit']['color_accent'])->toBe('#c81e1e');
     assertCoherent($r['kit']);
 });
 
@@ -176,8 +197,10 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
         swConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('geist');
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+        ->and($r['kit']['effect_surface'])->toBe('glass')
+        ->and($r['kit']['effect_image_treatment'])->toBe('warm');
     assertCoherent($r['kit']);
 });
 
@@ -187,9 +210,13 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
         swShop([180, 220, 260, 300]),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#151515')
-        ->and($r['kit']['effect_style'])->toBe('editorial')
-        ->and($r['kit']['typography_font_family'])->toBe('young-serif');
+    // Dark-luxury without a bg column: gold accent + light weight + outline.
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+        ->and($r['kit']['color_accent'])->toBe('#c9a24b')
+        ->and($r['kit']['weight_regular'])->toBe('300')
+        ->and($r['kit']['effect_surface'])->toBe('outline')
+        ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
     assertCoherent($r['kit']);
 });
 
@@ -199,8 +226,10 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
         swConnection('instagram', ['businessCategory' => 'Photographer']),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#fafafa')
-        ->and($r['kit']['typography_font_family'])->toBe('geist');
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['kit']['typography_font_family'])->toBe('geist')
+        ->and($r['kit']['effect_surface'])->toBe('outline')
+        ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
     assertCoherent($r['kit']);
 });
 
@@ -210,9 +239,10 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
         swShop([25, 30, 35, 38]),
     ])));
 
-    expect($r['recipe']['color_bg'])->toBe('#f7f4ee')
-        ->and($r['kit']['typography_font_family'])->toBe('origin')
-        ->and($r['kit']['border_radius'])->toBe('1rem');
+    expect($r['recipe'])->not->toBe([]);
+    expect($r['kit']['typography_font_family'])->toBe('origin')
+        ->and($r['kit']['border_radius'])->toBe('0.85rem')
+        ->and($r['kit']['effect_surface'])->toBe('solid'); // tactile craft, not glass
     assertCoherent($r['kit']);
 });
 
@@ -240,4 +270,101 @@ it('a conflicting-signals profile abstains from any recipe and stays coherent', 
 
     expect($r['recipe'])->toBe([]);
     assertCoherent($r['kit']);
+});
+
+// ── Vocabulary sweep ─────────────────────────────────────────────────────────
+//
+// Every statically-enumerable emission — bucket, recipe, tier literal, factor
+// overlay const — must sit EXACTLY on the locked design-kit vocabulary. This is
+// the net that would have caught the pre-2026-07-10 corner drift (0.2/0.3/0.4/
+// 0.5/0.6rem free-hand radii) at authoring time instead of migration time.
+
+/** @return array<string, array<string, string>> every static emission set, keyed by a debug name */
+function swAllStaticEmissions(): array
+{
+    $sets = [];
+
+    foreach ((new ReflectionClass(CategoryStylePresets::class))->getConstants() as $const) {
+        if (is_string($const)) {
+            $sets["bucket:{$const}"] = CategoryStylePresets::forBucket($const);
+        }
+    }
+
+    foreach (LaunchRecipes::all() as $recipe) {
+        $sets["recipe:{$recipe['key']}"] = $recipe['values'];
+    }
+
+    // Every analyzer tier of every signal, through the real mapping.
+    $tiers = (new ReflectionClass(StyleTiers::class))->getConstant('TIERS');
+    foreach ($tiers as $signal => $tierMap) {
+        foreach (array_keys($tierMap) as $tier) {
+            $sets["tier:{$signal}:{$tier}"] = StyleTiers::columnsFromTiers([$signal => $tier]);
+        }
+    }
+
+    // Factor overlay consts (the full static emission surface of the stack).
+    foreach ([
+        [HoursRhythmFactor::class, 'RHYTHM_TARGETS'],
+        [AestheticExpressionFactor::class, 'DIRECTION_TARGETS'],
+        [MusicGenreFactor::class, 'FAMILY_TARGETS'],
+        [CuisineFactor::class, 'HINT_TARGETS'],
+        [PlatformMixFactor::class, 'VIBE_TARGETS'],
+        [StorePricePointFactor::class, 'BAND_TARGETS'],
+    ] as [$class, $const]) {
+        foreach ((new ReflectionClass($class))->getConstant($const) as $key => $values) {
+            $sets[class_basename($class).":{$key}"] = $values;
+        }
+    }
+    $sets['CuisineFactor:specific'] = (new ReflectionClass(CuisineFactor::class))->getConstant('SPECIFIC_TARGET');
+
+    return $sets;
+}
+
+it('every statically-enumerable emission sits exactly on the locked vocabulary', function () {
+    $vocab = [
+        'text_body' => ['0.8rem', '0.85rem', '0.9rem'],                 // Small / Medium / Large body
+        'weight_regular' => ['300', '400', '500', '600'],
+        'border_radius' => ['0', '0.25rem', '0.85rem', '1.5rem'],       // Square / Soft / Rounded / Pill
+        'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold
+        'space_regular' => ['0.8rem', '0.95rem', '1.15rem'],            // compact / regular / generous
+        'motion_pace' => ['slow', 'normal', 'fast'],
+        'effect_surface' => ['glass', 'solid', 'outline'],
+        'effect_shadow_style' => ['flat', 'soft', 'hard'],
+        'effect_link_style' => ['underline-hover', 'underline-always', 'plain'],
+        'effect_image_treatment' => ['none', 'mono', 'duotone', 'warm', 'muted'],
+    ];
+
+    foreach (swAllStaticEmissions() as $name => $values) {
+        foreach ($values as $column => $value) {
+            expect(PresetTargetableColumns::isValid($column))->toBeTrue(
+                "{$name} emits non-targetable column {$column}",
+            );
+
+            if ($column === 'color_accent') {
+                expect((bool) preg_match('/^#[0-9a-f]{6}$/', $value))->toBeTrue(
+                    "{$name} accent '{$value}' is not lowercase 6-digit hex",
+                );
+
+                continue;
+            }
+
+            if ($column === 'typography_font_family') {
+                // Closed loop: an emitted font slug must be a live StyleTiers
+                // font tier (the 9-font roster allowlist).
+                expect(StyleTiers::columnsFromTiers(['font' => $value]))->toBe(
+                    ['typography_font_family' => $value],
+                    "{$name} font '{$value}' is not in the live roster",
+                );
+
+                continue;
+            }
+
+            expect(array_key_exists($column, $vocab))->toBeTrue(
+                "{$name} emits {$column}, which has no vocabulary entry in this sweep",
+            );
+            expect(in_array($value, $vocab[$column], true))->toBeTrue(
+                "{$name} emits {$column}='{$value}', off the locked vocabulary [".implode(', ', $vocab[$column]).']',
+            );
+        }
+    }
 });

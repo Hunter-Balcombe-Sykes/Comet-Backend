@@ -35,7 +35,7 @@ it('rejects illegal site moderation_state values via CHECK constraint', function
         'id' => (string) Str::uuid(),
         'user_id' => $user->id,
         'subdomain' => 'check-'.uniqid(),
-        'skeleton_id' => 'bento',
+        'architecture_id' => 'one',
         'settings' => [],
         'is_published' => true,
     ]);

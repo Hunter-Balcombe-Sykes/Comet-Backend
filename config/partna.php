@@ -1,5 +1,6 @@
 <?php
 
+use App\Mail\Notifications\CriticalNotificationMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
@@ -939,7 +940,7 @@ return [
         'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
-        // Analytics endpoint exposed to the skeleton via data.publicConfig.
+        // Analytics endpoint exposed to the architecture via data.publicConfig.
         // partna-pages reads this and uses it for client-side beacons.
         // Defaults to the current APP_URL so the fallback is always environment-correct.
         'analytics_endpoint' => env(
@@ -953,7 +954,7 @@ return [
     // that adds or drops a site.design_kits column — the old cache key orphans
     // and TTLs out, so picking up the new column set needs no `artisan
     // cache:clear`. (LIFE-2)
-    'design_kit_columns_version' => (int) env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', 1),
+    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-10.3'),
 
     /*
     |----------------------------------------------------------------------
@@ -985,7 +986,7 @@ return [
             'single_token_prefixes' => [
                 'color' => 'colors',
                 'typography' => 'typography',
-                'text' => 'text',      // text scale (text_xs, text_sm, ...)
+                'text' => 'text',      // text scale (text_body, text_caption, text_h1, ...)
                 'weight' => 'weight',    // weight scale (weight_regular, weight_medium, ...)
                 'border' => 'borders',
                 'space' => 'space',
@@ -1368,6 +1369,11 @@ return [
         'feature_announcement' => 30,
         'default' => 30,
         'profile_task' => 180,
+        // OV-H non-critical auto-dispatchers. These get an `ends_at` so the prune
+        // auto-cleans them; critical notifications ignore this (ends_at = null, persist).
+        'achievement' => 60,       // celebratory — keep visible a while
+        'content_scrape' => 14,    // transient; self-heals, don't linger
+        'analytics_weekly' => 14,  // superseded by next week's summary
     ],
 
     'notifications' => [
@@ -1408,6 +1414,16 @@ return [
             'inbox' => null,  // in-app only — enquiry inbox; no mailable (email goes via SendEnquiryNotificationJob)
             'policy_update' => PolicyUpdateMail::class,
             'profile_tasks' => ProfileTaskMail::class,
+
+            // OV-H automatic dispatchers. Only the `critical` ones carry a mailable
+            // (email fires only for critical notifications — see NotificationPublisher).
+            // The generic CriticalNotificationMail renders the notification through the
+            // shared OTP layout family; SendTransactionalNotificationEmailJob also falls
+            // back to it for any critical notification whose category is unmapped.
+            'achievement' => null,                                // in-app only (milestones / first-enquiry)
+            'platform_connection' => CriticalNotificationMail::class, // critical: connection needs reconnecting → email
+            'content_scrape' => null,                             // in-app only (transient scrape/menu warnings)
+            'analytics_weekly' => null,                           // in-app only (weekly summary stub)
         ],
 
         /*
@@ -1565,6 +1581,12 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // Delay before CloudflareCachePurgeJob's follow-up purge. Must exceed the
+        // sum of the payload staleness windows (Laravel Cloud edge s-maxage +
+        // Worker subrequest cacheTtl) so the follow-up is guaranteed to evict any
+        // stale HTML re-pinned by a visitor who raced the primary purge.
+        'purge_followup_seconds' => (int) env('PARTNA_CACHE_PURGE_FOLLOWUP_SECONDS', 120),
+
         'ttls' => [
             'public_payload' => (int) env('PARTNA_CACHE_TTL_PUBLIC_PAYLOAD', env('CACHE_TTL_PUBLIC_PAYLOAD', 900)),                                 // 15m
             'analytics_short' => (int) env('PARTNA_CACHE_TTL_ANALYTICS_SHORT', env('CACHE_TTL_ANALYTICS_SHORT', 300)),                             // 5m
@@ -1708,10 +1730,10 @@ return [
         'hourly_bucket_max_days' => (int) env('PARTNA_ANALYTICS_HOURLY_BUCKET_MAX_DAYS', 7),
 
         // Section-key → display label for the analytics "top sections" chart. Add a new
-        // skeleton section here — no code deploy needed. Unknown keys fall back to a
+        // architecture section here — no code deploy needed. Unknown keys fall back to a
         // humanized version of the raw key in AnalyticsQueryService::sectionTitle().
         'section_titles' => [
-            // Skeleton sitepage sections (v2 tracker keys).
+            // Architecture sitepage sections (v2 tracker keys).
             'home' => 'Home', 'shop' => 'Shop', 'music' => 'Music', 'podcast' => 'Podcast',
             'watch' => 'Watch', 'book' => 'Book', 'events' => 'Events', 'document' => 'Document',
             'subscribe' => 'Subscribe', 'socials' => 'Socials', 'links' => 'Links', 'about' => 'About',
@@ -1719,6 +1741,21 @@ return [
             'gallery' => 'Gallery of Work', 'services' => 'Services & Pricing', 'booking' => 'Booking',
             'documents' => 'File Preview', 'newsletter' => 'Newsletter', 'contact' => 'Contact',
             'contacts_collection' => 'Contacts', 'barbershop_info' => 'Barbershop Info',
+        ],
+
+        // Page-id → display label for the "page views" metric + insight headlines.
+        // Keyed by the 16 canonical page-ids (App\Enums\SitepageId) that
+        // section_keys fold into via SitepageId::SECTION_KEY_TO_PAGE — the
+        // page-model successor to section_titles above (stored section_keys are
+        // immutable; folding + relabelling happens at the query layer only).
+        // Unknown page-ids fall back to a humanized key in
+        // AnalyticsQueryService::pageTitle().
+        'page_titles' => [
+            'home' => 'Home', 'listen' => 'Listen', 'watch' => 'Watch', 'shop' => 'Shop',
+            'menu' => 'Menu', 'book' => 'Book', 'reservations' => 'Reservations',
+            'events' => 'Events', 'gallery' => 'Gallery', 'reviews' => 'Reviews',
+            'documents' => 'Documents', 'contact' => 'Contact', 'pinterest' => 'Pinterest',
+            'strava' => 'Strava', 'skool' => 'Skool', 'links' => 'Links',
         ],
     ],
 ];

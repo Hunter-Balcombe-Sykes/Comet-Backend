@@ -3,7 +3,7 @@
 // #SCHEMA-1 regression guard: the three post-baseline analytics tables must keep
 // Row Level Security ENABLED and FORCED, matching the hardening convention on
 // site.design_kits, moderation.*, and site.platform_connections. Added in
-// 20260711000000_analytics_force_rls_parity.sql.
+// 20260711160000_analytics_force_rls_parity.sql.
 //
 // The practical delta is small today (owner is a superuser, app connects as
 // app_backend with BYPASSRLS), so this is consistency/defence-in-depth — but the

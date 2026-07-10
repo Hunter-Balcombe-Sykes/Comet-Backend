@@ -51,8 +51,14 @@ class BootstrapRequest extends BaseFormRequest
             'timezone' => ['nullable', 'string', 'max:64'],
             // Account type chosen on the signup first step. Optional (older clients
             // omit it → defaults to Partna in the bootstrap service); 'individual'
-            // is intentionally not accepted.
+            // and 'staff' are intentionally not accepted (staff rows come from
+            // staff tooling only).
             'account_type' => ['sometimes', 'nullable', 'string', Rule::in([AccountType::Partna->value, AccountType::Business->value])],
+
+            // OV-A: early-access invite token (signup?invite=<token>). Validated
+            // against core.early_access_signups in the controller — a valid token
+            // bypasses waitlist gating and pins primary_email to the invited address.
+            'invite' => ['sometimes', 'nullable', 'string', 'max:100'],
             'handle_lc' => [
                 'sometimes',
                 'nullable',
@@ -105,6 +111,21 @@ class BootstrapRequest extends BaseFormRequest
             'handle', 'display_name', 'phone', 'first_name',
             'last_name', 'country_code', 'timezone',
         ]);
+
+        // OV-A hardening: the authoritative signup email is the VERIFIED Supabase
+        // JWT `email` claim (set as a request attribute by VerifySupabaseJwt), not
+        // the request body. Binding it here — before validation, the invite
+        // email-match, and the waitlist divert all read primary_email — closes the
+        // hole where an attacker-controlled body email could satisfy the personal
+        // invite match or seed a divert row under someone else's address. A
+        // missing/blank claim email (phone-only / anonymous tokens) falls back to
+        // the body value, preserving the pre-existing normal-signup behaviour.
+        $claims = $this->attributes->get('supabase_claims');
+        $claimEmail = is_array($claims) ? trim((string) ($claims['email'] ?? '')) : '';
+        if ($claimEmail !== '') {
+            $this->merge(['primary_email' => $claimEmail]);
+        }
+
         $this->sanitizeEmails(['primary_email']);
 
         $handle = $this->handle;

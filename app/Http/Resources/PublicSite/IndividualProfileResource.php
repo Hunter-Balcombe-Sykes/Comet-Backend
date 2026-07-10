@@ -15,7 +15,7 @@ use stdClass;
  *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
  *   - `designMedia` — content-pool media (polymorphic image/video, camelCase, ordered)
- *   - `skeletonId` — picks which code-side skeleton renders
+ *   - `architectureId` — picks which code-side architecture renders (skeletonId is a transition alias)
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
  * partna-pages does the read-time merge of the partial `designKit` with
@@ -47,9 +47,11 @@ class IndividualProfileResource extends ApiResource
      *     site_id?: string|null,
      *     design_kit?: array<string, mixed>,
      *     design_media?: list<array<string, mixed>>,
-     *     skeleton_id?: string|null,
+     *     architecture_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
+     *     ranked_actions?: list<array<string, mixed>>,
+     *     ordering?: array<string, mixed>,
      *     gallery?: list<array<string, mixed>>,
      *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
@@ -114,7 +116,7 @@ class IndividualProfileResource extends ApiResource
                 'workplace' => $this->sections['workplace'] ?? null,
             ],
 
-            // Taxonomy page order for the ONE skeleton — presence + business
+            // Taxonomy page order for the ONE architecture — presence + business
             // gated, popularity-ranked with canonical fallback. Top-level (a
             // render-time concern, not profile content). Always an array.
             'pageOrder' => $this->sections['page_order'] ?? [],
@@ -123,6 +125,19 @@ class IndividualProfileResource extends ApiResource
             // theme orders items of any type by looking up their rank here (cast to
             // object so an empty map serializes as {} not []). Top-level.
             'popularity' => (object) ($this->sections['popularity'] ?? []),
+
+            // Unified ranked actions — ordered best-first, the lander renders the
+            // top 6. Entries: {kind: page|item|button|custom, ref, label, url,
+            // pageId, itemType, itemKey, score}. Already override-applied (when
+            // the owner disabled smart actions this IS their manual list, customs
+            // included) — consumers render, never re-derive. Always an array.
+            'rankedActions' => $this->sections['ranked_actions'] ?? [],
+
+            // Ordering preferences (defaults applied server-side): {smartPageOrder,
+            // manualPageOrder, smartActions, manualActions}. pageOrder/rankedActions
+            // above already reflect these — this object is for transparency +
+            // dashboard/preview surfaces. Always an object.
+            'ordering' => (object) ($this->sections['ordering'] ?? []),
 
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB
@@ -138,9 +153,11 @@ class IndividualProfileResource extends ApiResource
             // docs/superpowers/specs/2026-05-30-design-media-promotion-design.md.
             'designMedia' => $this->sections['design_media'] ?? [],
 
-            // Which of the six code-side skeletons to render. One of
-            // 'bento', 'dock', 'flick', 'deck', 'sheet', 'thread'.
-            'skeletonId' => $this->sections['skeleton_id'] ?? Site::DEFAULT_SKELETON_ID,
+            // Which code-side architecture (page layout / how pages connect)
+            // renders this site — always 'one' (single-architecture platform).
+            'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
+            // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
+            'skeletonId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
 
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.

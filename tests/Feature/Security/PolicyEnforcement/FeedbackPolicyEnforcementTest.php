@@ -21,9 +21,11 @@
  */
 
 use App\Models\Core\Feedback;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     // Clear the WeakMap cache so reassigning attributes on a User takes effect.
@@ -124,4 +126,33 @@ it('allows a pending-deletion user to create feedback (policy intentionally skip
     expect(
         Gate::forUser($actor)->allows('create', $skeleton)
     )->toBeTrue();
+});
+
+// --- staffView (OV-D) ---
+
+function feedbackPolicy_staff(string $role): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = $role;
+
+    return $staff;
+}
+
+it('allows support-role staff to view the feedback list', function () {
+    expect(
+        Gate::forUser(feedbackPolicy_staff(PartnaStaff::ROLE_SUPPORT))->allows('staffView', Feedback::class)
+    )->toBeTrue();
+});
+
+it('allows admin-role staff to view the feedback list', function () {
+    expect(
+        Gate::forUser(feedbackPolicy_staff(PartnaStaff::ROLE_ADMIN))->allows('staffView', Feedback::class)
+    )->toBeTrue();
+});
+
+it('denies a staff role outside support/admin from viewing the feedback list', function () {
+    expect(
+        Gate::forUser(feedbackPolicy_staff('unknown_role'))->allows('staffView', Feedback::class)
+    )->toBeFalse();
 });

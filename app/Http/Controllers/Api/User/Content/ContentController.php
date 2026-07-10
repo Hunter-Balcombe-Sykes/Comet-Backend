@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Content\ReplaceContentSelectionRequest;
+use App\Http\Requests\Api\User\Content\SetContentGooglePhotosRequest;
 use App\Http\Requests\Api\User\Content\SetContentInstagramAutoRequest;
 use App\Http\Requests\Api\User\Content\UploadContentImageRequest;
 use App\Http\Resources\Content\ContentLibraryUploadResource;
@@ -187,6 +188,51 @@ class ContentController extends ApiController
         return $this->success($this->selectionPayload($pro, $site->refresh()));
     }
 
+    /**
+     * PUT /content/google-photos — flip whether the owner's Google Business
+     * photos flow into the content pipeline (media library + selection). WS-B2.1:
+     * stored as `content_photos` in the GB connection's display_settings, using
+     * the same sparse-map contract as the platform display toggles (ON removes
+     * the key so the stored map holds only deviations; OFF records false).
+     * Requires an active Google Business connection (404 otherwise — nothing to
+     * gate without one).
+     */
+    public function setGooglePhotos(SetContentGooglePhotosRequest $request): JsonResponse
+    {
+        $pro = $this->currentUser($request);
+        $pro->loadMissing('site');
+        $site = $this->currentSite($pro);
+        $this->authorizeForUser($pro, 'manage', $this->skeleton($site));
+
+        $conn = $pro->integrationConnections()
+            ->where('platform', Platform::GoogleBusiness->value)
+            ->where('is_active', true)
+            ->first();
+
+        if ($conn === null) {
+            return $this->error('Connect Google Business first.', 404);
+        }
+
+        $settings = (array) ($conn->display_settings ?? []);
+        if ((bool) $request->validated('enabled')) {
+            unset($settings['content_photos']);
+        } else {
+            $settings['content_photos'] = false;
+        }
+        $conn->display_settings = $settings === [] ? null : $settings;
+        $conn->save();
+
+        // content_photos changes the resolved content selection, which feeds the
+        // sitepage BACKGROUNDS (SitepageDataResolverService) — part of the profile
+        // payload, NOT the platforms cache the connection observer purges. Touch the
+        // site so SiteObserver purges the profile edge cache too (mirrors how
+        // setInstagramAuto persists through the site); otherwise the toggle would
+        // only reach the live sitepage after the edge TTL lapsed.
+        $site->touch();
+
+        return $this->success($this->selectionPayload($pro, $site));
+    }
+
     /* ------------------------------------------------------------------ */
     /*  Internals */
     /* ------------------------------------------------------------------ */
@@ -201,7 +247,7 @@ class ContentController extends ApiController
     }
 
     /**
-     * @return array{selection: list<array<string, mixed>>, instagramAutoEnabled: bool, instagramConnected: bool}
+     * @return array{selection: list<array<string, mixed>>, instagramAutoEnabled: bool, instagramConnected: bool, googlePhotosEnabled: bool, googlePhotosConnected: bool}
      */
     private function selectionPayload(User $pro, Site $site): array
     {
@@ -209,6 +255,11 @@ class ContentController extends ApiController
             'selection' => $this->selection->resolve($site),
             'instagramAutoEnabled' => (bool) $site->content_instagram_auto_enabled,
             'instagramConnected' => $this->hasActiveConnection($pro, Platform::Instagram->value),
+            // WS-B2.1: the Google-photos content-inclusion toggle (stored on the GB
+            // connection's display_settings). googlePhotosConnected lets the
+            // media-settings UI hide the control when there's nothing to gate.
+            'googlePhotosEnabled' => $this->googlePhotosEnabled($pro),
+            'googlePhotosConnected' => $this->hasActiveConnection($pro, Platform::GoogleBusiness->value),
         ];
     }
 
@@ -225,7 +276,7 @@ class ContentController extends ApiController
             ->where('is_active', true)
             ->first();
 
-        if ($conn === null) {
+        if ($conn === null || ! ContentSelectionService::googlePhotosEnabled($conn->display_settings)) {
             return [];
         }
 
@@ -233,6 +284,23 @@ class ContentController extends ApiController
             fn (array $p) => ['ref' => $p['ref'], 'url' => $p['photoPicUrl']],
             GoogleBusinessPayload::fromArray($conn->payload)->photos(),
         );
+    }
+
+    /**
+     * Whether Google photos are currently allowed into the content pipeline for
+     * this owner. Reads the `content_photos` flag off the GB connection's
+     * display_settings via the service's shared default (absent/true = ON).
+     * Defaults ON when there's no GB connection (moot — googlePhotosConnected is
+     * then false and the UI hides the control).
+     */
+    private function googlePhotosEnabled(User $pro): bool
+    {
+        $conn = $pro->integrationConnections()
+            ->where('platform', Platform::GoogleBusiness->value)
+            ->where('is_active', true)
+            ->first(['display_settings']);
+
+        return ContentSelectionService::googlePhotosEnabled($conn?->display_settings);
     }
 
     private function hasActiveConnection(User $pro, string $platform): bool

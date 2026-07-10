@@ -928,7 +928,6 @@ it('exports design_kit for the user\'s site, yielding an empty result when no si
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,
         'color_accent' => '#FF5733',
-        'color_bg' => null,
         'typography_font_heading' => 'Playfair Display',
     ]);
 

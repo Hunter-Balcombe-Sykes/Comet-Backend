@@ -1,5 +1,5 @@
 -- #DINT-1 step 3 of 3 — promote the (id, site_id) unique index added by
--- 20260711030000_site_sessions_add_composite_unique.sql to
+-- 20260711160200_site_sessions_add_composite_unique.sql to
 -- analytics.site_sessions' primary key, replacing the old PRIMARY KEY (id)
 -- alone.
 --
@@ -10,7 +10,7 @@
 -- `ON CONFLICT (id)`, leaves that app's upsert with no matching arbiter
 -- index (PRIMARY KEY (id) alone will already be gone) — every ping would
 -- error at ON CONFLICT resolution instead of upserting. Full sequence:
---   1. (20260711030000) — safe with the CURRENT live app, already applied.
+--   1. (20260711160200) — safe with the CURRENT live app, already applied.
 --   2. `git push development` carrying the PostgresEventWriter change.
 --   3. (this file) — only after step 2's deploy is confirmed live.
 -- All three steps target dev (glncumufgaqcmqhzwrxm) only — analytics.site_
@@ -24,7 +24,7 @@
 --   satisfy `PRIMARY KEY USING INDEX`'s NOT NULL requirement, so this
 --   migration needs no `ALTER COLUMN ... SET NOT NULL` and no backfill.
 --   `ADD CONSTRAINT ... PRIMARY KEY USING INDEX site_sessions_id_site_uk`
---   adopts the bare unique index built by 20260711030000 instead of
+--   adopts the bare unique index built by 20260711160200 instead of
 --   rebuilding one — verified (Postgres 16) that this renames the index to
 --   the constraint's name (site_sessions_pkey), and there is no leftover
 --   duplicate index afterward (`\d` shows a single index, still named

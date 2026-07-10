@@ -1,6 +1,6 @@
 -- #DINT-1 step 1 of 3 — add a composite (id, site_id) UNIQUE index on
 -- analytics.site_sessions, in preparation for promoting it to the table's
--- primary key in step 3 (20260711040000_site_sessions_promote_composite_pk.sql).
+-- primary key in step 3 (20260711160300_site_sessions_promote_composite_pk.sql).
 --
 -- WHY: site_sessions_pkey is currently PRIMARY KEY (id) alone, and the
 -- session id is a client-minted UUID with no cross-site scoping.
@@ -26,7 +26,7 @@
 --      to `ON CONFLICT (id, site_id)` and drops the now-dead WHERE guard.
 --      Tracked in git (app/Services/Analytics/Writers/PostgresEventWriter.php),
 --      shipped via `git push development` — NOT a step in this migrations dir.
---   3. (20260711040000) drop PRIMARY KEY (id), promote this index to the new
+--   3. (20260711160300) drop PRIMARY KEY (id), promote this index to the new
 --      composite primary key. Must not run until step 2's app deploy is
 --      live — see that file's header.
 --

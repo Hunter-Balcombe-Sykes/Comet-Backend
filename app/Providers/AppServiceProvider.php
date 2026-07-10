@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
+use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
 use App\Models\Core\Feedback;
@@ -14,6 +16,8 @@ use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Notifications\NotificationEmailPolicy;
 use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
+use App\Models\Core\Segments\UserSegment;
+use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\Enquiry;
@@ -36,7 +40,9 @@ use App\Policies\CasePolicy;
 use App\Policies\ContentSelectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\DecisionPolicy;
+use App\Policies\EarlyAccessSignupPolicy;
 use App\Policies\EnquiryPolicy;
+use App\Policies\FeatureAvailabilityPolicy;
 use App\Policies\FeatureFlagPolicy;
 use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
@@ -45,6 +51,7 @@ use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
+use App\Policies\UserSegmentPolicy;
 use App\Policies\UserSelfPolicy;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
@@ -189,6 +196,10 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(PartnaStaff::class, PartnaStaffPolicy::class);
         Gate::policy(FeatureFlag::class, FeatureFlagPolicy::class);
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
+        Gate::policy(UserSegment::class, UserSegmentPolicy::class);
+        Gate::policy(UserSegmentMember::class, UserSegmentPolicy::class);
+        Gate::policy(FeatureAvailabilityRule::class, FeatureAvailabilityPolicy::class);
+        Gate::policy(EarlyAccessSignup::class, EarlyAccessSignupPolicy::class);
         Gate::policy(Feedback::class, FeedbackPolicy::class);
         Gate::policy(ModerationCase::class, CasePolicy::class);
         Gate::policy(Decision::class, DecisionPolicy::class);
@@ -539,6 +550,36 @@ class AppServiceProvider extends ServiceProvider
 
                 Limit::perHour(12)
                     ->by('waitlist:email:'.$emailKey)
+                    ->response(function () {
+                        return response()->json([
+                            'message' => 'This email has been submitted recently. Please try again later.',
+                        ], 429);
+                    }),
+            ];
+        });
+
+        // Public early-access signups (OV-A). Same posture as waitlist:
+        // 5/min per IP (CF-Connecting-IP preferred) + 12/h per email.
+        RateLimiter::for('early-access', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $email = strtolower(trim((string) $request->input('email', '')));
+            $emailKey = $email !== '' ? hash('sha256', $email) : 'unknown';
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
+            return [
+                Limit::perMinute(5)
+                    ->by('early-access:ip:'.$key)
+                    ->response(function () {
+                        return response()->json([
+                            'message' => 'Too many submissions. Please try again shortly.',
+                        ], 429);
+                    }),
+
+                Limit::perHour(12)
+                    ->by('early-access:email:'.$emailKey)
                     ->response(function () {
                         return response()->json([
                             'message' => 'This email has been submitted recently. Please try again later.',

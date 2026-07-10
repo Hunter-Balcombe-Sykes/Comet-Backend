@@ -345,7 +345,8 @@ function setupUsersTable(): void
 
 /**
  * core.feedback table for in-app feedback submission tests.
- * Mirrors columns from migration 20260526210001.
+ * Mirrors columns from migration 20260526210001 + OV-D's
+ * 20260711153000_feedback_type_area_target (type/area/target).
  */
 function setupFeedbackTable(): void
 {
@@ -356,6 +357,9 @@ function setupFeedbackTable(): void
         reply_email TEXT NULL,
         kind TEXT NOT NULL,
         severity TEXT NULL,
+        type TEXT NULL,
+        area TEXT NULL,
+        target TEXT NULL,
         message TEXT NOT NULL,
         page_url TEXT NULL,
         user_agent TEXT NULL,
@@ -371,6 +375,17 @@ function setupFeedbackTable(): void
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )");
+
+    // Defensive ALTERs for suites that created core.feedback before the OV-D
+    // columns existed within the same test run (SQLite's CREATE TABLE IF NOT
+    // EXISTS won't add columns to an already-created table).
+    foreach (['type', 'area', 'target'] as $col) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE core.feedback ADD COLUMN {$col} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**
@@ -383,7 +398,7 @@ function setupSitesTable(): void
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         subdomain TEXT NULL,
-        skeleton_id TEXT NULL,
+        architecture_id TEXT NULL,
         subdomain_changed_at TEXT NULL,
         is_published INTEGER NULL,
         unpublished_at TEXT NULL,
@@ -1282,12 +1297,21 @@ function setupNotificationsTable(): void
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
         severity TEXT NULL,
+        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         email_sent_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTER for suites that created the table before the OV-A
+    // critical column existed (mirrors migration 20260711000400).
+    try {
+        $conn->statement('ALTER TABLE notifications.notifications ADD COLUMN critical INTEGER NOT NULL DEFAULT 0');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_receipts (
         id TEXT PRIMARY KEY,
@@ -1384,6 +1408,81 @@ function setupPartnaStaffTable(): void
 }
 
 /**
+ * core.user_segments + core.user_segment_members — OV-A staff segments.
+ * Mirrors migration 20260711000100.
+ */
+function setupSegmentsTables(): void
+{
+    attachTestSchemas();
+    $conn = DB::connection('pgsql');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_segments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NULL,
+        filters TEXT NOT NULL DEFAULT \'{}\',
+        created_by TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS core.user_segment_members (
+        id TEXT PRIMARY KEY,
+        segment_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        added_by TEXT NULL,
+        created_at TEXT NULL,
+        UNIQUE(segment_id, user_id)
+    )');
+}
+
+/**
+ * core.feature_availability — OV-A staff availability rules.
+ * Mirrors migration 20260711000200.
+ */
+function setupFeatureAvailabilityTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.feature_availability (
+        id TEXT PRIMARY KEY,
+        feature_key TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        segment_id TEXT NULL,
+        created_by TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * core.early_access_signups — OV-A early-access lifecycle rows.
+ * Mirrors migration 20260711000300.
+ */
+function setupEarlyAccessTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        email_lc TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        workplace_or_industry TEXT NULL,
+        platforms TEXT NOT NULL DEFAULT \'[]\',
+        status TEXT NOT NULL DEFAULT \'waitlist\',
+        source TEXT NOT NULL DEFAULT \'marketing\',
+        invited_at TEXT NULL,
+        invite_token_hash TEXT NULL,
+        invite_meta TEXT NULL,
+        invited_by TEXT NULL,
+        signed_up_at TEXT NULL,
+        consent_ip_hash TEXT NULL,
+        consent_user_agent TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
  * analytics.site_visits — raw visit events used by live analytics read queries.
  */
 function setupSiteVisitsTable(): void
@@ -1449,7 +1548,7 @@ function setupLinkClicksTable(): void
  * analytics.site_sessions — v2 session heartbeats (live-now + avg duration).
  *
  * #DINT-1: composite PRIMARY KEY (id, site_id), matching the prod end-state
- * after 20260711030000/20260711040000 — id alone is no longer unique so two
+ * after 20260711160200/20260711160300 — id alone is no longer unique so two
  * sites can hold a row for the same client-minted session id. site_id is
  * NOT NULL (matches prod DDL; the writer always supplies it).
  */
@@ -2087,10 +2186,16 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
 
 /**
  * site.design_kits — per-site design token table (1:1 with site.sites).
- * All token columns are NULLABLE TEXT so tests can insert partial rows and
- * the resolver falls back to defaults for unset columns. Mirrors the
- * production schema; the production trigger trg_create_empty_design_kit is
- * absent in SQLite — tests that need a kit row must insert one manually.
+ * All token columns are NULLABLE (TEXT except the boolean night-shift flag)
+ * so tests can insert partial rows and the resolver falls back to defaults
+ * for unset columns. Mirrors the production schema subset tests touch —
+ * 2026-07-10 rework: color_bg dropped; theme_mode / theme_night_shift_auto /
+ * effect_surface added (migration 20260710160000); the size-named text_*
+ * columns became the nine semantic slots (migration 20260710190000);
+ * effect_button_fill dropped + the glass knobs effect_glass_blur /
+ * motion_glass_shine_duration added (migration 20260710210000). The
+ * production trigger trg_create_empty_design_kit is absent in SQLite — tests
+ * that need a kit row must insert one manually.
  */
 function setupDesignKitsTable(): void
 {
@@ -2099,12 +2204,25 @@ function setupDesignKitsTable(): void
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
         color_accent_contrast TEXT NULL,
-        color_bg TEXT NULL,
         color_text TEXT NULL,
         color_text_muted TEXT NULL,
         border_radius TEXT NULL,
         button_primary_bg TEXT NULL,
         button_primary_text TEXT NULL,
+        text_caption TEXT NULL,
+        text_body TEXT NULL,
+        text_h3 TEXT NULL,
+        text_h2 TEXT NULL,
+        text_h1 TEXT NULL,
+        text_display TEXT NULL,
+        text_desktop_body TEXT NULL,
+        text_desktop_h1 TEXT NULL,
+        text_desktop_display TEXT NULL,
+        theme_mode TEXT NULL,
+        theme_night_shift_auto INTEGER NULL,
+        effect_surface TEXT NULL,
+        effect_glass_blur TEXT NULL,
+        motion_glass_shine_duration TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

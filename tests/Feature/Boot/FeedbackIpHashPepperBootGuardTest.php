@@ -34,7 +34,6 @@ it('FeedbackService::hashIp() returns null and does not throw when pepper is emp
 
     $service = new FeedbackService;
     $method = new ReflectionMethod($service, 'hashIp');
-    $method->setAccessible(true);
 
     $result = $method->invoke($service, '192.168.1.1');
     expect($result)->toBeNull();
@@ -45,7 +44,6 @@ it('FeedbackService::hashIp() produces a 64-char SHA256 hash when pepper is set'
 
     $service = new FeedbackService;
     $method = new ReflectionMethod($service, 'hashIp');
-    $method->setAccessible(true);
 
     $result = $method->invoke($service, '203.0.113.1');
     // SHA256 hex = 64 chars; must not contain the raw IP.

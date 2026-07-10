@@ -10,17 +10,19 @@ namespace App\Services\Design\Presets;
  * here. A scraped value can never land in a design-kit column directly — this
  * table is the only bridge (accent colour is the one deliberate exception,
  * handled in PreviousWebsiteFactor). Literals reuse values already established
- * in CategoryStylePresets where one exists; `dark` is the system's first dark
- * background (the palette auto-derives via the dispatcher's luminance picks).
+ * in CategoryStylePresets where one exists.
+ *
+ * NOTE: the analyzer still emits a `bg` signal, but it is NOT mapped — the
+ * background is owned by the user-picked theme_mode palette (2026-07-10
+ * rework), so a scraped bg tier deliberately degrades to "no contribution".
  */
 final class StyleTiers
 {
-    /** Analysis signals → design_kits columns (the 7 snapped signals). */
+    /** Analysis signals → design_kits columns (the 6 snapped signals). */
     public const SIGNAL_COLUMNS = [
-        'bg' => 'color_bg',
         'font' => 'typography_font_family',
         'weight' => 'weight_regular',
-        'text' => 'text_xs',
+        'text' => 'text_body',
         'radius' => 'border_radius',
         'space' => 'space_regular',
         'motion' => 'motion_pace',
@@ -28,12 +30,6 @@ final class StyleTiers
 
     /** @var array<string, array<string, string>> signal => tier => literal */
     private const TIERS = [
-        'bg' => [
-            'light' => '#fafafa', // neutral white-ish (v2: rendered-confident white sites SET this instead of abstaining)
-            'warm_light' => '#f7f4ee',
-            'cool_light' => '#f7f8fa',
-            'dark' => '#151515',
-        ],
         // Font tiers ARE the catalog slugs — validated against this set.
         // 9-font roster locked 2026-07-09 (docs/design/font-icon-knowledge.md).
         // RETIRED — never reintroduce: the 4 pre-2026-07 slugs plus the 13
@@ -59,10 +55,16 @@ final class StyleTiers
             'regular' => '0.85rem',
             'large' => '0.9rem',
         ],
+        // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem — the four
+        // analyzer tiers map 1:1 onto the four stops. 'sharp' means the old
+        // site's median radius was under 4px (a population dominated by true
+        // 0px designs), so the faithful match is the Square stop, not Soft;
+        // collapsing sharp+moderate onto 0.25rem made two distinct analyzer
+        // conclusions indistinguishable downstream.
         'radius' => [
-            'sharp' => '0.25rem',
-            'moderate' => '0.6rem',
-            'rounded' => '1rem',
+            'sharp' => '0',
+            'moderate' => '0.25rem',
+            'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',
         ],
         'space' => [

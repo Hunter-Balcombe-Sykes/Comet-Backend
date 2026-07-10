@@ -20,6 +20,7 @@ it('writes a clean divert row to core.waitlist_signups when individual_waitlist_
         'last_name' => 'Wright',
     ]);
     $request->attributes->set('supabase_uid', 'new-divert-uid');
+    $request->attributes->set('supabase_claims', ['email' => 'newdivert@example.com']);
 
     $response = $controller->bootstrap($request);
 
@@ -62,6 +63,7 @@ it('divert does not clobber an existing full-form waitlist row (P1-A regression 
         'last_name' => 'NotOverwrite',
     ]);
     $request->attributes->set('supabase_uid', 'divert-collision-uid');
+    $request->attributes->set('supabase_claims', ['email' => 'preexisting@example.com']);
 
     $response = $controller->bootstrap($request);
 
@@ -102,6 +104,7 @@ it('returns 403 ACCOUNT_DISABLED for disabled accounts (not 200 with empty body)
         'handle' => 'disableduser',
     ]);
     $request->attributes->set('supabase_uid', 'disabled-uid');
+    $request->attributes->set('supabase_claims', ['email' => 'disabled@example.com']);
     $request->setContainer(app())->setRedirector(app('redirect'));
     $request->validateResolved();
 

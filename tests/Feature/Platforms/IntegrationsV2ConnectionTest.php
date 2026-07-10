@@ -66,11 +66,15 @@ it('falls through to the generic JSON-LD provider and warms its catalog', functi
     });
     $this->mock(WooCommerceScraper::class, fn ($m) => $m->shouldReceive('probe')->andReturn(false));
     $this->mock(GenericShopScraper::class, function ($m) {
-        $m->shouldReceive('fetchPage')->andReturn([
-            'brand' => ['id' => 'shop-example', 'name' => 'Example Ceramics', 'currency' => 'AUD', 'favicon' => null, 'logo' => null],
-            'products' => [
-                ['productId' => 'MUG-1', 'title' => 'Ceramic Mug', 'handle' => 'MUG-1', 'vendor' => null, 'image' => null, 'price' => '29.00', 'currency' => 'AUD', 'variantId' => 'MUG-1', 'available' => true, 'url' => 'https://shop.example/products/mug'],
+        $m->shouldReceive('fetchPageDetailed')->andReturn([
+            'page' => [
+                'brand' => ['id' => 'shop-example', 'name' => 'Example Ceramics', 'currency' => 'AUD', 'favicon' => null, 'logo' => null],
+                'products' => [
+                    ['productId' => 'MUG-1', 'title' => 'Ceramic Mug', 'handle' => 'MUG-1', 'vendor' => null, 'image' => null, 'price' => '29.00', 'currency' => 'AUD', 'variantId' => 'MUG-1', 'available' => true, 'url' => 'https://shop.example/products/mug'],
+                ],
             ],
+            'reachable' => true,
+            'storefrontMarkers' => true,
         ]);
     });
 
@@ -92,10 +96,12 @@ it('rejects a URL no provider recognises with a helpful 422', function () {
         $m->shouldReceive('probe')->andReturn(false);
     });
     $this->mock(WooCommerceScraper::class, fn ($m) => $m->shouldReceive('probe')->andReturn(false));
-    $this->mock(GenericShopScraper::class, fn ($m) => $m->shouldReceive('fetchPage')->andReturn(null));
+    $this->mock(GenericShopScraper::class, fn ($m) => $m->shouldReceive('fetchPageDetailed')
+        ->andReturn(['page' => null, 'reachable' => true, 'storefrontMarkers' => false]));
 
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://blog.example'])
-        ->assertStatus(422);
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'unsupported_store');
 });
 
 // ── Spotify / SoundCloud (oEmbed music embeds) ───────────────────────────────

@@ -9,6 +9,7 @@ use App\Services\Design\Presets\DesignFactorRegistry;
 use App\Services\Design\Presets\DesignPresetResolver;
 use App\Services\Design\Presets\Factors\GoogleBusinessTypeFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
+use App\Services\Design\Presets\PresetTargetableColumns;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -56,13 +57,13 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
 
     expect($changed)->toBeTrue();
     $layer = dkPresetResolver()->presetLayer($user->site->id);
-    expect($layer['color_bg'])->toBe('#f7f4ee')
-        ->and($layer['color_accent'])->toBe('#e0491f')
-        ->and($layer['text_xs'])->toBe('0.8rem')
+    expect($layer['color_accent'])->toBe('#e0491f')
+        ->and($layer['text_body'])->toBe('0.8rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('young-serif')
-        ->and($layer['motion_pace'])->toBe('fast');
+        ->and($layer['motion_pace'])->toBe('fast')
+        ->and($layer['effect_surface'])->toBe('solid');
 });
 
 it('contributes nothing for a Google Business type with no matching bucket', function () {
@@ -90,7 +91,7 @@ it('freezes the one-shot contribution when the category later changes', function
     $user = createTenant('was-a-restaurant');
     $connId = dkSeedConnection($user, ['category' => 'Restaurant']);
     dkPresetResolver()->resolveForUser($user);
-    expect(dkPresetResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
+    expect(dkPresetResolver()->presetLayer($user->site->id)['color_accent'])->toBe('#e0491f');
 
     // The business re-categorises to a cafe; the frozen one-shot must not move.
     DB::connection('pgsql')->table('site.platform_connections')
@@ -99,7 +100,7 @@ it('freezes the one-shot contribution when the category later changes', function
     $changed = dkPresetResolver()->resolveForUser($user);
 
     expect($changed)->toBeFalse();
-    expect(dkPresetResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#f7f4ee');
+    expect(dkPresetResolver()->presetLayer($user->site->id)['color_accent'])->toBe('#e0491f');
 });
 
 it('sweeps contributions when the integration disconnects', function () {
@@ -124,25 +125,26 @@ it('lets a manual design_kit value win over the preset layer', function () {
     dkSeedConnection($user, ['category' => 'Restaurant']);
     dkPresetResolver()->resolveForUser($user);
 
-    // User manually set their own background.
+    // User manually set their own accent. (Was color_bg pre-2026-07-10; that
+    // column is gone — theme_mode owns the background now.)
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $user->site->id,
-        'color_bg' => '#123456',
+        'color_accent' => '#123456',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
     $merged = dkPresetResolver()->mergedFlatKit($user->site->id);
 
-    expect($merged['color_bg'])->toBe('#123456')          // manual wins
-        ->and($merged['color_accent'])->toBe('#e0491f');   // preset fills the rest
+    expect($merged['color_accent'])->toBe('#123456')                 // manual wins over the preset's #e0491f
+        ->and($merged['typography_font_family'])->toBe('young-serif'); // preset fills the rest
 });
 
 it('resolves the highest-priority contribution per column, order-independent', function () {
     $user = createTenant('priority-test');
     $siteId = $user->site->id;
 
-    // Two sources set color_bg; higher priority wins regardless of row order.
+    // Two sources set the accent; higher priority wins regardless of row order.
     foreach ([['a-source', 40, '#aaaaaa'], ['z-source', 60, '#bbbbbb']] as [$source, $prio, $val]) {
         DesignKitContribution::query()->create([
             'site_id' => $siteId,
@@ -150,12 +152,12 @@ it('resolves the highest-priority contribution per column, order-independent', f
             'integration' => 'test',
             'priority' => $prio,
             'mode' => 'one_shot',
-            'target_var' => 'color_bg',
+            'target_var' => 'color_accent',
             'value' => $val,
         ]);
     }
 
-    expect(dkPresetResolver()->presetLayer($siteId)['color_bg'])->toBe('#bbbbbb');
+    expect(dkPresetResolver()->presetLayer($siteId)['color_accent'])->toBe('#bbbbbb');
 });
 
 it('is a no-op when no factors are registered (dark launch)', function () {
@@ -192,7 +194,10 @@ it('classifies a range of Google Business types into their expected bucket', fun
 
     dkPresetResolver()->resolveForUser($user);
 
+    // Buckets emit only targetable columns since the 2026-07-10 factor pass;
+    // the filter() wrap is belt-and-braces (it must be an identity here).
     expect(dkPresetResolver()->presetLayer($user->site->id))
+        ->toEqualCanonicalizing(PresetTargetableColumns::filter(CategoryStylePresets::forBucket($bucket)))
         ->toEqualCanonicalizing(CategoryStylePresets::forBucket($bucket));
 })->with([
     'Barber shop' => ['Barber shop', CategoryStylePresets::BEAUTY_PERSONAL_CARE],   // collision guard: NOT food_drink via 'bar'

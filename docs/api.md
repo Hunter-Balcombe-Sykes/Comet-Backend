@@ -792,6 +792,24 @@ HTTP 423 Locked
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
+- Ordering settings (actions system): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.smart_actions` (bool, default true), `settings.manual_actions` (≤12 ordered entries, each ONE of `{kind:"page",ref:"<page-id>"}` / `{kind:"item",ref:"<itemType>:<itemKey>"}` / `{kind:"button",ref:"<platform slug>"}` (`booking` = the general booking link) / `{kind:"custom",label:"...",url:"https://..."}`). Strict: non-custom entries reject label/url, custom rejects ref; duplicate kind:ref pairs 422; both lists REPLACE atomically on write. The public payload's `pageOrder` / `rankedActions` apply these server-side.
+
+### `GET /api/site/actions`
+
+- Purpose: dashboard picker data for the design page's "Pages" / "Action buttons" controls
+- Auth: Required
+- Response (200): `{ "pool": [ActionEntry], "rankedActions": [ActionEntry], "ordering": { "smartPageOrder": bool, "manualPageOrder": [...], "smartActions": bool, "manualActions": [...] } }` (no data envelope)
+- `ActionEntry` = `{ "kind": "page|item|button|custom", "ref": "book" | "service:<id>" | "instagram" | null, "label": string|null, "url": string|null, "pageId": string|null, "itemType": string|null, "itemKey": string|null, "score": number|null }`
+- `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
+- The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
+
+### Feedback (OV-D)
+
+- `POST /api/me/feedback` — submit feedback. Request: `{ "type": "error|good|bad_ui|idea" (required), "area": "<free-form feature/page/tool string, ≤120 chars>" (required), "target": {...} (optional, ≤4KB encoded JSON, e.g. `{"area":"analytics","elementId":"x"}`), "message": "<1-5000 chars>" (required), "kind": null (optional legacy taxonomy — derived from `type` when omitted: error/bad_ui→bug, good→praise, idea→idea), "severity": null (only meaningful with kind=bug), "page_url", "user_agent", "viewport", "app_version", "request_id", "reply_email" (all optional, unchanged) }`. Response (201): `{ "feedback": { "id", "kind", "severity", "type", "area", "target", "message", "status", "page_url", "app_version", "created_at" } }`. Rate-limited (`throttle:feedback-submit`); `429` on an identical message resubmitted within the duplicate window; `422` on validation failure; exempt from the pending-deletion read-only lock.
+- `GET /api/me/feedback` — list the caller's own feedback, paginated (house envelope, key `feedback`).
+- `GET /api/me/feedback/{feedback}` — single row, owner-only (`404`, not `403`, for someone else's row).
+- `GET /api/staff/feedback?type=&area=&from=&to=&per_page=&page=` — staff triage list across ALL users (any staff role). See §8.
+- Common status codes: 200, 401, 404
 
 ### `GET /api/site/google-business-profile`
 
@@ -1017,7 +1035,8 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - GET /api/staff/professionals/{professional}/site
 - GET /api/staff/professionals/{professional}/analytics
 - GET /api/staff/professionals/{professional}/links
-- GET /api/staff/professionals/{professional}/sections Staff-admin routes (requires core.sidest_staff.is_admin = true)
+- GET /api/staff/professionals/{professional}/sections
+- GET /api/staff/feedback?type=error|good|bad_ui|idea&area=<string>&from=YYYY-MM-DD&to=YYYY-MM-DD&per_page=&page= (OV-D — triage list across ALL users, not scoped to one professional; unrecognised `type` values are ignored rather than erroring; invalid `from`/`to` → 422; response envelope: `{ "feedback": [StaffFeedbackRow], "meta": {...} }`, `StaffFeedbackRow` adds `user: {id,handle,display_name,email}|null`, `reply_email`, `request_id`, `tags`, `internal_notes`, `ip_hash`, `updated_at` on top of the owner-facing shape) Staff-admin routes (requires core.sidest_staff.is_admin = true)
 - PATCH /api/staff/professionals/{professional}/status
 - PATCH /api/staff/professionals/{professional}
 - DELETE /api/staff/professionals/{professional}/force (hard delete)

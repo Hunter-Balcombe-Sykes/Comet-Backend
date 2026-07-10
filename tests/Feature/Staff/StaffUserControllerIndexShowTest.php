@@ -6,7 +6,7 @@
  * Confirms that:
  *   - index() no longer crashes on the removed site.theme eager-load
  *   - show()  no longer crashes on the removed site.theme / unused services/blocks loads
- *   - Both responses include skeleton_id (not theme) in the site payload
+ *   - Both responses include architecture_id (not theme) in the site payload
  */
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 /** Insert a professional + linked site row; returns the loaded User model. */
-function seedProfessionalWithSite(string $skeletonId = 'dock'): User
+function seedProfessionalWithSite(string $architectureId = 'one'): User
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -42,7 +42,7 @@ function seedProfessionalWithSite(string $skeletonId = 'dock'): User
         'id' => $siteId,
         'user_id' => $userId,
         'subdomain' => 'pro-'.Str::random(4),
-        'skeleton_id' => $skeletonId,
+        'architecture_id' => $architectureId,
         'is_published' => 1,
         'settings' => json_encode([]),
         'created_at' => $now,
@@ -67,8 +67,8 @@ it('index returns 200 and does not crash without a theme relationship', function
     expect($response->getStatusCode())->toBe(200);
 });
 
-it('index includes skeleton_id in the site payload and omits theme', function () {
-    seedProfessionalWithSite('flick');
+it('index includes architecture_id in the site payload and omits theme', function () {
+    seedProfessionalWithSite('one');
 
     $controller = app(StaffUserController::class);
     $request = Request::create('/', 'GET');
@@ -80,8 +80,8 @@ it('index includes skeleton_id in the site payload and omits theme', function ()
     $withSite = collect($body['professionals'])->firstWhere(fn ($p) => $p['site'] !== null);
 
     expect($withSite)->not->toBeNull()
-        ->and($withSite['site'])->toHaveKey('skeleton_id')
-        ->and($withSite['site']['skeleton_id'])->toBe('flick')
+        ->and($withSite['site'])->toHaveKey('architecture_id')
+        ->and($withSite['site']['architecture_id'])->toBe('one')
         ->and($withSite['site'])->not->toHaveKey('theme');
 });
 
@@ -123,16 +123,16 @@ it('show returns 200 and does not crash without a theme relationship', function 
     expect($response->getStatusCode())->toBe(200);
 });
 
-it('show includes skeleton_id in the site payload and omits theme', function () {
-    $pro = seedProfessionalWithSite('bento');
+it('show includes architecture_id in the site payload and omits theme', function () {
+    $pro = seedProfessionalWithSite('one');
 
     $controller = app(StaffUserController::class);
     $response = $controller->show($pro);
     $body = json_decode($response->getContent(), true);
 
     expect($body['site'])->not->toBeNull()
-        ->and($body['site'])->toHaveKey('skeleton_id')
-        ->and($body['site']['skeleton_id'])->toBe('bento')
+        ->and($body['site'])->toHaveKey('architecture_id')
+        ->and($body['site']['architecture_id'])->toBe('one')
         ->and($body['site'])->not->toHaveKey('theme');
 });
 

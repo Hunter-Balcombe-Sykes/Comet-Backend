@@ -21,7 +21,6 @@ it('prefers CF-Connecting-IP over the resolved client IP for public limiters', f
     // already applies in PublicSignupAvailabilityControllerTest.
     config(['partna.throttle.enabled' => true]);
     $configureRateLimiting = new ReflectionMethod(AppServiceProvider::class, 'configureRateLimiting');
-    $configureRateLimiting->setAccessible(true);
     $configureRateLimiting->invoke(new AppServiceProvider(app()));
 
     $limiter = app(CacheRateLimiter::class)->limiter($name);

@@ -42,34 +42,45 @@ function cuisineEvidence(?array $googleBusinessPayload): IdentityEvidence
 it('concludes fine-dining editorial look for a fine-dining category', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Fine dining restaurant']));
 
-    expect($out['color_bg'])->toBe('#151515')
-        ->and($out['effect_style'])->toBe('editorial')
-        ->and($out['effect_image_treatment'])->toBe('duotone');
+    // Dark ground retired (theme_mode owns bg) — restraint reads through the
+    // light weight + outline surface + flat shadows + duotone mood, plus the
+    // square editorial shape refining the food bucket's soft corners.
+    expect($out['weight_regular'])->toBe('300')
+        ->and($out['border_radius'])->toBe('0')
+        ->and($out['typography_font_family'])->toBe('young-serif')
+        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out['effect_shadow_style'])->toBe('flat')
+        ->and($out['effect_image_treatment'])->toBe('duotone')
+        ->and($out)->not->toHaveKey('color_bg');
 });
 
 it('concludes a warm cafe look for a coffee shop', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Coffee shop']));
 
-    expect($out['color_bg'])->toBe('#f7f4ee')
-        ->and($out['border_radius'])->toBe('1rem')
-        ->and($out['effect_image_treatment'])->toBe('warm');
+    expect($out['border_radius'])->toBe('0.85rem')
+        ->and($out['effect_shadow_style'])->toBe('soft')
+        ->and($out['effect_image_treatment'])->toBe('warm')
+        ->and($out)->not->toHaveKey('color_bg');
 });
 
 it('concludes a bold fast-casual look', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Fast food restaurant']));
 
-    expect($out['color_bg'])->toBe('#ffffff')
-        ->and($out['border_radius'])->toBe('0.25rem')
+    expect($out['border_radius'])->toBe('0.25rem')
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_style'])->toBe('bold');
+        ->and($out['effect_surface'])->toBe('solid')
+        ->and($out['effect_shadow_style'])->toBe('hard');
 });
 
 it('concludes a restrained look for a specific cuisine', function () {
     $out = (new CuisineFactor)->detect(cuisineEvidence(['category' => 'Italian restaurant']));
 
+    // Warm imagery, not muted — appetite rules food photography; the restraint
+    // reads through the serif + slow pace + outline surface.
     expect($out['typography_font_family'])->toBe('origin')
-        ->and($out['effect_style'])->toBe('editorial')
-        ->and($out['effect_image_treatment'])->toBe('muted');
+        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out['motion_pace'])->toBe('slow')
+        ->and($out['effect_image_treatment'])->toBe('warm');
 });
 
 it('abstains for a generic restaurant with no cuisine lean', function () {
@@ -115,7 +126,7 @@ it('only ever emits whitelisted design-kit columns', function () {
     foreach ([$fineDining, $cafe] as $out) {
         expect($out)->not->toBe([]);
         foreach (array_keys($out) as $column) {
-            expect(PresetTargetableColumns::isValid($column))->toBeTrue();
+            expect(PresetTargetableColumns::isValid($column))->toBeTrue("non-targetable column emitted: {$column}");
         }
     }
 });

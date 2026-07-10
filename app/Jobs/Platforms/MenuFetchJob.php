@@ -7,6 +7,7 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
@@ -329,5 +330,9 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         if ($menu) {
             $menu->forceFill(['fetch_status' => 'unavailable'])->save();
         }
+
+        // OV-H: in-app heads-up (non-critical — the menu self-heals via the retry cron).
+        // Resolved via the container since failed() gets no dependency injection.
+        app(PlatformHealthNotifier::class)->menuScrapeFailed((string) $this->userId);
     }
 }

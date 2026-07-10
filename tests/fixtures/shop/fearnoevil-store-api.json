@@ -1,0 +1,409 @@
+[
+    {
+        "id": 2964,
+        "name": "Bulwark Jacket",
+        "slug": "bulwark-jacket",
+        "parent": 0,
+        "type": "variable",
+        "variation": "",
+        "permalink": "https://fearnoevil.com.au/product/bulwark-jacket/",
+        "sku": "",
+        "on_sale": false,
+        "prices": {
+            "price": "28000",
+            "regular_price": "28000",
+            "sale_price": "28000",
+            "price_range": null,
+            "currency_code": "AUD",
+            "currency_symbol": "$",
+            "currency_minor_unit": 2,
+            "currency_decimal_separator": ".",
+            "currency_thousand_separator": ",",
+            "currency_prefix": "$",
+            "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>280.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [
+            {
+                "id": 2962,
+                "src": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1.webp",
+                "thumbnail": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-300x300.webp",
+                "srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1.webp 1444w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-240x300.webp 240w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-820x1024.webp 820w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-768x959.webp 768w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-1229x1536.webp 1229w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-600x750.webp 600w",
+                "sizes": "(max-width: 1444px) 100vw, 1444px",
+                "thumbnail_srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-300x300.webp 300w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-150x150.webp 150w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Front-1-100x100.webp 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Jap Front 1",
+                "alt": ""
+            },
+            {
+                "id": 2961,
+                "src": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons-.webp",
+                "thumbnail": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--300x300.webp",
+                "srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons-.webp 1444w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--240x300.webp 240w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--820x1024.webp 820w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--768x959.webp 768w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--1229x1536.webp 1229w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--600x750.webp 600w",
+                "sizes": "(max-width: 1444px) 100vw, 1444px",
+                "thumbnail_srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--300x300.webp 300w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--150x150.webp 150w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Buttons--100x100.webp 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Jap Buttons",
+                "alt": ""
+            },
+            {
+                "id": 2959,
+                "src": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1.webp",
+                "thumbnail": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-300x300.webp",
+                "srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1.webp 1444w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-240x300.webp 240w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-820x1024.webp 820w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-768x959.webp 768w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-1229x1536.webp 1229w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-600x750.webp 600w",
+                "sizes": "(max-width: 1444px) 100vw, 1444px",
+                "thumbnail_srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-300x300.webp 300w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-150x150.webp 150w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Arm-1-100x100.webp 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Jap Arm 1",
+                "alt": ""
+            },
+            {
+                "id": 2963,
+                "src": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1.webp",
+                "thumbnail": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-300x300.webp",
+                "srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1.webp 1444w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-240x300.webp 240w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-820x1024.webp 820w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-768x959.webp 768w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-1229x1536.webp 1229w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-600x750.webp 600w",
+                "sizes": "(max-width: 1444px) 100vw, 1444px",
+                "thumbnail_srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-300x300.webp 300w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-150x150.webp 150w, https://fearnoevil.com.au/wp-content/uploads/2025/12/Jap-Pocket-1-100x100.webp 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Jap Pocket 1",
+                "alt": ""
+            }
+        ],
+        "categories": [
+            {
+                "id": 62,
+                "name": "Standard Sizing",
+                "slug": "standard-sizing",
+                "link": "https://fearnoevil.com.au/product-category/standard-sizing/"
+            },
+            {
+                "id": 40,
+                "name": "Tops",
+                "slug": "tops",
+                "link": "https://fearnoevil.com.au/product-category/tops/"
+            }
+        ],
+        "tags": [],
+        "brands": [],
+        "attributes": [
+            {
+                "id": 1,
+                "name": "Size",
+                "taxonomy": "pa_size",
+                "has_variations": true,
+                "terms": [
+                    {
+                        "id": 34,
+                        "name": "Extra Large",
+                        "slug": "extra-large"
+                    },
+                    {
+                        "id": 35,
+                        "name": "Large",
+                        "slug": "large"
+                    },
+                    {
+                        "id": 36,
+                        "name": "Medium",
+                        "slug": "medium"
+                    },
+                    {
+                        "id": 37,
+                        "name": "Small",
+                        "slug": "small"
+                    }
+                ]
+            }
+        ],
+        "variations": [
+            {
+                "id": 3006,
+                "attributes": [
+                    {
+                        "name": "Size",
+                        "value": "extra-large"
+                    }
+                ]
+            },
+            {
+                "id": 3007,
+                "attributes": [
+                    {
+                        "name": "Size",
+                        "value": "large"
+                    }
+                ]
+            },
+            {
+                "id": 3008,
+                "attributes": [
+                    {
+                        "name": "Size",
+                        "value": "medium"
+                    }
+                ]
+            },
+            {
+                "id": 3009,
+                "attributes": [
+                    {
+                        "name": "Size",
+                        "value": "small"
+                    }
+                ]
+            }
+        ],
+        "grouped_products": [],
+        "has_options": true,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+            "text": "",
+            "class": "in-stock"
+        },
+        "sold_individually": false,
+        "weight": "",
+        "dimensions": {
+            "length": "",
+            "width": "",
+            "height": ""
+        },
+        "formatted_weight": "N/A",
+        "formatted_dimensions": "N/A",
+        "add_to_cart": {
+            "text": "Select options",
+            "description": "Select options for &ldquo;Bulwark Jacket&rdquo;",
+            "url": "https://fearnoevil.com.au/product/bulwark-jacket/",
+            "single_text": "Add to cart",
+            "minimum": 1,
+            "maximum": 9999,
+            "multiple_of": 1
+        },
+        "is_password_protected": false,
+        "extensions": [],
+        "_links": {
+            "self": [
+                {
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products/2964",
+                    "targetHints": {
+                        "allow": [
+                            "GET"
+                        ]
+                    }
+                }
+            ],
+            "collection": [
+                {
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products"
+                }
+            ],
+            "related": [
+                {
+                    "embeddable": true,
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products?related=2964&per_page=10"
+                }
+            ]
+        }
+    },
+    {
+        "id": 2595,
+        "name": "K\u014dji Pants",
+        "slug": "koji-pants",
+        "parent": 0,
+        "type": "variable",
+        "variation": "",
+        "permalink": "https://fearnoevil.com.au/product/koji-pants/",
+        "sku": "",
+        "on_sale": false,
+        "prices": {
+            "price": "18000",
+            "regular_price": "18000",
+            "sale_price": "18000",
+            "price_range": null,
+            "currency_code": "AUD",
+            "currency_symbol": "$",
+            "currency_minor_unit": 2,
+            "currency_decimal_separator": ".",
+            "currency_thousand_separator": ",",
+            "currency_prefix": "$",
+            "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>180.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [
+            {
+                "id": 2596,
+                "src": "https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1.webp",
+                "thumbnail": "https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-300x300.webp",
+                "srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1.webp 2048w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-240x300.webp 240w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-819x1024.webp 819w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-768x960.webp 768w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-1229x1536.webp 1229w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-1638x2048.webp 1638w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-600x750.webp 600w",
+                "sizes": "(max-width: 2048px) 100vw, 2048px",
+                "thumbnail_srcset": "https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-300x300.webp 300w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-150x150.webp 150w, https://fearnoevil.com.au/wp-content/uploads/2025/08/Cream-1-100x100.webp 100w",
+                "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+                "name": "Cream (1)",
+                "alt": ""
+            }
+        ],
+        "categories": [
+            {
+                "id": 61,
+                "name": "Bottoms",
+                "slug": "bottoms",
+                "link": "https://fearnoevil.com.au/product-category/bottoms/"
+            },
+            {
+                "id": 41,
+                "name": "Pants",
+                "slug": "pants",
+                "link": "https://fearnoevil.com.au/product-category/pants/"
+            },
+            {
+                "id": 63,
+                "name": "Waist Sizing",
+                "slug": "waist-sizing",
+                "link": "https://fearnoevil.com.au/product-category/waist-sizing/"
+            }
+        ],
+        "tags": [],
+        "brands": [],
+        "attributes": [
+            {
+                "id": 2,
+                "name": "Shorts Size",
+                "taxonomy": "pa_shorts-size",
+                "has_variations": true,
+                "terms": [
+                    {
+                        "id": 47,
+                        "name": "28",
+                        "slug": "28"
+                    },
+                    {
+                        "id": 48,
+                        "name": "30",
+                        "slug": "30"
+                    },
+                    {
+                        "id": 49,
+                        "name": "32",
+                        "slug": "32"
+                    },
+                    {
+                        "id": 50,
+                        "name": "34",
+                        "slug": "34"
+                    },
+                    {
+                        "id": 51,
+                        "name": "36",
+                        "slug": "36"
+                    }
+                ]
+            }
+        ],
+        "variations": [
+            {
+                "id": 2610,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "28"
+                    }
+                ]
+            },
+            {
+                "id": 2611,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "30"
+                    }
+                ]
+            },
+            {
+                "id": 2612,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "32"
+                    }
+                ]
+            },
+            {
+                "id": 2613,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "34"
+                    }
+                ]
+            },
+            {
+                "id": 2614,
+                "attributes": [
+                    {
+                        "name": "Shorts Size",
+                        "value": "36"
+                    }
+                ]
+            }
+        ],
+        "grouped_products": [],
+        "has_options": true,
+        "is_purchasable": true,
+        "is_in_stock": false,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+            "text": "Out of stock",
+            "class": "out-of-stock"
+        },
+        "sold_individually": false,
+        "weight": "3",
+        "dimensions": {
+            "length": "30",
+            "width": "4",
+            "height": "25"
+        },
+        "formatted_weight": "3 kg",
+        "formatted_dimensions": "30 \u00d7 4 \u00d7 25 cm",
+        "add_to_cart": {
+            "text": "Select options",
+            "description": "Select options for &ldquo;K\u014dji Pants&rdquo;",
+            "url": "https://fearnoevil.com.au/product/koji-pants/",
+            "single_text": "Add to cart",
+            "minimum": 1,
+            "maximum": 9999,
+            "multiple_of": 1
+        },
+        "is_password_protected": false,
+        "extensions": [],
+        "_links": {
+            "self": [
+                {
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products/2595",
+                    "targetHints": {
+                        "allow": [
+                            "GET"
+                        ]
+                    }
+                }
+            ],
+            "collection": [
+                {
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products"
+                }
+            ],
+            "related": [
+                {
+                    "embeddable": true,
+                    "href": "https://fearnoevil.com.au/wp-json/wc/store/v1/products?related=2595&per_page=10"
+                }
+            ]
+        }
+    }
+]

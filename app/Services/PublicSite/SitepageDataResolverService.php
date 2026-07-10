@@ -205,8 +205,23 @@ class SitepageDataResolverService
                     }
                 }
 
-                // A fetched Menu (Google-Business-sourced) → the Menu page.
-                if ($this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false)) {
+                // Google Business display toggles (display_settings) gate the two
+                // GB-derived pages below (menu + reviews). A section switched OFF
+                // must also drop its page from the nav/pageOrder — else B2.2 strips
+                // the section's data but the page still advertises itself and renders
+                // empty. Absent/true = shown, explicit false hides — same read as
+                // PublicMenuController. first() (not value()) so the array cast applies.
+                $gbConn = $this->safeQuery(fn () => IntegrationConnection::query()
+                    ->where('user_id', $userId)
+                    ->where('platform', 'google-business')
+                    ->where('is_active', true)
+                    ->first(['display_settings']), null);
+                $gbDisplay = (array) ($gbConn?->display_settings ?? []);
+
+                // A fetched Menu (Google-Business-sourced) → the Menu page, unless
+                // the owner switched the Menu section off.
+                if (($gbDisplay['menu'] ?? true) !== false
+                    && $this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false)) {
                     $present['menu'] = true;
                 }
 
@@ -215,8 +230,9 @@ class SitepageDataResolverService
                     $present['book'] = true;
                 }
 
-                // Active Google Business → the Reviews page (Business-only, gated below).
-                if ($this->safeQuery(fn () => IntegrationConnection::query()->where('user_id', $userId)->where('platform', 'google-business')->where('is_active', true)->exists(), false)) {
+                // Active Google Business → the Reviews page (Business-only, gated
+                // below), unless the owner switched the Reviews section off.
+                if ($gbConn !== null && ($gbDisplay['reviews'] ?? true) !== false) {
                     $present['reviews'] = true;
                 }
             }
@@ -451,13 +467,13 @@ class SitepageDataResolverService
     // ── Content media (polymorphic — design layer) ──────────────────────
 
     /**
-     * Content-pool media — design-layer assets the skeleton paints with
+     * Content-pool media — design-layer assets the architecture paints with
      * (backgrounds, section covers, decorative imagery). Polymorphic: images
      * and videos in a single sort-ordered list, projected through the shared
      * buildMediaItem helper so the shape matches gallery items exactly.
      *
      * Unlike the phase-8 engines, this is not gated by a Block row — it's
-     * design infrastructure, not user content. The skeleton consumes whatever
+     * design infrastructure, not user content. The architecture consumes whatever
      * is in the pool in order.
      *
      * Returns snake_case keys (id, sort_order, url, url_hd, alt_text,
@@ -487,11 +503,12 @@ class SitepageDataResolverService
             ->all();
     }
 
-    // ── Design singletons (logos + integration covers) ──────────────────
+    // ── Design singletons (logos + placeholder + integration covers) ────
 
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
-     * (logo_full / logo_square) and the per-integration cover images
+     * (logo_full / logo_square), the brand placeholder image (placeholder)
+     * and the per-integration cover images
      * (cover_youtube, cover_apple_music, ...; registry-derived). Each maps to {url, url_hd, url_svg}
      * from the ready WebP variants (url_svg only for vectorized logos); purposes
      * with no uploaded/ready image are absent.

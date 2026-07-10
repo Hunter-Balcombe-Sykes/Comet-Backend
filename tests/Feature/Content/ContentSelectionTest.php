@@ -10,6 +10,7 @@
  * dropping a google-photo whose ref vanished.
  */
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -464,4 +465,126 @@ it('GET selection returns resolved rows plus IG flags', function () {
     // igConnection() created the connection which flips auto on via the observer.
     $res->assertJsonPath('instagramAutoEnabled', true);
     $res->assertJsonStructure(['selection', 'instagramAutoEnabled', 'instagramConnected']);
+});
+
+// ── WS-B2.1: Google-photos content-inclusion toggle ──────────────────────────
+
+it('content_photos off excludes google photos from the library', function () {
+    [$user] = contentUserWithSite('gp1');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    actingAsUser($user)->getJson('/api/content/library')
+        ->assertOk()
+        ->assertJsonCount(0, 'googlePhotos');
+});
+
+it('content_photos off drops google photos from the resolved selection', function () {
+    [$user, $site] = contentUserWithSite('gp2');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    app(ContentSelectionService::class)->replace($site, [
+        ['type' => 'google-photo', 'ref' => 'places/A/photos/1'],
+    ]);
+
+    expect(app(ContentSelectionService::class)->resolve($site))->toBe([]);
+});
+
+it('content_photos off makes a GB connect seed no google photos', function () {
+    [$user, $site] = contentUserWithSite('gp3');
+
+    // display_settings present AT create time → the connect-seed hook sees the
+    // toggle off and seeds nothing.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'payload' => ['name' => 'Biz', 'photos' => [
+            ['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg'],
+            ['ref' => 'places/A/photos/2', 'url' => 'https://lh3/2.jpg'],
+        ]],
+        'display_settings' => ['content_photos' => false],
+        'is_active' => true,
+    ]);
+
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(0);
+});
+
+it('PUT google-photos toggles content inclusion and stores it sparsely', function () {
+    [$user] = contentUserWithSite('gp4');
+    $conn = gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])
+        ->assertOk()
+        ->assertJsonPath('googlePhotosEnabled', false)
+        ->assertJsonPath('googlePhotosConnected', true);
+
+    // Toggling purges the sitepage profile cache (backgrounds are fed by the
+    // content selection) — proves it "genuinely stops flowing", not client-hidden.
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Re-enabling removes the key entirely (sparse deviations only).
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => true])
+        ->assertOk()
+        ->assertJsonPath('googlePhotosEnabled', true);
+
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBeNull();
+});
+
+it('PUT google-photos 404s without a google-business connection', function () {
+    [$user] = contentUserWithSite('gp5');
+
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])
+        ->assertStatus(404);
+});
+
+it('GET selection reports the googlePhotos flags', function () {
+    [$user] = contentUserWithSite('gp6');
+    gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    actingAsUser($user->fresh()->load('site'))->getJson('/api/content/selection')
+        ->assertOk()
+        ->assertJsonPath('googlePhotosConnected', true)
+        ->assertJsonPath('googlePhotosEnabled', true);
+});
+
+it('content_photos and display-section toggles do not clobber each other', function () {
+    [$user] = contentUserWithSite('coexist');
+    $conn = gbConnectionWithPhotos($user, [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]);
+
+    // Content path (PUT /content/google-photos) writes content_photos.
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => false])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Platform path (PATCH display-settings) writes a display toggle — content_photos survives.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => false],
+    ])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)
+        ->toEqual(['content_photos' => false, 'reviews' => false]);
+
+    // Re-enabling reviews leaves content_photos intact.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => true],
+    ])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['content_photos' => false]);
+
+    // Reverse: the content path re-enabling leaves an existing display toggle intact.
+    actingAsUser($user)->patchJson('/api/platforms/google-business/display-settings', [
+        'toggles' => ['reviews' => false],
+    ])->assertOk();
+    actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => true])->assertOk();
+    expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['reviews' => false]);
 });

@@ -106,7 +106,7 @@ it('resolves evidence factors end-to-end: platform-mix ambient vibe lands', func
 
     expect($changed)->toBeTrue();
     $layer = evpResolver()->presetLayer($user->site->id);
-    expect($layer['effect_style'])->toBe('soft-glass')    // social-lifestyle vibe
+    expect($layer['effect_surface'])->toBe('glass')       // social-lifestyle vibe
         ->and($layer['effect_shadow_style'])->toBe('soft');
 });
 
@@ -138,10 +138,10 @@ it('lets the declared aesthetic-expression factor (band E) beat a category facto
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
-    // Declared expression (64) wins border_radius + color_bg over both the
-    // food_drink bucket (Google 40) and the Instagram beauty bucket (30).
+    // Declared expression (64) wins border_radius + surface over both the
+    // food_drink bucket (Google 40, solid) and the Instagram beauty bucket (30).
     expect($layer['border_radius'])->toBe('1.5rem')
-        ->and($layer['color_bg'])->toBe('#faf6f7');
+        ->and($layer['effect_surface'])->toBe('glass'); // SOFT lean's material
 });
 
 it('lets a manual design_kits value beat every evidence factor', function () {
@@ -149,20 +149,21 @@ it('lets a manual design_kits value beat every evidence factor', function () {
     evpConnection($user, 'instagram', [
         'businessCategory' => 'Beauty, Cosmetic & Personal Care',
         'fullName' => 'Petal & Bloom Skincare',
-    ]); // expression SOFT sets color_bg #faf6f7
+    ]); // expression SOFT sets border_radius 1.5rem
 
     evpResolver()->resolveForUser($user);
 
-    // User manually overrides the background.
+    // User manually overrides the radius. (Was color_bg pre-2026-07-10; that
+    // column is gone — theme_mode owns the background now.)
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $user->site->id,
-        'color_bg' => '#0a0a0a',
+        'border_radius' => '3rem',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
     $merged = evpResolver()->mergedFlatKit($user->site->id);
-    expect($merged['color_bg'])->toBe('#0a0a0a'); // manual wins over the SOFT recipe
+    expect($merged['border_radius'])->toBe('3rem'); // manual wins over the SOFT recipe's 1.5rem
 });
 
 it('resolves the store price-point factor from seeded products (luxury)', function () {
@@ -173,7 +174,7 @@ it('resolves the store price-point factor from seeded products (luxury)', functi
     $layer = evpResolver()->presetLayer($user->site->id);
 
     expect($layer['space_regular'])->toBe('1.15rem')     // airy
-        ->and($layer['effect_style'])->toBe('editorial');
+        ->and($layer['effect_surface'])->toBe('outline'); // hairline boutique restraint
 });
 
 it('freezes the one-shot aesthetic-expression contribution when IG data later changes', function () {
@@ -183,7 +184,8 @@ it('freezes the one-shot aesthetic-expression contribution when IG data later ch
         'fullName' => 'Petal & Bloom Skincare',
     ]);
     evpResolver()->resolveForUser($user);
-    expect(evpResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#faf6f7'); // SOFT
+    // border_radius discriminates the lean (SOFT 1.5rem vs BOLD 0.25rem).
+    expect(evpResolver()->presetLayer($user->site->id)['border_radius'])->toBe('1.5rem'); // SOFT
 
     // The account re-brands to a bold gym; the frozen one-shot must not move.
     DB::connection('pgsql')->table('site.platform_connections')->where('id', $connId)->update([
@@ -192,5 +194,5 @@ it('freezes the one-shot aesthetic-expression contribution when IG data later ch
 
     $changed = evpResolver()->resolveForUser($user);
     expect($changed)->toBeFalse();
-    expect(evpResolver()->presetLayer($user->site->id)['color_bg'])->toBe('#faf6f7'); // still SOFT
+    expect(evpResolver()->presetLayer($user->site->id)['border_radius'])->toBe('1.5rem'); // still SOFT
 });

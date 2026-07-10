@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Resources\UserDashboardResource;
+use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\User\User;
 use App\Models\Core\Waitlist\WaitlistSignup;
+use App\Services\EarlyAccess\EarlyAccessService;
 use App\Services\User\UserBootstrapService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -14,11 +16,13 @@ use RuntimeException;
 
 // V2: Account signup/update. Keeps waitlist gating + individual-waitlist
 // divert + HTTP shaping in the controller; delegates the create-or-update
-// transaction to UserBootstrapService.
+// transaction to UserBootstrapService. OV-A: accepts an early-access invite
+// token that bypasses waitlist gates and locks the email to the invite.
 class BootstrapController extends ApiController
 {
     public function __construct(
         private readonly UserBootstrapService $bootstrapService,
+        private readonly EarlyAccessService $earlyAccess,
     ) {}
 
     public function bootstrap(BootstrapRequest $request): JsonResponse
@@ -28,7 +32,53 @@ class BootstrapController extends ApiController
             return $this->error('Unauthenticated', 401);
         }
 
-        if ($this->isWaitlistModeEnabled() && ! $this->hasExistingProfessional($uid)) {
+        // OV-A hardening: fail CLOSED when the token carries no verified email
+        // claim. This route requires supabase.jwt but NOT require.email_verified,
+        // so an anonymous or phone-only Supabase token (project-valid, has `sub`,
+        // no `email` claim) reaches here. On this account-creation surface we must
+        // never fall back to the attacker-controlled body email — otherwise such a
+        // token could satisfy the personal invite email-match, pass the uniqueness
+        // check, and mint a User row under a victim's address (locking them out).
+        // The normal email/OAuth signup always carries a verified email claim, so
+        // it is unaffected; phone-only signup, if ever wanted, is a separate
+        // deliberate feature. BootstrapRequest::prepareForValidation() binds this
+        // same verified claim over the body on the happy path.
+        $claims = $request->attributes->get('supabase_claims');
+        $verifiedEmail = is_array($claims) ? trim((string) ($claims['email'] ?? '')) : '';
+        if ($verifiedEmail === '') {
+            return $this->error(
+                'A verified email is required to create your account.',
+                422,
+                ['code' => 'EMAIL_VERIFICATION_REQUIRED']
+            );
+        }
+
+        // OV-A: early-access invite token. A VALID token must match the email
+        // being registered (the invite is personal) and bypasses both waitlist
+        // gates below — inviting someone past the velvet rope is its purpose.
+        $inviteToken = trim((string) $request->input('invite', ''));
+        $invite = $inviteToken !== '' ? EarlyAccessSignup::findByInviteToken($inviteToken) : null;
+
+        if ($inviteToken !== '' && ($invite === null || $invite->status !== EarlyAccessSignup::STATUS_INVITED)) {
+            return $this->error(
+                'This invite link is no longer valid.',
+                422,
+                ['code' => 'INVITE_INVALID']
+            );
+        }
+
+        if ($invite !== null) {
+            $registeringEmail = mb_strtolower(trim((string) $request->input('primary_email', '')));
+            if ($registeringEmail !== $invite->email_lc) {
+                return $this->error(
+                    'This invite belongs to a different email address.',
+                    422,
+                    ['code' => 'INVITE_EMAIL_MISMATCH']
+                );
+            }
+        }
+
+        if ($invite === null && $this->isWaitlistModeEnabled() && ! $this->hasExistingProfessional($uid)) {
             return $this->error(
                 'New account creation is currently waitlist-only. Please join the waitlist.',
                 403,
@@ -41,7 +91,8 @@ class BootstrapController extends ApiController
         // minimal: email + applicant_type='individual' + consent_source. Other
         // columns are nullable post-migration 20260526010000.
         if (
-            (bool) config('partna.individual_waitlist_enabled', false)
+            $invite === null
+            && (bool) config('partna.individual_waitlist_enabled', false)
             && ! $this->hasExistingProfessional($uid)
         ) {
             $emailLc = strtolower(trim((string) $request->input('primary_email', '')));
@@ -76,11 +127,18 @@ class BootstrapController extends ApiController
         }
 
         $data = $request->validated();
+        unset($data['invite']); // consumed above — never a user attribute
 
         try {
             $result = $this->bootstrapService->bootstrap($uid, $data);
         } catch (RuntimeException $e) {
             return $this->translateBootstrapException($e, $uid, $data['primary_email'] ?? null);
+        }
+
+        // OV-A: close the early-access loop — flips waitlist/invited → signed_up
+        // and burns the invite token. No-op for emails not on the list.
+        if (is_string($data['primary_email'] ?? null)) {
+            $this->earlyAccess->markSignedUp($data['primary_email']);
         }
 
         return $this->success([

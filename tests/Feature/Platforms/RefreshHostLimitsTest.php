@@ -25,7 +25,6 @@ it('caches a successful iTunes lookup so a repeat resolution issues no second fe
 
     $apple = app(AppleSearch::class);
     $resolve = new ReflectionMethod(AppleSearch::class, 'resolveArtistId');
-    $resolve->setAccessible(true);
 
     expect($resolve->invoke($apple, 'Same Artist'))->toBe(42); // network hit → cached
     expect($resolve->invoke($apple, 'Same Artist'))->toBe(42); // served from cache (once() holds)
@@ -43,7 +42,6 @@ it('does not cache a failed iTunes lookup (retried on the next call)', function 
 
     $apple = app(AppleSearch::class);
     $resolve = new ReflectionMethod(AppleSearch::class, 'resolveArtistId');
-    $resolve->setAccessible(true);
 
     expect($resolve->invoke($apple, 'Retry Artist'))->toBeNull(); // 429 → null, not cached
     expect($resolve->invoke($apple, 'Retry Artist'))->toBe(7);    // re-fetched, succeeds
@@ -98,7 +96,6 @@ it('skips billed re-resolution of photos that already carry a url, and pools the
 
     $svc = app(GoogleBusinessService::class);
     $ref = new ReflectionMethod(GoogleBusinessService::class, 'resolvePhotoUrls');
-    $ref->setAccessible(true);
 
     $photos = [
         ['ref' => 'places/x/photos/a', 'url' => 'https://cached.example/a.jpg'], // already resolved

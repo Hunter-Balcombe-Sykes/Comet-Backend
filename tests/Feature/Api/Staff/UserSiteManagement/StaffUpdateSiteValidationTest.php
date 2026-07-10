@@ -2,7 +2,7 @@
 
 // TEST-4 (staff side): functional validation coverage for StaffUpdateSiteRequest.
 //
-// StaffUpdateSiteRequest carries the same design-kit / skeleton / subdomain
+// StaffUpdateSiteRequest carries the same design-kit / architecture / subdomain
 // rules as the user-facing UpdateSiteRequest (the two are kept in sync — see
 // DesignKitRequestSyncTest). The structural drift test never invokes the
 // validator, so these tests drive the real
@@ -35,13 +35,13 @@ it('rejects a non-hex design-kit colour', function () {
         ->assertJsonValidationErrors(['design_kit.color_accent']);
 });
 
-it('rejects an unknown skeleton id', function () {
+it('rejects an unknown architecture id', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-skel');
 
-    patchStaffSite($staff, $pro, ['skeleton_id' => 'skeleton-9'])
+    patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['skeleton_id']);
+        ->assertJsonValidationErrors(['architecture_id']);
 });
 
 it('rejects a reserved subdomain', function () {
@@ -73,15 +73,27 @@ it('rejects any settings.design.* path (skeleton-cleanup guard)', function () {
         ->assertJsonValidationErrors(['settings.design']);
 });
 
-it('accepts a valid skeleton and settings (negative tests are not over-rejecting)', function () {
+it('accepts a valid architecture and settings (negative tests are not over-rejecting)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'skeleton_id' => 'dock',
+        'architecture_id' => 'dock', // legacy id — must collapse to 'one'
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('dock');
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('one');
+});
+
+it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
+    // Old staff-dashboard builds still send skeleton_id — prepareForValidation
+    // merges it into architecture_id, so the write succeeds and stores 'one'.
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-legacy-field');
+
+    patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('one');
 });

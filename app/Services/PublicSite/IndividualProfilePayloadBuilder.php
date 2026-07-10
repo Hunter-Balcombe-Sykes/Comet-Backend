@@ -39,12 +39,12 @@ use Illuminate\Support\Facades\DB;
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
  *     designMedia: DesignMediaItem[],
- *     skeletonId: 'bento' | 'dock' | 'flick' | 'deck' | 'sheet' | 'thread',
+ *     architectureId: 'one',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *
- * Each engine field falls back to a stable empty state so skeletons never
- * have to guard on `undefined`:
+ * Each engine field falls back to a stable empty state so the architecture
+ * never has to guard on `undefined`:
  *   - object engines (document, newsletter) → null when nothing authored
  *   - list engines (gallery, links, services) → empty array
  *
@@ -61,13 +61,14 @@ class IndividualProfilePayloadBuilder
         private readonly SitepageDataResolverService $resolver,
         private readonly DesignPresetResolver $presetResolver,
         private readonly ContentPopularityReader $popularity,
+        private readonly SiteActionsService $actions,
     ) {}
 
     /**
      * Build the §28.8 resolved payload. Reads:
      *   - the user's content sections via SitepageDataResolverService
      *   - the per-user design_kit row (partial — only stored non-null cols)
-     *   - the site's skeleton_id (TEXT enum)
+     *   - the site's architecture_id (TEXT enum)
      *   - platform-wide publicConfig fields (analytics endpoint, etc.)
      *
      * @return array<string, mixed>
@@ -80,24 +81,50 @@ class IndividualProfilePayloadBuilder
 
         // One indexed read of content_popularity_scores per build (behind the 60s
         // public-profile cache). Ranks ANNOTATE the content arrays + drive
-        // pageOrder — arrays are NEVER reordered (live skeletons read them
+        // pageOrder — arrays are NEVER reordered (live architectures read them
         // positionally). Empty maps when scoring hasn't run for the site.
         $ranks = $this->popularity->forSite($site?->id);
+
+        // Ordering preferences (smart vs manual, defaults = smart) + the
+        // unified ranked-action list. Manual overrides are applied HERE so
+        // pageOrder / rankedActions on the wire are always the final,
+        // render-ready values — consumers never re-derive.
+        $ordering = $this->actions->orderingSettings($site);
+
+        $pageOrder = $ordering['smart_page_order']
+            ? $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? [])
+            : $this->actions->applyManualPageOrder(
+                $this->resolver->presentPageIds($site, $caps, $sections),
+                $ordering['manual_page_order'],
+            );
+
+        $rankedActions = $this->actions->resolveRankedActions(
+            $this->actions->pool($pro, $site, $sections, $booking, $ranks),
+            $this->popularity->rankedActionsForSite($site?->id),
+            $ordering['smart_actions'],
+            $ordering['manual_actions'],
+        );
 
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site),
             'design_media' => $this->buildDesignMedia($site),
             'site_images' => $this->buildSiteImages($site),
-            'skeleton_id' => $site?->skeleton_id ?? Site::DEFAULT_SKELETON_ID,
+            'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
             'public_config' => $this->buildPublicConfig(),
-            // Taxonomy page order for the ONE skeleton — presence + business
-            // gated, popularity-ranked, canonical fallback. Top-level key.
-            'page_order' => $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? []),
+            // Taxonomy page order for the ONE architecture — presence + business
+            // gated, popularity-ranked (or the owner's manual order when
+            // smart_page_order is off), canonical fallback. Top-level key.
+            'page_order' => $pageOrder,
             // Full popularity map (content_type => content_key => rank) so the ONE
             // theme can order ANY item type uniformly, without per-platform payload
             // surgery. Same $ranks the per-item annotations below already use.
             'popularity' => $ranks,
+            // Unified ranked actions (page|item|button|custom) — the lander
+            // renders the top 6. Override-applied (manual list when
+            // smart_actions is off); ordering carries the raw preferences.
+            'ranked_actions' => $rankedActions,
+            'ordering' => $this->actions->orderingWire($ordering),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'gallery' => $this->buildGallery($site, $sections, $ranks['gallery_item'] ?? []),
             'curatedGallery' => $this->resolver->buildCuratedGalleryData($site),
@@ -177,7 +204,7 @@ class IndividualProfilePayloadBuilder
      *
      * @param  Collection<string, Block>  $sections
      * @param  array<string, int>  $ranks  gallery_item content_key (media id) → rank
-     * @return list<array{url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null, popularityRank: int|null}>
+     * @return list<array{id: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null, popularityRank: int|null}>
      */
     private function buildGallery(?Site $site, Collection $sections, array $ranks = []): array
     {
@@ -185,6 +212,10 @@ class IndividualProfilePayloadBuilder
         $items = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
 
         return array_values(array_map(static fn (array $item): array => [
+            // The SiteMedia UUID — gallery_item scores + item beacons key by it;
+            // without it on the wire the sitepage can never emit scoreable
+            // gallery impressions/clicks.
+            'id' => (string) ($item['id'] ?? ''),
             'url' => (string) ($item['url'] ?? ''),
             'urlHd' => $item['url_hd'] ?? null,
             'alt' => $item['alt_text'] ?? null,
@@ -224,9 +255,10 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Site image singletons — brand logos + per-integration cover images, keyed
-     * by camelCase purpose (logoFull, logoSquare, coverFresha, coverYoutube,
-     * coverAppleMusic, coverApplePodcast, coverEventbrite). Each value is
+     * Site image singletons — brand logos, the brand placeholder image +
+     * per-integration cover images, keyed by camelCase purpose (logoFull,
+     * logoSquare, placeholder, coverYoutube, coverAppleMusic,
+     * coverApplePodcast, coverEventbrite). Each value is
      * {url, urlHd, urlSvg, urlIcon} (urlSvg only for vectorized logos; urlIcon
      * only for square logos — the sitepage favicon source); absent purposes
      * have no uploaded/ready image. Empty object when nothing is set. partna-pages

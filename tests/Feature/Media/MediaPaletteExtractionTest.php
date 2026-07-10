@@ -82,7 +82,7 @@ it('stores a palette on the media row during variant processing', function () {
         ->and($row->palette['saturation'])->toBeGreaterThan(0.5);
 });
 
-it('a warm mid-saturation gallery lights up ImageryPaletteFactor with a warm treatment + bg tint', function () {
+it('a warm mid-saturation gallery lights up ImageryPaletteFactor with a warm treatment', function () {
     $siteId = (string) Str::uuid();
     $imageId = seedPaletteMediaRow($siteId);
     // Warm hue (~30°) with MID saturation (~0.30): between the LOW (0.20) and
@@ -111,9 +111,10 @@ it('a warm mid-saturation gallery lights up ImageryPaletteFactor with a warm tre
         ->and($palette['saturation'])->toBeGreaterThan(0.20)
         ->and($palette['saturation'])->toBeLessThan(0.65);
 
+    // Treatment only — the old warm bg tint retired with the 2026-07-10
+    // theme_mode rework (backgrounds are user-owned).
     $out = (new ImageryPaletteFactor)->detect($evidence);
-    expect($out['effect_image_treatment'])->toBe('warm')
-        ->and($out['color_bg'])->toBe('#f7f4ee'); // warm light tint
+    expect($out)->toBe(['effect_image_treatment' => 'warm']);
 });
 
 it('a vivid gallery yields a high-saturation read → treatment none', function () {

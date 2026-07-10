@@ -6,6 +6,8 @@ use App\Enums\SitepageId;
 use App\Models\Core\Site\Site;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentFreshness;
+use App\Services\Analytics\RankedActionsComputer;
+use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -24,14 +26,21 @@ use Illuminate\Support\Str;
  *                        presence + Business gated (shared resolver gate).
  *   - item scores      : link_clicks.product_id + item_views, keyed
  *                        (item_type, item_id).
+ * plus a third, DERIVED family layered on top (content_type='action', keyed
+ * '<kind>:<ref>'): the unified page|item|button ranked-action list computed by
+ * RankedActionsComputer from this run's blended scores + button click signals.
+ * The action layer owns its own lifecycle (stale keys deleted per run) and is
+ * excluded from the generic fade-out union below.
  *
- * Formula: score = (W_CLICK·clicks + W_VIEW·impressions + W_DWELL_PER_SECOND·dwell_s)
- * · recency + freshness, where recency = exp(-age_days / HALF_LIFE_DAYS). age_days
- * is measured from the most recent contributing event (event recency — a uniform,
- * event-table-only basis that also covers pages, which have no single backing
- * content row). dwell_s (page grain only) is SUM(section_views.duration_ms)/1000 —
- * the per-page visible-time signal; at 0.05/s, 20s of dwell ≈ one impression and
- * 60s ≈ one click. Items have no dwell signal (their term is 0).
+ * Formula: score = Σ_days (W_CLICK·clicks_d + W_VIEW·impressions_d +
+ * W_DWELL_PER_SECOND·dwell_s_d) · 2^(-age_d / HALF_LIFE_DAYS) + freshness.
+ * Every DAY's events carry their own true-half-life decay weight (day buckets,
+ * driver-portable SQL), so old engagement fades even while new events arrive.
+ * The previous model multiplied the WHOLE-history sum by decay-since-the-LATEST
+ * event — one fresh click "resurrected" years of stale counts to full weight and
+ * dormant-with-a-trickle content was indistinguishable from active content.
+ * dwell_s (page grain only) is that day's SUM(duration_ms)/1000; at 0.05/s,
+ * 20s ≈ one impression and 60s ≈ one click. Items have no dwell signal (term 0).
  *
  * freshness (ContentFreshness) is an additive, 14-day-half-life boost from the
  * owning row's created_at — pages via their newest active connection (+ native
@@ -42,6 +51,11 @@ use Illuminate\Support\Str;
  * Anti-thrash: the stored score is blended with the previous (0.7·new + 0.3·old)
  * and a row only overtakes the one ranked above it when its blended score beats
  * that incumbent by >10%. Upserted on (site_id, content_type, content_key).
+ *
+ * Fade-out: stored keys that no longer aggregate any signal (a page lost
+ * presence, raw events purged by retention) decay through the blend
+ * (new = 0 → 0.3·prev per run, no freshness) and are DELETED once below
+ * SCORE_FLOOR — stale rows can't freeze at their last score/rank forever.
  */
 class ComputeContentPopularityScores extends Command
 {
@@ -61,7 +75,15 @@ class ComputeContentPopularityScores extends Command
     // contributes at most 30.0 (~10 clicks) of dwell per impression row.
     private const W_DWELL_PER_SECOND = 0.05;
 
+    // TRUE half-life of a day bucket's contribution: a day's events count half
+    // after 90 days (2^(-age/90), matching ContentFreshness's decay form). The
+    // old exp(-age/90) whole-history multiplier halved at ~62d and was applied
+    // to ALL history at once, keyed to the latest event.
     private const HALF_LIFE_DAYS = 90.0;
+
+    // Fade-out floor: a stored row with no live aggregate signal is deleted once
+    // its blended score decays below this. Matches ContentFreshness::MIN_BOOST.
+    private const SCORE_FLOOR = 0.05;
 
     // Hysteresis: blend new vs previous stored score, and the rank-swap gate.
     private const BLEND_NEW = 0.7;
@@ -110,6 +132,8 @@ class ComputeContentPopularityScores extends Command
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentFreshness $freshness,
+        private readonly SiteActionsService $actions,
+        private readonly RankedActionsComputer $rankedActions,
     ) {
         parent::__construct();
     }
@@ -128,45 +152,62 @@ class ComputeContentPopularityScores extends Command
 
         $sitesProcessed = 0;
         $rowsWritten = 0;
+        $rowsDeleted = 0;
 
-        $query->chunkById(self::SITE_CHUNK, function ($sites) use ($dryRun, &$sitesProcessed, &$rowsWritten) {
+        $query->chunkById(self::SITE_CHUNK, function ($sites) use ($dryRun, &$sitesProcessed, &$rowsWritten, &$rowsDeleted) {
             foreach ($sites as $site) {
-                $rows = $this->computeForSite($site);
+                ['rows' => $rows, 'deletes' => $deletes] = $this->computeForSite($site);
                 $sitesProcessed++;
 
-                if ($rows === []) {
+                if ($rows === [] && $deletes === []) {
                     continue;
                 }
 
                 if ($dryRun) {
-                    $this->reportDryRun($site, $rows);
+                    $this->reportDryRun($site, $rows, $deletes);
 
                     continue;
                 }
 
-                DB::connection('pgsql')
-                    ->table('analytics.content_popularity_scores')
-                    ->upsert(
-                        $rows,
-                        ['site_id', 'content_type', 'content_key'],
-                        ['score', 'rank', 'computed_at'],
-                    );
-                $rowsWritten += count($rows);
+                if ($rows !== []) {
+                    DB::connection('pgsql')
+                        ->table('analytics.content_popularity_scores')
+                        ->upsert(
+                            $rows,
+                            ['site_id', 'content_type', 'content_key'],
+                            ['score', 'rank', 'computed_at'],
+                        );
+                    $rowsWritten += count($rows);
+                }
+
+                // Faded-out keys — remove instead of leaving frozen stale rows.
+                foreach ($deletes as $contentType => $keys) {
+                    DB::connection('pgsql')
+                        ->table('analytics.content_popularity_scores')
+                        ->where('site_id', $site->id)
+                        ->where('content_type', $contentType)
+                        ->whereIn('content_key', $keys)
+                        ->delete();
+                    $rowsDeleted += count($keys);
+                }
             }
         });
 
         $this->info(sprintf(
-            '%s %d sites; %s %d score rows.',
+            '%s %d sites; %s %d score rows; %s %d faded rows.',
             $dryRun ? 'Scanned' : 'Processed',
             $sitesProcessed,
             $dryRun ? 'would write' : 'wrote',
             $rowsWritten,
+            $dryRun ? 'would delete' : 'deleted',
+            $rowsDeleted,
         ));
 
         Log::info('analytics:compute-popularity completed', [
             'dry_run' => $dryRun,
             'sites' => $sitesProcessed,
             'rows' => $rowsWritten,
+            'deleted' => $rowsDeleted,
             'site_filter' => is_string($siteOpt) ? $siteOpt : null,
         ]);
 
@@ -174,10 +215,11 @@ class ComputeContentPopularityScores extends Command
     }
 
     /**
-     * Compute every upsert row for one site (all content_types). Empty when the
-     * site has no scoreable events.
+     * Compute every upsert row + faded-key deletion for one site. Content types
+     * come from the UNION of live aggregates and already-stored rows — a type
+     * whose events were all purged must still fade its stored keys out.
      *
-     * @return list<array<string, mixed>>
+     * @return array{rows: list<array<string, mixed>>, deletes: array<string, list<string>>}
      */
     private function computeForSite(Site $site): array
     {
@@ -185,83 +227,154 @@ class ComputeContentPopularityScores extends Command
         // brand-new content ranks before its first event.
         $fresh = $this->freshness->boostsForSite($site);
 
-        // Raw signals: {score-basis} keyed as content_type => content_key => [clicks, impressions, last_at].
+        // Decayed signals keyed content_type => content_key => [clicks, impressions, dwell_ms] (floats).
         $pageAgg = $this->aggregatePages($site, array_keys($fresh['page']));
         $itemAgg = $this->aggregateItems($site);
 
-        // Seed fresh link_items with zero signals (items have no presence gate;
-        // a null last_at reads as "fresh" so recency doesn't fight the boost).
+        // Seed fresh link_items with zero signals (items have no presence gate).
         foreach ($fresh['link_item'] as $key => $_boost) {
-            $itemAgg['link_item'][$key] ??= ['clicks' => 0, 'impressions' => 0, 'last_at' => null];
+            $itemAgg['link_item'][$key] ??= ['clicks' => 0.0, 'impressions' => 0.0, 'dwell_ms' => 0.0];
         }
+
+        // 'action' rows (ranked-actions layer) are OWNED by computeActions
+        // below — excluded from the generic union so the fade-out loop never
+        // treats them as a signal-less content family.
+        $storedTypes = DB::connection('pgsql')->table('analytics.content_popularity_scores')
+            ->where('site_id', $site->id)
+            ->where('content_type', '!=', RankedActionsComputer::CONTENT_TYPE)
+            ->distinct()
+            ->pluck('content_type')
+            ->all();
+
+        $types = array_values(array_unique(array_merge(
+            $pageAgg !== [] ? ['page'] : [],
+            array_keys($itemAgg),
+            $storedTypes,
+        )));
 
         $rows = [];
+        $deletes = [];
 
-        if ($pageAgg !== []) {
-            $rows = array_merge($rows, $this->scoreAndRank($site, 'page', $pageAgg, $fresh['page']));
-        }
-
-        foreach ($itemAgg as $itemType => $agg) {
-            if ($agg !== []) {
-                $rows = array_merge(
-                    $rows,
-                    $this->scoreAndRank($site, $itemType, $agg, $itemType === 'link_item' ? $fresh['link_item'] : []),
-                );
+        foreach ($types as $type) {
+            $agg = $type === 'page' ? $pageAgg : ($itemAgg[$type] ?? []);
+            $freshMap = match ($type) {
+                'page' => $fresh['page'],
+                'link_item' => $fresh['link_item'],
+                default => [],
+            };
+            $result = $this->scoreAndRank($site, $type, $agg, $freshMap);
+            $rows = array_merge($rows, $result['rows']);
+            if ($result['deletes'] !== []) {
+                $deletes[$type] = $result['deletes'];
             }
         }
 
-        return $rows;
+        // Ranked actions (unified page|item|button list) — layered ON TOP of
+        // the rows above; fail-open so an action-layer fault degrades to "no
+        // rankedActions refresh", never to broken page/item scores.
+        try {
+            $actionResult = $this->computeActions($site, $rows);
+            $rows = array_merge($rows, $actionResult['rows']);
+            if ($actionResult['deletes'] !== []) {
+                $deletes[RankedActionsComputer::CONTENT_TYPE] = $actionResult['deletes'];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('analytics.ranked_actions_failed', [
+                'site_id' => $site->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return ['rows' => $rows, 'deletes' => $deletes];
+    }
+
+    /**
+     * Ranked-action rows for one site from THIS RUN's blended page/item scores
+     * (fresher than the stored rows mid-run) + the live action pool.
+     *
+     * @param  list<array<string, mixed>>  $rows  this run's upsert rows (page + item types)
+     * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
+     */
+    private function computeActions(Site $site, array $rows): array
+    {
+        $pro = $site->user;
+        if ($pro === null) {
+            return ['rows' => [], 'deletes' => []];
+        }
+
+        $pageScores = [];
+        $itemScores = [];
+        $itemRanks = [];
+        foreach ($rows as $row) {
+            if ($row['content_type'] === 'page') {
+                $pageScores[$row['content_key']] = (float) $row['score'];
+            } else {
+                $itemScores[$row['content_type']][$row['content_key']] = (float) $row['score'];
+                $itemRanks[$row['content_type']][$row['content_key']] = (int) $row['rank'];
+            }
+        }
+
+        $pool = $this->actions->pool($pro, $site, ranks: $itemRanks);
+
+        return $this->rankedActions->computeForSite($site, $pool, $pageScores, $itemScores);
     }
 
     /**
      * Page-level signal: section_views (impressions + dwell) + link_clicks
-     * (clicks), bucketed to page-ids, then presence + Business gated. Keyed
-     * page-id => ['clicks', 'impressions', 'dwell_ms', 'last_at'].
+     * (clicks), day-bucketed with each day carrying its own half-life weight,
+     * folded to page-ids, then presence + Business gated. Values are DECAYED
+     * floats — the day weight is already applied.
      *
      * $seedPages (freshness) enter with zero signals BEFORE the presence gate,
      * so a brand-new page ranks by its boost alone — but only when present.
      *
      * @param  list<string>  $seedPages
-     * @return array<string, array{clicks: int, impressions: int, dwell_ms: int, last_at: ?string}>
+     * @return array<string, array{clicks: float, impressions: float, dwell_ms: float}>
      */
     private function aggregatePages(Site $site, array $seedPages = []): array
     {
         $pages = [];
 
-        $bump = function (?string $sectionKey, int $clicks, int $impressions, int $dwellMs, ?string $lastAt) use (&$pages): void {
+        $bump = function (?string $sectionKey, float $clicks, float $impressions, float $dwellMs) use (&$pages): void {
             $page = SitepageId::SECTION_KEY_TO_PAGE[(string) $sectionKey] ?? null;
             if ($page === null) {
                 return;
             }
-            $pages[$page] ??= ['clicks' => 0, 'impressions' => 0, 'dwell_ms' => 0, 'last_at' => null];
+            $pages[$page] ??= ['clicks' => 0.0, 'impressions' => 0.0, 'dwell_ms' => 0.0];
             $pages[$page]['clicks'] += $clicks;
             $pages[$page]['impressions'] += $impressions;
             $pages[$page]['dwell_ms'] += $dwellMs;
-            $pages[$page]['last_at'] = $this->maxDate($pages[$page]['last_at'], $lastAt);
         };
 
-        // Impressions + dwell from section_views (mirror topSections' GROUP BY);
-        // duration_ms is NULL until a dwell beacon annotates the row, so SUM needs
-        // the COALESCE.
+        $day = $this->dayBucketExpr();
+        $now = now();
+
+        // Impressions + dwell per (section, day); duration_ms is NULL until a
+        // dwell beacon annotates the row, so SUM needs the COALESCE.
         DB::connection('pgsql')->table('analytics.section_views')
             ->where('site_id', $site->id)
             ->whereNotNull('section_key')
-            ->selectRaw('section_key, COUNT(*) as impressions, COALESCE(SUM(duration_ms), 0) as dwell_ms, MAX(occurred_at) as last_at')
-            ->groupBy('section_key')
+            ->selectRaw("section_key, {$day} as day, COUNT(*) as impressions, COALESCE(SUM(duration_ms), 0) as dwell_ms")
+            ->groupByRaw("section_key, {$day}")
             ->get()
-            ->each(fn ($r) => $bump($r->section_key, 0, (int) $r->impressions, (int) $r->dwell_ms, $r->last_at));
+            ->each(function ($r) use ($bump, $now): void {
+                $w = $this->dayWeight((string) $r->day, $now);
+                $bump($r->section_key, 0.0, $w * (int) $r->impressions, $w * (int) $r->dwell_ms);
+            });
 
-        // Clicks from link_clicks by section_key.
+        // Clicks per (section, day).
         DB::connection('pgsql')->table('analytics.link_clicks')
             ->where('site_id', $site->id)
             ->whereNotNull('section_key')
-            ->selectRaw('section_key, COUNT(*) as clicks, MAX(occurred_at) as last_at')
-            ->groupBy('section_key')
+            ->selectRaw("section_key, {$day} as day, COUNT(*) as clicks")
+            ->groupByRaw("section_key, {$day}")
             ->get()
-            ->each(fn ($r) => $bump($r->section_key, (int) $r->clicks, 0, 0, $r->last_at));
+            ->each(function ($r) use ($bump, $now): void {
+                $bump($r->section_key, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0, 0.0);
+            });
 
         foreach ($seedPages as $page) {
-            $pages[$page] ??= ['clicks' => 0, 'impressions' => 0, 'dwell_ms' => 0, 'last_at' => null];
+            $pages[$page] ??= ['clicks' => 0.0, 'impressions' => 0.0, 'dwell_ms' => 0.0];
         }
 
         if ($pages === []) {
@@ -281,32 +394,37 @@ class ComputeContentPopularityScores extends Command
 
     /**
      * Item-level signal per item_type: item_views (impressions) + link_clicks
-     * (clicks, item_type inferred from section_key). Returns item_type =>
-     * (content_key => ['clicks','impressions','last_at']).
+     * (clicks, item_type inferred from section_key), day-bucketed with per-day
+     * half-life weights (decayed floats, same as aggregatePages).
      *
-     * @return array<string, array<string, array{clicks: int, impressions: int, last_at: ?string}>>
+     * @return array<string, array<string, array{clicks: float, impressions: float, dwell_ms: float}>>
      */
     private function aggregateItems(Site $site): array
     {
         $items = [];
 
-        $bump = function (string $type, string $id, int $clicks, int $impressions, ?string $lastAt) use (&$items): void {
+        $bump = function (string $type, string $id, float $clicks, float $impressions) use (&$items): void {
             if ($id === '') {
                 return;
             }
-            $items[$type][$id] ??= ['clicks' => 0, 'impressions' => 0, 'last_at' => null];
+            $items[$type][$id] ??= ['clicks' => 0.0, 'impressions' => 0.0, 'dwell_ms' => 0.0];
             $items[$type][$id]['clicks'] += $clicks;
             $items[$type][$id]['impressions'] += $impressions;
-            $items[$type][$id]['last_at'] = $this->maxDate($items[$type][$id]['last_at'], $lastAt);
         };
+
+        $day = $this->dayBucketExpr();
+        $now = now();
 
         // Impressions from item_views (item_type carried directly).
         DB::connection('pgsql')->table('analytics.item_views')
             ->where('site_id', $site->id)
-            ->selectRaw('item_type, item_id, COUNT(*) as impressions, MAX(occurred_at) as last_at')
-            ->groupBy('item_type', 'item_id')
+            ->selectRaw("item_type, item_id, {$day} as day, COUNT(*) as impressions")
+            ->groupByRaw("item_type, item_id, {$day}")
             ->get()
-            ->each(fn ($r) => $bump((string) $r->item_type, (string) $r->item_id, 0, (int) $r->impressions, $r->last_at));
+            ->each(function ($r) use ($bump, $now): void {
+                $w = $this->dayWeight((string) $r->day, $now);
+                $bump((string) $r->item_type, (string) $r->item_id, 0.0, $w * (int) $r->impressions);
+            });
 
         // Clicks from link_clicks.product_id (mirror topItemsBySection); item_type
         // inferred from the hosting section_key.
@@ -314,45 +432,41 @@ class ComputeContentPopularityScores extends Command
             ->where('site_id', $site->id)
             ->whereNotNull('product_id')
             ->whereNotNull('section_key')
-            ->selectRaw('product_id, section_key, COUNT(*) as clicks, MAX(occurred_at) as last_at')
-            ->groupBy('product_id', 'section_key')
+            ->selectRaw("product_id, section_key, {$day} as day, COUNT(*) as clicks")
+            ->groupByRaw("product_id, section_key, {$day}")
             ->get()
-            ->each(function ($r) use ($bump): void {
+            ->each(function ($r) use ($bump, $now): void {
                 $type = self::CLICK_SECTION_TO_ITEM_TYPE[(string) $r->section_key] ?? null;
                 if ($type === null) {
                     return;
                 }
-                $bump($type, (string) $r->product_id, (int) $r->clicks, 0, $r->last_at);
+                $bump($type, (string) $r->product_id, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0);
             });
 
         return $items;
     }
 
     /**
-     * Score, blend with previous, rank with hysteresis, and shape upsert rows for
-     * one content_type on one site.
+     * Score, blend with previous, rank with hysteresis, and shape the upsert
+     * rows + faded-key deletions for one content_type on one site.
      *
-     * @param  array<string, array{clicks: int, impressions: int, last_at: ?string}>  $agg
+     * @param  array<string, array{clicks: float, impressions: float, dwell_ms: float}>  $agg  decayed signals
      * @param  array<string, float>  $freshness  additive boost per content_key (ContentFreshness)
-     * @return list<array<string, mixed>>
+     * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
     private function scoreAndRank(Site $site, string $contentType, array $agg, array $freshness = []): array
     {
         $now = now();
 
-        // Raw computed score per content_key. dwell_ms only exists on the page
-        // grain (items carry no dwell signal — their term is 0); freshness is an
-        // additive boost OUTSIDE the recency multiplier (it has its own decay).
+        // Signal weights over the ALREADY-DECAYED day-bucket sums; freshness is
+        // additive with its own (14d) decay. dwell_ms only exists on the page
+        // grain (items carry no dwell signal — their term is 0).
         $computed = [];
         foreach ($agg as $key => $signal) {
-            $ageDays = $this->ageDays($signal['last_at'], $now);
-            $recency = exp(-$ageDays / self::HALF_LIFE_DAYS);
-            $dwellSeconds = ($signal['dwell_ms'] ?? 0) / 1000.0;
-            $computed[$key] = (
-                self::W_CLICK * $signal['clicks']
+            $computed[$key] = self::W_CLICK * $signal['clicks']
                 + self::W_VIEW * $signal['impressions']
-                + self::W_DWELL_PER_SECOND * $dwellSeconds
-            ) * $recency + ($freshness[$key] ?? 0.0);
+                + self::W_DWELL_PER_SECOND * ($signal['dwell_ms'] ?? 0.0) / 1000.0
+                + ($freshness[$key] ?? 0.0);
         }
 
         // Previous stored score + rank (for blend + rank hysteresis).
@@ -367,11 +481,30 @@ class ComputeContentPopularityScores extends Command
             $prevRank[(string) $row->content_key] = (int) $row->rank;
         }
 
+        // Fade-out: stored keys with no aggregate signal this run (page lost
+        // presence, raw events purged) decay through the blend (0.3·prev per
+        // run) instead of freezing at their last value. Deliberately NO
+        // freshness here — a gated-off page must die even if its connection is
+        // recent.
+        foreach ($prevScore as $key => $_prev) {
+            $computed[$key] ??= 0.0;
+        }
+
         // Blend: first-seen keys blend with themselves (new == computed).
         $blended = [];
         foreach ($computed as $key => $score) {
             $prev = $prevScore[$key] ?? $score;
             $blended[$key] = self::BLEND_NEW * $score + self::BLEND_PREV * $prev;
+        }
+
+        // Partition: signal-less keys that have faded below the floor are
+        // deleted; everything else (including still-fading keys) is ranked.
+        $deletes = [];
+        foreach ($blended as $key => $score) {
+            if (! isset($agg[$key]) && $score < self::SCORE_FLOOR) {
+                $deletes[] = (string) $key;
+                unset($blended[$key]);
+            }
         }
 
         $ranks = $this->rankWithHysteresis($blended, $prevRank);
@@ -389,7 +522,7 @@ class ComputeContentPopularityScores extends Command
             ];
         }
 
-        return $rows;
+        return ['rows' => $rows, 'deletes' => $deletes];
     }
 
     /**
@@ -439,35 +572,30 @@ class ComputeContentPopularityScores extends Command
         return $ranks;
     }
 
-    /** Whole days between $lastAt and $now (>= 0). Null last_at → 0 (treated as fresh). */
-    private function ageDays(?string $lastAt, \DateTimeInterface $now): float
+    /**
+     * Driver-portable day-bucket expression for occurred_at — Postgres in prod,
+     * SQLite in the test suite. Both yield 'YYYY-MM-DD' strings.
+     */
+    private function dayBucketExpr(): string
     {
-        if ($lastAt === null || $lastAt === '') {
-            return 0.0;
-        }
-
-        $then = Carbon::parse($lastAt);
-
-        return max(0.0, $now->getTimestamp() - $then->getTimestamp()) / 86400.0;
+        return DB::connection('pgsql')->getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m-%d', occurred_at)"
+            : '(occurred_at::date)::text';
     }
 
-    /** Max of two nullable ISO date strings. */
-    private function maxDate(?string $a, ?string $b): ?string
+    /** True-half-life weight for one day bucket: 2^(-age_days / HALF_LIFE_DAYS). */
+    private function dayWeight(string $day, \DateTimeInterface $now): float
     {
-        if ($a === null) {
-            return $b;
-        }
-        if ($b === null) {
-            return $a;
-        }
+        $ageDays = max(0.0, ($now->getTimestamp() - Carbon::parse($day)->getTimestamp()) / 86400.0);
 
-        return $a >= $b ? $a : $b;
+        return 2 ** (-$ageDays / self::HALF_LIFE_DAYS);
     }
 
     /**
      * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, list<string>>  $deletes
      */
-    private function reportDryRun(Site $site, array $rows): void
+    private function reportDryRun(Site $site, array $rows, array $deletes = []): void
     {
         $byType = [];
         foreach ($rows as $row) {
@@ -481,6 +609,14 @@ class ComputeContentPopularityScores extends Command
                 array_slice($typeRows, 0, 8),
             ));
             $this->line(sprintf('  %-14s %d rows: %s', $type, count($typeRows), $summary));
+        }
+        foreach ($deletes as $type => $keys) {
+            $this->line(sprintf(
+                '  %-14s would delete %d faded: %s',
+                $type,
+                count($keys),
+                implode(', ', array_slice($keys, 0, 8)),
+            ));
         }
     }
 }

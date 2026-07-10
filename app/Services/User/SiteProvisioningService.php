@@ -98,8 +98,8 @@ class SiteProvisioningService
             // statement error, which is why this bug is invisible in the SQLite
             // test suite (see SiteProvisioningSavepointTest, gated to real pgsql).
             return DB::connection('pgsql')->transaction(function () use ($userId, $candidate) {
-                // skeleton_id defaults to 'bento' at the DB level (TEXT CHECK
-                // enum DEFAULT 'bento'). New sites pick up the default
+                // architecture_id defaults to 'one' at the DB level (TEXT CHECK
+                // DEFAULT 'one' — the only layout). New sites pick up the default
                 // automatically; no need to set it explicitly.
                 $site = new Site([
                     'subdomain' => $candidate,

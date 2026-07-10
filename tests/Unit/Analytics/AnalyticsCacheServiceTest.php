@@ -9,6 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\AnalyticsCacheService;
 use App\Services\Analytics\AnalyticsQueryService;
+use App\Services\Analytics\InsightEngine;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Support\Carbon;
@@ -168,7 +169,7 @@ it('summary() reuses the cached payload for a repeat call, and bumpVersion() bet
     $queries->shouldReceive('clicksAggregate')->twice()->andReturn($emptyClicks);
     $queries->shouldReceive('sessionsAggregate')->twice()->andReturn($emptySessions);
 
-    $service = new AnalyticsCacheService(new CacheLockService, $queries);
+    $service = new AnalyticsCacheService(new CacheLockService, $queries, new InsightEngine);
 
     $first = $service->summary($professional, $site, $from, $to, false, 'Australia/Sydney');
     $second = $service->summary($professional, $site, $from, $to, false, 'Australia/Sydney');

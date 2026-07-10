@@ -10,7 +10,7 @@
 // only ever fail-or-skip; the file was dead weight.
 //
 // Rewritten to give #SCALE-2's new timestamp-leading purge indexes
-// (20260711020000_add_analytics_purge_indexes.sql) a PLAN-level guard.
+// (20260711160100_add_analytics_purge_indexes.sql) a PLAN-level guard.
 // tests/Feature/Database/IndexCoverageTest.php already proves each index EXISTS
 // and is VALID (pg_index introspection); this file proves the query planner can
 // actually USE one for PurgeRawAnalyticsEvents' exact predicate shape — a wrong

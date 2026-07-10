@@ -87,7 +87,7 @@ class SectionVisibilityTestCase
             id TEXT PRIMARY KEY,
             user_id TEXT,
             subdomain TEXT NULL,
-            skeleton_id TEXT NULL,
+            architecture_id TEXT NULL,
             is_published INTEGER NULL,
             settings TEXT NULL,
             deleted_at TEXT NULL,

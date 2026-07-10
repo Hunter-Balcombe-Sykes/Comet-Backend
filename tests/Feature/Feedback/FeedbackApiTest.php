@@ -59,6 +59,8 @@ it('persists a valid submission and dispatches the notification job', function (
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'bug',
         'severity' => 'medium',
+        'type' => 'error',
+        'area' => 'analytics',
         'message' => 'The save button does not respond on first click.',
         'page_url' => 'https://app.partna.au/dashboard/gallery',
         'viewport' => '1440x900',
@@ -67,12 +69,15 @@ it('persists a valid submission and dispatches the notification job', function (
     ]);
 
     $response->assertStatus(201);
-    $response->assertJsonStructure(['feedback' => ['id', 'kind', 'severity', 'message', 'status', 'created_at']]);
+    $response->assertJsonStructure(['feedback' => ['id', 'kind', 'severity', 'type', 'area', 'target', 'message', 'status', 'created_at']]);
 
     $row = Feedback::query()->where('user_id', $pro->id)->first();
     expect($row)->not->toBeNull();
     expect($row->kind)->toBe('bug');
     expect($row->severity)->toBe('medium');
+    expect($row->type)->toBe('error');
+    expect($row->area)->toBe('analytics');
+    expect($row->target)->toBeNull();
     expect($row->source)->toBe('dashboard');
     expect($row->ip_hash)->not->toBeNull();
     expect($row->ip_hash)->not->toBe('127.0.0.1');     // hashed, not raw
@@ -85,6 +90,8 @@ it('returns 422 when kind=bug but severity missing', function () {
 
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'bug',
+        'type' => 'error',
+        'area' => 'analytics',
         'message' => 'broken',
     ]);
 
@@ -97,6 +104,8 @@ it('returns 422 when message is too long', function () {
 
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'idea',
+        'type' => 'idea',
+        'area' => 'analytics',
         'message' => str_repeat('a', 5001),
     ]);
 
@@ -109,6 +118,8 @@ it('returns 422 for invalid kind', function () {
 
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'rant',
+        'type' => 'idea',
+        'area' => 'analytics',
         'message' => 'hi',
     ]);
 
@@ -120,7 +131,7 @@ it('returns 429 when an identical message is resubmitted inside the duplicate wi
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    $payload = ['kind' => 'idea', 'message' => 'same thing twice'];
+    $payload = ['type' => 'idea', 'area' => 'analytics', 'message' => 'same thing twice'];
     actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(201);
     actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(429);
 
@@ -133,6 +144,8 @@ it('omits internal triage fields from the API response', function () {
 
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
         'kind' => 'praise',
+        'type' => 'good',
+        'area' => 'analytics',
         'message' => 'love it',
         'reply_email' => 'somewhere-else@example.test',
     ])->assertStatus(201);
@@ -190,7 +203,7 @@ it('hashes the IP rather than storing it raw', function () {
 
     actingAsUser($pro)
         ->withServerVariables(['REMOTE_ADDR' => '203.0.113.42'])
-        ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ip test'])
+        ->postJson('/api/me/feedback', ['type' => 'idea', 'area' => 'analytics', 'message' => 'ip test'])
         ->assertStatus(201);
 
     $row = Feedback::query()->where('user_id', $pro->id)->first();
@@ -204,7 +217,7 @@ it('falls back user_agent to the request header when not in the body', function 
 
     actingAsUser($pro)
         ->withHeaders(['User-Agent' => 'TestAgent/9.9'])
-        ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ua fallback'])
+        ->postJson('/api/me/feedback', ['type' => 'idea', 'area' => 'analytics', 'message' => 'ua fallback'])
         ->assertStatus(201);
 
     $row = Feedback::query()->where('user_id', $pro->id)->first();
@@ -215,7 +228,8 @@ it('rejects an oversized user_agent in the body with 422 (SEC-1c FormRequest gua
     $pro = seedFeedbackPro();
 
     $response = actingAsUser($pro)->postJson('/api/me/feedback', [
-        'kind' => 'idea',
+        'type' => 'idea',
+        'area' => 'analytics',
         'message' => 'ua too long',
         'user_agent' => str_repeat('A', 1025),
     ]);
@@ -233,7 +247,7 @@ it('caps a raw-header user_agent to 1024 chars when not supplied in the body (SE
 
     actingAsUser($pro)
         ->withHeaders(['User-Agent' => $longUa])
-        ->postJson('/api/me/feedback', ['kind' => 'idea', 'message' => 'ua cap test'])
+        ->postJson('/api/me/feedback', ['type' => 'idea', 'area' => 'analytics', 'message' => 'ua cap test'])
         ->assertStatus(201);
 
     $row = Feedback::query()->where('user_id', $pro->id)->first();
@@ -251,7 +265,7 @@ it('advisory lock makes duplicate window check atomic: two sequential submits of
     Bus::fake();
     $pro = seedFeedbackPro();
 
-    $payload = ['kind' => 'bug', 'severity' => 'low', 'message' => 'advisory lock dedup test'];
+    $payload = ['kind' => 'bug', 'severity' => 'low', 'type' => 'error', 'area' => 'analytics', 'message' => 'advisory lock dedup test'];
 
     // First submit — should succeed.
     actingAsUser($pro)->postJson('/api/me/feedback', $payload)->assertStatus(201);
@@ -277,9 +291,117 @@ it('advisory lock SQL is issued during a successful submit', function () {
     });
 
     actingAsUser($pro)->postJson('/api/me/feedback', [
-        'kind' => 'idea',
+        'type' => 'idea',
+        'area' => 'analytics',
         'message' => 'lock instrumentation test',
     ])->assertStatus(201);
 
     expect($lockCalled)->toBeTrue();
+});
+
+// ── OV-D: type/area/target ──────────────────────────────────────────────
+
+it('returns 422 when type is missing', function () {
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'area' => 'analytics',
+        'message' => 'no type sent',
+    ]);
+
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors(['type']);
+});
+
+it('returns 422 for an invalid type value', function () {
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => 'confused',
+        'area' => 'analytics',
+        'message' => 'not a real type',
+    ]);
+
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors(['type']);
+});
+
+it('returns 422 when area is missing', function () {
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => 'idea',
+        'message' => 'no area sent',
+    ]);
+
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors(['area']);
+});
+
+it('persists each of the four OV-D types and derives kind when kind is omitted', function (string $type, string $expectedKind) {
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => $type,
+        'area' => 'gallery',
+        'message' => "feedback for type={$type}",
+    ])->assertStatus(201);
+
+    $row = Feedback::query()->where('user_id', $pro->id)->first();
+    expect($row->type)->toBe($type);
+    expect($row->kind)->toBe($expectedKind);
+})->with([
+    'error type derives kind=bug' => ['error', 'bug'],
+    'bad_ui type derives kind=bug' => ['bad_ui', 'bug'],
+    'good type derives kind=praise' => ['good', 'praise'],
+    'idea type derives kind=idea' => ['idea', 'idea'],
+]);
+
+it('respects an explicit kind over the type-derived default', function () {
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    actingAsUser($pro)->postJson('/api/me/feedback', [
+        'kind' => 'question',
+        'type' => 'error',
+        'area' => 'billing',
+        'message' => 'explicit kind should win',
+    ])->assertStatus(201);
+
+    $row = Feedback::query()->where('user_id', $pro->id)->first();
+    expect($row->kind)->toBe('question');
+    expect($row->type)->toBe('error');
+});
+
+it('persists and round-trips an optional structured target alongside area', function () {
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => 'error',
+        'area' => 'analytics',
+        'target' => ['area' => 'analytics', 'elementId' => 'chart-page-views'],
+        'message' => 'chart is blank',
+    ]);
+
+    $response->assertStatus(201);
+    expect($response->json('feedback.target'))->toBe(['area' => 'analytics', 'elementId' => 'chart-page-views']);
+
+    $row = Feedback::query()->where('user_id', $pro->id)->first();
+    expect($row->target)->toBe(['area' => 'analytics', 'elementId' => 'chart-page-views']);
+});
+
+it('returns 422 when target exceeds the encoded size cap', function () {
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => 'idea',
+        'area' => 'analytics',
+        'target' => ['note' => str_repeat('x', 5000)],
+        'message' => 'target too big',
+    ]);
+
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors(['target']);
 });

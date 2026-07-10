@@ -51,13 +51,13 @@ it('rejects a non-hex border / icon colour', function () {
         ]);
 });
 
-it('rejects an unknown skeleton id', function () {
+it('rejects an unknown architecture id', function () {
     $pro = createTenant('skel-pro');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'skeleton-9'])
+        ->patchJson('/api/site', ['architecture_id' => 'skeleton-9'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['skeleton_id']);
+        ->assertJsonValidationErrors(['architecture_id']);
 });
 
 it('rejects a reserved subdomain', function () {
@@ -91,7 +91,7 @@ it('rejects any settings.design.* path (skeleton-cleanup guard)', function () {
         ->assertJsonValidationErrors(['settings.design']);
 });
 
-it('accepts a valid skeleton and settings (negative tests are not over-rejecting)', function () {
+it('accepts a valid architecture and settings (negative tests are not over-rejecting)', function () {
     // Guards against false-positive negative tests: prove the same pipeline lets
     // VALID input through. A design_kit write is intentionally omitted — that path
     // needs the information_schema mirror (see WriteDesignKitTest); the bad-hex
@@ -100,58 +100,49 @@ it('accepts a valid skeleton and settings (negative tests are not over-rejecting
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'skeleton_id' => 'flick',
+            'architecture_id' => 'one',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('flick');
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('one');
 });
 
-it('rejects the atlas skeleton for a standard (non-business) account', function () {
-    // atlas is the Business-only multi-page site (#30). A standard account lacks
-    // the can_use_multipage_site capability, so selecting it must 422 — the
-    // Rule::in accepts 'atlas' for everyone; withValidator() is the gate.
-    $pro = createTenant('atlas-standard');
+it('rejects a genuinely unknown architecture id', function () {
+    $pro = createTenant('unknown-architecture');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'atlas'])
+        ->patchJson('/api/site', ['architecture_id' => 'brutalist'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['skeleton_id']);
+        ->assertJsonValidationErrors(['architecture_id']);
 });
 
-it('accepts the atlas skeleton for a Business account', function () {
-    // Same input, Business account → the capability is present → it persists.
-    $pro = createTenant('atlas-business');
-    $pro->account_type = 'business';
-    $pro->save();
+it('collapses every historical architecture id to one on write', function () {
+    // The platform is single-architecture (2026-07-10). Any stale dashboard/chat
+    // build sending an old id must succeed and store 'one' — never 422, never
+    // persist a layout that no longer renders.
+    $pro = createTenant('legacy-architecture-pro');
 
-    actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'atlas'])
-        ->assertOk();
+    foreach (['skeleton-3', 'hub', 'sheet', 'bento', 'deck', 'atlas'] as $legacy) {
+        actingAsUser($pro)
+            ->patchJson('/api/site', ['architecture_id' => $legacy])
+            ->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('atlas');
+        expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+            ->toBe('one', "legacy id {$legacy} must collapse to 'one'");
+    }
 });
 
-it('normalizes legacy skeleton ids (both generations) to canonical on write', function () {
-    // Rollout affordance for the 2026-07-07 renames: dashboard builds that
-    // still send skeleton-N or the pre-bento-class names must keep working,
-    // and the stored value must be canonical.
-    $pro = createTenant('legacy-skeleton-pro');
+it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
+    // Old clients (pre-rename dashboards) still send skeleton_id. prepareForValidation
+    // merges it into architecture_id, so the write must succeed and store 'one'.
+    $pro = createTenant('legacy-field-pro');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'skeleton-3'])
+        ->patchJson('/api/site', ['skeleton_id' => 'bento'])
         ->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('flick');
-
-    actingAsUser($pro)
-        ->patchJson('/api/site', ['skeleton_id' => 'hub'])
-        ->assertOk();
-
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('skeleton_id'))
-        ->toBe('dock');
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('one');
 });

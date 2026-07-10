@@ -30,6 +30,14 @@ class SafeUrlFetcher
     /** Browser-ish UA — some providers 403 obvious bots / empty UAs. */
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)';
 
+    /**
+     * Honest bot UA for the 403 retry. Some hosting WAFs (SiteGround et al.)
+     * 403 any `Mozilla/…` UA whose TLS fingerprint isn't a real browser —
+     * spoofed-browser and `Mozilla/5.0 (compatible; …)` strings both trip it,
+     * while a plain non-Mozilla bot UA passes. Must NOT start with "Mozilla/".
+     */
+    public const FALLBACK_USER_AGENT = 'PartnaBot/1.0 (+https://partna.au)';
+
     private readonly int $maxRedirects;
 
     private readonly int $timeoutSeconds;
@@ -49,15 +57,53 @@ class SafeUrlFetcher
      */
     public function fetch(string $url, array $headers = []): array
     {
+        $merged = array_merge([
+            'User-Agent' => self::USER_AGENT,
+            'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
+        ], $headers);
+
+        $result = $this->fetchFollowingRedirects($url, $merged);
+
+        // Anti-bot 403s: some hosting WAFs block any `Mozilla/…` UA whose TLS
+        // fingerprint isn't a real browser (spoofed-browser AND
+        // "(compatible; …)" bot strings both trip it) while an honest
+        // non-Mozilla bot UA passes. Retry once with FALLBACK_USER_AGENT —
+        // only on 403, only when the UA could be the reason, and never
+        // worse than the original outcome.
+        if ($result['status'] === 403 && str_starts_with((string) $merged['User-Agent'], 'Mozilla/')) {
+            try {
+                $retry = $this->fetchFollowingRedirects(
+                    $url,
+                    array_merge($merged, ['User-Agent' => self::FALLBACK_USER_AGENT]),
+                );
+                if ($retry['status'] < 400) {
+                    return $retry;
+                }
+            } catch (SafeUrlException|ConnectionException) {
+                // Retry failed harder than the original (SSRF re-check or
+                // transport failure) — keep the 403.
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * The core fetch loop: follow up to maxRedirects 3xx hops, SSRF-validating
+     * every hop, with the headers exactly as given (no defaults merged here).
+     *
+     * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
+     *
+     * @throws SafeUrlException
+     */
+    private function fetchFollowingRedirects(string $url, array $headers): array
+    {
         $current = $url;
 
         for ($hop = 0; $hop <= $this->maxRedirects; $hop++) {
             $this->assertSafe($current);
 
-            $response = Http::withHeaders(array_merge([
-                'User-Agent' => self::USER_AGENT,
-                'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
-            ], $headers))
+            $response = Http::withHeaders($headers)
                 ->timeout($this->timeoutSeconds)
                 ->withoutRedirecting()
                 ->get($current);

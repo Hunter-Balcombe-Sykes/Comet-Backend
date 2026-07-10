@@ -79,7 +79,11 @@ function dprThrowingFactor(): DesignFactor
     };
 }
 
-/** Fake Auto-mode connection factor that mirrors a 'color' payload key straight to color_bg. */
+/**
+ * Fake Auto-mode connection factor that mirrors a 'color' payload key straight
+ * to color_accent. (Was color_bg — no longer factor-targetable, so the
+ * resolver's allowlist filter would drop it; see plan 2026-07-10.)
+ */
 function dprAutoColorFactor(): DesignFactor
 {
     return new class implements DesignFactor
@@ -108,7 +112,7 @@ function dprAutoColorFactor(): DesignFactor
         {
             $color = data_get($connection->payload, 'color');
 
-            return $color === null ? [] : ['color_bg' => $color];
+            return $color === null ? [] : ['color_accent' => $color];
         }
     };
 }
@@ -162,12 +166,12 @@ it('breaks an equal-priority contest by source ascending, independent of row ord
                 'integration' => 'test',
                 'priority' => 50,
                 'mode' => 'one_shot',
-                'target_var' => 'color_bg',
+                'target_var' => 'color_accent',
                 'value' => $value,
             ]);
         }
 
-        expect(dprResolver()->presetLayer($siteId)['color_bg'])->toBe('#aaaaaa');
+        expect(dprResolver()->presetLayer($siteId)['color_accent'])->toBe('#aaaaaa');
     }
 });
 
@@ -197,7 +201,7 @@ it('re-detects an auto-mode connection factor when the payload changes', functio
     $resolver = dprResolver([dprAutoColorFactor()]);
 
     $resolver->resolveForUser($user);
-    expect($resolver->presetLayer($user->site->id)['color_bg'])->toBe('#111111');
+    expect($resolver->presetLayer($user->site->id)['color_accent'])->toBe('#111111');
 
     // The connection's data moves; an Auto factor must re-detect (not freeze like
     // a OneShot would) — mirror image of the one-shot freeze test in DesignPresetSystemTest.
@@ -207,7 +211,7 @@ it('re-detects an auto-mode connection factor when the payload changes', functio
     $changed = $resolver->resolveForUser($user);
 
     expect($changed)->toBeTrue();
-    expect($resolver->presetLayer($user->site->id)['color_bg'])->toBe('#222222');
+    expect($resolver->presetLayer($user->site->id)['color_accent'])->toBe('#222222');
 });
 
 it('returns an empty preset layer instead of throwing when the query fails', function () {

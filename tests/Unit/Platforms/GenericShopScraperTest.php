@@ -72,3 +72,158 @@ it('returns null when the page has no Product JSON-LD', function () {
 it('returns null on a non-200 page', function () {
     expect(genericScraperWith('', 404)->fetchPage('https://shop.example/store'))->toBeNull();
 });
+
+/** Live-site fixture HTML saved under tests/fixtures/shop (WS-B1). */
+function shopFixture(string $name): string
+{
+    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/shop/'.$name);
+}
+
+// Same canned-fetcher builder, but with a controllable finalUrl — the
+// store-homepage classification keys off the URL path.
+function genericScraperAt(string $html, string $finalUrl, int $status = 200): GenericShopScraper
+{
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->andReturn([
+        'status' => $status, 'body' => $html, 'finalUrl' => $finalUrl, 'contentType' => 'text/html',
+    ]);
+
+    return new GenericShopScraper($fetcher);
+}
+
+// ── readProductPage() outcomes (WS-B1.1) ──────────────────────────────────────
+
+it('classifies a storefront homepage as store_page — live abovetheground.co fixture', function () {
+    // The regression: a Shopify brand homepage (og:type=website, JSON-LD
+    // Organization only, no Product markup) was accepted as a "product" off
+    // its og:title. It must instead come back as a distinct store_page signal.
+    $html = shopFixture('abovetheground-homepage.html');
+
+    $out = genericScraperAt($html, 'https://abovetheground.co/')->readProductPage('https://abovetheground.co');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_STORE_PAGE);
+    expect($out['storeUrl'])->toBe('https://abovetheground.co');
+    expect($out['product'])->toBeNull();
+    expect(genericScraperAt($html, 'https://abovetheground.co/')->fetchSingleProduct('https://abovetheground.co'))->toBeNull();
+});
+
+it('no longer fabricates a product from og:title alone', function () {
+    $html = '<html><head><meta property="og:type" content="website">'
+        .'<meta property="og:title" content="Some Personal Site"></head><body></body></html>';
+
+    // Deep URL, no storefront markers → plain no_product (never store_page:
+    // a real product page that fails extraction must not be false-blocked).
+    $out = genericScraperAt($html, 'https://brand.example/about')->readProductPage('https://brand.example/about');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+    expect($out['product'])->toBeNull();
+});
+
+it('accepts an OpenGraph product page via og:type=product', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Bulwark Jacket">'
+        .'<meta property="og:image" content="/img/jacket.jpg"></head></html>';
+
+    $out = genericScraperAt($html, 'https://store.example/product/bulwark-jacket')
+        ->readProductPage('https://store.example/product/bulwark-jacket');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    expect($out['product']['title'])->toBe('Bulwark Jacket');
+    expect($out['product']['image'])->toBe('https://store.example/img/jacket.jpg');
+});
+
+it('accepts an OpenGraph product page via an explicit price meta', function () {
+    $html = '<html><head><meta property="og:title" content="Swim Short">'
+        .'<meta property="product:price:amount" content="100.00">'
+        .'<meta property="product:price:currency" content="aud"></head></html>';
+
+    $out = genericScraperAt($html, 'https://store.example/product/swim-short')
+        ->readProductPage('https://store.example/product/swim-short');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    expect($out['product']['price'])->toBe('100.00');
+    expect($out['product']['currency'])->toBe('AUD');
+});
+
+it('classifies a root page carrying a multi-product JSON-LD list as store_page', function () {
+    $ld = json_encode(['@type' => 'ItemList', 'itemListElement' => [
+        ['@type' => 'ListItem', 'item' => ['@type' => 'Product', 'name' => 'One', 'url' => '/products/one']],
+        ['@type' => 'ListItem', 'item' => ['@type' => 'Product', 'name' => 'Two', 'url' => '/products/two']],
+    ]]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $out = genericScraperAt($html, 'https://shop.example/')->readProductPage('https://shop.example');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_STORE_PAGE);
+    expect($out['storeUrl'])->toBe('https://shop.example');
+});
+
+it('keeps a deep page with Product JSON-LD as a product even when a related list is present', function () {
+    $ld = json_encode(['@type' => 'Product', 'name' => 'Ceramic Mug', 'sku' => 'MUG-1',
+        'offers' => ['price' => '29.00', 'priceCurrency' => 'AUD']]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $out = genericScraperAt($html, 'https://shop.example/products/ceramic-mug')
+        ->readProductPage('https://shop.example/products/ceramic-mug');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    expect($out['product']['productId'])->toBe('MUG-1');
+});
+
+it('reports unreachable when the product page cannot be fetched', function () {
+    $out = genericScraperAt('', 'https://x.example/p', 403)->readProductPage('https://x.example/p');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_UNREACHABLE);
+});
+
+it('extracts the real bluelane.co product page as a product (live fixture)', function () {
+    // The head surface (title + meta + JSON-LD) of the real product page,
+    // captured through the production egress — WS-B1.3 product-add proof.
+    $html = shopFixture('bluelane-product-page.html');
+
+    $out = genericScraperAt($html, 'https://bluelane.co/product/lobster-swim-short-pink/')
+        ->readProductPage('https://bluelane.co/product/lobster-swim-short-pink/');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    // The site's own JSON-LD product name (SEO-prefixed), entities decoded.
+    expect($out['product']['title'])->toBe('Blue Lane Co • Pink Lobster Swim Short');
+    expect($out['product']['price'])->toBe('100.00');
+    expect($out['product']['currency'])->toBe('AUD');
+    expect($out['product']['url'])->toBe('https://bluelane.co/product/lobster-swim-short-pink/');
+});
+
+it('extracts the real fearnoevil.com.au product page as a product (live fixture)', function () {
+    $html = shopFixture('fearnoevil-product-page.html');
+
+    $out = genericScraperAt($html, 'https://fearnoevil.com.au/product/bulwark-jacket/')
+        ->readProductPage('https://fearnoevil.com.au/product/bulwark-jacket/');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    expect($out['product']['title'])->toBe('FEAR NO EVIL • Bulwark Jacket');
+    expect($out['product']['price'])->toBe('280.00');
+    expect($out['product']['available'])->toBeTrue();
+});
+
+// ── fetchPageDetailed() discriminators (WS-B1.2) ──────────────────────────────
+
+it('reports reachable + storefront markers on a WooCommerce homepage without JSON-LD products — live fearnoevil fixture', function () {
+    $html = shopFixture('fearnoevil-homepage-head.html');
+
+    $out = genericScraperAt($html, 'https://fearnoevil.com.au/')->fetchPageDetailed('https://fearnoevil.com.au');
+
+    expect($out)->toMatchArray(['page' => null, 'reachable' => true, 'storefrontMarkers' => true]);
+});
+
+it('reports reachable without storefront markers on a plain website', function () {
+    $html = '<html><head><title>My Portfolio</title></head><body><p>Hi, I paint.</p></body></html>';
+
+    $out = genericScraperAt($html, 'https://portfolio.example/')->fetchPageDetailed('https://portfolio.example');
+
+    expect($out)->toMatchArray(['page' => null, 'reachable' => true, 'storefrontMarkers' => false]);
+});
+
+it('reports unreachable when the page cannot be fetched at all', function () {
+    $out = genericScraperAt('', 'https://blocked.example/', 403)->fetchPageDetailed('https://blocked.example');
+
+    expect($out)->toMatchArray(['page' => null, 'reachable' => false, 'storefrontMarkers' => false]);
+});

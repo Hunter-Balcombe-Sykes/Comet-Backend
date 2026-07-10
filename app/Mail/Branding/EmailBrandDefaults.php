@@ -2,6 +2,8 @@
 
 namespace App\Mail\Branding;
 
+use App\Services\Design\ThemeModePalettes;
+
 /**
  * Single source of truth for email-safe design-kit defaults.
  *
@@ -10,8 +12,11 @@ namespace App\Mail\Branding;
  * is a deliberate, contained PHP copy because the package is not reachable from
  * Blade at render time. WHEN A DEFAULT CHANGES THERE, CHANGE IT HERE.
  *
- * Two token kinds:
- *  - 6 STATIC tokens have literal defaults below.
+ * Three token kinds:
+ *  - 4 STATIC tokens have literal defaults below.
+ *  - bg/text come from the theme-mode palette (2026-07-10 rework): the kit's
+ *    theme_mode selects its ThemeModePalettes default-variant anchors — the
+ *    old bg column is gone, and emails don't night-shift.
  *  - 2 DERIVED tokens (button_primary_bg / button_primary_text) are NULLABLE
  *    columns with no DB default and no defaults.ts entry; the design system
  *    derives them from accent / accent-contrast at render time, so we do the same.
@@ -21,10 +26,6 @@ final class EmailBrandDefaults
     public const ACCENT = '#3a6efc';
 
     public const ACCENT_CONTRAST = '#ffffff';
-
-    public const BG = '#ffffff';
-
-    public const TEXT = '#1d1d1f';
 
     public const TEXT_MUTED = '#6e6e73';
 
@@ -41,11 +42,16 @@ final class EmailBrandDefaults
         $accent = self::pick($kit, 'color_accent', self::ACCENT);
         $accentContrast = self::pick($kit, 'color_accent_contrast', self::ACCENT_CONTRAST);
 
+        // bg/text are theme-mode-owned: an unknown/missing mode falls back to
+        // bleach inside anchorsFor (never breaks an email over a bad kit row).
+        $mode = $kit['theme_mode'] ?? null;
+        $anchors = ThemeModePalettes::anchorsFor(is_string($mode) ? $mode : null);
+
         return new EmailPalette(
             accent: $accent,
             accentContrast: $accentContrast,
-            bg: self::pick($kit, 'color_bg', self::BG),
-            text: self::pick($kit, 'color_text', self::TEXT),
+            bg: $anchors['bg'],
+            text: $anchors['text'],
             textMuted: self::pick($kit, 'color_text_muted', self::TEXT_MUTED),
             // Derived: stored value wins, else fall back to the resolved base token.
             buttonBg: self::pick($kit, 'button_primary_bg', $accent),

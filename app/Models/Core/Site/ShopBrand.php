@@ -71,13 +71,15 @@ class ShopBrand extends BaseModel
      * when actually set (matches the old array's optional-key behaviour).
      *
      * $productRanks is the PUBLIC-path popularity annotation: a map of
-     * product_id → rank (content_popularity_scores, content_type='shop_product').
+     * product HANDLE (the slug) → rank (content_popularity_scores,
+     * content_type='shop_product' — the scoring pipeline keys shop products by
+     * handle; see engines/scoring-id.ts LOCKSTEP).
      * When provided (even empty), each product gains a nullable `popularityRank`
      * (inert until ONE consumes it). When null — the DASHBOARD path
      * (ShopBrandResource) — the key is omitted entirely, keeping that shape
      * byte-identical. Product ORDER is never changed.
      *
-     * @param  array<string, int>|null  $productRanks  product_id → rank (public path only)
+     * @param  array<string, int>|null  $productRanks  product handle → rank (public path only)
      * @return array<string, mixed>
      */
     public function toBrandArray(?array $productRanks = null): array
@@ -86,7 +88,9 @@ class ShopBrand extends BaseModel
             ? $this->products->map->data->all()
             : $this->products->map(static function (ShopProduct $p) use ($productRanks): array {
                 $data = is_array($p->data) ? $p->data : [];
-                $data['popularityRank'] = $productRanks[(string) $p->product_id] ?? null;
+                // Scores key shop products by their HANDLE slug (what the wire,
+                // item beacons and click signals all carry) — never product_id.
+                $data['popularityRank'] = $productRanks[(string) ($data['handle'] ?? '')] ?? null;
 
                 return $data;
             })->all();

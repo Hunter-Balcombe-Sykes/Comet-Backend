@@ -175,7 +175,6 @@ it('keeps the raw token out of the plaintext serialized queue payload', function
     // so the 'command' field is ciphertext, not serialize($job).
     $connection = app('queue')->connection();
     $createPayload = (new ReflectionClass(Illuminate\Queue\Queue::class))->getMethod('createPayload');
-    $createPayload->setAccessible(true);
     $payload = $createPayload->invoke($connection, $job, 'notifications');
 
     expect($payload)->not->toContain($rawToken);

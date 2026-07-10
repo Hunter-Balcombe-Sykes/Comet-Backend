@@ -169,9 +169,11 @@ Run the lens against one group at a time. Each group is sized so the DeepSeek sc
 --scope routes/console.php
 ```
 
-### Group B — Account deletion / GDPR state machine
+### Group B — Account deletion / GDPR state machine + account lifecycle (segments, early access)
 ```
 --scope app/Services/User
+--scope app/Services/Segments
+--scope app/Services/EarlyAccess
 --scope app/Jobs/Account
 --scope app/Jobs/Gdpr
 --scope app/Http/Middleware/Context

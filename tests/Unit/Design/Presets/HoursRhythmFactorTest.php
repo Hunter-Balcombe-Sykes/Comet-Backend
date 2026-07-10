@@ -48,7 +48,6 @@ function hoursEvidence(): IdentityEvidence
 function rhythmOf(array $hours): ?string
 {
     $method = new ReflectionMethod(HoursRhythmFactor::class, 'rhythmOf');
-    $method->setAccessible(true);
 
     return $method->invoke(new HoursRhythmFactor, $hours);
 }

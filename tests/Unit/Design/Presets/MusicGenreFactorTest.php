@@ -71,13 +71,16 @@ it('abstains when the music payload carries no genre', function () {
     ])))->toBe([]);
 });
 
-it('maps an electronic genre to a bold dark look', function () {
+it('maps an electronic genre to a heavy club-poster look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Techno']));
 
-    expect($out['color_bg'])->toBe('#151515')
-        ->and($out['border_radius'])->toBe('0.25rem')
+    // Dark ground retired (theme_mode owns bg) — the family reads through the
+    // brutalist face + heavy weight + solid blocks + hard shadows.
+    expect($out['typography_font_family'])->toBe('reglo')
+        ->and($out['border_radius'])->toBe('0') // club-flyer square
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_style'])->toBe('bold');
+        ->and($out['effect_surface'])->toBe('solid')
+        ->and($out['effect_shadow_style'])->toBe('hard');
 });
 
 it('maps an acoustic genre to a warm soft look', function () {
@@ -91,15 +94,17 @@ it('maps an acoustic genre to a warm soft look', function () {
 it('maps classical/jazz to an editorial look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Jazz']));
 
-    expect($out['effect_style'])->toBe('editorial')
-        ->and($out['typography_font_family'])->toBe('young-serif');
+    expect($out['effect_surface'])->toBe('outline')
+        ->and($out['typography_font_family'])->toBe('young-serif')
+        ->and($out['effect_image_treatment'])->toBe('duotone');
 });
 
-it('maps pop/indie to a neutral-bright look', function () {
+it('maps pop/indie to a clean medium-weight look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Indie Pop']));
 
-    expect($out['color_bg'])->toBe('#fafafa')
-        ->and($out['effect_style'])->toBe('sharp');
+    expect($out['weight_regular'])->toBe('500')
+        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out)->not->toHaveKey('color_bg');
 });
 
 it('abstains for an unrecognised genre', function () {
@@ -159,16 +164,16 @@ it('an apple-music hip-hop genre lights up the electronic look', function () {
     expect($evidence->musicGenre())->toBe('hip-hop/rap');
 
     $out = (new MusicGenreFactor)->detect($evidence);
-    expect($out['color_bg'])->toBe('#151515')
+    expect($out['typography_font_family'])->toBe('reglo')
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_style'])->toBe('bold');
+        ->and($out['effect_surface'])->toBe('solid');
 });
 
 it('an apple-music alternative genre lights up the pop/indie look', function () {
     $evidence = mgAppleEvidence(['input' => 'A Band', 'genre' => 'alternative']);
 
     expect($evidence->musicGenre())->toBe('alternative');
-    expect((new MusicGenreFactor)->detect($evidence)['color_bg'])->toBe('#fafafa');
+    expect((new MusicGenreFactor)->detect($evidence)['effect_surface'])->toBe('outline');
 });
 
 // ── Safety contract ──────────────────────────────────────────────────────────
@@ -178,6 +183,6 @@ it('only ever emits whitelisted design-kit columns', function () {
 
     expect($out)->not->toBe([]);
     foreach (array_keys($out) as $column) {
-        expect(PresetTargetableColumns::isValid($column))->toBeTrue();
+        expect(PresetTargetableColumns::isValid($column))->toBeTrue("non-targetable column emitted: {$column}");
     }
 });

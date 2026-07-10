@@ -2,15 +2,15 @@
 
 namespace App\Http\Requests\Api\User\Site;
 
+use App\Enums\SitepageId;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Models\Core\Site\Site;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\Site\SubdomainAvailabilityService;
 use Illuminate\Validation\Rule;
 
 // Validates site updates — settings (non-design only), subdomain uniqueness,
-// skeleton selection, and publish readiness checks. Per-user design vars are
+// architecture selection, and publish readiness checks. Per-user design vars are
 // written via the `design_kit` field which is processed separately by the
 // controller (writes to site.design_kits, not site.sites).
 class UpdateSiteRequest extends BaseFormRequest
@@ -18,41 +18,35 @@ class UpdateSiteRequest extends BaseFormRequest
     use DesignKitValidationRules;
 
     /**
-     * Allowed skeleton IDs — mirrors the DB CHECK constraint. 'atlas' (the
-     * multi-page site) is Business-only; the Rule::in below accepts it for
-     * everyone, and withValidator() rejects it for accounts without the
-     * can_use_multipage_site capability (#30). 'one' is reserved for the
-     * upcoming ONE skeleton — accepted on write so a site can be flipped to it,
-     * but not yet exposed in the dashboard picker or rendered (both land in V1).
+     * The platform is single-architecture: 'one' is the only layout (2026-07-10
+     * — the bento/dock/flick/deck/atlas architectures were deleted and the
+     * dashboard picker removed). Mirrors the DB CHECK constraint.
      */
-    public const ALLOWED_SKELETONS = [
-        'bento', 'dock', 'flick', 'deck', 'atlas', 'one',
-    ];
-
-    /** Skeletons gated to a capability, not available to every account (#30). */
-    public const CAPABILITY_GATED_SKELETONS = [
-        'atlas' => 'can_use_multipage_site',
+    public const ALLOWED_ARCHITECTURES = [
+        'one',
     ];
 
     /**
-     * Pre-rename ids, both generations (2026-07-07: skeleton-N → named, then
-     * the bento-class renames hub→dock / stories→flick / flow→deck). Accepted
-     * on write and normalized to the canonical id so a not-yet-updated
-     * dashboard build can still save its selection during the rollout window.
+     * Every historical architecture id, all generations (skeleton-N → named →
+     * bento-class renames → the 2026-07-10 collapse to 'one'). Accepted on
+     * write and normalized to 'one' so a stale dashboard/chat build can never
+     * 422 on a value that used to be valid — the layout is fixed regardless.
      */
-    public const LEGACY_SKELETON_IDS = [
-        'skeleton-1' => 'bento',
-        'skeleton-2' => 'dock',
-        'skeleton-3' => 'flick',
-        'skeleton-4' => 'deck',
-        'hub' => 'dock',
-        'stories' => 'flick',
-        'flow' => 'deck',
-        // Removed 2026-07-08 (#78) — a stale dashboard build that still sends
-        // sheet/thread maps to deck (their DB rows were remapped to deck) rather
-        // than 422-ing.
-        'sheet' => 'deck',
-        'thread' => 'deck',
+    public const LEGACY_ARCHITECTURE_IDS = [
+        'skeleton-1' => 'one',
+        'skeleton-2' => 'one',
+        'skeleton-3' => 'one',
+        'skeleton-4' => 'one',
+        'hub' => 'one',
+        'stories' => 'one',
+        'flow' => 'one',
+        'sheet' => 'one',
+        'thread' => 'one',
+        'bento' => 'one',
+        'dock' => 'one',
+        'flick' => 'one',
+        'deck' => 'one',
+        'atlas' => 'one',
     ];
 
     protected function prepareForValidation(): void
@@ -63,8 +57,14 @@ class UpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        if (is_string($this->skeleton_id ?? null) && isset(self::LEGACY_SKELETON_IDS[$this->skeleton_id])) {
-            $merge['skeleton_id'] = self::LEGACY_SKELETON_IDS[$this->skeleton_id];
+        // Legacy field-name compat: old clients send skeleton_id. Merge it into
+        // architecture_id (then normalize legacy VALUES the same as before).
+        if (is_string($this->skeleton_id ?? null) && $this->architecture_id === null) {
+            $merge['architecture_id'] = $this->skeleton_id;
+        }
+        if (is_string($merge['architecture_id'] ?? $this->architecture_id ?? null)) {
+            $v = $merge['architecture_id'] ?? $this->architecture_id;
+            $merge['architecture_id'] = self::LEGACY_ARCHITECTURE_IDS[$v] ?? $v;
         }
 
         if ($merge !== []) {
@@ -92,6 +92,20 @@ class UpdateSiteRequest extends BaseFormRequest
                 Rule::in(Site::BOOKING_MODES),
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
+
+            // Ordering preferences (OV-I actions system). Absent = smart (the
+            // read side defaults both toggles to true). The two lists REPLACE
+            // atomically on write — see UpdateSiteAction::LIST_SETTINGS_KEYS.
+            'settings.smart_page_order' => ['sometimes', 'boolean'],
+            'settings.manual_page_order' => ['sometimes', 'array', 'max:16'],
+            'settings.manual_page_order.*' => ['string', 'distinct', Rule::in(SitepageId::canonicalOrder())],
+            'settings.smart_actions' => ['sometimes', 'boolean'],
+            'settings.manual_actions' => ['sometimes', 'array', 'max:12', $this->distinctActionRefsRule()],
+            'settings.manual_actions.*' => ['array', $this->manualActionEntryRule()],
+            'settings.manual_actions.*.kind' => ['required', 'string', Rule::in(['page', 'item', 'button', 'custom'])],
+            'settings.manual_actions.*.ref' => ['sometimes', 'string', 'max:160'],
+            'settings.manual_actions.*.label' => ['sometimes', 'string', 'min:1', 'max:80'],
+            'settings.manual_actions.*.url' => ['sometimes', 'string', 'url:http,https', 'max:2048'],
 
             // Subdomain: must be unique, not reserved, DNS-safe
             'subdomain' => [
@@ -127,9 +141,9 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of bento/dock/flick/deck/atlas/one (legacy ids
-            // normalized in prepareForValidation). Replaces theme_id.
-            'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
+            // Architecture — always 'one' (every legacy id normalized to it in
+            // prepareForValidation; only genuinely unknown strings 422).
+            'architecture_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_ARCHITECTURES)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and StaffUpdateSiteRequest share a single source of truth
@@ -142,21 +156,96 @@ class UpdateSiteRequest extends BaseFormRequest
         ];
     }
 
+    /**
+     * Per-entry strictness for settings.manual_actions.* — each entry is
+     * EXACTLY one of:
+     *   {kind: page,   ref: <taxonomy page-id>}
+     *   {kind: item,   ref: "<itemType>:<itemKey>"}
+     *   {kind: button, ref: <platform slug>}   ('booking' = general booking link)
+     *   {kind: custom, label: 1..80, url: http(s)}
+     * Non-custom entries must not carry label/url; custom must not carry ref;
+     * no unknown keys. (Type/length/url formats are covered by the sibling
+     * dotted rules — this closure enforces the cross-field shape.)
+     */
+    private function manualActionEntryRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! is_array($value)) {
+                return; // the 'array' rule already fails this entry
+            }
+
+            $kind = $value['kind'] ?? null;
+            if (! is_string($kind)) {
+                return; // .kind rules report the missing/invalid kind
+            }
+
+            if ($kind === 'custom') {
+                if (array_key_exists('ref', $value)) {
+                    $fail('Custom actions must not include a ref.');
+                }
+                if (! is_string($value['label'] ?? null) || trim((string) ($value['label'] ?? '')) === '') {
+                    $fail('Custom actions require a label.');
+                }
+                if (! is_string($value['url'] ?? null) || trim((string) ($value['url'] ?? '')) === '') {
+                    $fail('Custom actions require a url.');
+                }
+                $allowed = ['kind', 'label', 'url'];
+            } else {
+                if (array_key_exists('label', $value) || array_key_exists('url', $value)) {
+                    $fail('Only custom actions may carry label/url.');
+                }
+                $ref = $value['ref'] ?? null;
+                if (! is_string($ref) || $ref === '') {
+                    $fail('The action ref is required.');
+                } else {
+                    $refValid = match ($kind) {
+                        'page' => in_array($ref, SitepageId::canonicalOrder(), true),
+                        'button' => (bool) preg_match('/^[a-z0-9][a-z0-9-]{0,39}$/', $ref),
+                        'item' => (bool) preg_match('/^[a-z][a-z0-9_]*:\S{1,120}$/', $ref),
+                        default => true, // unknown kind — .kind Rule::in reports it
+                    };
+                    if (! $refValid) {
+                        $fail('The action ref is not valid for its kind.');
+                    }
+                }
+                $allowed = ['kind', 'ref'];
+            }
+
+            if (array_diff(array_keys($value), $allowed) !== []) {
+                $fail('The action entry contains unknown keys.');
+            }
+        };
+    }
+
+    /**
+     * Reject duplicate kind:ref pairs in settings.manual_actions (customs are
+     * exempt — several custom buttons are legitimate).
+     */
+    private function distinctActionRefsRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $seen = [];
+            foreach ($value as $entry) {
+                if (! is_array($entry) || ($entry['kind'] ?? null) === 'custom') {
+                    continue;
+                }
+                $key = ($entry['kind'] ?? '').':'.($entry['ref'] ?? '');
+                if (isset($seen[$key])) {
+                    $fail('Duplicate action refs are not allowed.');
+
+                    return;
+                }
+                $seen[$key] = true;
+            }
+        };
+    }
+
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
-            // Capability-gated skeletons (atlas = Business-only multi-page). The
-            // Rule::in accepts them for everyone; this rejects one the account
-            // lacks the capability for, so selection stays capability-driven (#30).
-            $skeleton = $this->input('skeleton_id');
-            if (is_string($skeleton) && isset(self::CAPABILITY_GATED_SKELETONS[$skeleton])) {
-                $professional = $this->attributes->get('professional');
-                $capability = self::CAPABILITY_GATED_SKELETONS[$skeleton];
-                if (! $professional || ! AccountCapabilities::for($professional)->{$capability}) {
-                    $validator->errors()->add('skeleton_id', 'This layout is only available on Business Partna accounts.');
-                }
-            }
-
             if ($this->input('is_published') === true) {
                 $professional = $this->attributes->get('professional');
                 $site = $professional?->site;
@@ -183,7 +272,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas, one.',
+            'architecture_id.in' => 'Unknown layout.',
         ];
     }
 }

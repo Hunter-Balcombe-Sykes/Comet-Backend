@@ -5,9 +5,11 @@
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Http\Requests\Api\Staff\Notifications\StaffStoreNotificationRequest;
 use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\ParameterBag;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -57,7 +59,7 @@ beforeEach(function () {
         primary_action_label TEXT NULL,
         secondary_action_label TEXT NULL,
         secondary_action_url TEXT NULL,
-        severity TEXT NOT NULL DEFAULT "info",
+        severity TEXT NOT NULL DEFAULT "info",        critical INTEGER NOT NULL DEFAULT 0,
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         created_at TEXT NULL,
@@ -86,6 +88,13 @@ function mockStaffStoreNotificationRequest(array $data): StaffStoreNotificationR
     $ref = new ReflectionClass(Request::class);
     $prop = $ref->getProperty('attributes');
     $prop->setValue($mock, new ParameterBag);
+
+    // store() now authorizes staffManage (admin) as defence-in-depth — set the
+    // authenticated admin staff the staff.admin middleware would have injected.
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $mock->attributes->set('partna_staff', $staff);
 
     return $mock;
 }

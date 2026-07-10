@@ -8,21 +8,18 @@ use App\Services\Design\Presets\IdentityEvidence;
 
 /**
  * Category-refiner factor (band 34, OneShot): for a music professional, the GENRE
- * of their work is a strong style signal — electronic reads bold/dark/sharp,
+ * of their work is a strong style signal — electronic reads bold/heavy/sharp,
  * acoustic reads warm/soft/serif. It reads a genre string via
- * IdentityEvidence::musicGenre().
+ * IdentityEvidence::musicGenre() (stored by the Apple Music connect since #76
+ * Part B; other music platforms' oEmbed payloads still carry no genre and
+ * abstain).
  *
- * CURRENT STATE (spec §2 row 3): the music platforms (Spotify, Apple Music,
- * SoundCloud, Bandcamp, …) store an oEmbed-shaped payload that carries NO
- * genre today (verified). musicGenre() therefore returns null and this factor
- * ABSTAINS. The lexicon below is complete so that if a future payload enrichment
- * adds a genre, the factor lights up unchanged. Until then it is a provable no-op.
- *
- * Genre lexicon → look nudge:
- *   electronic / hip-hop / techno / trap → bold, dark, sharp, fast.
+ * Genre lexicon → look nudge (backgrounds are theme_mode-owned since the
+ * 2026-07-10 rework — the old dark grounds now read through weight/surface):
+ *   electronic / hip-hop / techno / trap → heavy, square, fast, solid, brutalist type.
  *   acoustic / folk / singer-songwriter  → warm, soft, serif, slow.
- *   classical / jazz / ambient           → editorial, elegant, restrained.
- *   pop / indie                          → neutral-bright.
+ *   classical / jazz / ambient           → editorial, elegant, restrained outline.
+ *   pop / indie                          → clean medium-weight outline.
  * An unrecognised genre → ABSTAIN (never a guess).
  *
  * OneShot: an artist's genre is identity-stable. Between the category band —
@@ -79,15 +76,16 @@ class MusicGenreFactor implements EvidenceFactor
     /** Style family → sparse overlay. Values from the established vocabulary. */
     private const FAMILY_TARGETS = [
         self::ELECTRONIC => [
-            'color_bg' => '#151515',            // dark
-            'border_radius' => '0.25rem',       // sharp
+            'border_radius' => '0',             // square — club-flyer geometry; reglo is a brutalist face and the genre is a declared fact, not an inference
             'weight_regular' => '600',          // chunky
+            // reglo IS the DJ/producer face (knowledge base §2) — with the dark
+            // ground gone this is the family's identity anchor.
+            'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
-            'effect_style' => 'bold',
+            'effect_surface' => 'solid',        // club-poster blocks
             'effect_shadow_style' => 'hard',
         ],
         self::ACOUSTIC => [
-            'color_bg' => '#faf6f7',            // soft pastel ground
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
             'typography_font_family' => 'origin',
@@ -96,19 +94,17 @@ class MusicGenreFactor implements EvidenceFactor
             'effect_image_treatment' => 'warm',
         ],
         self::REFINED => [
-            'color_bg' => '#151515',            // dark, gallery-like
             'weight_regular' => '300',          // light
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'slow',
-            'effect_style' => 'editorial',
+            'effect_surface' => 'outline',      // gallery restraint
             'effect_shadow_style' => 'flat',
-            'effect_image_treatment' => 'duotone',
+            'effect_image_treatment' => 'duotone', // jazz-poster mood
         ],
         self::POP => [
-            'color_bg' => '#fafafa',            // neutral bright
             'weight_regular' => '500',          // medium
             'motion_pace' => 'normal',
-            'effect_style' => 'sharp',
+            'effect_surface' => 'outline',      // clean indie-label minimalism
         ],
     ];
 

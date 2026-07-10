@@ -240,6 +240,18 @@ class CacheKeyGenerator
     }
 
     /**
+     * Derived insights for a professional. Computed over a fixed rolling window
+     * (not the dashboard's selected range), so it's keyed by user only and shares
+     * the summary version token — a new ingest busts both at once.
+     *
+     * @multi-site: needs site_id — insights aggregate one site's traffic under the current model
+     */
+    public static function analyticsInsights(string $userId): string
+    {
+        return "analytics:insights:{$userId}";
+    }
+
+    /**
      * Short-TTL resolve map: handle → {pro_id, site_id, updated_at_ts}.
      * Consumers: IndividualProfileController (read/write) and
      * SiteCacheService::invalidateSitePayload (bust).
