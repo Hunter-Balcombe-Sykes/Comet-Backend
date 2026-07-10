@@ -5,7 +5,6 @@ namespace App\Http\Requests\Api\User\Site;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Models\Core\Site\Site;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\Site\SubdomainAvailabilityService;
 use Illuminate\Validation\Rule;
 
@@ -18,41 +17,35 @@ class UpdateSiteRequest extends BaseFormRequest
     use DesignKitValidationRules;
 
     /**
-     * Allowed skeleton IDs — mirrors the DB CHECK constraint. 'atlas' (the
-     * multi-page site) is Business-only; the Rule::in below accepts it for
-     * everyone, and withValidator() rejects it for accounts without the
-     * can_use_multipage_site capability (#30). 'one' is reserved for the
-     * upcoming ONE skeleton — accepted on write so a site can be flipped to it,
-     * but not yet exposed in the dashboard picker or rendered (both land in V1).
+     * The platform is single-skeleton: 'one' is the only layout (2026-07-10 —
+     * the bento/dock/flick/deck/atlas skeletons were deleted and the dashboard
+     * picker removed). Mirrors the DB CHECK constraint.
      */
     public const ALLOWED_SKELETONS = [
-        'bento', 'dock', 'flick', 'deck', 'atlas', 'one',
-    ];
-
-    /** Skeletons gated to a capability, not available to every account (#30). */
-    public const CAPABILITY_GATED_SKELETONS = [
-        'atlas' => 'can_use_multipage_site',
+        'one',
     ];
 
     /**
-     * Pre-rename ids, both generations (2026-07-07: skeleton-N → named, then
-     * the bento-class renames hub→dock / stories→flick / flow→deck). Accepted
-     * on write and normalized to the canonical id so a not-yet-updated
-     * dashboard build can still save its selection during the rollout window.
+     * Every historical skeleton id, all generations (skeleton-N → named →
+     * bento-class renames → the 2026-07-10 collapse to 'one'). Accepted on
+     * write and normalized to 'one' so a stale dashboard/chat build can never
+     * 422 on a value that used to be valid — the layout is fixed regardless.
      */
     public const LEGACY_SKELETON_IDS = [
-        'skeleton-1' => 'bento',
-        'skeleton-2' => 'dock',
-        'skeleton-3' => 'flick',
-        'skeleton-4' => 'deck',
-        'hub' => 'dock',
-        'stories' => 'flick',
-        'flow' => 'deck',
-        // Removed 2026-07-08 (#78) — a stale dashboard build that still sends
-        // sheet/thread maps to deck (their DB rows were remapped to deck) rather
-        // than 422-ing.
-        'sheet' => 'deck',
-        'thread' => 'deck',
+        'skeleton-1' => 'one',
+        'skeleton-2' => 'one',
+        'skeleton-3' => 'one',
+        'skeleton-4' => 'one',
+        'hub' => 'one',
+        'stories' => 'one',
+        'flow' => 'one',
+        'sheet' => 'one',
+        'thread' => 'one',
+        'bento' => 'one',
+        'dock' => 'one',
+        'flick' => 'one',
+        'deck' => 'one',
+        'atlas' => 'one',
     ];
 
     protected function prepareForValidation(): void
@@ -127,8 +120,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Skeleton — one of bento/dock/flick/deck/atlas/one (legacy ids
-            // normalized in prepareForValidation). Replaces theme_id.
+            // Skeleton — always 'one' (every legacy id normalized to it in
+            // prepareForValidation; only genuinely unknown strings 422).
             'skeleton_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
@@ -145,18 +138,6 @@ class UpdateSiteRequest extends BaseFormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
-            // Capability-gated skeletons (atlas = Business-only multi-page). The
-            // Rule::in accepts them for everyone; this rejects one the account
-            // lacks the capability for, so selection stays capability-driven (#30).
-            $skeleton = $this->input('skeleton_id');
-            if (is_string($skeleton) && isset(self::CAPABILITY_GATED_SKELETONS[$skeleton])) {
-                $professional = $this->attributes->get('professional');
-                $capability = self::CAPABILITY_GATED_SKELETONS[$skeleton];
-                if (! $professional || ! AccountCapabilities::for($professional)->{$capability}) {
-                    $validator->errors()->add('skeleton_id', 'This layout is only available on Business Partna accounts.');
-                }
-            }
-
             if ($this->input('is_published') === true) {
                 $professional = $this->attributes->get('professional');
                 $site = $professional?->site;
@@ -183,7 +164,7 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas, one.',
+            'skeleton_id.in' => 'Unknown layout.',
         ];
     }
 }

@@ -29,7 +29,7 @@ class Site extends BaseModel
     use HasFactory, HasUuids;
 
     /** Default skeleton when none has been explicitly chosen. Must match the DB CHECK constraint. */
-    public const DEFAULT_SKELETON_ID = 'bento';
+    public const DEFAULT_SKELETON_ID = 'one';
 
     /**
      * Allowed GLOBAL shop link modes — mirrors the value the shop-settings

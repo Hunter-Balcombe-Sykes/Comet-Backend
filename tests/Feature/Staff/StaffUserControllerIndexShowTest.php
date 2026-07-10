@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 /** Insert a professional + linked site row; returns the loaded User model. */
-function seedProfessionalWithSite(string $skeletonId = 'dock'): User
+function seedProfessionalWithSite(string $skeletonId = 'one'): User
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -68,7 +68,7 @@ it('index returns 200 and does not crash without a theme relationship', function
 });
 
 it('index includes skeleton_id in the site payload and omits theme', function () {
-    seedProfessionalWithSite('flick');
+    seedProfessionalWithSite('one');
 
     $controller = app(StaffUserController::class);
     $request = Request::create('/', 'GET');
@@ -81,7 +81,7 @@ it('index includes skeleton_id in the site payload and omits theme', function ()
 
     expect($withSite)->not->toBeNull()
         ->and($withSite['site'])->toHaveKey('skeleton_id')
-        ->and($withSite['site']['skeleton_id'])->toBe('flick')
+        ->and($withSite['site']['skeleton_id'])->toBe('one')
         ->and($withSite['site'])->not->toHaveKey('theme');
 });
 
@@ -124,7 +124,7 @@ it('show returns 200 and does not crash without a theme relationship', function 
 });
 
 it('show includes skeleton_id in the site payload and omits theme', function () {
-    $pro = seedProfessionalWithSite('bento');
+    $pro = seedProfessionalWithSite('one');
 
     $controller = app(StaffUserController::class);
     $response = $controller->show($pro);
@@ -132,7 +132,7 @@ it('show includes skeleton_id in the site payload and omits theme', function () 
 
     expect($body['site'])->not->toBeNull()
         ->and($body['site'])->toHaveKey('skeleton_id')
-        ->and($body['site']['skeleton_id'])->toBe('bento')
+        ->and($body['site']['skeleton_id'])->toBe('one')
         ->and($body['site'])->not->toHaveKey('theme');
 });
 

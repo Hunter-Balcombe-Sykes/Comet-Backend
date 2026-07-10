@@ -25,8 +25,8 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             $merge['subdomain'] = strtolower(trim($this->subdomain));
         }
 
-        // Legacy skeleton-N ids normalize to the canonical named ids — same
-        // rollout affordance as UpdateSiteRequest.
+        // Every historical skeleton id normalizes to 'one' — same collapse
+        // affordance as UpdateSiteRequest (the platform is single-skeleton).
         if (is_string($this->skeleton_id ?? null) && isset(UpdateSiteRequest::LEGACY_SKELETON_IDS[$this->skeleton_id])) {
             $merge['skeleton_id'] = UpdateSiteRequest::LEGACY_SKELETON_IDS[$this->skeleton_id];
         }
@@ -42,8 +42,8 @@ class StaffUpdateSiteRequest extends BaseFormRequest
         $currentSiteId = $professional?->site?->id;
 
         return [
-            // Skeleton — one of bento/dock/flick/deck/atlas/one (shares
-            // UpdateSiteRequest::ALLOWED_SKELETONS). Replaces theme_id.
+            // Skeleton — always 'one' (shares UpdateSiteRequest::ALLOWED_SKELETONS;
+            // legacy ids collapse in prepareForValidation).
             'skeleton_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_SKELETONS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
@@ -94,7 +94,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'skeleton_id.in' => 'Skeleton must be one of: bento, dock, flick, deck, atlas, one.',
+            'skeleton_id.in' => 'Unknown layout.',
         ];
     }
 }
