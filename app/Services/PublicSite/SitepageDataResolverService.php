@@ -60,9 +60,12 @@ class SitepageDataResolverService
      * the resolved payload, so this map carries no TS-lockstep obligation. Menu
      * (Google-Business-sourced) and Reviews are detected separately below.
      *
+     * PUBLIC because ContentFreshness reuses it to attribute a connection's
+     * created_at to the page it makes present (the freshness boost's page ages).
+     *
      * @var array<string, string>
      */
-    private const PLATFORM_TO_PAGE = [
+    public const PLATFORM_TO_PAGE = [
         // Listen — music/audio platforms.
         'spotify' => 'listen', 'soundcloud' => 'listen', 'apple-music' => 'listen',
         'apple-podcast' => 'listen', 'youtube-music' => 'listen', 'tidal' => 'listen',
