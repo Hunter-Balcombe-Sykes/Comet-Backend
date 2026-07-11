@@ -255,6 +255,10 @@
 ## P3 — Nice to have
 
 - [ ] **#LIFE-7** · P3 — Welcome notification firstOrCreate lacks DB-level unique constraint
+    - **BLOCKED (2026-07-11) — not implemented, not ticked.** Two independent reasons:
+        1. **Existing data violates the proposed index.** A pre-migration check on dev Supabase (`glncumufgaqcmqhzwrxm`) found a user with **5** rows of `(type='Info', title='New enquiry')` in `notifications.notifications`. A blanket `UNIQUE (user_id, type, title)` index — exactly what the finding proposes — cannot be created against this data, and per the run's standing rule I do NOT write a dedupe migration on my own initiative.
+        2. **The proposed index is unsound by design.** `(user_id, type, title)` legitimately repeats — a user gets one `Info / "New enquiry"` notification **per enquiry**. A unique constraint on those three columns would break normal per-event notification creation, not just dedup the one-time welcome row. The finding wanted to dedup ONLY the welcome notification.
+    - **Correct path (Josh's call — a design decision, not a mechanical fix):** either a *partial* unique index scoped to the welcome row (e.g. `... WHERE title = 'Welcome to Partna'`) paired with `insertOrIgnore`, or a dedicated dedup-key column. This is already tracked as the deliberately-deferred **DINT-12** (schema standalone, S8), and the code comment at `UserBootstrapService::createWelcomeNotification` documents the accepted app-level `firstOrCreate` gap. Low real-world risk (same-user concurrent double-bootstrap).
     - **Where:** app/Services/User/UserBootstrapService.php (`createWelcomeNotification`)
     - **Affects:** New users during signup — a rare concurrent double-bootstrap could create two "Welcome to Partna" notifications.
     - **Effort:** S (~0.5–1h)
