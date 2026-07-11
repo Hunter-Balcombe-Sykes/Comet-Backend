@@ -655,7 +655,7 @@ class EvidenceConclusions
     }
 
     /**
-     * Closest of our 17 catalog fonts, by family-name keyword
+     * Closest of our catalog PAIRINGS, by family-name keyword
      * (docs/design/font-icon-knowledge.md §4 — keep both in sync).
      *
      * Ordered specific-before-generic. Two disambiguation guards run first
@@ -672,7 +672,7 @@ class EvidenceConclusions
         $map = [
             // Disambiguation guards — must run before their generic substrings.
             'cooper hewitt' => 'geist',
-            'cormorant garamond' => 'origin',
+            'cormorant garamond' => 'sentient',
 
             // Monospace.
             'office code' => 'geist', 'source code' => 'geist',
@@ -684,20 +684,20 @@ class EvidenceConclusions
             'mono' => 'geist', 'monospace' => 'geist',
 
             // Didone / high-contrast display serif.
-            'playfair' => 'origin', 'didot' => 'origin',
-            'bodoni' => 'origin', 'abril' => 'origin',
-            'prata' => 'origin', 'cormorant' => 'origin',
+            'playfair' => 'prata', 'didot' => 'prata',
+            'bodoni' => 'prata', 'abril' => 'prata',
+            'prata' => 'prata', 'cormorant' => 'sentient',
 
             // Old-style (Garalde) serif.
-            'garamond' => 'origin', 'sabon' => 'origin',
-            'minion' => 'origin', 'bembo' => 'origin', 'caslon' => 'origin',
+            'garamond' => 'sentient', 'sabon' => 'sentient',
+            'minion' => 'sentient', 'bembo' => 'sentient', 'caslon' => 'sentient',
 
             // Transitional serif / generic serif fallback.
-            'baskerville' => 'origin', 'georgia' => 'origin',
-            'times' => 'origin', 'merriweather' => 'origin',
-            'lora' => 'origin', 'pt serif' => 'origin',
-            'source serif' => 'origin', 'crimson' => 'origin',
-            'charter' => 'origin', 'literata' => 'origin',
+            'baskerville' => 'sentient', 'georgia' => 'sentient',
+            'times' => 'sentient', 'merriweather' => 'sentient',
+            'lora' => 'sentient', 'pt serif' => 'sentient',
+            'source serif' => 'sentient', 'crimson' => 'sentient',
+            'charter' => 'sentient', 'literata' => 'sentient',
 
             // Chunky old-style serif.
             'young serif' => 'young-serif', 'recoleta' => 'young-serif',
@@ -705,9 +705,9 @@ class EvidenceConclusions
             'souvenir' => 'young-serif', 'cooper' => 'young-serif',
 
             // Slab serif.
-            'zilla' => 'origin', 'rockwell' => 'origin', 'roboto slab' => 'origin',
-            'arvo' => 'origin', 'bitter' => 'origin', 'museo slab' => 'origin',
-            'josefin slab' => 'origin', 'clarendon' => 'origin', 'slab' => 'origin',
+            'zilla' => 'sentient', 'rockwell' => 'sentient', 'roboto slab' => 'sentient',
+            'arvo' => 'sentient', 'bitter' => 'sentient', 'museo slab' => 'sentient',
+            'josefin slab' => 'sentient', 'clarendon' => 'sentient', 'slab' => 'sentient',
 
             // Condensed gothic display.
             'oswald' => 'oswald', 'bebas' => 'oswald', 'anton' => 'oswald',
@@ -766,7 +766,7 @@ class EvidenceConclusions
             'mulish' => 'geist', 'assistant' => 'geist', 'figtree' => 'geist',
 
             // Generic catch-alls — must stay last.
-            'serif' => 'origin',
+            'serif' => 'sentient',
             'sans serif' => 'geist',
         ];
         foreach ($map as $keyword => $slug) {

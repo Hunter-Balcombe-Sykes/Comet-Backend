@@ -77,7 +77,7 @@ it('concludes a restrained look for a specific cuisine', function () {
 
     // Warm imagery, not muted — appetite rules food photography; the restraint
     // reads through the serif + slow pace + outline surface.
-    expect($out['typography_font_family'])->toBe('origin')
+    expect($out['typography_font_family'])->toBe('sentient')
         ->and($out['effect_surface'])->toBe('outline')
         ->and($out['motion_pace'])->toBe('slow')
         ->and($out['effect_image_treatment'])->toBe('warm');

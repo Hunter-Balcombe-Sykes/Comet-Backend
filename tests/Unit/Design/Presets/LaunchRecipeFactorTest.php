@@ -133,7 +133,7 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
     ])));
 
     expect($out['border_radius'])->toBe('0.85rem')
-        ->and($out['typography_font_family'])->toBe('origin')
+        ->and($out['typography_font_family'])->toBe('sentient')
         ->and($out['effect_surface'])->toBe('solid'); // tactile, not digital-luxe glass
 });
 

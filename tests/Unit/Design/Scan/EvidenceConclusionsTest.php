@@ -167,7 +167,7 @@ it('maps a recognized body font family to its catalog slug', function (string $f
 })->with([
     'Poppins → geist' => ['Poppins, sans-serif', 'geist'],
     'Arial → geist' => ['Arial', 'geist'],
-    'Georgia (serif) → origin' => ['Georgia, serif', 'origin'],
+    'Georgia (serif) → sentient' => ['Georgia, serif', 'sentient'],
     'Neue Haas Grotesk → geist' => ['Neue Haas Grotesk', 'geist'],
 ]);
 

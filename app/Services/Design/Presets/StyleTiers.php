@@ -30,20 +30,32 @@ final class StyleTiers
 
     /** @var array<string, array<string, string>> signal => tier => literal */
     private const TIERS = [
-        // Font tiers ARE the catalog slugs — validated against this set.
-        // 9-font roster locked 2026-07-09 (docs/design/font-icon-knowledge.md).
-        // RETIRED — never reintroduce: the 4 pre-2026-07 slugs plus the 13
-        // dropped in the 17->9 swap (see RETIRED_FONT_MIGRATION in the registry).
+        // Font tiers ARE the catalog PAIRING slugs — validated against this
+        // set (@partnaau/design-system registry.ts FONT_PAIRINGS). Pairing-
+        // catalog rework locked 2026-07-12 (docs/design/font-icon-knowledge.md).
+        // RETIRED — never reintroduce: the 4 pre-2026-07 slugs, the 13 dropped
+        // in the 17->9 swap, plus 'origin' (see RETIRED_FONT_MIGRATION in the
+        // registry — origin's commercial licence was never purchased).
         'font' => [
             'geist' => 'geist',
             'humane' => 'humane',
             'melodrama' => 'melodrama',
-            'origin' => 'origin',
+            'melodrama-inter' => 'melodrama-inter',
             'ostrich-sans' => 'ostrich-sans',
             'oswald' => 'oswald',
             'parceh' => 'parceh',
             'reglo' => 'reglo',
             'young-serif' => 'young-serif',
+            'boska' => 'boska',
+            'stardom' => 'stardom',
+            'general-sans' => 'general-sans',
+            'general-sans-sentient' => 'general-sans-sentient',
+            'vercetti' => 'vercetti',
+            'switzer' => 'switzer',
+            'switzer-general-sans' => 'switzer-general-sans',
+            'prata' => 'prata',
+            'inter' => 'inter',
+            'sentient' => 'sentient',
         ],
         'weight' => [
             'light' => '300',

@@ -88,7 +88,7 @@ class MusicGenreFactor implements EvidenceFactor
         self::ACOUSTIC => [
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'origin',
+            'typography_font_family' => 'sentient', // origin retired 2026-07-12
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
             'effect_image_treatment' => 'warm',

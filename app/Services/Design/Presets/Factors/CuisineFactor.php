@@ -71,7 +71,7 @@ class CuisineFactor implements EvidenceFactor
      */
     private const SPECIFIC_TARGET = [
         'weight_regular' => '400',
-        'typography_font_family' => 'origin', // refined humanist serif (17->9 swap; PROVISIONAL)
+        'typography_font_family' => 'sentient', // refined humanist serif (origin retired 2026-07-12)
         'motion_pace' => 'slow',
         'effect_surface' => 'outline',
         'effect_image_treatment' => 'warm',

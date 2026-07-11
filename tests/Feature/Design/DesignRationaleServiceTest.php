@@ -37,7 +37,7 @@ function contribute(string $siteId, string $source, string $integration, int $pr
 it('produces friendly per-source reasons grouped by area', function () {
     $siteId = (string) Str::uuid();
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
-    contribute($siteId, 'instagram:category', 'instagram', 30, 'typography_font_family', 'origin');
+    contribute($siteId, 'instagram:category', 'instagram', 30, 'typography_font_family', 'sentient');
     contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '1.15rem');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);
@@ -59,7 +59,7 @@ it('labels a manually-overridden column "You set this." and drops its factor att
     $siteId = (string) Str::uuid();
     // A factor contributed the accent…
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
-    contribute($siteId, 'instagram:category', 'instagram', 30, 'typography_font_family', 'origin');
+    contribute($siteId, 'instagram:category', 'instagram', 30, 'typography_font_family', 'sentient');
     // …but the user manually set the accent (and only the accent).
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,

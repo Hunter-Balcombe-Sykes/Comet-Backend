@@ -269,7 +269,7 @@ final class LaunchRecipes
                     'color_accent' => '#a15c2b',        // terracotta/craft
                     'border_radius' => '0.85rem',       // rounded
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
+                    'typography_font_family' => 'sentient', // sturdy serif (origin retired 2026-07-12)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     // Solid, not glass: handmade goods read tactile on filled cards;

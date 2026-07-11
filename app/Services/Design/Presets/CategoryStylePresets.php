@@ -102,7 +102,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'sentient', // origin retired 2026-07-12 (Origin's licence never purchased)
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
@@ -127,7 +127,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.85rem',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'sentient', // origin retired 2026-07-12 (Origin's licence never purchased)
             'motion_pace' => 'slow',
             'effect_surface' => 'glass',
         ],
