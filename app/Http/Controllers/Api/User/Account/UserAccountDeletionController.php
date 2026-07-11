@@ -45,6 +45,12 @@ class UserAccountDeletionController extends ApiController
             return $this->error('Suspended accounts cannot request deletion. Contact support.', 403);
         }
 
+        // Gate through the policy AFTER the status checks above — 'update' denies
+        // pending_deletion actors (handled with a friendlier 409 above) and does not
+        // cover suspended/disabled, so it runs only for an active owner here. Mirrors
+        // the doctrine gate in confirm().
+        $this->authorizeForUser($professional, 'update', $professional);
+
         $result = $this->deletionService->request($professional, $request);
 
         if (! $result['success']) {
@@ -100,6 +106,10 @@ class UserAccountDeletionController extends ApiController
         if ($professional->status !== 'pending_deletion') {
             return $this->error('No pending deletion to cancel.', 409);
         }
+
+        // Ownership gate via cancelDeletion (NOT update): update() denies pending_deletion
+        // actors, but cancel exists precisely to serve them.
+        $this->authorizeForUser($professional, 'cancelDeletion', $professional);
 
         $this->deletionService->cancel($professional, $request);
 

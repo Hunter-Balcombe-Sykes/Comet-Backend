@@ -73,7 +73,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 6 of 6 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete  (LIFE-8 done; LIFE-7 BLOCKED — see note)
 
 ---
 
@@ -281,7 +281,8 @@
         );
         ```
 
-- [ ] **#LIFE-8** · P3 — UserAccountDeletionController request/cancel lack explicit authorizeForUser gate
+- [x] **#LIFE-8** · P3 — UserAccountDeletionController request/cancel lack explicit authorizeForUser gate
+    - **Resolution (2026-07-11):** Gated both endpoints — but NOT the way the finding literally said. `request()` gets `authorizeForUser($professional, 'update', $professional)` placed **after** its existing status checks (the `update` policy denies pending_deletion with a 423 and doesn't cover suspended/disabled, so running it first would clobber the friendlier 409/403 responses). `cancel()` could **not** use `'update'` — that ability calls `denyIfPendingDeletion`, and cancel runs only when the user IS pending_deletion, so `'update'` would make cancellation permanently impossible. Added a dedicated ownership-only `cancelDeletion` ability to `UserSelfPolicy` (no pending-deletion block) and gated `cancel()` with it. Verified the real HTTP cancel route still works for a pending_deletion user (`CancelDeletionRouteTest`), and the pre-existing "update denies with 423 when pending_deletion" test confirms why `'update'` was unusable here.
     - **Where:** app/Http/Controllers/Api/User/Account/UserAccountDeletionController.php (`request`, `cancel`)
     - **Affects:** Self-service deletion flows — no functional gap today (the `professional` actor is structurally the authenticated user, not a request parameter), but deviates from the Authorization Doctrine that every mutating action gate through a Policy.
     - **Effort:** S (~0.5–1h)

@@ -64,6 +64,23 @@ class UserSelfPolicy extends BasePolicy
         return $this->update($actor, $resource);
     }
 
+    /**
+     * Cancel a pending account deletion during the grace period. Ownership-gated ONLY —
+     * unlike update(), it must NOT block pending_deletion actors, because cancel is the
+     * one mutation legitimately performed while the account is pending_deletion (it de-
+     * escalates that very state). Structural ownership already holds (the professional is
+     * resolved from the verified JWT); this gate is defence-in-depth for any future
+     * staff-routed path.
+     */
+    public function cancelDeletion(User $actor, Model $resource): bool|Response
+    {
+        if ($this->resolveOwnerId($resource) !== (string) $actor->id) {
+            return $this->denyAsNotFound();
+        }
+
+        return true;
+    }
+
     // -------------------------------------------------------------------------
     // Staff-actor abilities (PartnaStaff as first argument)
     // -------------------------------------------------------------------------
