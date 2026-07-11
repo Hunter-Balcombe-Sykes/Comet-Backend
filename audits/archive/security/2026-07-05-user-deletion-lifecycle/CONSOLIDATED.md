@@ -1,11 +1,11 @@
 # user-deletion-lifecycle audit — CONSOLIDATED — 2026-07-05
 
-> **Run closed & archived 2026-07-11.** 7 of 8 findings resolved and shipped to `development`
-> (commits 7dad4e87 · 640bbfe8 · 4752fb4a · 08ff2d5e). Migration `20260711170000` (case-insensitive
+> **Run closed & archived 2026-07-11.** All 8 findings resolved and shipped to `development`
+> (LIFE-1/2/3/4/5/6/8 in commits 7dad4e87 · 640bbfe8 · 4752fb4a · 08ff2d5e; LIFE-7 follow-up on branch
+> `fix/welcome-notification-dedup-2026-07-11`). Migration `20260711170000` (case-insensitive
 > `users_email_unique`) applied to dev Supabase and recorded in its ledger. Also resolved the fresher
-> 2026-07-08 `#LIFE-12` as part of LIFE-6. **Deferred:** LIFE-1's async conversion (cross-stack, needs
-> frontend coordination — timeout hardening shipped) and **LIFE-7** (blocked — existing data + unsound
-> index design; deferred to **DINT-12** as a schema-design decision).
+> 2026-07-08 `#LIFE-12` as part of LIFE-6. **One deferred item:** LIFE-1's async conversion (cross-stack,
+> needs frontend coordination — the timeout hardening shipped).
 
 ## Scope
 
@@ -80,7 +80,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 6 of 6 complete
-- P3 Low: 1 of 2 complete  (LIFE-8 done; LIFE-7 BLOCKED — see note)
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -261,11 +261,8 @@
 
 ## P3 — Nice to have
 
-- [ ] **#LIFE-7** · P3 — Welcome notification firstOrCreate lacks DB-level unique constraint
-    - **BLOCKED (2026-07-11) — not implemented, not ticked.** Two independent reasons:
-        1. **Existing data violates the proposed index.** A pre-migration check on dev Supabase (`glncumufgaqcmqhzwrxm`) found a user with **5** rows of `(type='Info', title='New enquiry')` in `notifications.notifications`. A blanket `UNIQUE (user_id, type, title)` index — exactly what the finding proposes — cannot be created against this data, and per the run's standing rule I do NOT write a dedupe migration on my own initiative.
-        2. **The proposed index is unsound by design.** `(user_id, type, title)` legitimately repeats — a user gets one `Info / "New enquiry"` notification **per enquiry**. A unique constraint on those three columns would break normal per-event notification creation, not just dedup the one-time welcome row. The finding wanted to dedup ONLY the welcome notification.
-    - **Correct path (Josh's call — a design decision, not a mechanical fix):** either a *partial* unique index scoped to the welcome row (e.g. `... WHERE title = 'Welcome to Partna'`) paired with `insertOrIgnore`, or a dedicated dedup-key column. This is already tracked as the deliberately-deferred **DINT-12** (schema standalone, S8), and the code comment at `UserBootstrapService::createWelcomeNotification` documents the accepted app-level `firstOrCreate` gap. Low real-world risk (same-user concurrent double-bootstrap).
+- [x] **#LIFE-7** · P3 — Welcome notification firstOrCreate lacks DB-level unique constraint
+    - **Resolution (2026-07-11, follow-up).** The finding's literal fix — a blanket `UNIQUE (user_id, type, title)` — was rejected as unsound: a dev data check found a user with **5** legitimate `(Info,"New enquiry")` rows (one per enquiry), so that constraint both can't be built and would break normal per-event notifications; it wanted to dedup ONLY the welcome row. On revisiting, the codebase already had the right mechanism: a `dedupe_key` column + partial unique index `notifications_dedupe_key_per_pro_uq (user_id, dedupe_key)` (baseline migration line 1031, live on dev) that every other deduped notification already uses. **Code-only fix:** `UserBootstrapService::createWelcomeNotification()` now writes via atomic `insertOrIgnore` with `dedupe_key='welcome:{user_id}'` — `ON CONFLICT DO NOTHING`, so a concurrent double-bootstrap can't duplicate the welcome row and (unlike a raw insert) it never aborts the surrounding bootstrap transaction. **No migration needed** — the index already exists. This closes the DINT-12 gap. Shipped on branch `fix/welcome-notification-dedup-2026-07-11`; full suite green.
     - **Where:** app/Services/User/UserBootstrapService.php (`createWelcomeNotification`)
     - **Affects:** New users during signup — a rare concurrent double-bootstrap could create two "Welcome to Partna" notifications.
     - **Effort:** S (~0.5–1h)

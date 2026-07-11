@@ -1301,6 +1301,7 @@ function setupNotificationsTable(): void
         starts_at TEXT NULL,
         ends_at TEXT NULL,
         email_sent_at TEXT NULL,
+        dedupe_key TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
@@ -1309,6 +1310,14 @@ function setupNotificationsTable(): void
     // critical column existed (mirrors migration 20260711000400).
     try {
         $conn->statement('ALTER TABLE notifications.notifications ADD COLUMN critical INTEGER NOT NULL DEFAULT 0');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
+
+    // Defensive ALTER for suites that created the table before the dedupe_key
+    // column existed (mirrors baseline migration line 1031).
+    try {
+        $conn->statement('ALTER TABLE notifications.notifications ADD COLUMN dedupe_key TEXT NULL');
     } catch (Throwable $e) {
         // already exists — ignore
     }

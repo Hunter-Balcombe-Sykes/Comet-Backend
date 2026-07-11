@@ -188,20 +188,27 @@ class UserBootstrapService
 
     private function createWelcomeNotification(User $professional): void
     {
-        // firstOrCreate dedups the welcome notification at the app level — there is NO DB unique constraint on (user_id, type, title), so a rare concurrent double-bootstrap could still race. Acceptable for a one-time bootstrap; the DB-level constraint is deferred to the schema standalone (S8). (DINT-12)
-        Notification::query()->firstOrCreate(
-            [
-                'user_id' => $professional->id,
-                'type' => 'Info',
-                'title' => 'Welcome to Partna',
-            ],
-            [
-                'body' => 'Your account is ready. Complete your profile and start building your professional page from your dashboard.',
-                'cta_url' => null,
-                'severity' => 'info',
-                'starts_at' => now(),
-                'ends_at' => null,
-            ]
-        );
+        // Atomic dedup via the notifications_dedupe_key_per_pro_uq unique index
+        // (user_id, dedupe_key): insertOrIgnore compiles to ON CONFLICT DO NOTHING, so a
+        // concurrent double-bootstrap can't create two welcome rows — and, unlike a raw
+        // insert that would throw, it never aborts the surrounding bootstrap transaction
+        // on Postgres. Replaces the old racy firstOrCreate (LIFE-7 / DINT-12). insertOrIgnore
+        // bypasses Eloquent, so id + timestamps are set explicitly.
+        $now = now();
+
+        Notification::query()->insertOrIgnore([
+            'id' => (string) Str::uuid(),
+            'user_id' => $professional->id,
+            'type' => 'Info',
+            'title' => 'Welcome to Partna',
+            'body' => 'Your account is ready. Complete your profile and start building your professional page from your dashboard.',
+            'cta_url' => null,
+            'severity' => 'info',
+            'starts_at' => $now,
+            'ends_at' => null,
+            'dedupe_key' => 'welcome:'.$professional->id,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 }
