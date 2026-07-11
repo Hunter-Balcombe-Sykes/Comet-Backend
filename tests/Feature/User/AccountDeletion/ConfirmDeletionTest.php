@@ -325,3 +325,33 @@ it('rolls back the entire confirmation when pseudonymisation fails — status, a
         ->first();
     expect($audit)->toBeNull();
 });
+
+it('no-ops a concurrent second confirmation once status is already pending_deletion (LIFE-4)', function () {
+    $rawToken = 'raw-token-'.Str::random(54);
+    // Simulate the race loser: its token still validates, but a concurrent winner
+    // already flipped status to pending_deletion and set deletion_confirmed_at.
+    $pro = seedRequestedUser($rawToken, [
+        'status' => 'pending_deletion',
+        'deletion_confirmed_at' => now()->toIso8601String(),
+        'deletion_previous_status' => 'active',
+    ]);
+    $originalEmail = (string) $pro->primary_email;
+
+    $service = new AccountDeletionService;
+    $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
+
+    // Idempotent success — caller still gets a coherent 200 + deletes_at.
+    expect($result['success'])->toBeTrue()
+        ->and($result['code'])->toBe(200)
+        ->and($result['deletes_at'])->not->toBeEmpty();
+
+    // No duplicate scheduled-deletion mail, no duplicate confirmed audit row.
+    Mail::assertNotQueued(AccountDeletionScheduledMail::class);
+    $count = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)->where('event', 'confirmed')->count();
+    expect($count)->toBe(0);
+
+    // Guard bailed before pseudonymise — the real email is untouched.
+    $pro->refresh();
+    expect($pro->primary_email)->toBe($originalEmail);
+});

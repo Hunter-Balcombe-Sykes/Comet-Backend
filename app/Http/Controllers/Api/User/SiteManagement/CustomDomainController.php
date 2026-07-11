@@ -8,6 +8,7 @@ use App\Http\Requests\Api\User\SetCustomDomainRequest;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Services\Cloudflare\CloudflareCustomHostnameService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -80,7 +81,21 @@ class CustomDomainController extends ApiController
         // domain becomes their primary URL; a pending one can't be primary yet
         // (it gets promoted on first verification — see verify()).
         $site->custom_domain_primary = $active;
-        $site->save();
+
+        try {
+            $site->save();
+        } catch (UniqueConstraintViolationException $e) {
+            // Lost a TOCTOU race: another site claimed this domain between our pre-check
+            // and this save. Tear down the CF hostname we just created so it isn't
+            // orphaned, then return the same 422 the pre-check path returns.
+            try {
+                $this->cf->delete((string) ($created['id'] ?? ''));
+            } catch (Throwable $cleanup) {
+                report($cleanup);
+            }
+
+            return $this->error('That domain is already connected to another Partna site.', 422);
+        }
 
         // Retire the old domain's KV entry; the job writes the new one once active.
         SyncSubdomainToKvJob::dispatch((string) $site->user_id, null, $previous && $previous !== $domain ? $previous : null);

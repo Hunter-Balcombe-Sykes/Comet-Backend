@@ -72,7 +72,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 3 of 6 complete
+- P2 Medium: 5 of 6 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -163,7 +163,8 @@
         }
         ```
 
-- [ ] **#LIFE-4** · P2 — Concurrent deletion confirmations with the same valid token both succeed
+- [x] **#LIFE-4** · P2 — Concurrent deletion confirmations with the same valid token both succeed
+    - **Resolution (2026-07-11):** Implemented the fresher 2026-07-08 diagnosis of this bug (07-08 `#LIFE-3`, re-tiered **P1** — it also double-fires the scheduled-deletion mail, not just the audit row). Added an idempotency guard: a `lockForUpdate()` re-read as the first statement inside `executeConfirmation()`'s transaction, no-op when `status === 'pending_deletion'` already. Keyed on **status, not `deletion_token_hash`** (as the 07-08 finding literally suggested) — `executeConfirmation()` is shared with the tokenless `adminInitiate()` path, so a token-based guard would have wrongly bailed on every admin-initiated deletion. Loser-of-race returns before the post-transaction mail/cache side effects. Verified by revert-and-rerun (duplicate mail fires without the guard) + `AdminInitiatedDeletionTest` green (admin path intact).
     - **Where:** app/Services/User/AccountDeletionService.php (`confirm`, `executeConfirmation`)
     - **Affects:** Users confirming account deletion — a double-click or double-tab race sends duplicate scheduled-deletion emails and writes duplicate audit rows.
     - **Effort:** S (~0.5–1h)
@@ -193,7 +194,7 @@
         ]);
         ```
 
-- [ ] **#LIFE-5** · P2 — Custom domain claim check is TOCTOU-racy with no UniqueConstraintViolationException handling
+- [x] **#LIFE-5** · P2 — Custom domain claim check is TOCTOU-racy with no UniqueConstraintViolationException handling
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php (`store`)
     - **Affects:** Two sites racing to claim the exact same custom domain at the same moment — the loser gets an uncaught 500 and a Cloudflare custom-hostname resource is created and never cleaned up.
     - **Effort:** S (~0.5–1h)

@@ -187,6 +187,8 @@ class AccountDeletionService
         // (both DB row and in-memory model) inside the transaction below.
         $realEmail = (string) ($professional->primary_email ?? '');
 
+        $alreadyConfirmed = false;
+
         // Pin to 'pgsql' so the wrapper covers the same connection as the
         // Eloquent writes inside — see request() for the test-config rationale.
         DB::connection('pgsql')->transaction(function () use (
@@ -199,7 +201,30 @@ class AccountDeletionService
             $actorId,
             $actorHandle,
             $reason,
+            $retentionDays,
+            &$alreadyConfirmed,
+            &$deletesAt,
         ) {
+            // Idempotency guard against a double-fire confirmation race (double-clicked
+            // link / email-client prefetch): both requests validate the token outside any
+            // lock, then race here. Re-read under lockForUpdate; whoever wins the lock flips
+            // status to pending_deletion, and the loser — seeing it already set — no-ops (no
+            // duplicate scheduled-deletion mail, no duplicate audit row). Keyed on status,
+            // not deletion_token_hash, so the admin-initiated path (no token) is guarded too.
+            $locked = User::query()->lockForUpdate()->find($professional->id);
+            if ($locked && $locked->status === 'pending_deletion') {
+                $alreadyConfirmed = true;
+                // Reuse the winner's schedule so the caller still gets a coherent deletes_at.
+                if ($locked->deletion_confirmed_at) {
+                    $confirmedAt = $locked->deletion_confirmed_at instanceof \DateTimeInterface
+                        ? Carbon::instance($locked->deletion_confirmed_at)
+                        : Carbon::parse((string) $locked->deletion_confirmed_at);
+                    $deletesAt = $confirmedAt->addDays($retentionDays);
+                }
+
+                return;
+            }
+
             $professional->update([
                 'deletion_previous_status' => $previousStatus,
                 'status' => 'pending_deletion',
@@ -225,6 +250,12 @@ class AccountDeletionService
             $this->logAuditEvent($professional, $event, $request, $metadata, $actorType, $actorId, $actorHandle, $reason);
             $this->pseudonymiseAccountPii($professional);
         });
+
+        // Loser of the race: the winner already purged the cache, queued the mail, and
+        // wrote the audit row. Return the shared schedule without repeating any of it.
+        if ($alreadyConfirmed) {
+            return $deletesAt;
+        }
 
         // PRIV-1: flush cached idempotency responses NOW, not at the day-30 purge().
         // PII is already pseudonymised above and the account goes read-only immediately

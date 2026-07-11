@@ -3,6 +3,7 @@
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -131,4 +132,44 @@ it('auto-promotes the domain to primary on first successful verification', funct
         ->assertJsonPath('primary', true);
 
     expect((bool) $site->fresh()->custom_domain_primary)->toBeTrue();
+});
+
+it('cleans up the orphaned Cloudflare hostname and returns 422 when a concurrent save loses the unique-domain race (LIFE-5)', function () {
+    [$user, $site] = domainUserWithSite('racer');
+    [$rival, $rivalSite] = domainUserWithSite('rival');
+
+    // Real partial unique index so a duplicate lower(custom_domain) actually throws
+    // UniqueConstraintViolationException on the sqlite test driver (mirrors prod).
+    DB::connection('pgsql')->statement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS site.sites_custom_domain_unique '.
+        'ON sites (lower(custom_domain)) WHERE custom_domain IS NOT NULL'
+    );
+
+    Http::fake(['api.cloudflare.com/*' => Http::response([
+        'success' => true,
+        'result' => ['id' => 'ch_orphan', 'status' => 'pending', 'ssl' => ['status' => 'pending_validation']],
+    ], 200)]);
+    Queue::fake();
+
+    // One-shot hook: the instant the racer's site is saved with the domain, a rival
+    // claims the same domain first — opening the TOCTOU window the pre-check missed.
+    $fired = false;
+    Site::saving(function (Site $s) use (&$fired, $rivalSite) {
+        if (! $fired && $s->custom_domain === 'race.com') {
+            $fired = true;
+            DB::connection('pgsql')->table('site.sites')
+                ->where('id', $rivalSite->id)
+                ->update(['custom_domain' => 'race.com', 'custom_domain_status' => 'active']);
+        }
+    });
+
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'race.com'])
+        ->assertStatus(422);
+
+    // The orphaned CF hostname was torn down (DELETE to .../custom_hostnames/ch_orphan).
+    Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+        && str_contains($request->url(), 'custom_hostnames/ch_orphan'));
+
+    // The racer's own row did not keep the domain (save rolled back).
+    expect($site->fresh()->custom_domain)->toBeNull();
 });
