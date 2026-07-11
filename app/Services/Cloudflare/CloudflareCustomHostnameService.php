@@ -51,7 +51,9 @@ class CloudflareCustomHostnameService
     {
         $this->ensureConfigured();
 
+        // Bound every Cloudflare round-trip so a hung control-plane call can't pin the worker (mirrors SupabaseAdminService).
         $result = Http::withToken($this->apiToken)
+            ->timeout(10)
             ->asJson()
             ->post($this->base(), [
                 'hostname' => $hostname,
@@ -77,6 +79,7 @@ class CloudflareCustomHostnameService
         $this->ensureConfigured();
 
         $result = Http::withToken($this->apiToken)
+            ->timeout(10)
             ->get($this->base()."/{$id}")
             ->throw()
             ->json('result', []);
@@ -91,7 +94,7 @@ class CloudflareCustomHostnameService
             return;
         }
 
-        Http::withToken($this->apiToken)->delete($this->base()."/{$id}");
+        Http::withToken($this->apiToken)->timeout(5)->delete($this->base()."/{$id}");
     }
 
     /**

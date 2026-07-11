@@ -72,14 +72,15 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 6 complete
+- P2 Medium: 3 of 6 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-1** · P2 — Synchronous Cloudflare API calls in CustomDomainController block dashboard responses
+- [x] **#LIFE-1** · P2 — Synchronous Cloudflare API calls in CustomDomainController block dashboard responses
+    - **Resolution (2026-07-11):** Bounded all three CF calls (`create`/`get`/`delete`) with explicit HTTP timeouts (10s/10s/5s), mirroring `SupabaseAdminService`. This closes the acute risk the finding names (a hung vendor call pinning the PHP-FPM worker). Full async conversion is deliberately DEFERRED — it changes the `store()` response contract (`cloudflare => $created` carries the CF ownership/SSL DNS records the dashboard shows the user) and needs frontend coordination; the feature is gated off today (`configured()` false). Flagged for a coordinated cross-stack follow-up.
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php (`store`, `verify`, `destroy`)
     - **Affects:** Users configuring a custom domain — Cloudflare for SaaS API latency (typically 200–800ms, occasionally seconds under a control-plane blip) propagates directly into the request the dashboard is waiting on.
     - **Effort:** M (~2–4h)
@@ -109,7 +110,8 @@
         }
         ```
 
-- [ ] **#LIFE-2** · P2 — Synchronous Supabase Admin API call in MfaController::destroy blocks dashboard response
+- [x] **#LIFE-2** · P2 — Synchronous Supabase Admin API call in MfaController::destroy blocks dashboard response
+    - **Resolution (2026-07-11):** Already satisfied — `SupabaseAdminService::unenrollMfaFactor()` has carried `Http::timeout(5)` since commit `4b50f615` (2026-05-18, when the endpoint was created). The finding's own recommendation was to keep it synchronous and "at minimum add an explicit timeout"; that timeout predates the audit. No code change needed.
     - **Where:** app/Http/Controllers/Api/User/Account/MfaController.php (`destroy`)
     - **Affects:** Users unenrolling an MFA factor — a slow Supabase Admin API response holds the HTTP request open for the full round-trip.
     - **Effort:** S (~0.5–1h)
@@ -134,7 +136,7 @@
         }
         ```
 
-- [ ] **#LIFE-3** · P2 — Deletion-cancelled confirmation mail sent synchronously
+- [x] **#LIFE-3** · P2 — Deletion-cancelled confirmation mail sent synchronously
     - **Where:** app/Services/User/AccountDeletionService.php (`sendDeletionCancelledMail`, called from `cancel`/`adminCancel`)
     - **Affects:** Users cancelling account deletion — SMTP connection/TLS handshake latency adds directly to the HTTP response time.
     - **Effort:** S (~0.5–1h)

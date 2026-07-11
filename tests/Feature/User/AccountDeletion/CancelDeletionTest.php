@@ -67,7 +67,7 @@ it('sends cancellation mail', function () {
     $service = new AccountDeletionService;
     $service->cancel($pro, Request::create('/', 'POST'));
 
-    Mail::assertSent(AccountDeletionCancelledMail::class, function ($mail) use ($pro) {
+    Mail::assertQueued(AccountDeletionCancelledMail::class, function ($mail) use ($pro) {
         return $mail->hasTo($pro->primary_email);
     });
 });

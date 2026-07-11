@@ -490,7 +490,7 @@ class AccountDeletionService
     private function sendDeletionCancelledMail(User $professional): void
     {
         try {
-            Mail::to($professional->primary_email)->send(
+            Mail::to($professional->primary_email)->queue(
                 new AccountDeletionCancelledMail(
                     displayName: (string) ($professional->display_name ?? 'there'),
                 )

@@ -47,5 +47,5 @@ it('lets a pending_deletion user cancel through the real HTTP route without the 
         ->and($pro->deletion_confirmed_at)->toBeNull()
         ->and($pro->deletion_requested_at)->toBeNull();
 
-    Mail::assertSent(AccountDeletionCancelledMail::class);
+    Mail::assertQueued(AccountDeletionCancelledMail::class);
 });
