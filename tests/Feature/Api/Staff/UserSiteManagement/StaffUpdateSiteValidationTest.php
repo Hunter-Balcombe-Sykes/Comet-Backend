@@ -97,3 +97,51 @@ it('accepts the legacy skeleton_id field name and collapses it (transition alias
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('one');
 });
+
+// ── OV-I: staff endpoint enforces the same ordering-payload rules as the user
+// endpoint (shared via SiteOrderingValidationRules) — a staff edit must not be
+// able to write an ordering payload PATCH /api/site would reject ───────────────
+
+it('rejects a custom action with a javascript: url (staff parity with the user endpoint)', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-js-url');
+
+    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
+        ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'javascript:alert(1)'],
+    ]]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.manual_actions.0.url']);
+});
+
+it('rejects an unknown page id in manual_page_order (staff parity)', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-bad-order');
+
+    patchStaffSite($staff, $pro, ['settings' => ['manual_page_order' => ['book', 'checkout']]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.manual_page_order.1']);
+});
+
+it('rejects label/url on a non-custom action entry (staff parity)', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-strict-order');
+
+    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
+        ['kind' => 'button', 'ref' => 'instagram', 'label' => 'Relabelled'],
+    ]]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.manual_actions.0']);
+});
+
+it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-good-order');
+
+    patchStaffSite($staff, $pro, ['settings' => [
+        'smart_actions' => false,
+        'manual_actions' => [
+            ['kind' => 'page', 'ref' => 'book'],
+            ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards'],
+        ],
+    ]])->assertOk();
+});

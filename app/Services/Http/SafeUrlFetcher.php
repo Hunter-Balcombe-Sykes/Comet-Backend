@@ -182,6 +182,53 @@ class SafeUrlFetcher
             'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
         ], $headers);
 
+        $results = $this->fetchManyFollowingRedirects($urls, $mergedHeaders);
+
+        // WS-B1: the same one-shot honest-UA fallback fetch() applies. Some hosting
+        // WAFs (SiteGround et al.) 403 any `Mozilla/…` UA whose TLS fingerprint isn't
+        // a real browser, while an honest non-Mozilla bot UA passes. Retry ONLY the
+        // URLs that came back 403, only when the browser UA could be the reason, once,
+        // and never worse than the original 403 — so bulk refresh fleets (fetchMany)
+        // of WAF-guarded WooCommerce stores don't silently fail where a single fetch()
+        // would have recovered.
+        if (str_starts_with((string) $mergedHeaders['User-Agent'], 'Mozilla/')) {
+            $blocked = [];
+            foreach ($results as $original => $res) {
+                if (is_array($res) && $res['status'] === 403) {
+                    $blocked[] = $original;
+                }
+            }
+
+            if ($blocked !== []) {
+                $retry = $this->fetchManyFollowingRedirects(
+                    $blocked,
+                    array_merge($mergedHeaders, ['User-Agent' => self::FALLBACK_USER_AGENT]),
+                );
+                foreach ($retry as $original => $res) {
+                    if (is_array($res) && $res['status'] < 400) {
+                        $results[$original] = $res;
+                    }
+                }
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * The concurrent redirect-following core of fetchMany(): pre-validate every URL,
+     * fire the current round via Http::pool with redirects disabled, then resolve +
+     * SSRF-re-validate + follow any 3xx in the next round, capped to MAX_REDIRECTS
+     * hops per URL. Headers are used exactly as given (no defaults merged here), so
+     * fetchMany() can re-run it with an alternate User-Agent for the 403 fallback.
+     *
+     * @param  array<string>  $urls  Original URLs to fetch (duplicates are de-duped).
+     * @param  array<string,string>  $mergedHeaders
+     * @return array<string, array{status:int, body:string, finalUrl:string, contentType:string}|null>
+     *                                                                                                 Keyed by original URL; null if skipped/failed.
+     */
+    private function fetchManyFollowingRedirects(array $urls, array $mergedHeaders): array
+    {
         // Results keyed by original URL; populated as each URL resolves.
         $results = array_fill_keys($urls, null);
 

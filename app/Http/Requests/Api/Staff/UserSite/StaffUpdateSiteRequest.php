@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\Staff\UserSite;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
+use App\Http\Requests\Concerns\SiteOrderingValidationRules;
 use App\Models\Core\Site\Site;
 use App\Rules\SubdomainValidationRule;
 use Illuminate\Validation\Rule;
@@ -15,7 +16,7 @@ use Illuminate\Validation\Rule;
 // is processed separately by the controller (writes to site.design_kits).
 class StaffUpdateSiteRequest extends BaseFormRequest
 {
-    use DesignKitValidationRules;
+    use DesignKitValidationRules, SiteOrderingValidationRules;
 
     protected function prepareForValidation(): void
     {
@@ -84,6 +85,12 @@ class StaffUpdateSiteRequest extends BaseFormRequest
                 Rule::in(Site::BOOKING_MODES),
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
+
+            // Ordering preferences (OV-I actions system) — shared with the user
+            // endpoint via SiteOrderingValidationRules so a staff edit can't write a
+            // malformed/hostile ordering payload the user endpoint would reject (esp.
+            // a custom-action {label,url} whose URL isn't http(s)).
+            ...$this->orderingRules(),
 
             // Staff-only override hatch — honoured by UpdateSiteAction when
             // options['allow_force_publish'] is true.

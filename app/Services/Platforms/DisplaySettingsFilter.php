@@ -32,7 +32,12 @@ final class DisplaySettingsFilter
             'reviews' => ['reviews', 'reviewSummary', 'rating', 'reviewCount'],
             'hours' => ['hours', 'currentHours'],
             'photos' => ['photos'],
-            'location' => ['address', 'lat', 'lng', 'addressParts'],
+            // WS-F4: the dashboard Location map keys off `placeId` and the street-view
+            // panel off `streetView` ({panoId,lat,lng}) — both must drop with the
+            // section, or turning "Location & map" OFF still renders the map the
+            // Controls copy promises it hides. (persist paths preserve placeId as the
+            // refresh identity key — see GoogleBusinessFetch merge + GoogleBusinessEnrichJob.)
+            'location' => ['address', 'lat', 'lng', 'addressParts', 'placeId', 'streetView'],
             'menu' => ['menu'],
         ],
         'instagram' => [
