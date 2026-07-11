@@ -72,7 +72,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 5 of 6 complete
+- P2 Medium: 6 of 6 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -227,7 +227,8 @@
             ON site.sites (lower(custom_domain)) WHERE custom_domain IS NOT NULL;
         ```
 
-- [ ] **#LIFE-6** · P2 — Email-uniqueness check in UserBootstrapService is TOCTOU-racy
+- [x] **#LIFE-6** · P2 — Email-uniqueness check in UserBootstrapService is TOCTOU-racy
+    - **Resolution (2026-07-11):** Two-part fix in `UserBootstrapService::bootstrap()`. (1) Typed catch around `$professional->save()` maps an email-index `UniqueConstraintViolationException` (the DB backstop for the racy pre-check) to the same `EMAIL_ALREADY_REGISTERED` the pre-check throws → HTTP 409 instead of a raw 500; discriminates on the index name in the driver message (a re-query is impossible after a violation inside a Postgres transaction) so a `users_auth_user_id_unique` violation re-throws unchanged. (2) Migration `20260711170000_users_email_unique_case_insensitive.sql` re-creates the unique index on `lower(primary_email)` (CONCURRENTLY build-swap-rename per CONVENTIONS §1) so the DB enforces exactly what the app checks. Dev dup-check ran clean (0 case-insensitive dups) before writing. **Migration committed but NOT yet applied.** **Also resolves the fresher 2026-07-08 `#LIFE-12`** (last-write-wins on concurrent existing-user updates): `$existing` is now re-fetched under `lockForUpdate()` inside the transaction (the pre-transaction read stays only for the fast disabled-account 403). Verified: `composer guard:no-unsafe-migrations` passes; catch revert-proved; 84 bootstrap tests green.
     - **Where:** app/Services/User/UserBootstrapService.php (`guardAgainstEmailReuseByDifferentAuthUser`, called inside `bootstrap()`'s transaction)
     - **Affects:** New-user signup — concurrent bootstraps with the same email can both pass the pre-check; the loser hits an unhandled DB unique-violation → 500 instead of the intended `EMAIL_ALREADY_REGISTERED` error.
     - **Effort:** S (~0.5–1h)

@@ -8,6 +8,7 @@ use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -45,7 +46,16 @@ class UserBootstrapService
         // DB::transaction() targets the default connection — 'sqlite' in feature
         // tests — making the wrapper a no-op and breaking rollback. Mirrors
         // AccountDeletionService::request().
-        $result = DB::connection('pgsql')->transaction(function () use ($uid, $data, $existing) {
+        $result = DB::connection('pgsql')->transaction(function () use ($uid, $data) {
+            // Re-fetch the row under a lock INSIDE the transaction (07-08 #LIFE-12). The
+            // pre-transaction read above is only for the fast disabled-account short-circuit;
+            // reusing it here would let two concurrent bootstraps for the same auth user both
+            // operate on a stale snapshot and last-write-wins clobber each other. Locking here
+            // serializes the existing-user update path; a brand-new user has no row to lock and
+            // is guarded instead by the users_auth_user_id_unique partial index (a genuine
+            // double-create fails loudly rather than silently duplicating).
+            $existing = User::query()->where('auth_user_id', $uid)->lockForUpdate()->first();
+
             $createdProfessional = false;
             $professional = $existing;
 
@@ -87,7 +97,23 @@ class UserBootstrapService
                 ]);
             }
 
-            $professional->save();
+            try {
+                $professional->save();
+            } catch (UniqueConstraintViolationException $e) {
+                // LIFE-6: guardAgainstEmailReuseByDifferentAuthUser is a TOCTOU-racy pre-check;
+                // the lower(primary_email) unique index is the real backstop. When a concurrent
+                // signup claimed this email between the pre-check and this write, surface the same
+                // friendly EMAIL_ALREADY_REGISTERED the pre-check throws instead of a raw 500. A
+                // re-query is impossible here (Postgres aborts the transaction after a constraint
+                // violation), so discriminate on the index name in the driver message. Any other
+                // unique violation (e.g. users_auth_user_id_unique) re-throws unchanged.
+                if (str_contains($e->getMessage(), 'users_email_unique')
+                    || str_contains($e->getMessage(), 'primary_email')) {
+                    throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
+                }
+
+                throw $e;
+            }
 
             $this->ensureSidestUpdatesSubscription($professional->primary_email);
 
