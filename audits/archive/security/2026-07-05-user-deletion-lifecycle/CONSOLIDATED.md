@@ -1,5 +1,12 @@
 # user-deletion-lifecycle audit — CONSOLIDATED — 2026-07-05
 
+> **Run closed & archived 2026-07-11.** 7 of 8 findings resolved and shipped to `development`
+> (commits 7dad4e87 · 640bbfe8 · 4752fb4a · 08ff2d5e). Migration `20260711170000` (case-insensitive
+> `users_email_unique`) applied to dev Supabase and recorded in its ledger. Also resolved the fresher
+> 2026-07-08 `#LIFE-12` as part of LIFE-6. **Deferred:** LIFE-1's async conversion (cross-stack, needs
+> frontend coordination — timeout hardening shipped) and **LIFE-7** (blocked — existing data + unsound
+> index design; deferred to **DINT-12** as a schema-design decision).
+
 ## Scope
 
 - **Lens:** lens-file: lifecycle-correctness
