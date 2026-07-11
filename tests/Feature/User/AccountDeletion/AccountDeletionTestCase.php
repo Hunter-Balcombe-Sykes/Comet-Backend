@@ -150,6 +150,8 @@ class AccountDeletionTestCase
             id TEXT PRIMARY KEY,
             user_id TEXT,
             subdomain TEXT,
+            custom_domain TEXT,
+            custom_domain_status TEXT,
             is_published INTEGER,
             unpublished_at TEXT,
             settings TEXT,

@@ -3,6 +3,7 @@
 namespace App\Services\User;
 
 use App\Jobs\Account\SendAccountDeletionRequestMailJob;
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
@@ -587,6 +588,16 @@ class AccountDeletionService
             }
         }
 
+        // EDGE-1: capture the active custom domain before forceDelete cascades the
+        // site row away. Afterwards the KV sync dispatched by UserObserver::deleted
+        // can't resolve $pro->site to clear the domain:<host> pointer, so it would
+        // keep routing to the purged page (and could mis-route to a new owner once
+        // the freed handle is reclaimed). Retired explicitly via the job's idempotent
+        // $retireCustomDomain param after the delete succeeds.
+        $retireCustomDomain = ($site && ($site->custom_domain_status ?? null) === 'active')
+            ? $site->custom_domain
+            : null;
+
         // Step 3b: resolve pre-pseudonymisation email for email-keyed erasure.
         // executeConfirmation() pseudonymises primary_email before purge runs —
         // the original is preserved in the deletion audit snapshot.
@@ -623,6 +634,13 @@ class AccountDeletionService
             report($e);
 
             return false;
+        }
+
+        // EDGE-1: retire the now-orphaned custom-domain KV pointer (the handle key
+        // is retired by UserObserver::deleted). Fires only when an active custom
+        // domain existed at capture time.
+        if ($retireCustomDomain) {
+            SyncSubdomainToKvJob::dispatch((string) $professional->id, $handleSnapshot, $retireCustomDomain);
         }
 
         // Direct create (not logAuditEvent) — the professional row was just

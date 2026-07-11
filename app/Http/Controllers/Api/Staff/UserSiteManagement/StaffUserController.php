@@ -11,6 +11,7 @@ use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
 use Exception;
@@ -310,8 +311,27 @@ class StaffUserController extends ApiController
         // Hard delete - PERMANENT
         $handle = $professional->handle;
 
+        // EDGE-1: capture the ACTIVE custom domain BEFORE forceDelete. The site row
+        // is cascade-deleted (sites_user_fk ON DELETE CASCADE) as part of this delete,
+        // so the KV retire that fires from UserObserver::deleted can no longer resolve
+        // $pro->site to clear the domain:<host> pointer — leaving the user's own domain
+        // routing to their now-deleted page. Thread it through the job's idempotent
+        // $retireCustomDomain param, mirroring CustomDomainController's disconnect path.
+        $retireCustomDomain = null;
+        $siteToRetire = $professional->site;
+        if ($siteToRetire && ($siteToRetire->custom_domain_status ?? null) === 'active') {
+            $retireCustomDomain = $siteToRetire->custom_domain;
+        }
+
         try {
             $professional->forceDelete();
+
+            // UserObserver::deleted retires the handle key; this dispatch clears the
+            // now-orphaned custom-domain pointer. Only fires when an active custom
+            // domain existed (nothing to retire otherwise).
+            if ($retireCustomDomain) {
+                SyncSubdomainToKvJob::dispatch((string) $professional->id, $handle, $retireCustomDomain);
+            }
 
             return $this->success([
                 'message' => "Professional '{$handle}' permanently deleted",

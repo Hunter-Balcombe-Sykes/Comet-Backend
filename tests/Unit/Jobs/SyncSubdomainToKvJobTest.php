@@ -170,6 +170,141 @@ it('retires the KV entry when the site is moderation-hidden (EDGE-3)', function 
     (new SyncSubdomainToKvJob($proId))->handle($kv);
 });
 
+// --- EDGE-1: custom-domain (domain:<host>) retirement on takedown ---
+
+it('retires BOTH the handle and the custom-domain KV keys when a site is moderation-hidden (EDGE-1)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    // Moderation-hidden site owned by an active user, with an ACTIVE custom domain.
+    // retire() must delete the handle key AND the domain:<host> pointer — otherwise
+    // the custom domain keeps resolving to the taken-down page indefinitely.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'takedownact',
+        'handle_lc' => 'takedownact',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 't@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'subdomain' => 'takedownact',
+        'is_published' => 1,
+        'moderation_state' => 'hidden',
+        'custom_domain' => 'tuesdae.co',
+        'custom_domain_status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('takedownact');
+    $kv->shouldReceive('delete')->once()->with('domain:tuesdae.co');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('retires the custom-domain KV key for a suspended user with an active domain (EDGE-1)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    // Suspended (non-trashed) user — retire() runs via the isActive() gate and
+    // must clear the active custom-domain pointer too.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'suspdomain',
+        'handle_lc' => 'suspdomain',
+        'account_type' => 'individual',
+        'status' => 'suspended',
+        'primary_email' => 'sd@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'subdomain' => 'suspdomain',
+        'is_published' => 1,
+        'custom_domain' => 'myshop.example',
+        'custom_domain_status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('suspdomain');
+    $kv->shouldReceive('delete')->once()->with('domain:myshop.example');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('does NOT retire a non-active (pending) custom domain on takedown (EDGE-1 guard)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    // A pending/unverified custom domain was never written to KV (handle() only
+    // publishes 'active' domains), so retire() must NOT issue a domain:<host>
+    // delete — only the handle key is retired.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'pendingdom',
+        'handle_lc' => 'pendingdom',
+        'account_type' => 'individual',
+        'status' => 'suspended',
+        'primary_email' => 'pd@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'subdomain' => 'pendingdom',
+        'is_published' => 1,
+        'custom_domain' => 'notyet.example',
+        'custom_domain_status' => 'pending',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('pendingdom');
+    $kv->shouldNotReceive('delete')->with('domain:notyet.example');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('clears the custom-domain pointer via $retireCustomDomain even when the user row is already gone (EDGE-1 hard-delete path)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+
+    // Mirrors staff force-delete / scheduled purge: the user row is gone, so retire()
+    // cannot resolve $pro->site — the domain is cleared via the $retireCustomDomain
+    // constructor arg (captured before forceDelete) through handle()'s early branch.
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('domain:gone.example');
+    $kv->shouldReceive('delete')->once()->with('goneforever');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob((string) Str::uuid(), 'goneforever', 'gone.example'))->handle($kv);
+});
+
 // --- SCALE-6 + P3-31: alias batching and expired-alias skip ---
 
 it('batches N future aliases into a single bulkPut call (SCALE-6)', function () {

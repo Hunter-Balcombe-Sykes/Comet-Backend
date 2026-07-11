@@ -142,9 +142,15 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * Delete the routing entry for a gone user. Prefers the soft-deleted model's
-     * own handle; falls back to the handle captured at dispatch time (the only
-     * source available once a row is hard-deleted). Idempotent — a missing key
+     * Delete the routing entries for a gone/taken-down user. Prefers the
+     * soft-deleted model's own handle; falls back to the handle captured at
+     * dispatch time (the only source available once a row is hard-deleted).
+     * Also retires the custom-domain pointer (`domain:<host>`) for a still-
+     * resolvable site, so a soft-delete / suspend / moderation-hide takedown
+     * closes both the handle and custom-domain routes (EDGE-1). The staff
+     * force-delete path can't resolve the site here — the user row is already
+     * gone — so StaffUserController::forceDestroy retires the domain explicitly
+     * via the $retireCustomDomain param instead. Idempotent — a missing key
      * delete is a no-op at Cloudflare. Aliases are left to expire via their own
      * TTL / the handles:prune-expired-aliases sweep.
      */
@@ -152,11 +158,31 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
     {
         $handle = strtolower(trim((string) ($pro?->handle ?: $this->capturedHandle)));
 
-        if ($handle === '') {
-            return;
+        if ($handle !== '') {
+            $kv->delete($handle);
         }
 
-        $kv->delete($handle);
+        // EDGE-1: also retire the custom-domain pointer on takedown. `domain:<host>`
+        // is written by the active branch of handle() and is otherwise ONLY cleared
+        // on a voluntary disconnect (the $retireCustomDomain path) — never on a
+        // delete/suspend/moderation-hide. Without this the user's own domain keeps
+        // routing to their taken-down page indefinitely (a cache purge alone just
+        // resets the clock — the surviving KV pointer re-warms the edge on the next
+        // request). Guarded like handle()'s site read so a missing/corrupt site row
+        // can never black-hole the handle delete above.
+        try {
+            $site = $pro?->site;
+        } catch (Throwable $e) {
+            report($e);
+            $site = null;
+        }
+
+        if ($site) {
+            $customDomain = strtolower(trim((string) ($site->custom_domain ?? '')));
+            if ($customDomain !== '' && ($site->custom_domain_status ?? null) === 'active') {
+                $kv->delete("domain:{$customDomain}");
+            }
+        }
     }
 
     public function failed(Throwable $e): void

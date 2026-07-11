@@ -1,9 +1,11 @@
 <?php
 
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -177,4 +179,52 @@ it('command purges professionals past 30 days but skips within grace', function 
 
     expect($purgeableExists)->toBeFalse()
         ->and($withinGraceExists)->toBeTrue();
+});
+
+it('dispatches a custom-domain KV retirement when purging a user with an active custom domain (EDGE-1)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => $pro->handle,
+        'is_published' => 0,
+        'custom_domain' => 'purged.example',
+        'custom_domain_status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertDispatched(SyncSubdomainToKvJob::class, function (SyncSubdomainToKvJob $job) use ($pro) {
+        return $job->userId === $pro->id && $job->retireCustomDomain === 'purged.example';
+    });
+});
+
+it('does not dispatch a custom-domain retirement when purging a user without an active domain (EDGE-1 guard)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => $pro->handle,
+        'is_published' => 0,
+        'custom_domain' => null,
+        'custom_domain_status' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertNotDispatched(SyncSubdomainToKvJob::class, function (SyncSubdomainToKvJob $job) {
+        return $job->retireCustomDomain !== null;
+    });
 });
