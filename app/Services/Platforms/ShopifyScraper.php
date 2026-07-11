@@ -40,8 +40,11 @@ class ShopifyScraper extends PlatformScraper
             ? (string) $rawId
             : preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
 
+        // tryFetch() returns null on a transport-level failure (unresolvable host,
+        // SSRF rejection, timeout) — guard it, else `$home['status']` warns on null
+        // and Laravel's error handler turns that into a 500 (WS-B1).
         $home = $this->fetcher->tryFetch($origin.'/', ['User-Agent' => self::USER_AGENT]);
-        $html = $home['status'] === 200 ? $home['body'] : '';
+        $html = ($home !== null && $home['status'] === 200) ? $home['body'] : '';
 
         $name = data_get($meta, 'name');
         $name = is_string($name) && trim($name) !== '' ? trim($name) : $this->metaContent($html, 'og:site_name');

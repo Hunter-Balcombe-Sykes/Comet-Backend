@@ -3,11 +3,12 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
-use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -145,9 +146,17 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // findings. apifyStatus is now a real column, not a payload key. The GB
         // payload has no public change, so saveQuietly — the seeded rows above
         // fired their own sitepage cache purges.
+        // WS-B2: gate display sections the owner switched off out of the persisted
+        // payload — the same DisplaySettingsFilter gate GoogleBusinessFetch applies —
+        // so a re-enrich while a section is off never re-seeds suppressed data.
+        $businessInfo = $this->gateDisabled(
+            Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
+            $connection,
+        );
+
         $connection->forceFill([
             'payload' => [
-                ...Arr::except($this->payloadOf($connection), ['menu', 'reservation', 'order', 'booking', 'socials']),
+                ...$businessInfo,
                 'apifyFetchedAt' => now()->toIso8601String(),
                 // What THIS scrape produced — drives the connect modal's "found
                 // platforms" list (only this run's, with live status + Change-to).
@@ -212,7 +221,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
     {
         $connection->forceFill([
             'payload' => [
-                ...$this->payloadOf($connection),
+                ...$this->gateDisabled($this->payloadOf($connection), $connection),
                 'apifyFetchedAt' => now()->toIso8601String(),
             ],
             'apify_status' => $status,
@@ -223,5 +232,26 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
     private function payloadOf(IntegrationConnection $connection): array
     {
         return GoogleBusinessPayload::fromArray($connection->payload)->toArray();
+    }
+
+    /**
+     * Strip the payload keys of any display section the owner switched off, so a
+     * re-enrich never persists data we won't serve (WS-B2 — mirrors the gate in
+     * GoogleBusinessFetch). placeId is exempted: it is the refresh identity key
+     * (GoogleBusinessFetch reads payload.placeId) and, unlike GoogleBusinessFetch's
+     * `[...$payload, ...$details]` merge, this persist path has no base spread to
+     * restore it — dropping it would 500 the next scheduled refresh on missing_place_id.
+     *
+     * @param  array<string,mixed>  $payload
+     * @return array<string,mixed>
+     */
+    private function gateDisabled(array $payload, IntegrationConnection $connection): array
+    {
+        $disabled = array_diff(
+            DisplaySettingsFilter::disabledKeys('google-business', $connection->display_settings),
+            ['placeId'],
+        );
+
+        return Arr::except($payload, $disabled);
     }
 }

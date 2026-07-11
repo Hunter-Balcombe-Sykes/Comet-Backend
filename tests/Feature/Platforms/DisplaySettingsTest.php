@@ -156,6 +156,37 @@ it('does not refresh switched-off sections into the stored google-business paylo
         ->and($merged['name'] ?? null)->toBe('Cafe');
 });
 
+// ── WS-F4: the location toggle also drops the map (placeId) + street-view ──────
+
+it('suppresses placeId and streetView from the dashboard selection when location is off', function () {
+    $pro = createTenant('toggles-location');
+    displaySeedConnection($pro->id, [
+        'placeId' => 'places/X',
+        'name' => 'Cafe',
+        'address' => '1 Test St',
+        'lat' => -37.8,
+        'lng' => 144.96,
+        'addressParts' => ['street' => '1 Test St'],
+        'streetView' => ['panoId' => 'PANO123', 'lat' => -37.8, 'lng' => 144.96],
+        'rating' => 4.5,
+    ], displaySettings: ['location' => false]);
+
+    $selection = actingAsUser($pro)
+        ->getJson('/api/platforms/google-business/selection')
+        ->assertOk()
+        ->json('selection');
+
+    // placeId (the map lever) + streetView + addressParts drop entirely — before
+    // WS-F4 placeId survived, so the map still rendered on "Location & map" OFF.
+    expect($selection)->not->toHaveKeys(['placeId', 'streetView', 'addressParts']);
+    // address/lat/lng are always-present resource fields → suppressed to null.
+    expect($selection['address'])->toBeNull();
+    expect($selection['lat'])->toBeNull();
+    expect($selection['lng'])->toBeNull();
+    // an unrelated (still-on) section survives untouched.
+    expect($selection['rating'] ?? null)->toBe(4.5);
+});
+
 // ── WS-B2.2 (I1): display toggles also gate public multipage page PRESENCE ────
 // so a toggled-off GB section doesn't advertise an empty page in nav/pageOrder.
 // reviews + menu are Business-only pages, so a business tenant is required.

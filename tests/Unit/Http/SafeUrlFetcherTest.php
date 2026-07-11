@@ -174,3 +174,45 @@ it('pools multiple URLs concurrently and keys results by the original URL', func
     expect($out['https://1.1.1.1/x']['finalUrl'])->toBe('https://1.1.1.1/x');
     expect($out['https://8.8.8.8/y']['body'])->toBe('two');
 });
+
+// ── fetchMany() 403 honest-UA fallback (WS-B1) ────────────────────────────────
+//
+// The refresh fleets go through fetchMany(), which — before WS-B1 — lacked the
+// one-shot honest-UA retry fetch() has, so bulk refreshes of WAF-guarded
+// WooCommerce stores silently 403'd where a single fetch() would have recovered.
+
+it('fetchMany retries a 403 once with the honest bot UA and returns the passing response', function () {
+    Http::fake(function ($request) {
+        $ua = $request->header('User-Agent')[0] ?? '';
+
+        return str_starts_with($ua, 'Mozilla/')
+            ? Http::response('blocked', 403)
+            : Http::response('[{"id":1}]', 200, ['Content-Type' => 'application/json']);
+    });
+
+    $url = 'https://1.1.1.1/wp-json/wc/store/v1/products';
+    $out = app(SafeUrlFetcher::class)->fetchMany([$url]);
+
+    expect($out[$url]['status'])->toBe(200);
+    expect($out[$url]['body'])->toBe('[{"id":1}]');
+    Http::assertSent(fn ($request) => ($request->header('User-Agent')[0] ?? '') === SafeUrlFetcher::FALLBACK_USER_AGENT);
+});
+
+it('fetchMany keeps the original 403 when the honest-UA retry is also blocked', function () {
+    Http::fake(['*' => Http::response('nope', 403)]);
+
+    // Default (Mozilla-prefixed) UA applies → the retry fires exactly once.
+    $out = app(SafeUrlFetcher::class)->fetchMany(['https://1.1.1.1/x']);
+
+    expect($out['https://1.1.1.1/x']['status'])->toBe(403);
+    Http::assertSentCount(2);
+});
+
+it('fetchMany does not retry a 403 when the caller already sent a non-Mozilla UA', function () {
+    Http::fake(['*' => Http::response('nope', 403)]);
+
+    $out = app(SafeUrlFetcher::class)->fetchMany(['https://1.1.1.1/x'], ['User-Agent' => SafeUrlFetcher::FALLBACK_USER_AGENT]);
+
+    expect($out['https://1.1.1.1/x']['status'])->toBe(403);
+    Http::assertSentCount(1);
+});

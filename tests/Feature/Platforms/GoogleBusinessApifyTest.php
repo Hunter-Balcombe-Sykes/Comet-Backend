@@ -4,6 +4,7 @@ use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\WebsiteLinkHarvester;
@@ -14,7 +15,7 @@ use Illuminate\Support\Str;
 /** Harvester stub: returns nothing so each test exercises the Apify path exactly as before the website-harvest step landed. */
 function emptyHarvester(): WebsiteLinkHarvester
 {
-    return new class(app(\App\Services\Http\SafeUrlFetcher::class)) extends WebsiteLinkHarvester
+    return new class(app(SafeUrlFetcher::class)) extends WebsiteLinkHarvester
     {
         public function harvest(?string $websiteUrl): array
         {
@@ -493,6 +494,37 @@ it('skips enrichment when the stored place no longer matches (reconnect guard)',
     Http::assertNothingSent();
 });
 
+it('gates switched-off display sections out of the persisted payload but keeps placeId (WS-B2)', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gb-enrich-gate');
+    $conn = gbApifyConnection($user);
+    // Location switched off, with stored location data a re-enrich must not persist.
+    $conn->forceFill([
+        'display_settings' => ['location' => false],
+        'payload' => [
+            ...$conn->payload,
+            'address' => '1 Test St',
+            'lat' => -37.8,
+            'lng' => 144.96,
+            'addressParts' => ['street' => '1 Test St'],
+            'streetView' => ['panoId' => 'PANO', 'lat' => -37.8, 'lng' => 144.96],
+        ],
+    ])->saveQuietly();
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
+
+    $p = $conn->fresh()->payload;
+    // location off → its display keys are stripped from storage (matches GoogleBusinessFetch)…
+    expect($p)->not->toHaveKeys(['address', 'lat', 'lng', 'addressParts', 'streetView']);
+    // …but placeId (the refresh identity key) is preserved even though it's in the
+    // location suppression set — else the next scheduled refresh 500s on missing_place_id.
+    expect($p['placeId'])->toBe('ChIJtest');
+    expect($p['rating'])->toBe(4.8);   // an unrelated (still-on) section survives
+});
+
 // ── Public allowlist ─────────────────────────────────────────────────────────
 
 it('keeps apify enrichment off the public endpoint', function () {
@@ -625,7 +657,7 @@ it('skips the paid Apify run when a non-food business website satisfies the harv
         'website' => 'https://barber.example.com.au',
     ]])->saveQuietly();
 
-    $harvester = new class(app(\App\Services\Http\SafeUrlFetcher::class)) extends WebsiteLinkHarvester
+    $harvester = new class(app(SafeUrlFetcher::class)) extends WebsiteLinkHarvester
     {
         public function harvest(?string $websiteUrl): array
         {
