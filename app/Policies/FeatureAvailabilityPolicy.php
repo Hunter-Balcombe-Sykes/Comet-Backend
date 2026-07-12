@@ -8,8 +8,8 @@ use App\Models\Core\User\User;
 
 /**
  * OV-A: feature-availability rules are staff-only. Deny-all for User actors;
- * staff-actor methods encode support=view / admin=manage, mirroring
- * AccountCapabilities::staffPowers() (staff_manage_availability).
+ * staff-actor methods encode support=view / admin=manage, gated on the
+ * core.partna_staff role (the sole source of truth for staff powers).
  */
 class FeatureAvailabilityPolicy extends BasePolicy
 {

@@ -9,8 +9,8 @@ use App\Models\Core\User\User;
 /**
  * OV-A: early-access rows are staff-managed (the public create path is
  * unauthenticated and never touches the Gate). Deny-all for User actors;
- * staff-actor methods encode support=view / admin=manage+invite, mirroring
- * AccountCapabilities::staffPowers() (staff_manage_early_access).
+ * staff-actor methods encode support=view / admin=manage+invite, gated on the
+ * core.partna_staff role (the sole source of truth for staff powers).
  */
 class EarlyAccessSignupPolicy extends BasePolicy
 {

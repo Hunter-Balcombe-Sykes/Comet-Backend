@@ -10,8 +10,8 @@ use App\Models\Core\User\User;
 /**
  * OV-A: segments are staff-only resources. User-actor methods deny everything
  * (defensive — a misconfigured non-staff route can't grant access); staff-actor
- * methods encode the role rule (support = view, admin = manage), mirroring
- * AccountCapabilities::staffPowers() — keep the two in sync.
+ * methods encode the role rule (support = view, admin = manage). The
+ * core.partna_staff role is the sole source of truth for staff powers.
  */
 class UserSegmentPolicy extends BasePolicy
 {

@@ -15,7 +15,7 @@ use Throwable;
 /**
  * OV-D: staff triage list for all users' feedback — consumed by the staff
  * dashboard's Feedback page (OV-A-FE). Read-only; any staff role (support or
- * admin — staff_view_feedback in AccountCapabilities::staffPowers()).
+ * admin — gated by FeedbackPolicy::staffView on the core.partna_staff role).
  *
  * List only — no detail/show route. StaffFeedbackResource already returns
  * every column (message, reply_email, tags, internal_notes, ip_hash, …) so

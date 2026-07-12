@@ -59,8 +59,8 @@ class FeedbackPolicy extends BasePolicy
     /**
      * OV-D: staff triage list (GET /staff/feedback) — any staff role, support
      * or admin. Mirrors EarlyAccessSignupPolicy::staffView / UserSegmentPolicy
-     * ::staffView exactly, matching AccountCapabilities::staffPowers()'s
-     * `staff_view_feedback: $isStaffRole` rule — keep the two in sync.
+     * ::staffView exactly; gated on the core.partna_staff role (the sole source
+     * of truth for staff powers).
      */
     public function staffView(PartnaStaff $actor, Feedback|string|null $feedback = null): bool
     {
