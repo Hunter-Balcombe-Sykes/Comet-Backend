@@ -78,7 +78,7 @@ final class LaunchRecipes
                     'color_accent' => '#b8375a',        // muted rose (beauty bucket)
                     'border_radius' => '1.5rem',        // very rounded
                     'weight_regular' => '300',          // light
-                    'typography_font_family' => 'melodrama', // the roster's beauty-premium display serif (matches the beauty bucket)
+                    'typography_font_family' => 'helvetica-now', // sleek modern premium (7-font simplification 2026-07-12)
                     'space_regular' => '1.15rem',       // generous/airy
                     'motion_pace' => 'slow',
                     'effect_surface' => 'glass',        // soft translucency carries the luxe read
@@ -110,7 +110,7 @@ final class LaunchRecipes
                     'color_accent' => '#c81e1e',        // hard red
                     'border_radius' => '0',             // square — full poster-brutalist shape (2-signal archetype earns the extreme stop)
                     'weight_regular' => '600',          // chunky
-                    'typography_font_family' => 'oswald', // condensed grotesque
+                    'typography_font_family' => 'monument-grotesk', // bold grotesque (7-font simplification 2026-07-12)
                     'space_regular' => '0.8rem',        // compact/energetic
                     'motion_pace' => 'fast',
                     'effect_surface' => 'solid',        // filled poster blocks
@@ -145,7 +145,7 @@ final class LaunchRecipes
                     'color_accent' => '#7c2d12',        // warm brown (hospitality bucket)
                     'border_radius' => '0.85rem',       // rounded — sharp corners contradicted the glass/soft/warm read (soft direction ⇢ rounded)
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
+                    'typography_font_family' => 'general-sans', // warm humanist (7-font simplification 2026-07-12)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     'effect_surface' => 'glass',        // soft, welcoming panels
@@ -193,7 +193,7 @@ final class LaunchRecipes
                     'color_accent' => '#c9a24b',        // restrained gold
                     'border_radius' => '0',             // square — luxury print is square; completes the editorial outline/flat register
                     'weight_regular' => '300',          // light
-                    'typography_font_family' => 'young-serif', // elegant serif
+                    'typography_font_family' => 'helvetica-neue', // editorial classic (7-font simplification 2026-07-12)
                     'space_regular' => '1.15rem',       // generous
                     'motion_pace' => 'slow',
                     'effect_surface' => 'outline',      // hairline editorial restraint
@@ -269,7 +269,7 @@ final class LaunchRecipes
                     'color_accent' => '#a15c2b',        // terracotta/craft
                     'border_radius' => '0.85rem',       // rounded
                     'weight_regular' => '400',          // regular
-                    'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
+                    'typography_font_family' => 'forma-djr', // sturdy workhorse (7-font simplification 2026-07-12)
                     'space_regular' => '0.95rem',       // regular
                     'motion_pace' => 'normal',
                     // Solid, not glass: handmade goods read tactile on filled cards;

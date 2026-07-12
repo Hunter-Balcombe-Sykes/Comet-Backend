@@ -168,7 +168,7 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
     expect($r['recipe'])->not->toBe([]);                       // recipe fired
     expect($r['kit']['border_radius'])->toBe('1.5rem')
         ->and($r['kit']['weight_regular'])->toBe('300')
-        ->and($r['kit']['typography_font_family'])->toBe('melodrama')
+        ->and($r['kit']['typography_font_family'])->toBe('helvetica-now')
         ->and($r['kit']['effect_surface'])->toBe('glass')
         ->and($r['kit']['effect_shadow_style'])->toBe('soft');
     assertCoherent($r['kit']);
@@ -198,7 +198,7 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
     ])));
 
     expect($r['recipe'])->not->toBe([]);
-    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+    expect($r['kit']['typography_font_family'])->toBe('general-sans')
         ->and($r['kit']['effect_surface'])->toBe('glass')
         ->and($r['kit']['effect_image_treatment'])->toBe('warm');
     assertCoherent($r['kit']);
@@ -212,7 +212,7 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
 
     // Dark-luxury without a bg column: gold accent + light weight + outline.
     expect($r['recipe'])->not->toBe([]);
-    expect($r['kit']['typography_font_family'])->toBe('young-serif')
+    expect($r['kit']['typography_font_family'])->toBe('helvetica-neue')
         ->and($r['kit']['color_accent'])->toBe('#c9a24b')
         ->and($r['kit']['weight_regular'])->toBe('300')
         ->and($r['kit']['effect_surface'])->toBe('outline')
@@ -240,7 +240,7 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
     ])));
 
     expect($r['recipe'])->not->toBe([]);
-    expect($r['kit']['typography_font_family'])->toBe('origin')
+    expect($r['kit']['typography_font_family'])->toBe('forma-djr')
         ->and($r['kit']['border_radius'])->toBe('0.85rem')
         ->and($r['kit']['effect_surface'])->toBe('solid'); // tactile craft, not glass
     assertCoherent($r['kit']);
@@ -350,7 +350,7 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
 
             if ($column === 'typography_font_family') {
                 // Closed loop: an emitted font slug must be a live StyleTiers
-                // font tier (the 9-font roster allowlist).
+                // font tier (the 7-font roster allowlist).
                 expect(StyleTiers::columnsFromTiers(['font' => $value]))->toBe(
                     ['typography_font_family' => $value],
                     "{$name} font '{$value}' is not in the live roster",

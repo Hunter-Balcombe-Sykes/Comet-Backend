@@ -65,7 +65,7 @@ it('stamps beauty-soft when two independent sources concur on beauty', function 
 
     expect($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
-        ->and($out['typography_font_family'])->toBe('melodrama') // the beauty-premium display serif
+        ->and($out['typography_font_family'])->toBe('helvetica-now') // the beauty-premium sleek modern face
         ->and($out['effect_surface'])->toBe('glass')
         ->and($out)->not->toHaveKey('effect_button_fill'); // retired 2026-07-10 — surface owns button treatment
 });
@@ -81,7 +81,7 @@ it('stamps fitness-bold when sector and Google concur on fitness', function () {
     if ($out !== []) {
         expect($out['border_radius'])->toBe('0') // square poster shape
             ->and($out['weight_regular'])->toBe('600')
-            ->and($out['typography_font_family'])->toBe('oswald')
+            ->and($out['typography_font_family'])->toBe('monument-grotesk')
             ->and($out['effect_surface'])->toBe('solid');
     } else {
         // Sector slug didn't map — Google alone is one group, correctly abstains.
@@ -96,7 +96,7 @@ it('stamps fine-dining-editorial for a fine-dining cuisine plus a premium price'
     ])));
 
     // Dark-luxury identity without a bg column: gold + light weight + outline.
-    expect($out['typography_font_family'])->toBe('young-serif')
+    expect($out['typography_font_family'])->toBe('helvetica-neue')
         ->and($out['color_accent'])->toBe('#c9a24b')
         ->and($out['weight_regular'])->toBe('300')
         ->and($out['effect_surface'])->toBe('outline')
@@ -109,7 +109,7 @@ it('stamps hospitality-warm for a cafe with two category sources (not fine dinin
         lrConnection('instagram', ['businessCategory' => 'Restaurant']),
     ])));
 
-    expect($out['typography_font_family'])->toBe('young-serif') // artisanal café warmth
+    expect($out['typography_font_family'])->toBe('general-sans') // artisanal café warmth
         ->and($out['effect_surface'])->toBe('glass')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
@@ -133,7 +133,7 @@ it('stamps maker-craft for a craft business with an active accessible shop', fun
     ])));
 
     expect($out['border_radius'])->toBe('0.85rem')
-        ->and($out['typography_font_family'])->toBe('origin')
+        ->and($out['typography_font_family'])->toBe('forma-djr')
         ->and($out['effect_surface'])->toBe('solid'); // tactile, not digital-luxe glass
 });
 

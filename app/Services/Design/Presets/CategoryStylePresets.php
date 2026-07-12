@@ -56,7 +56,7 @@ final class CategoryStylePresets
             'text_body' => '0.8rem',
             'weight_regular' => '300',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'young-serif',
+            'typography_font_family' => 'general-sans',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
@@ -67,7 +67,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
-            'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'helvetica-now', // 7-font simplification 2026-07-12
             'motion_pace' => 'normal',
             'effect_surface' => 'glass',
         ],
@@ -80,7 +80,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'oswald',
+            'typography_font_family' => 'monument-grotesk',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
@@ -102,7 +102,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'helvetica-neue', // 7-font simplification 2026-07-12
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
@@ -116,7 +116,7 @@ final class CategoryStylePresets
             'text_body' => '0.9rem',
             'weight_regular' => '500',
             'border_radius' => '0.85rem',
-            'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'forma-djr', // 7-font simplification 2026-07-12
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',
         ],
@@ -127,7 +127,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.85rem',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'general-sans', // 7-font simplification 2026-07-12
             'motion_pace' => 'slow',
             'effect_surface' => 'glass',
         ],
@@ -140,7 +140,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '600',
             'border_radius' => '0',
-            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'monument-grotesk', // 7-font simplification 2026-07-12
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
@@ -151,7 +151,7 @@ final class CategoryStylePresets
             'text_body' => '0.85rem',
             'weight_regular' => '400',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'reglo',
+            'typography_font_family' => 'forma-djr',
             'motion_pace' => 'fast',
             'effect_surface' => 'outline',
         ],
@@ -162,7 +162,7 @@ final class CategoryStylePresets
             'text_body' => '0.9rem',
             'weight_regular' => '400',
             'border_radius' => '0.85rem',
-            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'inter', // 7-font simplification 2026-07-12
             'motion_pace' => 'normal',
             'effect_surface' => 'glass',
         ],

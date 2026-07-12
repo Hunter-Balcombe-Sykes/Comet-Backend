@@ -61,7 +61,7 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
         ->and($layer['text_body'])->toBe('0.8rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
-        ->and($layer['typography_font_family'])->toBe('young-serif')
+        ->and($layer['typography_font_family'])->toBe('general-sans')
         ->and($layer['motion_pace'])->toBe('fast')
         ->and($layer['effect_surface'])->toBe('solid');
 });
@@ -137,7 +137,7 @@ it('lets a manual design_kit value win over the preset layer', function () {
     $merged = dkPresetResolver()->mergedFlatKit($user->site->id);
 
     expect($merged['color_accent'])->toBe('#123456')                 // manual wins over the preset's #e0491f
-        ->and($merged['typography_font_family'])->toBe('young-serif'); // preset fills the rest
+        ->and($merged['typography_font_family'])->toBe('general-sans'); // preset fills the rest
 });
 
 it('resolves the highest-priority contribution per column, order-independent', function () {

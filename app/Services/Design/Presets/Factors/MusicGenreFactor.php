@@ -80,7 +80,7 @@ class MusicGenreFactor implements EvidenceFactor
             'weight_regular' => '600',          // chunky
             // reglo IS the DJ/producer face (knowledge base §2) — with the dark
             // ground gone this is the family's identity anchor.
-            'typography_font_family' => 'reglo',
+            'typography_font_family' => 'monument-grotesk',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',        // club-poster blocks
             'effect_shadow_style' => 'hard',
@@ -88,14 +88,14 @@ class MusicGenreFactor implements EvidenceFactor
         self::ACOUSTIC => [
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'origin',
+            'typography_font_family' => 'general-sans',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
             'effect_image_treatment' => 'warm',
         ],
         self::REFINED => [
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'young-serif',
+            'typography_font_family' => 'forma-djr',
             'motion_pace' => 'slow',
             'effect_surface' => 'outline',      // gallery restraint
             'effect_shadow_style' => 'flat',

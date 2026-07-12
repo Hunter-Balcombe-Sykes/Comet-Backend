@@ -34,16 +34,17 @@ final class StyleTiers
         // 9-font roster locked 2026-07-09 (docs/design/font-icon-knowledge.md).
         // RETIRED — never reintroduce: the 4 pre-2026-07 slugs plus the 13
         // dropped in the 17->9 swap (see RETIRED_FONT_MIGRATION in the registry).
+        // Font tier IS the 7-font catalog — validated against this set
+        // (@partnaau/design-system registry.ts FONT_CATALOG). Single-font model
+        // locked 2026-07-12 (docs/design/font-icon-knowledge.md). All 7 are sans.
         'font' => [
             'geist' => 'geist',
-            'humane' => 'humane',
-            'melodrama' => 'melodrama',
-            'origin' => 'origin',
-            'ostrich-sans' => 'ostrich-sans',
-            'oswald' => 'oswald',
-            'parceh' => 'parceh',
-            'reglo' => 'reglo',
-            'young-serif' => 'young-serif',
+            'inter' => 'inter',
+            'general-sans' => 'general-sans',
+            'monument-grotesk' => 'monument-grotesk',
+            'forma-djr' => 'forma-djr',
+            'helvetica-neue' => 'helvetica-neue',
+            'helvetica-now' => 'helvetica-now',
         ],
         'weight' => [
             'light' => '300',

@@ -247,7 +247,7 @@ it('brotherwolf regression: light bg, no accent, sharp radius, fast motion', fun
         ->and($a['accent'])->toBeNull()
         ->and($a['signals']['radius']['tier'])->toBe('sharp')
         ->and($a['signals']['motion']['tier'])->toBe('fast')
-        ->and($a['signals']['font']['tier'])->toBe('geist') // system_ui → 'system ui' keyword
+        ->and($a['signals']['font']['tier'])->toBe('inter') // system_ui → 'system ui' keyword → inter
         ->and(collect($a['logo']['candidates'])->pluck('kind'))->toContain('header-img');
 });
 
@@ -349,7 +349,7 @@ it('contributes raw accent + snapped tiers from a stored analysis, beating Googl
     expect($layer)->not->toHaveKey('color_bg');
     expect($layer['color_accent'])->toBe('#123abc') // raw accent passes through, beating the bucket's #e0491f
         ->and($layer['border_radius'])->toBe('0') // sharp tier → Square, beating the bucket's 0.25rem
-        ->and($layer['typography_font_family'])->toBe('young-serif');
+        ->and($layer['typography_font_family'])->toBe('general-sans');
 });
 
 it('ignores below-threshold signals and low-confidence accents', function () {

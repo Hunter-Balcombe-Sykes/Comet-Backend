@@ -166,9 +166,9 @@ it('maps a recognized body font family to its catalog slug', function (string $f
         ->and($r['signals']['font']['confidence'])->toBe(0.85);
 })->with([
     'Poppins → geist' => ['Poppins, sans-serif', 'geist'],
-    'Arial → geist' => ['Arial', 'geist'],
-    'Georgia (serif) → origin' => ['Georgia, serif', 'origin'],
-    'Neue Haas Grotesk → geist' => ['Neue Haas Grotesk', 'geist'],
+    'Arial → helvetica-neue' => ['Arial', 'helvetica-neue'],
+    'Georgia (serif) → general-sans' => ['Georgia, serif', 'general-sans'],
+    'Neue Haas Grotesk → helvetica-neue' => ['Neue Haas Grotesk', 'helvetica-neue'],
 ]);
 
 it('scores font 0.85 when the visible copy agrees with the body font', function () {
@@ -182,9 +182,8 @@ it('scores font 0.85 when the visible copy agrees with the body font', function 
 });
 
 it('scores font 0.6 when known copy disagrees with the body font (< 0.7 share, >= 2 known)', function () {
-    // body Poppins(geist); copy = Georgia, Georgia, Poppins → origin, origin, geist → known 3, agree 1 → 1/3 < 0.7.
-    // Georgia (serif → origin) diverges from the body's geist; Arial now also maps
-    // to geist post 17→9 swap, so it would no longer disagree.
+    // body Poppins(geist); copy = Georgia, Georgia, Poppins → general-sans, general-sans, geist → known 3, agree 1 → 1/3 < 0.7.
+    // Georgia (serif → general-sans) diverges from the body's geist.
     $r = ecConclude(ecEvidence([
         'page' => ['bodyFont' => 'Poppins'],
         'copy' => [
