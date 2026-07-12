@@ -52,7 +52,7 @@ class StaffUserController extends ApiController
         }
 
         $accountType = $request->query('account_type');
-        if (is_string($accountType) && in_array($accountType, ['partna', 'business', 'staff'], true)) {
+        if (is_string($accountType) && in_array($accountType, ['partna', 'business'], true)) {
             $query->where('account_type', $accountType);
         }
 

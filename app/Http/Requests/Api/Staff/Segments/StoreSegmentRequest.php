@@ -16,7 +16,7 @@ class StoreSegmentRequest extends BaseFormRequest
             'name' => ['required', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:500'],
             'filters' => ['sometimes', 'array'],
-            'filters.account_type' => ['sometimes', 'nullable', 'string', Rule::in(['partna', 'business', 'staff'])],
+            'filters.account_type' => ['sometimes', 'nullable', 'string', Rule::in(['partna', 'business'])],
             'filters.sector' => ['sometimes', 'nullable', 'array', 'max:50'],
             'filters.sector.*' => ['string', function (string $attribute, mixed $value, \Closure $fail): void {
                 if (! is_string($value) || ! SectorTaxonomy::isValid($value)) {

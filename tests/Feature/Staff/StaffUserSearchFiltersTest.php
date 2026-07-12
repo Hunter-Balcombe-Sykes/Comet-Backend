@@ -49,13 +49,14 @@ it('filters by sector exactly', function () {
     expect($ids)->toBe([$dj]);
 });
 
-it('filters by account_type including staff', function () {
+it('filters by account_type; staff is no longer an accepted value', function () {
     ovaSearchUser(['account_type' => 'partna']);
     $biz = ovaSearchUser(['account_type' => 'business']);
-    $staff = ovaSearchUser(['account_type' => 'staff']);
+    ovaSearchUser(['account_type' => 'partna']);
 
     expect(ovaSearchIds(Request::create('/', 'GET', ['account_type' => 'business'])))->toBe([$biz])
-        ->and(ovaSearchIds(Request::create('/', 'GET', ['account_type' => 'staff'])))->toBe([$staff])
+        // 'staff' is no longer an accepted filter → treated like any unknown value → ignored.
+        ->and(ovaSearchIds(Request::create('/', 'GET', ['account_type' => 'staff'])))->toHaveCount(3)
         ->and(ovaSearchIds(Request::create('/', 'GET', ['account_type' => 'bogus'])))->toHaveCount(3);
 });
 
