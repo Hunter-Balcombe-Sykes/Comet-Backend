@@ -43,6 +43,27 @@ enum SitepageId: string
     public const BUSINESS_ONLY = ['menu', 'reviews', 'reservations'];
 
     /**
+     * Pages available only to standard (partna) accounts — the lifestyle/creator
+     * content Business Partna accounts don't offer: Listen (music), the Community
+     * pages (Strava/Skool), and Pinterest ("Other"). Mirrors the dashboard's
+     * account-type hiding (Partna-Frontend lib/integrations/platform-registry.ts
+     * → HIDDEN_GROUPS = listen/community/shop/other for business). Gate on the
+     * derived capability (AccountCapabilities::can_use_lifestyle_pages), never on
+     * account_type directly.
+     *
+     * NOT the frontend-mirrored counterpart of BUSINESS_ONLY: this is a
+     * backend-presence-only constant. Presence is computed backend-side
+     * (presentPageIds → pageOrder) and apps/pages consumes pageOrder verbatim, so
+     * there is nothing to mirror in engines/page-taxonomy.ts.
+     *
+     * `shop` is intentionally excluded — Business accounts keep Shop (hidden from
+     * the integrations LIST but managed via the dedicated Products page).
+     *
+     * @var list<string>
+     */
+    public const STANDARD_ONLY = ['listen', 'pinterest', 'strava', 'skool'];
+
+    /**
      * Legacy analytics section_key -> page-id bucketing. The scoring job
      * (analytics:compute-popularity) folds historical section_views / link_clicks
      * rows into page-level scores through this map. Keys absent here contribute

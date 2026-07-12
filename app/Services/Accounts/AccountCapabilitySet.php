@@ -61,5 +61,16 @@ final readonly class AccountCapabilitySet
         // account_type here so UpdateSiteRequest gates selection without branching
         // on the type directly (#30).
         public bool $can_use_multipage_site,
+        // Standard (partna) accounts offer the lifestyle/creator content pages —
+        // Listen (music), Community (Strava/Skool), and the "Other" socials
+        // (Pinterest). Business Partna accounts don't: those integration groups
+        // are hidden from their dashboard (Partna-Frontend
+        // lib/integrations/platform-registry.ts → HIDDEN_GROUPS), so a business
+        // account can't manage such a connection and shouldn't advertise the
+        // page. Derived from account_type here so the sitepage presence gate
+        // (SitepageDataResolverService::presentPageIds) doesn't branch on the
+        // type directly. Shop is deliberately NOT covered — business accounts
+        // keep Shop, managed via the dedicated Products page.
+        public bool $can_use_lifestyle_pages,
     ) {}
 }
