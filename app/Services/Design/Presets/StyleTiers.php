@@ -67,10 +67,13 @@ final class StyleTiers
             'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',
         ],
+        // 2026-07-12: rescaled to the new package-default regular (0.7rem,
+        // matched to espaciolanube.com's measured spacing unit) — same
+        // ratios as before (x0.7/0.95).
         'space' => [
-            'compact' => '0.8rem',
-            'regular' => '0.95rem',
-            'generous' => '1.15rem',
+            'compact' => '0.6rem',
+            'regular' => '0.7rem',
+            'generous' => '0.85rem',
         ],
         'motion' => [
             'fast' => 'fast',

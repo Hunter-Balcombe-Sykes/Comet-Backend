@@ -38,7 +38,7 @@ it('produces friendly per-source reasons grouped by area', function () {
     $siteId = (string) Str::uuid();
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
     contribute($siteId, 'instagram:category', 'instagram', 30, 'typography_font_family', 'origin');
-    contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '1.15rem');
+    contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '0.85rem');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);
 
@@ -100,7 +100,7 @@ it('never surfaces raw column names, factor keys, or sensitive/demographic detai
     // A spread across many sources, including the sensitive aesthetic one.
     contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'effect_surface', 'glass', 'one_shot');
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
-    contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '1.15rem');
+    contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '0.85rem');
     contribute($siteId, 'hours-rhythm:energy', 'hours', 15, 'motion_pace', 'fast');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);

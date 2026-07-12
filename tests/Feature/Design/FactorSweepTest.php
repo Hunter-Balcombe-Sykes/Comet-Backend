@@ -326,7 +326,7 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
         'weight_regular' => ['300', '400', '500', '600'],
         'border_radius' => ['0', '0.25rem', '0.85rem', '1.5rem'],       // Square / Soft / Rounded / Pill
         'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold
-        'space_regular' => ['0.8rem', '0.95rem', '1.15rem'],            // compact / regular / generous
+        'space_regular' => ['0.6rem', '0.7rem', '0.85rem'],            // compact / regular / generous
         'motion_pace' => ['slow', 'normal', 'fast'],
         'effect_surface' => ['glass', 'solid', 'outline'],
         'effect_shadow_style' => ['flat', 'soft', 'hard'],

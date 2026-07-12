@@ -173,7 +173,7 @@ it('resolves the store price-point factor from seeded products (luxury)', functi
     evpResolver()->resolveForUser($user);
     $layer = evpResolver()->presetLayer($user->site->id);
 
-    expect($layer['space_regular'])->toBe('1.15rem')     // airy
+    expect($layer['space_regular'])->toBe('0.85rem')     // airy
         ->and($layer['effect_surface'])->toBe('outline'); // hairline boutique restraint
 });
 

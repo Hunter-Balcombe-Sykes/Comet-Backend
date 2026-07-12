@@ -141,13 +141,13 @@ it('returns null for the Instagram payload when no Instagram is connected', func
 
 it('reads a prior contribution value for a source + column, null when absent', function () {
     $prior = (new Collection([
-        (new DesignKitContribution)->forceFill(['source' => 'store:price-point', 'target_var' => 'space_regular', 'value' => '1.15rem']),
+        (new DesignKitContribution)->forceFill(['source' => 'store:price-point', 'target_var' => 'space_regular', 'value' => '0.85rem']),
         (new DesignKitContribution)->forceFill(['source' => 'store:price-point', 'target_var' => 'motion_pace', 'value' => 'slow']),
     ]))->groupBy('source');
 
     $evidence = evEvidence(new Collection, $prior);
 
-    expect($evidence->priorContributionValue('store:price-point', 'space_regular'))->toBe('1.15rem')
+    expect($evidence->priorContributionValue('store:price-point', 'space_regular'))->toBe('0.85rem')
         ->and($evidence->priorContributionValue('store:price-point', 'border_radius'))->toBeNull()
         ->and($evidence->priorContributionValue('unknown:source', 'space_regular'))->toBeNull();
 });
