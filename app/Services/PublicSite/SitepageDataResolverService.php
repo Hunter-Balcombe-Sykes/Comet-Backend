@@ -6,6 +6,7 @@ use App\Enums\SitepageId;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Service;
@@ -159,7 +160,9 @@ class SitepageDataResolverService
      * Presence signals (any positive hit includes the page):
      *   home     — always (every published profile has one)
      *   sections — live section blocks (SECTION_BLOCK_TO_PAGE)
-     *   platforms— active integration connections + link blocks (PLATFORM_TO_PAGE)
+     *   platforms— active integration connections + link blocks (PLATFORM_TO_PAGE);
+     *              'shop' additionally requires a chosen ShopProduct (FOUND-25 —
+     *              connecting a brand alone stores zero products)
      *   book     — active services
      *   gallery  — ready gallery media
      *   menu     — a fetched Menu (Business)
@@ -199,10 +202,33 @@ class SitepageDataResolverService
                     [],
                 );
                 foreach ($platforms as $platform) {
-                    $page = self::PLATFORM_TO_PAGE[strtolower((string) $platform)] ?? null;
-                    if ($page !== null) {
-                        $present[$page] = true;
+                    $platform = strtolower((string) $platform);
+                    $page = self::PLATFORM_TO_PAGE[$platform] ?? null;
+                    if ($page === null) {
+                        continue;
                     }
+                    // FOUND-25: a 'shop' connection's payload is a static
+                    // lifecycle marker — brands/products live relationally
+                    // (ShopBrand/ShopProduct) and are decoupled from connect
+                    // (ShopController::addBrand stores a brand with zero
+                    // products; the picker runs any time after). An active
+                    // connection alone isn't real content, so gate 'shop'
+                    // specifically on a chosen product existing. Bandcamp
+                    // also maps to the Shop page but isn't FOUND-25 —its
+                    // connection payload carries real scraped content
+                    // directly — so it keeps the blanket is_active signal.
+                    if ($platform === 'shop' && ! $this->safeQuery(
+                        fn () => ShopProduct::query()
+                            ->whereHas('brand', fn ($q) => $q->whereHas(
+                                'connection',
+                                fn ($q2) => $q2->where('user_id', $userId),
+                            ))
+                            ->exists(),
+                        false,
+                    )) {
+                        continue;
+                    }
+                    $present[$page] = true;
                 }
 
                 // Google Business display toggles (display_settings) gate the two
