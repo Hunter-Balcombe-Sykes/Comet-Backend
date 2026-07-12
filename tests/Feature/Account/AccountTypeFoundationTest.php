@@ -1,10 +1,10 @@
 <?php
 
 // account_type foundation tests: the user-selectable enum (partna + business),
-// the internal staff value (OV-A, never user-selectable), the legacy
-// 'individual' value kept only so casting never throws on a pre-backfill row,
-// the enum cast on the User model, and the account_type field on the
-// dashboard resource.
+// the legacy 'individual' value kept only so casting never throws on a
+// pre-backfill row, the enum cast on the User model, and the account_type field
+// on the dashboard resource. (Internal staff are NOT an account type — they
+// live solely in core.partna_staff; see AccountType docblock.)
 
 use App\Enums\AccountType;
 use App\Http\Resources\UserDashboardResource;
@@ -12,11 +12,11 @@ use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 
 describe('AccountType enum', function () {
-    it('exposes partna + business + staff (plus the legacy individual value)', function () {
+    it('exposes partna + business (plus the legacy individual value)', function () {
         $values = array_map(fn (AccountType $c) => $c->value, AccountType::cases());
         sort($values);
 
-        expect($values)->toBe(['business', 'individual', 'partna', 'staff']);
+        expect($values)->toBe(['business', 'individual', 'partna']);
     });
 });
 
