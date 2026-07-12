@@ -5,6 +5,8 @@ namespace App\Observers\User;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Observers\Concerns\LogsWithRequestContext;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\Accounts\LifestyleConnectionCleanup;
 use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
@@ -44,6 +46,7 @@ class UserObserver
         private UserCacheService $userCache,
         private SectionVisibilityService $visibilityService,
         private readonly SiteCacheInvalidator $invalidator,
+        private readonly LifestyleConnectionCleanup $lifestyleCleanup,
     ) {}
 
     public function updated(User $professional): void
@@ -86,6 +89,30 @@ class UserObserver
         // hides the section until the next manual toggle.
         if ($professional->wasChanged(['public_contact_number', 'public_contact_email'])) {
             $this->reevaluatePublicContactSection($professional);
+        }
+
+        // account_type → business: the lifestyle integration groups (Listen /
+        // Community / Other) are hidden from the business dashboard, so any such
+        // connection carried over from when the account was `partna` becomes an
+        // un-removable orphan. Soft-delete them at the switch so no orphan is
+        // created (the sitepage already stops showing the page — presentPageIds).
+        if ($professional->wasChanged('account_type')) {
+            $this->cleanupLifestyleConnectionsIfBusiness($professional);
+        }
+    }
+
+    private function cleanupLifestyleConnectionsIfBusiness(User $professional): void
+    {
+        try {
+            // Flush the per-request capability memo so the guard reads the
+            // freshly-saved account_type, not a value computed earlier this request.
+            AccountCapabilities::flushCache();
+            $this->lifestyleCleanup->forUser($professional);
+        } catch (\Throwable $e) {
+            Log::warning('UserObserver: lifestyle connection cleanup failed', $this->logContext(__METHOD__, [
+                'user_id' => $professional->id,
+                'message' => $e->getMessage(),
+            ]));
         }
     }
 
