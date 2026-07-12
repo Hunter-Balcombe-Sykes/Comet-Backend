@@ -31,7 +31,7 @@ class StaffAggregateAnalyticsController extends ApiController
 
     /**
      * GET /api/staff/analytics/summary?days=30 | ?from=Y-m-d&to=Y-m-d, optional &segment_id=
-     * Any staff role (staff_view_aggregate_analytics); segment 404s when unknown.
+     * Any staff role (support or admin); segment 404s when unknown.
      */
     public function summary(Request $request): JsonResponse
     {

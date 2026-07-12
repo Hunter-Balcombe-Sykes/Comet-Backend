@@ -36,7 +36,7 @@ class UserSegmentPolicy extends BasePolicy
         return in_array($actor->role, [PartnaStaff::ROLE_SUPPORT, PartnaStaff::ROLE_ADMIN], true);
     }
 
-    /** Create/update/delete + member management — admin only (staff_manage_segments). */
+    /** Create/update/delete + member management — admin only. */
     public function staffManage(PartnaStaff $actor, UserSegment|string|null $segment = null): bool
     {
         return $actor->isAdmin();
