@@ -322,7 +322,7 @@ function swAllStaticEmissions(): array
 
 it('every statically-enumerable emission sits exactly on the locked vocabulary', function () {
     $vocab = [
-        'text_body' => ['0.8rem', '0.85rem', '0.9rem'],                 // Small / Medium / Large body
+        'text_body' => ['0.82rem', '0.875rem', '0.93rem'],              // Small / Medium / Large body
         'weight_regular' => ['300', '400', '500', '600'],
         'border_radius' => ['0', '0.25rem', '0.85rem', '1.5rem'],       // Square / Soft / Rounded / Pill
         'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold

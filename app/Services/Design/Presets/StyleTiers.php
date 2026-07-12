@@ -50,10 +50,13 @@ final class StyleTiers
             'regular' => '400',
             'medium' => '500',
         ],
+        // 2026-07-12: rescaled to the new package-default body (0.875rem,
+        // matched to espaciolanube.com's measured UI-text size) — same
+        // ratios as before (x0.875/0.85).
         'text' => [
-            'small' => '0.8rem',
-            'regular' => '0.85rem',
-            'large' => '0.9rem',
+            'small' => '0.82rem',
+            'regular' => '0.875rem',
+            'large' => '0.93rem',
         ],
         // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem — the four
         // analyzer tiers map 1:1 onto the four stops. 'sharp' means the old

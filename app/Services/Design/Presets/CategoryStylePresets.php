@@ -53,7 +53,7 @@ final class CategoryStylePresets
         // surviving columns still match.)
         self::FOOD_DRINK => [
             'color_accent' => '#e0491f',
-            'text_body' => '0.8rem',
+            'text_body' => '0.82rem',
             'weight_regular' => '300',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'young-serif',
@@ -64,7 +64,7 @@ final class CategoryStylePresets
         // read the old pastel bg used to.
         self::BEAUTY_PERSONAL_CARE => [
             'color_accent' => '#b8375a',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '400',
             'border_radius' => '1.5rem',
             'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
@@ -77,7 +77,7 @@ final class CategoryStylePresets
         // still refines pace for the daytime-clinic end of the bucket.)
         self::HEALTH_FITNESS => [
             'color_accent' => '#2f6b57',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'oswald',
@@ -88,7 +88,7 @@ final class CategoryStylePresets
         // nothing-to-hide.
         self::PROFESSIONAL_SERVICES => [
             'color_accent' => '#1d3557',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
@@ -99,7 +99,7 @@ final class CategoryStylePresets
         // solid-card energy.
         self::RETAIL_SHOPPING => [
             'color_accent' => '#d6336c',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
@@ -113,7 +113,7 @@ final class CategoryStylePresets
         // 0.5rem, deliberately the roundest of the work buckets.
         self::HOME_SERVICES => [
             'color_accent' => '#d97706',
-            'text_body' => '0.9rem',
+            'text_body' => '0.93rem',
             'weight_regular' => '500',
             'border_radius' => '0.85rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
@@ -124,7 +124,7 @@ final class CategoryStylePresets
         // welcome.
         self::HOSPITALITY => [
             'color_accent' => '#7c2d12',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '400',
             'border_radius' => '0.85rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
@@ -137,7 +137,7 @@ final class CategoryStylePresets
         // deliberately the sharpest entry in the table (0.2rem).
         self::AUTOMOTIVE => [
             'color_accent' => '#c81e1e',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '600',
             'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
@@ -148,7 +148,7 @@ final class CategoryStylePresets
         // speak.
         self::CREATIVE_ENTERTAINMENT => [
             'color_accent' => '#7c3aed',
-            'text_body' => '0.85rem',
+            'text_body' => '0.875rem',
             'weight_regular' => '400',
             'border_radius' => '0.25rem',
             'typography_font_family' => 'reglo',
@@ -159,7 +159,7 @@ final class CategoryStylePresets
         // modern-app glass.
         self::EDUCATION_COACHING => [
             'color_accent' => '#2563eb',
-            'text_body' => '0.9rem',
+            'text_body' => '0.93rem',
             'weight_regular' => '400',
             'border_radius' => '0.85rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)

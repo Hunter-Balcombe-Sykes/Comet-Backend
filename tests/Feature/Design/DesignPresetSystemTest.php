@@ -58,7 +58,7 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
     expect($changed)->toBeTrue();
     $layer = dkPresetResolver()->presetLayer($user->site->id);
     expect($layer['color_accent'])->toBe('#e0491f')
-        ->and($layer['text_body'])->toBe('0.8rem')
+        ->and($layer['text_body'])->toBe('0.82rem')
         ->and($layer['weight_regular'])->toBe('300')
         ->and($layer['border_radius'])->toBe('0.25rem')
         ->and($layer['typography_font_family'])->toBe('young-serif')
