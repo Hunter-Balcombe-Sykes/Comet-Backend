@@ -61,25 +61,5 @@ final readonly class AccountCapabilitySet
         // account_type here so UpdateSiteRequest gates selection without branching
         // on the type directly (#30).
         public bool $can_use_multipage_site,
-        // ── Staff accounts (OV-A) ───────────────────────────────────────────
-        // True for account_type='staff' (internal Partna staff). Staff accounts
-        // have NO site and NO integrations — can_have_site / can_connect_
-        // integrations flip false so bootstrap + connect paths refuse without
-        // branching on the type. The staff_* powers below are granular and
-        // derive from the linked core.partna_staff role (support = view-level,
-        // admin = view + manage) — see AccountCapabilities::staffPowers().
-        public bool $is_staff = false,
-        public bool $can_have_site = true,
-        public bool $can_connect_integrations = true,
-        // Manage powers (admin staff): user site/integration edits, segments,
-        // feature availability, notification sends, early-access invites.
-        public bool $staff_manage_users = false,
-        public bool $staff_manage_segments = false,
-        public bool $staff_manage_availability = false,
-        public bool $staff_send_notifications = false,
-        public bool $staff_manage_early_access = false,
-        // View powers (any staff role): aggregate analytics + feedback review.
-        public bool $staff_view_aggregate_analytics = false,
-        public bool $staff_view_feedback = false,
     ) {}
 }
