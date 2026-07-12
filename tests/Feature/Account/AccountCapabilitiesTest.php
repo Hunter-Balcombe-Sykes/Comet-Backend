@@ -107,6 +107,20 @@ describe('AccountCapabilities — Google Business (Business Partna)', function (
     });
 });
 
+describe('AccountCapabilities — lifestyle pages (standard only)', function () {
+    it('grants the lifestyle/creator pages to standard (partna) accounts', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_use_lifestyle_pages)->toBeTrue();
+    });
+
+    it('treats legacy individual rows like standard accounts', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('individual'))->can_use_lifestyle_pages)->toBeTrue();
+    });
+
+    it('withholds the lifestyle/creator pages from Business accounts', function () {
+        expect(AccountCapabilities::for(makeProForCapabilities('business'))->can_use_lifestyle_pages)->toBeFalse();
+    });
+});
+
 describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
         $pro = new User([

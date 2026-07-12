@@ -53,6 +53,7 @@ final class AccountCapabilities
             google_business_full_sync: $pro->isBusiness(),
             google_business_sets_display_name: $pro->isBusiness(),
             can_use_multipage_site: $pro->isBusiness(),
+            can_use_lifestyle_pages: ! $pro->isBusiness(),
         );
     }
 }

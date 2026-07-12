@@ -291,6 +291,20 @@ class SitepageDataResolverService
             }
         }
 
+        // Standard-gate: drop the lifestyle/creator pages (Listen / Strava /
+        // Skool / Pinterest) for accounts that don't offer them (Business
+        // Partna). Those integration groups are hidden from the business
+        // dashboard, so such a connection can't be managed or removed there —
+        // without this a stale, un-removable connection would advertise an
+        // orphaned page the owner can't see or control. Gate on the derived
+        // capability, never account_type. (Shop is excluded on purpose — see
+        // SitepageId::STANDARD_ONLY.)
+        if (! $caps->can_use_lifestyle_pages) {
+            foreach (SitepageId::STANDARD_ONLY as $lifestylePage) {
+                unset($present[$lifestylePage]);
+            }
+        }
+
         // Canonical order, presence-filtered.
         return array_values(array_filter(
             SitepageId::canonicalOrder(),
