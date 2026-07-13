@@ -59,7 +59,7 @@ class SitepageDataResolverService
      * platform-backed pages (listen/watch/shop/events/reservations/…). Backend
      * presence heuristic only — the ONE frontend derives its own presence from
      * the resolved payload, so this map carries no TS-lockstep obligation. Menu
-     * (Google-Business-sourced) and Reviews are detected separately below.
+     * (Google-Business-sourced) is detected separately below.
      *
      * PUBLIC because ContentFreshness reuses it to attribute a connection's
      * created_at to the page it makes present (the freshness boost's page ages).
@@ -82,7 +82,7 @@ class SitepageDataResolverService
         // Reservations — keyless reservation widgets (Business-only page).
         'opentable' => 'reservations', 'resdiary' => 'reservations',
         'nowbookit' => 'reservations', 'reservations' => 'reservations',
-        // Google Business feeds the Contact page (Reviews is detected separately).
+        // Google Business feeds the Contact page.
         'google-business' => 'contact',
         // Standalone social pages.
         'pinterest' => 'pinterest', 'strava' => 'strava', 'skool' => 'skool',
@@ -166,7 +166,6 @@ class SitepageDataResolverService
      *   book     — active services
      *   gallery  — ready gallery media
      *   menu     — a fetched Menu (Business)
-     *   reviews  — active Google Business (Business)
      *   links    — any live link block
      *
      * @param  Collection<string, Block>  $sections  pre-loaded section blocks
@@ -256,11 +255,8 @@ class SitepageDataResolverService
                     $present['book'] = true;
                 }
 
-                // Active Google Business → the Reviews page (Business-only, gated
-                // below), unless the owner switched the Reviews section off.
-                if ($gbConn !== null && ($gbDisplay['reviews'] ?? true) !== false) {
-                    $present['reviews'] = true;
-                }
+                // Reviews is no longer presented as its own page (2026-07-13) — it
+                // will fold into the About page once that's built.
             }
 
             // Any live link block → the Links page.
