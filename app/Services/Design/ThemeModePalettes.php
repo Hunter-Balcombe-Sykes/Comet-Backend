@@ -11,14 +11,14 @@ class ThemeModePalettes
 
     /** @var array<string, array{bg: string, text: string}> */
     public const ANCHORS = [
-        'bleach' => ['bg' => '#ffffff', 'text' => '#111113'],
-        // dust: the sitepage ink (#999490) is deliberately soft/low-contrast;
-        // email body text must stay legible, so the mirror pins the previous
-        // dark ink instead of tracking the sitepage value.
-        'dust' => ['bg' => '#f2f2f0', 'text' => '#1e1e21'],
-        'warm' => ['bg' => '#faf4f0', 'text' => '#111111'],
-        'dusk' => ['bg' => '#26262c', 'text' => '#e8e8ec'],
-        'midnight' => ['bg' => '#000000', 'text' => '#f2f2f2'],
+        // ALD-calibrated default-variant bg/text (2026-07-14). Every mode's ink
+        // is now a legible near-black / near-white, so the mirror tracks the
+        // sitepage value directly — no more per-mode legibility override.
+        'bleach' => ['bg' => '#ffffff', 'text' => '#181818'],
+        'dust' => ['bg' => '#faf9f6', 'text' => '#1c1a17'],
+        'warm' => ['bg' => '#f9f3ec', 'text' => '#211b13'],
+        'dusk' => ['bg' => '#262626', 'text' => '#f2f2f2'],
+        'midnight' => ['bg' => '#181818', 'text' => '#ffffff'],
     ];
 
     /** @return array{bg: string, text: string} */

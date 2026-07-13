@@ -50,6 +50,11 @@ final class StyleTiers
             'regular' => '400',
             'medium' => '500',
         ],
+        // NOTE (2026-07-14): the design-kit DEFAULT text_body is now ALD 0.75rem,
+        // but this analyzer-bridge stays cohesive with CategoryStylePresets /
+        // LaunchRecipes / StorePricePointFactor (all still ~0.85rem). Moving the
+        // whole auto-integration factor layer to ALD is a deferred product
+        // decision (flatten per-business variation, or re-center it on ALD?).
         'text' => [
             'small' => '0.8rem',
             'regular' => '0.85rem',
@@ -67,6 +72,8 @@ final class StyleTiers
             'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',
         ],
+        // Cohesive with the factor layer (see the text-tier note above) — the
+        // auto-integration → ALD move is deferred.
         'space' => [
             'compact' => '0.8rem',
             'regular' => '0.95rem',

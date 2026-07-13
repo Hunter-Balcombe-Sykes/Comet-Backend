@@ -29,7 +29,8 @@ final class EmailBrandDefaults
 
     public const TEXT_MUTED = '#6e6e73';
 
-    public const BORDER_RADIUS = '8px';
+    // Mirrors the design-kit borders.radius default — ALD is square (2026-07-14).
+    public const BORDER_RADIUS = '0';
 
     /**
      * Build a fully-populated palette from a raw site.design_kits row

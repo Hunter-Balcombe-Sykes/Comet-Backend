@@ -12,9 +12,9 @@ it('returns the static defaults when the kit is empty', function () {
         ->and($p->accent)->toBe('#3a6efc')
         ->and($p->accentContrast)->toBe('#ffffff')
         ->and($p->bg)->toBe('#ffffff')
-        ->and($p->text)->toBe('#111113')
+        ->and($p->text)->toBe('#181818')
         ->and($p->textMuted)->toBe('#6e6e73')
-        ->and($p->borderRadius)->toBe('8px');
+        ->and($p->borderRadius)->toBe('0');
 });
 
 it('derives button tokens from accent/accent-contrast when the kit leaves them null', function () {
@@ -38,7 +38,7 @@ it('prefers stored values over defaults and over derivation', function () {
     ]);
 
     expect($p->accent)->toBe('#aa0000')
-        ->and($p->bg)->toBe('#000000')           // midnight default-variant anchor
+        ->and($p->bg)->toBe('#181818')           // midnight default-variant anchor
         ->and($p->buttonBg)->toBe('#00ff00')     // stored wins over derived accent
         ->and($p->buttonText)->toBe('#0000ff')
         ->and($p->borderRadius)->toBe('2px');
@@ -47,15 +47,15 @@ it('prefers stored values over defaults and over derivation', function () {
 it('takes bg and text from the theme-mode palette anchors', function () {
     $p = EmailBrandDefaults::palette(['theme_mode' => 'dusk']);
 
-    expect($p->bg)->toBe('#26262c')
-        ->and($p->text)->toBe('#e8e8ec');
+    expect($p->bg)->toBe('#262626')
+        ->and($p->text)->toBe('#f2f2f2');
 });
 
 it('falls back to bleach anchors for an unknown theme_mode', function () {
     $p = EmailBrandDefaults::palette(['theme_mode' => 'neon']);
 
     expect($p->bg)->toBe('#ffffff')
-        ->and($p->text)->toBe('#111113');
+        ->and($p->text)->toBe('#181818');
 });
 
 it('ignores empty-string stored values and falls back', function () {
