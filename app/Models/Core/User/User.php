@@ -10,6 +10,7 @@ use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Staff\PartnaStaff;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -132,6 +133,17 @@ class User extends BaseModel
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');
+    }
+
+    // Internal-staff link: a user MAY also be a Partna staff member (the two
+    // facts are independent — account_type stays partna/business; staff-ness
+    // lives in core.partna_staff). Joined on the shared Supabase auth_user_id,
+    // NOT the user id. Read by UserDashboardResource to expose is_staff on /me
+    // so the dashboard can switch to the staff surface without account_type
+    // ever encoding staff.
+    public function partnaStaff(): HasOne
+    {
+        return $this->hasOne(PartnaStaff::class, 'auth_user_id', 'auth_user_id');
     }
 
     public function blocks(): HasMany

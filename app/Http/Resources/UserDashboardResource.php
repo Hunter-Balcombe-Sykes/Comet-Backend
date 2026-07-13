@@ -13,6 +13,13 @@ class UserDashboardResource extends ApiResource
             'id' => (string) $this->id,
             'auth_user_id' => $this->auth_user_id,
             'account_type' => $this->account_type?->value,
+            // Staff-ness is independent of account_type (which stays
+            // partna/business) — it derives from a linked core.partna_staff
+            // record. The dashboard reads this to switch to the staff surface.
+            // Only the boolean is exposed here; the granular admin/support role
+            // still comes from the aal2-gated /staff/me. Relation is set on the
+            // model by UserSelfController (never lazy-loaded here).
+            'is_staff' => $this->partnaStaff !== null,
             'display_name' => $this->display_name,
             'partna_url' => $this->partna_url,
             // Custom domain summary so the dashboard can show connection state
