@@ -88,16 +88,17 @@ it('purgeHandle purges root + every deep-link sub-page + shadows + API', functio
     $files = cfRecordedFiles();
     $base = 'https://mixed-case.partna.au';
 
-    // root (slash + slash-less) + root shadow + the API subrequest
+    // root (slash + slash-less) + root shadow + the API subrequests
     expect($files)->toContain("{$base}/", $base, "{$base}/_swr-shadow/");
     expect($files)->toContain('https://dev-api.partna.au/api/public/profiles/mixed-case');
+    expect($files)->toContain('https://dev-api.partna.au/api/public/profiles/mixed-case/integrations');
     // every sub-page + its shadow; 'home' is the root, never a sub-page
     foreach (cfDeepLinkSubPages() as $page) {
         expect($files)->toContain("{$base}/{$page}", "{$base}/_swr-shadow/{$page}");
     }
     expect($files)->not->toContain("{$base}/home", "{$base}/_swr-shadow/home");
-    // exact size: 3 root + 2 per sub-page + 1 API
-    expect($files)->toHaveCount(3 + 2 * count(cfDeepLinkSubPages()) + 1);
+    // exact size: 3 root + 2 per sub-page + 2 API (profile + integrations)
+    expect($files)->toHaveCount(3 + 2 * count(cfDeepLinkSubPages()) + 2);
 });
 
 it('purgeHandle also busts the custom domain edge cache when one is given', function () {
@@ -117,9 +118,10 @@ it('purgeHandle also busts the custom domain edge cache when one is given', func
         'https://tuesdae.co/', 'https://tuesdae.co/_swr-shadow/',
         'https://tuesdae.co/shop', 'https://tuesdae.co/_swr-shadow/shop',
         'https://dev-api.partna.au/api/public/profiles/jane',
+        'https://dev-api.partna.au/api/public/profiles/jane/integrations',
     );
-    // two hosts -> 2 x (3 root + 2 per sub-page) + 1 API
-    expect($files)->toHaveCount(2 * (3 + 2 * count(cfDeepLinkSubPages())) + 1);
+    // two hosts -> 2 x (3 root + 2 per sub-page) + 2 API (profile + integrations)
+    expect($files)->toHaveCount(2 * (3 + 2 * count(cfDeepLinkSubPages())) + 2);
 });
 
 it('purgeHandle strips trailing slash on app.url before composing API URL', function () {

@@ -37,6 +37,12 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             $merge['architecture_id'] = UpdateSiteRequest::LEGACY_ARCHITECTURE_IDS[$v] ?? $v;
         }
 
+        // Normalize legacy page-ids ('book' → 'services') in the ordering block
+        // so a stale client's manual_page_order / page action refs still validate.
+        if (is_array($this->settings ?? null)) {
+            $merge['settings'] = $this->normalizeOrderingPageIds($this->settings);
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }

@@ -130,7 +130,12 @@ class PlatformDescriptor
      * platform without toggles renders no Display card. Every toggle
      * defaults ON (null display_settings = show everything).
      *
-     * @param  array<int, array{key: string, label: string, description: string}>  $toggles
+     * An optional `siteColumn` backs the toggle by a boolean column on
+     * site.sites instead of the per-connection display_settings JSONB — used
+     * to unify a display toggle with a site-level setting (Instagram gallery ↔
+     * content_instagram_auto_enabled).
+     *
+     * @param  array<int, array{key: string, label: string, description: string, siteColumn?: string}>  $toggles
      */
     public function displayToggles(array $toggles): self
     {
@@ -139,7 +144,7 @@ class PlatformDescriptor
         return $this;
     }
 
-    /** @return array<int, array{key: string, label: string, description: string}> */
+    /** @return array<int, array{key: string, label: string, description: string, siteColumn?: string}> */
     public function displayToggleDefs(): array
     {
         return $this->displayToggles;
