@@ -17,6 +17,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupMediaTables();
+    setupContentSelectionTable(); // payload's designMedia resolves the selection
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();

@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     tenantHelpersEnsureTables();
     setupSitesTable();     // sites + platform_connections
+    setupContentSelectionTable(); // payload's designMedia resolves the selection
     setupBlocksTable();
     setupServicesTable();
     setupSiteMediaTable();
