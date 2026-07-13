@@ -140,6 +140,11 @@ class CloudflarePurgeService
             // pins the rendered HTML to stale data for up to 5 minutes after a
             // mutation, regardless of how aggressively we purge the page URLs.
             $urls[] = "{$apiBase}/api/public/profiles/{$h}";
+            // The platform-integrations subrequest (`PublicIntegrationController`)
+            // that the sitepage reads for cards (e.g. the Instagram gallery card).
+            // Its own fetch is `cacheTtl: 0`, so this is belt-and-braces — but it
+            // guarantees a display-toggle flip never leaves a stale card wire.
+            $urls[] = "{$apiBase}/api/public/profiles/{$h}/integrations";
         }
 
         $this->purgeUrls($urls);

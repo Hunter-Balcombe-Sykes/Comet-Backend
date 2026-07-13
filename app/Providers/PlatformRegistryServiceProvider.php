@@ -348,8 +348,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
                 ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
             ]);
+            // Instagram's gallery toggle is UNIFIED with the Content/Media
+            // "Latest content auto sync" switch: both read/write the site column
+            // `content_instagram_auto_enabled`, so the two settings are one value
+            // and turning it off hides ALL auto Instagram content (the curated
+            // reel/post slots AND this integration card).
             $r->get('instagram')->displayToggles([
-                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.'],
+                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.', 'siteColumn' => 'content_instagram_auto_enabled'],
             ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────
