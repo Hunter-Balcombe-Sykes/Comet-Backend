@@ -189,7 +189,8 @@ it('suppresses placeId and streetView from the dashboard selection when location
 
 // ── WS-B2.2 (I1): display toggles also gate public multipage page PRESENCE ────
 // so a toggled-off GB section doesn't advertise an empty page in nav/pageOrder.
-// reviews + menu are Business-only pages, so a business tenant is required.
+// menu is a Business-only page, so a business tenant is required. Reviews is no
+// longer presented as a page at all (2026-07-13) — see the two tests below.
 
 function dsBusinessTenant(string $handle): User
 {
@@ -222,14 +223,17 @@ it('drops the reviews page from presence when the reviews toggle is off', functi
     expect($pages)->not->toContain('reviews');
 });
 
-it('keeps the reviews page present when the reviews toggle is on', function () {
+it('never presents the reviews page, even with the reviews toggle on', function () {
+    // Reviews is no longer a standalone page (2026-07-13) — the review DATA and
+    // the dashboard toggle are unchanged; it will render inside the About page
+    // once that's built. Until then presence never includes 'reviews'.
     $pro = dsBusinessTenant('pages-rev-on');
     displaySeedConnection($pro->id, ['name' => 'Cafe']); // no display_settings → ON
 
     $r = app(SitepageDataResolverService::class);
     $pages = $r->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
 
-    expect($pages)->toContain('reviews');
+    expect($pages)->not->toContain('reviews');
 });
 
 it('drops the menu page from presence when the menu toggle is off', function () {

@@ -12,6 +12,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\Presets\DesignPresetResolver;
+use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -62,6 +63,7 @@ class IndividualProfilePayloadBuilder
         private readonly DesignPresetResolver $presetResolver,
         private readonly ContentPopularityReader $popularity,
         private readonly SiteActionsService $actions,
+        private readonly ContentSelectionService $selection,
     ) {}
 
     /**
@@ -237,21 +239,44 @@ class IndividualProfilePayloadBuilder
      *
      * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, poster: string|null, durationMs: int|null}>
      */
+    /**
+     * The sitepage background media = the owner's curated content SELECTION
+     * (ordered by position on /account/content), NOT the raw content-media
+     * library. ContentSelectionService::resolve returns the servable entries in
+     * order — uploads, Google Business photos, and (when Instagram-auto is on)
+     * the reserved ig-reel (slot 1) + ig-post (slot 2) with the reel carrying a
+     * poster. Unservable rows (disconnected IG, missing/soft-deleted upload,
+     * dangling Google ref) are already dropped by resolve(). Projected into the
+     * same camelCase DesignMediaItem shape the sitepage consumes.
+     *
+     * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: null, alt: null, caption: null, poster: string|null, durationMs: null}>
+     */
     private function buildDesignMedia(?Site $site): array
     {
-        $items = $this->resolver->getContentMedia($site);
+        if (! $site) {
+            return [];
+        }
 
-        return array_values(array_map(static fn (array $item): array => [
-            'id' => (string) ($item['id'] ?? ''),
-            'sortOrder' => (int) ($item['sort_order'] ?? 0),
-            'kind' => (string) ($item['kind'] ?? 'image'),
-            'url' => (string) ($item['url'] ?? ''),
-            'urlHd' => $item['url_hd'] ?? null,
-            'alt' => $item['alt_text'] ?? null,
-            'caption' => $item['caption'] ?? null,
-            'poster' => $item['poster'] ?? null,
-            'durationMs' => $item['duration_ms'] ?? null,
-        ], $items));
+        $out = [];
+        foreach ($this->selection->resolve($site) as $i => $entry) {
+            $url = (string) ($entry['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+            $out[] = [
+                'id' => (string) ($entry['id'] ?? ''),
+                'sortOrder' => (int) ($entry['position'] ?? $i),
+                'kind' => (string) ($entry['kind'] ?? 'image'),
+                'url' => $url,
+                'urlHd' => null,
+                'alt' => null,
+                'caption' => null,
+                'poster' => $entry['poster'] ?? null,
+                'durationMs' => null,
+            ];
+        }
+
+        return $out;
     }
 
     /**

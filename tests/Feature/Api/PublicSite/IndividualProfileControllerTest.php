@@ -20,6 +20,9 @@ beforeEach(function () {
     setupMediaTables();
     setupServiceCategoriesTable();
     setupServicesTable();
+    // designMedia now projects the resolved content SELECTION (not the raw
+    // library), so the payload build reaches into site.content_selection.
+    setupContentSelectionTable();
 
     // Architecture column shim — production has architecture_id with a CHECK
     // enum default 'one', and the SitepageDataResolverService reads it via
@@ -389,6 +392,13 @@ it('surfaces content-pool site_media as top-level designMedia[] in camelCase', f
         'disk' => 'media', 'path' => 'images/content/optimized.webp', 'mime' => 'image/webp',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
+    // designMedia is the owner's CONTENT SELECTION (ordered by position), not the
+    // raw library — select the upload onto the sitepage so it surfaces.
+    DB::connection('pgsql')->table('site.content_selection')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
+        'entry_type' => 'upload', 'media_id' => $mediaId,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
 
     $data = $this->getJson('/api/public/profiles/content1')->assertOk()->json('data');
 
@@ -399,17 +409,19 @@ it('surfaces content-pool site_media as top-level designMedia[] in camelCase', f
         'id', 'sortOrder', 'kind', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
     ]);
     expect($data['designMedia'][0]['kind'])->toBe('image');
-    expect($data['designMedia'][0]['alt'])->toBe('Studio shot');
-    expect($data['designMedia'][0]['sortOrder'])->toBe(0);
+    expect($data['designMedia'][0]['url'])->not->toBe('');
+    // sortOrder mirrors the selection position (1-based).
+    expect($data['designMedia'][0]['sortOrder'])->toBe(1);
     expect($data['profile'])->not->toHaveKey('content_images');
 });
 
-it('omits soft-deleted content-pool media from designMedia', function () {
+it('omits soft-deleted content-media from the designMedia selection', function () {
     $pro = seedIndividualProfile('content2');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $mediaId,
         'site_id' => $siteId,
         'pool' => 'content',
         'path' => 'images/content/deleted.jpg',
@@ -421,17 +433,24 @@ it('omits soft-deleted content-pool media from designMedia', function () {
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
+    // Selected, but the upload is soft-deleted → resolve() drops the entry.
+    DB::connection('pgsql')->table('site.content_selection')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
+        'entry_type' => 'upload', 'media_id' => $mediaId,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
 
     $data = $this->getJson('/api/public/profiles/content2')->assertOk()->json('data');
     expect($data['designMedia'])->toBeArray()->toBeEmpty();
 });
 
-it('omits processing-state != ready content-pool media from designMedia', function () {
+it('omits content-media with no servable variant from the designMedia selection', function () {
     $pro = seedIndividualProfile('content3');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $mediaId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $mediaId,
         'site_id' => $siteId,
         'pool' => 'content',
         'path' => 'images/content/processing.jpg',
@@ -441,6 +460,12 @@ it('omits processing-state != ready content-pool media from designMedia', functi
         'is_active' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
+    ]);
+    // Selected, but still processing (no ready variant) → resolve() drops it.
+    DB::connection('pgsql')->table('site.content_selection')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
+        'entry_type' => 'upload', 'media_id' => $mediaId,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
 
     $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
