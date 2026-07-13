@@ -38,6 +38,41 @@ trait SiteOrderingValidationRules
     }
 
     /**
+     * Normalize legacy page-ids in an incoming ordering settings block ('book' →
+     * 'services' after the 2026-07-13 rename) so an older client's
+     * manual_page_order / page-kind action refs validate + persist under the
+     * current taxonomy. Call from prepareForValidation. Returns the settings
+     * unchanged when it carries no ordering keys.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    protected function normalizeOrderingPageIds(array $settings): array
+    {
+        if (is_array($settings['manual_page_order'] ?? null)) {
+            $settings['manual_page_order'] = array_map(
+                static fn ($id) => is_string($id) ? SitepageId::normalizePageId($id) : $id,
+                $settings['manual_page_order'],
+            );
+        }
+
+        if (is_array($settings['manual_actions'] ?? null)) {
+            $settings['manual_actions'] = array_map(
+                static function ($action) {
+                    if (is_array($action) && ($action['kind'] ?? null) === 'page' && is_string($action['ref'] ?? null)) {
+                        $action['ref'] = SitepageId::normalizePageId($action['ref']);
+                    }
+
+                    return $action;
+                },
+                $settings['manual_actions'],
+            );
+        }
+
+        return $settings;
+    }
+
+    /**
      * Per-entry strictness for settings.manual_actions.* — each entry is
      * EXACTLY one of:
      *   {kind: page,   ref: <taxonomy page-id>}

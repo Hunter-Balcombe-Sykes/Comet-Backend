@@ -2,6 +2,7 @@
 
 namespace App\Services\PublicSite;
 
+use App\Enums\SitepageId;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -40,7 +41,7 @@ class SiteActionsService
      */
     public const ITEM_TYPE_TO_PAGE = [
         'shop_product' => 'shop',
-        'service' => 'book',
+        'service' => 'services',
         'engine_item' => 'events',
         'listen_item' => 'listen',
         'watch_item' => 'watch',
@@ -450,14 +451,29 @@ class SiteActionsService
 
         return [
             'smart_page_order' => filter_var($settings['smart_page_order'] ?? true, FILTER_VALIDATE_BOOL),
-            'manual_page_order' => array_values(array_filter(
-                is_array($settings['manual_page_order'] ?? null) ? $settings['manual_page_order'] : [],
-                'is_string',
+            // Normalize legacy page-ids (e.g. a manual order saved as 'book' before
+            // the 2026-07-13 Services rename) so they still intersect present pages.
+            'manual_page_order' => array_values(array_map(
+                static fn (string $id): string => SitepageId::normalizePageId($id),
+                array_filter(
+                    is_array($settings['manual_page_order'] ?? null) ? $settings['manual_page_order'] : [],
+                    'is_string',
+                ),
             )),
             'smart_actions' => filter_var($settings['smart_actions'] ?? true, FILTER_VALIDATE_BOOL),
-            'manual_actions' => array_values(array_filter(
-                is_array($settings['manual_actions'] ?? null) ? $settings['manual_actions'] : [],
-                'is_array',
+            'manual_actions' => array_values(array_map(
+                static function (array $action): array {
+                    // A page-kind action ref is a page-id — normalize a legacy one.
+                    if (($action['kind'] ?? null) === 'page' && is_string($action['ref'] ?? null)) {
+                        $action['ref'] = SitepageId::normalizePageId($action['ref']);
+                    }
+
+                    return $action;
+                },
+                array_filter(
+                    is_array($settings['manual_actions'] ?? null) ? $settings['manual_actions'] : [],
+                    'is_array',
+                ),
             )),
         ];
     }

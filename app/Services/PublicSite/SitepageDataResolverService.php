@@ -43,8 +43,8 @@ class SitepageDataResolverService
      */
     private const SECTION_BLOCK_TO_PAGE = [
         'gallery' => 'gallery',
-        'services' => 'book',
-        'booking' => 'book',
+        'services' => 'services',
+        'booking' => 'services',
         'documents' => 'documents',
         'newsletter' => 'contact',
         'contact' => 'contact',
@@ -77,8 +77,8 @@ class SitepageDataResolverService
         'shop' => 'shop', 'bandcamp' => 'shop',
         // Events — ticketing + standalone events.
         'eventbrite' => 'events', 'humanitix' => 'events', 'events-custom' => 'events',
-        // Book — booking links.
-        'fresha' => 'book', 'square' => 'book', 'booking' => 'book',
+        // Services — booking links.
+        'fresha' => 'services', 'square' => 'services', 'booking' => 'services',
         // Reservations — keyless reservation widgets (Business-only page).
         'opentable' => 'reservations', 'resdiary' => 'reservations',
         'nowbookit' => 'reservations', 'reservations' => 'reservations',
@@ -250,9 +250,9 @@ class SitepageDataResolverService
                     $present['menu'] = true;
                 }
 
-                // Active services → the Book page.
+                // Active services → the Services page.
                 if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->where('is_active', true)->whereNull('deleted_at')->exists(), false)) {
-                    $present['book'] = true;
+                    $present['services'] = true;
                 }
 
                 // Reviews is no longer presented as its own page (2026-07-13) — it

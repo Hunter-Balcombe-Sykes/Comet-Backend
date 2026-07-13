@@ -98,7 +98,7 @@ it('boosts each custom link per URL (payload.url = the item content_key) at W_IT
         ->and($boosts['link_item']['https://example.com/older'])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
 });
 
-it('freshens the Book page from native service rows (newest wins over an older connection)', function () {
+it('freshens the Services page from native service rows (newest wins over an older connection)', function () {
     $tenant = createTenant('fresh-book');
     freshnessSeedConnection($tenant, 'fresha', now()->subDays(60)->toISOString());
     DB::connection('pgsql')->table('site.services')->insert([
@@ -111,6 +111,6 @@ it('freshens the Book page from native service rows (newest wins over an older c
 
     $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
 
-    // The brand-new service row drives Book's age, not the 60d-old connection.
-    expect($boosts['page']['book'])->toBeGreaterThan(ContentFreshness::W_PAGE * 0.99);
+    // The brand-new service row drives the Services page's age, not the 60d-old connection.
+    expect($boosts['page']['services'])->toBeGreaterThan(ContentFreshness::W_PAGE * 0.99);
 });

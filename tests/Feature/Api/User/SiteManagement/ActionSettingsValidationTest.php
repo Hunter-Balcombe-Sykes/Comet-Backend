@@ -37,9 +37,11 @@ it('accepts and persists the four ordering settings', function () {
         ]])
         ->assertOk();
 
+    // 'book' is the legacy page-id for the Services page (2026-07-13 rename) —
+    // it is accepted and persisted normalized to 'services'.
     $settings = siteSettings($pro);
     expect($settings['smart_page_order'])->toBeFalse()
-        ->and($settings['manual_page_order'])->toBe(['book', 'shop', 'links'])
+        ->and($settings['manual_page_order'])->toBe(['services', 'shop', 'links'])
         ->and($settings['smart_actions'])->toBeFalse()
         ->and($settings['manual_actions'][3])->toBe(['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards']);
 });
@@ -175,7 +177,8 @@ it('leaves ordering settings untouched by unrelated settings PATCHes', function 
         ->patchJson('/api/site', ['settings' => ['show_branding' => true]])
         ->assertOk();
 
+    // 'book' (legacy) persists normalized to the 'services' page-id.
     $settings = siteSettings($pro);
     expect($settings['smart_actions'])->toBeFalse()
-        ->and($settings['manual_actions'])->toBe([['kind' => 'page', 'ref' => 'book']]);
+        ->and($settings['manual_actions'])->toBe([['kind' => 'page', 'ref' => 'services']]);
 });

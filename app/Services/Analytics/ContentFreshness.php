@@ -18,7 +18,7 @@ use Illuminate\Support\Carbon;
  * age comes from the owning row's created_at — the only grains with a STABLE
  * per-entity created_at (recon 2026-07-10):
  *   - page      : newest ACTIVE platform connection mapping to the page
- *                 (PLATFORM_TO_PAGE), plus native site.services rows → 'book'.
+ *                 (PLATFORM_TO_PAGE), plus native site.services rows → 'services'.
  *                 Disconnect→reconnect resets created_at, which reads as
  *                 "re-added = fresh again" — acceptable semantics.
  *   - link_item : each custom link is its own connection row; payload.url is
@@ -96,8 +96,8 @@ class ContentFreshness
             ->max('created_at');
         if ($newestService !== null) {
             $serviceAt = Carbon::parse($newestService);
-            if (! isset($pageNewest['book']) || $serviceAt->gt($pageNewest['book'])) {
-                $pageNewest['book'] = $serviceAt;
+            if (! isset($pageNewest['services']) || $serviceAt->gt($pageNewest['services'])) {
+                $pageNewest['services'] = $serviceAt;
             }
         }
 

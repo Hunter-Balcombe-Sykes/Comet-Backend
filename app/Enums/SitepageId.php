@@ -22,7 +22,7 @@ enum SitepageId: string
     case Watch = 'watch';
     case Shop = 'shop';
     case Menu = 'menu';
-    case Book = 'book';
+    case Services = 'services';
     case Reservations = 'reservations';
     case Events = 'events';
     case Gallery = 'gallery';
@@ -78,7 +78,7 @@ enum SitepageId: string
         'watch' => 'watch',
         'shop' => 'shop',
         'menu' => 'menu',
-        'book' => 'book',
+        'services' => 'services',
         'reservations' => 'reservations',
         'events' => 'events',
         'gallery' => 'gallery',
@@ -118,8 +118,9 @@ enum SitepageId: string
         'eventbrite' => 'events',
         'humanitix' => 'events',
 
-        // Book — native services
-        'services' => 'book',
+        // Services — native services page. Legacy 'book' section_key (the page-id
+        // before the 2026-07-13 rename) folds here so historical rows still bucket.
+        'book' => 'services',
 
         // Contact — absorbs hours / location / map / newsletter / workplace
         'hours' => 'contact',
@@ -141,6 +142,23 @@ enum SitepageId: string
 
         // Omitted intentionally: 'player-test' (test-fixture noise)
     ];
+
+    /**
+     * Page-ids renamed in place. Read/write paths normalize a legacy id to its
+     * current value so settings persisted under the old id (e.g. a
+     * manual_page_order saved as 'book') keep resolving after the rename.
+     * 'book' → 'services' (2026-07-13): renamed so the sitepage URL matches the
+     * "Services" label; content still stores under the 'book' section_key.
+     *
+     * @var array<string, string>
+     */
+    public const LEGACY_PAGE_IDS = ['book' => 'services'];
+
+    /** Normalize a possibly-legacy page-id to its canonical current value. */
+    public static function normalizePageId(string $id): string
+    {
+        return self::LEGACY_PAGE_IDS[$id] ?? $id;
+    }
 
     /**
      * Canonical default order as plain strings (enum case order).

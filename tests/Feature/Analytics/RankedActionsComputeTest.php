@@ -126,18 +126,18 @@ it('cold start: zero events yields a full prior+recency-ordered list (booking fi
     // Natives are all 0 (page freshness is subtracted from the native term) so
     // ordering = prior + recency. Recency 1.0 where an anchor exists (booking +
     // instagram blocks created now; listen's spotify connection created now);
-    // the Book page (present via the live booking SECTION) has no connection/
+    // the Services page (present via the live booking SECTION) has no connection/
     // service anchor → recency 0. Blends:
     //   button:booking   .25·.95 + .15·1 = .3875
     //   button:instagram .25·.70 + .15·1 = .3250
     //   page:listen      .25·.65 + .15·1 = .3125
-    //   page:book        .25·.85 + 0    = .2125
+    //   page:services    .25·.85 + 0    = .2125
     //   page:links       .25·.40 + 0    = .1000
     $order = actionOrder($tenant->site->id);
     expect($order[0])->toBe('button:booking')
         ->and($order[1])->toBe('button:instagram')
         ->and($order[2])->toBe('page:listen')
-        ->and($order[3])->toBe('page:book')
+        ->and($order[3])->toBe('page:services')
         ->and($order[4])->toBe('page:links')
         ->and(count($order))->toBe(5);
 
@@ -213,7 +213,7 @@ it('scored items enter the pool when their hosting page is present', function ()
         ->assertExitCode(0);
 
     expect(actionScoreRow($tenant->site->id, 'item:service:'.$serviceId))->not->toBeNull()
-        ->and(actionScoreRow($tenant->site->id, 'page:book'))->not->toBeNull();
+        ->and(actionScoreRow($tenant->site->id, 'page:services'))->not->toBeNull();
 });
 
 it('deletes stale action keys when the pool shrinks', function () {
