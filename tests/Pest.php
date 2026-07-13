@@ -341,6 +341,11 @@ function setupUsersTable(): void
             // already exists — ignore
         }
     }
+
+    // GET /me (UserSelfController) now always resolves the optional
+    // core.partna_staff link to expose is_staff, so the users-schema stub must
+    // include that table too. Idempotent — no-op when already created.
+    setupPartnaStaffTable();
 }
 
 /**

@@ -9,6 +9,7 @@ use App\Http\Requests\Api\User\UpdateUserRequest;
 use App\Http\Requests\Api\User\UserShowRequest;
 use App\Http\Resources\SiteResource;
 use App\Http\Resources\UserDashboardResource;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,15 @@ class UserSelfController extends ApiController
         $uid = $request->attributes->get('supabase_uid');
 
         $pro = $this->currentUser($request);
+
+        // Resolve the staff link fresh and hang it on the (cached) model so
+        // UserDashboardResource can expose is_staff without a lazy load (which
+        // is prevented outside production) and without baking staff-ness into
+        // the 60s user cache — staff promotion/demotion must reflect on the
+        // next /me, not a cache-window later.
+        $pro->setRelation('partnaStaff', PartnaStaff::query()
+            ->where('auth_user_id', $pro->auth_user_id)
+            ->first());
 
         $cache = app(UserCacheService::class);
 
