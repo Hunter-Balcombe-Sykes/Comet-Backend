@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Facades\Http;
@@ -142,9 +143,10 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     $scraper->shouldReceive('profilePicUrl')
         ->once()
         ->andReturn($picUrl);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
     $job = new InstagramConnectJob($user->id, 'testuser', $connection->id);
-    $job->handle($scraper);
+    $job->handle($scraper, app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -189,8 +191,9 @@ it('InstagramConnectJob mirrors both the latest photo and the latest reel (mp4 +
         'video' => ['thumbnailUrl' => $coverUrl, 'videoUrl' => $videoUrl, 'shortCode' => 'reel'],
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -231,8 +234,9 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Test User']);
     $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => $redirectUrl, 'shortCode' => 'r'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -279,8 +283,9 @@ it('InstagramConnectJob drops an oversized cover image and completes the job wit
         'video' => null,
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn($picUrl);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -319,7 +324,7 @@ it('InstagramConnectJob hard-fails (does not silently succeed) when the scrape r
     );
     $job->shouldReceive('fail')->once();
 
-    $job->handle($scraper);
+    $job->handle($scraper, app(InstagramAutoSync::class));
 
     // The happy path must NOT have run — the connection is never marked 'ok'.
     expect($connection->fresh()->last_refresh_status)->not->toBe('ok');
@@ -472,8 +477,9 @@ it('reconnect reclaims stale reel files when the account now leads with a photo 
         'video' => null, // no reel this time — stale reel files must be reclaimed
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'job2user', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'job2user', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     // Fresh photo written.
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
@@ -510,9 +516,10 @@ it('first connect writes photo and does not delete any spurious files (JOB-2)', 
         'video' => null,
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
     // No pre-existing files — handle() must complete without exception.
-    (new InstagramConnectJob($user->id, 'firstuser', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'firstuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
     $connection->refresh();
@@ -551,11 +558,102 @@ it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB
     ]);
     // Profile pic no longer available on this run.
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'picgoneuser', $connection->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'picgoneuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
 
     // Fresh photo still written.
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
     // Stale profile pic must be reclaimed.
     expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeFalse();
+});
+
+// ── BE2: bio links captured + auto-synced, real scraper + real Apify fixture ─────
+
+/** A realistic Apify dataset item WITH bio fields (biography/externalUrl/externalUrls). */
+function igItemWithBio(): array
+{
+    return [
+        'fullName' => 'Doc Pizza',
+        'followersCount' => 500,
+        'postsCount' => 42,
+        'businessCategoryName' => 'Restaurant',
+        'externalUrl' => 'https://docpizza.example.com',
+        'externalUrls' => [['url' => 'https://www.facebook.com/docpizzabar']],
+        'biography' => 'Wood-fired pizza. Linktree: https://linktr.ee/docpizza',
+        'latestPosts' => [],   // no media — keeps this test focused on bio fields
+    ];
+}
+
+/** Today's real Apify actor output — no bio fields at all. */
+function igItemWithoutBio(): array
+{
+    return [
+        'fullName' => 'Legacy User',
+        'followersCount' => 10,
+        'postsCount' => 2,
+        'latestPosts' => [],
+    ];
+}
+
+it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the real scraper end-to-end', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([igItemWithBio()], 201)]);
+
+    $user = igAsyncUser('igbio1');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'docpizza', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramAutoSync::class));
+
+    $connection->refresh();
+    expect($connection->last_refresh_status)->toBe('ok');
+    expect($connection->payload['website'])->toBe('https://docpizza.example.com');
+    expect($connection->payload['bioLinks'])->toBe([
+        'https://docpizza.example.com',
+        'https://www.facebook.com/docpizzabar',
+        'https://linktr.ee/docpizza',
+    ]);
+
+    // The bio's Facebook link auto-synced (mirrors the Google Business flow).
+    expect($connection->payload['syncFindings'])->toHaveCount(1);
+    expect($connection->payload['syncFindings'][0]['platform'])->toBe('facebook');
+    expect($connection->payload['syncFindings'][0]['outcome'])->toBe('seeded');
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['url'])->toBe('https://www.facebook.com/docpizzabar');
+    expect($fb['source'])->toBe('instagram');
+
+    // The generic website (externalUrl) and the Linktree link aren't auto-syncable
+    // → both surface as "add as custom link" suggestions, in bioLinks() order.
+    expect($connection->payload['unmatched'])->toBe([
+        ['url' => 'https://docpizza.example.com', 'label' => 'docpizza.example.com'],
+        ['url' => 'https://linktr.ee/docpizza', 'label' => 'linktr.ee'],
+    ]);
+});
+
+it('BE2: an Apify response with none of the bio fields (older actor shape) leaves website/bioLinks/syncFindings/unmatched empty and does not break the job', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([igItemWithoutBio()], 201)]);
+
+    $user = igAsyncUser('igbio2');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'legacyuser', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramAutoSync::class));
+
+    $connection->refresh();
+    expect($connection->last_refresh_status)->toBe('ok');
+    expect($connection->payload['website'])->toBeNull();
+    expect($connection->payload['bioLinks'])->toBe([]);
+    expect($connection->payload['syncFindings'])->toBe([]);
+    expect($connection->payload['unmatched'])->toBe([]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
 });

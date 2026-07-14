@@ -103,6 +103,10 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [InstagramController::class, 'connect']);
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
             Route::get('/selection', [InstagramController::class, 'selection']);
+            // BE2: bio-link auto-sync popup contract — mirrors the Google Business
+            // /synced + /synced/apply pair below.
+            Route::get('/synced', [InstagramController::class, 'synced']);
+            Route::post('/synced/apply', [InstagramController::class, 'applySync']);
             Route::delete('/', [InstagramController::class, 'forget']);
         });
 

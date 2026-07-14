@@ -145,9 +145,12 @@ final class IdentityEvidence
 
     /**
      * The raw Instagram connection payload (the first active Instagram
-     * connection), or null. Kept as the raw array — AestheticExpressionFactor
-     * reads bio/category/media signals that the trimmed InstagramPayload DTO
-     * doesn't all surface.
+     * connection), or null. Kept as the raw array rather than the typed
+     * InstagramPayload DTO so a caller can read any stored key without a DTO
+     * round-trip. Today's readers (AestheticExpressionFactor, RecipeSignals) only
+     * consult businessCategory/fullName; BE2 (2026-07) added genuine bio-derived
+     * data to this payload — website + bioLinks[] — for a future aesthetic signal
+     * to read, not yet wired into a Factor.
      *
      * @return array<string, mixed>|null
      */

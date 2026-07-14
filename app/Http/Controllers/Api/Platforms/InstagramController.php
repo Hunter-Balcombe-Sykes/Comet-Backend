@@ -8,18 +8,26 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Rules\PlatformInRegistry;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 // Instagram integration endpoints. A single automatic connect: connect() queues a
 // background job (InstagramConnectJob) that scrapes the profile and mirrors the
 // SINGLE latest post — a photo, or a reel (cover + mp4) — to R2, responding 202
 // immediately; connectStatus() polls until it's ready. Scraping lives in
 // InstagramScraper; all mirroring in the job.
+//
+// BE2: synced()/applySync() are the bio-link auto-sync popup contract — mirror
+// GoogleBusinessController::synced()/applySync() semantics exactly (live status
+// re-derivation, conflict apply = remove existing + write found link), reading
+// the findings InstagramConnectJob persisted via InstagramAutoSync.
 class InstagramController extends ApiController
 {
     use ManagesIntegrationConnection;
@@ -140,6 +148,113 @@ class InstagramController extends ApiController
         $this->forgetConnection($this->currentUser($request));
 
         return $this->success(['selection' => null]);
+    }
+
+    // GET /api/platforms/instagram/synced
+    // The platforms THIS Instagram connect's bio harvest found — read from the
+    // connection's recorded syncFindings (scoped to the latest scrape), each
+    // re-shaped with a live status (synced / syncing / conflict), plus the bio
+    // links that didn't classify into an auto-synced platform ("add as custom
+    // link" leftovers). An old connection with no bio-sync data yet (or none at
+    // all) simply returns both as empty — never breaks. Mirrors
+    // GoogleBusinessController::synced() exactly.
+    public function synced(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
+        $payload = InstagramPayload::fromArray($ig?->payload);
+
+        // Pre-load all connections keyed by "platform|resource_id" so shapeFinding
+        // can look up each seeded row in O(1) instead of issuing a DB query per finding.
+        $connections = $user->integrationConnections()
+            ->get()
+            ->keyBy(fn ($r) => $r->platform.'|'.$r->resource_id);
+
+        $synced = collect($payload->syncFindings)
+            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($f, $connections) : null)
+            ->filter()
+            ->values()
+            ->all();
+
+        return $this->success(['synced' => $synced, 'unmatched' => $payload->unmatched]);
+    }
+
+    // POST /api/platforms/instagram/synced/apply
+    // "Change to" — swap the user's existing connection for the one the bio
+    // harvest found (a conflict finding): remove the existing, install the
+    // found link, and flip the finding to seeded so it shows as synced.
+    // Mirrors GoogleBusinessController::applySync() exactly.
+    public function applySync(Request $request, InstagramAutoSync $autoSync): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
+
+        $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
+        $igp = InstagramPayload::fromArray($ig?->payload);
+        $payload = $igp->toArray();
+        $findings = $igp->syncFindings;
+
+        $idx = null;
+        foreach ($findings as $i => $f) {
+            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
+                $idx = $i;
+                break;
+            }
+        }
+        if ($idx === null || $ig === null) {
+            return $this->error('Nothing to change for that platform.', 404);
+        }
+
+        $autoSync->applyFinding((string) $user->id, $findings[$idx]);
+
+        $findings[$idx]['outcome'] = 'seeded';
+        $findings[$idx]['apply'] = null;
+        $ig->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+
+        return $this->synced($request);
+    }
+
+    /**
+     * Shape one recorded finding for the popup, re-deriving live status. Returns
+     * null when a seeded row was since removed (so it drops off the list).
+     *
+     * @param  Collection<string, IntegrationConnection>  $connections  pre-loaded keyed by "platform|resource_id"
+     * @param  array<string,mixed>  $finding
+     * @return array<string,mixed>|null
+     */
+    private function shapeFinding(array $finding, Collection $connections): ?array
+    {
+        $platform = (string) ($finding['platform'] ?? '');
+        $category = (string) ($finding['category'] ?? 'other');
+        $label = (string) ($finding['label'] ?? $platform);
+        $foundUrl = is_string($finding['foundUrl'] ?? null) ? $finding['foundUrl'] : null;
+
+        if (($finding['outcome'] ?? 'seeded') === 'conflict') {
+            return [
+                'platform' => $platform,
+                'category' => $category,
+                'label' => $label,
+                'status' => 'conflict',
+                'foundUrl' => $foundUrl,
+                'removePath' => null,
+            ];
+        }
+
+        // Seeded — drop if the user already removed it; else derive synced/syncing.
+        $resourceId = (string) ($finding['resourceId'] ?? '');
+        $row = $connections->get($platform.'|'.$resourceId);
+        if ($row === null) {
+            return null;
+        }
+
+        return [
+            'platform' => $platform,
+            'category' => $category,
+            'label' => $label,
+            'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
+            'foundUrl' => $foundUrl,
+            'removePath' => '/platforms/'.$platform,
+        ];
     }
 
     // ── internals ────────────────────────────────────────────────
