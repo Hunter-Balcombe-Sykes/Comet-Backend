@@ -16,17 +16,19 @@ namespace App\Http\Requests\Concerns;
 //
 // 2026-07-10 theme/surface rework (migration 20260710160000): the bg colour,
 // visual-style bundle and entrance-animation columns dropped; theme_mode is now
-// the 5-value palette selection; effect_surface + theme_night_shift_auto added.
+// the 5-value palette selection; theme_night_shift_auto added.
 //
 // 2026-07-10 semantic text scale (migration 20260710190000): the seven
 // size-named text_* columns became the nine semantic slots (caption/body/
 // h3/h2/h1/display + desktop body/h1/display).
 //
-// 2026-07-10 surfaces (migration 20260710210000): effect_button_fill dropped
-// (buttons render as the effect_surface chip now); effect_glass_blur +
-// motion_glass_shine_duration added (glass knobs — code-side defaults
-// '5px' / '6s' in the design-system package; the glass tint is a theme_mode
-// palette value, not a column).
+// 2026-07-10 surfaces (migration 20260710210000): effect_button_fill dropped;
+// effect_glass_blur + motion_glass_shine_duration added (glass knobs —
+// code-side defaults '5px' / '6s' in the design-system package; the glass
+// tint is a theme_mode palette value, not a column).
+//
+// 2026-07-15 sitepage rebuild: effect_surface (glass/solid/outline Surface
+// type) dropped — component look flows from the kit vars directly.
 trait DesignKitValidationRules
 {
     /**
@@ -122,9 +124,8 @@ trait DesignKitValidationRules
             'design_kit.motion_glass_shine_duration' => $len,
             'design_kit.motion_spring_curve' => ['sometimes', 'nullable', 'string', 'max:64'],
 
-            // Effects — Surface type: storage-only selection for now (no
-            // bundle expansion); the per-axis selections below are independent.
-            'design_kit.effect_surface' => ['sometimes', 'nullable', 'string', 'in:glass,solid,outline'],
+            // Effects — media-scrim blur values + the per-axis identity
+            // selections (Surface type removed 2026-07-15).
             'design_kit.effect_scrim_blur' => $len,
             'design_kit.effect_glass_blur' => $len,
             'design_kit.effect_shadow_style' => ['sometimes', 'nullable', 'string', 'in:flat,soft,hard'],

@@ -58,7 +58,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',
         ],
         // Soft, elegant, a little luxe — glass panels carry the premium-soft
         // read the old pastel bg used to.
@@ -69,7 +68,6 @@ final class CategoryStylePresets
             'border_radius' => '0.25rem',
             'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'effect_surface' => 'glass',
         ],
         // Athletic, poster-energy — gym customers respond to drive, not calm:
         // condensed caps, medium weight, quick motion, sturdy solid cards.
@@ -82,7 +80,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'oswald',
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',
         ],
         // Trustworthy, structured, confident — outline cards read precise,
         // nothing-to-hide.
@@ -93,7 +90,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'effect_surface' => 'outline',
         ],
         // Bold, boutique, fashion-forward — editorial serif + shoppable
         // solid-card energy.
@@ -104,7 +100,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',
         ],
         // Practical, sturdy, high-visibility trade colour — homeowners want
         // legible text and dependable filled panels, no design flourish.
@@ -118,7 +113,6 @@ final class CategoryStylePresets
             'border_radius' => '0.25rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'effect_surface' => 'solid',
         ],
         // Warm, inviting, relaxed — airy glass + unhurried motion, the lounge
         // welcome.
@@ -129,7 +123,6 @@ final class CategoryStylePresets
             'border_radius' => '0.25rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'slow',
-            'effect_surface' => 'glass',
         ],
         // Bold, industrial, high-contrast — garage-signage confidence: heavy
         // weight, true-square corners, filled panels. Square (0): trade
@@ -141,7 +134,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',
         ],
         // Expressive, distinctive, gallery-like — outline frames let the work
         // speak.
@@ -152,7 +144,6 @@ final class CategoryStylePresets
             'border_radius' => '0',
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
-            'effect_surface' => 'outline',
         ],
         // Approachable, clear, encouraging — larger text, friendly rounding,
         // modern-app glass.
@@ -163,7 +154,6 @@ final class CategoryStylePresets
             'border_radius' => '0.25rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
-            'effect_surface' => 'glass',
         ],
     ];
 

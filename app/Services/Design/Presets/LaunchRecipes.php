@@ -20,7 +20,7 @@ namespace App\Services\Design\Presets;
  *   - values    — a COMPLETE, coherent [design_kit column => value] set. Every
  *                 value is drawn from the established vocabulary (StyleTiers::TIERS
  *                 literals + AestheticExpression DIRECTION_TARGETS forms + the
- *                 effect_* identity-axis enums incl. effect_surface). Fonts are
+ *                 effect_* identity-axis enums). Fonts are
  *                 roster slugs.
  *
  * Backgrounds are theme_mode-owned (2026-07-10 rework) and entrance animation is
@@ -81,7 +81,6 @@ final class LaunchRecipes
                     'typography_font_family' => 'melodrama', // the roster's beauty-premium display serif (matches the beauty bucket)
                     'space_regular' => '0.8rem',       // generous/airy
                     'motion_pace' => 'slow',
-                    'effect_surface' => 'glass',        // soft translucency carries the luxe read
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_image_treatment' => 'warm',
@@ -113,7 +112,6 @@ final class LaunchRecipes
                     'typography_font_family' => 'oswald', // condensed grotesque
                     'space_regular' => '0.5rem',        // compact/energetic (ALD-tightened)
                     'motion_pace' => 'fast',
-                    'effect_surface' => 'solid',        // filled poster blocks
                     'effect_shadow_style' => 'hard',
                     'effect_link_style' => 'plain',
                     'effect_image_treatment' => 'mono',
@@ -148,7 +146,6 @@ final class LaunchRecipes
                     'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
                     'space_regular' => '0.625rem',       // regular
                     'motion_pace' => 'normal',
-                    'effect_surface' => 'glass',        // soft, welcoming panels
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_image_treatment' => 'warm',
@@ -196,7 +193,6 @@ final class LaunchRecipes
                     'typography_font_family' => 'young-serif', // elegant serif
                     'space_regular' => '0.8rem',       // generous
                     'motion_pace' => 'slow',
-                    'effect_surface' => 'outline',      // hairline editorial restraint
                     'effect_shadow_style' => 'flat',
                     'effect_link_style' => 'underline-always',
                     'effect_image_treatment' => 'duotone',
@@ -225,7 +221,6 @@ final class LaunchRecipes
                     'typography_font_family' => 'geist', // gallery-neutral grotesque — the chrome recedes, the work speaks
                     'space_regular' => '0.625rem',       // regular
                     'motion_pace' => 'normal',
-                    'effect_surface' => 'outline',      // gallery frames
                     'effect_shadow_style' => 'flat',
                     // NB: use 'underline-always' — 'underline-grow' is in the spec's
                     // vocabulary list but the renderer + design-kit validator only
@@ -274,7 +269,6 @@ final class LaunchRecipes
                     'motion_pace' => 'normal',
                     // Solid, not glass: handmade goods read tactile on filled cards;
                     // glass is a digital-luxe texture that fights the earthy register.
-                    'effect_surface' => 'solid',
                     'effect_shadow_style' => 'soft',
                     'effect_link_style' => 'underline-hover',
                     'effect_image_treatment' => 'warm',

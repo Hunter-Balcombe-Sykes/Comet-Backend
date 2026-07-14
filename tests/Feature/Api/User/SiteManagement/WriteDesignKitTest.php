@@ -283,9 +283,12 @@ it('busts the site cache twice on a design-kit-only update via the HTTP endpoint
 // 2026-07-10 theme/surface rework (migration 20260710160000) — write-surface
 // coverage for the new columns and retirement of the old values/columns.
 
-it('persists theme_mode, theme_night_shift_auto and effect_surface', function () {
+it('persists theme_mode + theme_night_shift_auto and drops the retired effect_surface key', function () {
     $siteId = seedSiteWithEmptyKit();
 
+    // effect_surface was dropped 2026-07-15 (migration 20260714210000): a
+    // stale client still sending it must not break the write — the
+    // information_schema allowlist silently drops the dead key.
     invokeWriteDesignKit($siteId, [
         'theme_mode' => 'dusk',
         'theme_night_shift_auto' => false,
@@ -296,7 +299,7 @@ it('persists theme_mode, theme_night_shift_auto and effect_surface', function ()
         ->where('site_id', $siteId)->first();
 
     expect($row->theme_mode)->toBe('dusk')
-        ->and($row->effect_surface)->toBe('outline')
+        ->and(property_exists($row, 'effect_surface'))->toBeFalse()
         // SQLite stores the boolean as 0 — assert the falsy value is a stored
         // false, not an untouched NULL.
         ->and($row->theme_night_shift_auto)->not->toBeNull()
@@ -365,7 +368,7 @@ it('silently drops the retired effect_style key over HTTP', function () {
         ->where('site_id', $pro->site->id)->first();
 
     expect($row->color_accent)->toBe('#123123')
-        // No silent remap onto the new column either — carry-over happened
-        // once, in the migration.
-        ->and($row->effect_surface)->toBeNull();
+        // No silent remap anywhere else either (the effect_surface column the
+        // 2026-07-10 rework carried values onto is itself dropped now).
+        ->and(property_exists($row, 'effect_surface'))->toBeFalse();
 });

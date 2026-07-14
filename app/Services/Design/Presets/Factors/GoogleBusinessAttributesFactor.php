@@ -65,7 +65,6 @@ class GoogleBusinessAttributesFactor implements DesignFactor
         if ($liveMusic || $cocktails) {
             return [
                 'motion_pace' => 'fast',
-                'effect_surface' => 'glass',
             ];
         }
 
@@ -74,7 +73,6 @@ class GoogleBusinessAttributesFactor implements DesignFactor
             return [
                 'motion_pace' => 'slow',
                 'weight_regular' => '300',
-                'effect_surface' => 'outline',
             ];
         }
 

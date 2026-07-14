@@ -44,7 +44,6 @@ class CuisineFactor implements EvidenceFactor
             'weight_regular' => '300',          // light
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'slow',
-            'effect_surface' => 'outline',      // hairline editorial restraint
             'effect_shadow_style' => 'flat',
             'effect_image_treatment' => 'duotone',
         ],
@@ -59,7 +58,6 @@ class CuisineFactor implements EvidenceFactor
             'border_radius' => '0.25rem',       // sharp
             'weight_regular' => '600',          // chunky
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',        // counter-service confidence
             'effect_shadow_style' => 'hard',
         ],
     ];
@@ -73,7 +71,6 @@ class CuisineFactor implements EvidenceFactor
         'weight_regular' => '400',
         'typography_font_family' => 'origin', // refined humanist serif (17->9 swap; PROVISIONAL)
         'motion_pace' => 'slow',
-        'effect_surface' => 'outline',
         'effect_image_treatment' => 'warm',
     ];
 

@@ -106,7 +106,7 @@ it('resolves evidence factors end-to-end: platform-mix ambient vibe lands', func
 
     expect($changed)->toBeTrue();
     $layer = evpResolver()->presetLayer($user->site->id);
-    expect($layer['effect_surface'])->toBe('glass')       // social-lifestyle vibe
+    expect($layer)->not->toHaveKey('effect_surface')       // social-lifestyle vibe
         ->and($layer['effect_shadow_style'])->toBe('soft');
 });
 
@@ -141,7 +141,7 @@ it('lets the declared aesthetic-expression factor (band E) beat a category facto
     // Declared expression (64) wins border_radius + surface over both the
     // food_drink bucket (Google 40, solid) and the Instagram beauty bucket (30).
     expect($layer['border_radius'])->toBe('1.5rem')
-        ->and($layer['effect_surface'])->toBe('glass'); // SOFT lean's material
+        ->and($layer)->not->toHaveKey('effect_surface'); // SOFT lean's material
 });
 
 it('lets a manual design_kits value beat every evidence factor', function () {
@@ -174,7 +174,7 @@ it('resolves the store price-point factor from seeded products (luxury)', functi
     $layer = evpResolver()->presetLayer($user->site->id);
 
     expect($layer['space_regular'])->toBe('0.8rem')     // airy
-        ->and($layer['effect_surface'])->toBe('outline'); // hairline boutique restraint
+        ->and($layer)->not->toHaveKey('effect_surface'); // hairline boutique restraint
 });
 
 it('freezes the one-shot aesthetic-expression contribution when IG data later changes', function () {

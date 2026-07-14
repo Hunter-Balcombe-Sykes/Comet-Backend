@@ -48,7 +48,7 @@ it('concludes fine-dining editorial look for a fine-dining category', function (
     expect($out['weight_regular'])->toBe('300')
         ->and($out['border_radius'])->toBe('0')
         ->and($out['typography_font_family'])->toBe('young-serif')
-        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['effect_shadow_style'])->toBe('flat')
         ->and($out['effect_image_treatment'])->toBe('duotone')
         ->and($out)->not->toHaveKey('color_bg');
@@ -68,7 +68,7 @@ it('concludes a bold fast-casual look', function () {
 
     expect($out['border_radius'])->toBe('0.25rem')
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_surface'])->toBe('solid')
+        ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['effect_shadow_style'])->toBe('hard');
 });
 
@@ -78,7 +78,7 @@ it('concludes a restrained look for a specific cuisine', function () {
     // Warm imagery, not muted — appetite rules food photography; the restraint
     // reads through the serif + slow pace + outline surface.
     expect($out['typography_font_family'])->toBe('origin')
-        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['motion_pace'])->toBe('slow')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });

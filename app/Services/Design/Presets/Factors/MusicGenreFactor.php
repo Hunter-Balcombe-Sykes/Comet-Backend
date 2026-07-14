@@ -82,7 +82,6 @@ class MusicGenreFactor implements EvidenceFactor
             // ground gone this is the family's identity anchor.
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',        // club-poster blocks
             'effect_shadow_style' => 'hard',
         ],
         self::ACOUSTIC => [
@@ -97,14 +96,12 @@ class MusicGenreFactor implements EvidenceFactor
             'weight_regular' => '300',          // light
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'slow',
-            'effect_surface' => 'outline',      // gallery restraint
             'effect_shadow_style' => 'flat',
             'effect_image_treatment' => 'duotone', // jazz-poster mood
         ],
         self::POP => [
             'weight_regular' => '500',          // medium
             'motion_pace' => 'normal',
-            'effect_surface' => 'outline',      // clean indie-label minimalism
         ],
     ];
 

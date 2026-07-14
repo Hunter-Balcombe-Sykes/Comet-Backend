@@ -91,14 +91,12 @@ class AestheticExpressionFactor implements EvidenceFactor
             'border_radius' => '1.5rem',    // very rounded
             'weight_regular' => '300',      // light
             'motion_pace' => 'slow',
-            'effect_surface' => 'glass',    // soft translucency
             'effect_shadow_style' => 'soft',
         ],
         self::BOLD => [
             'border_radius' => '0.25rem',   // sharp
             'weight_regular' => '600',      // chunky
             'motion_pace' => 'fast',
-            'effect_surface' => 'solid',    // filled high-contrast blocks
             'effect_shadow_style' => 'hard',
         ],
     ];

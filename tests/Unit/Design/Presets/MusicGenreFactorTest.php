@@ -79,7 +79,7 @@ it('maps an electronic genre to a heavy club-poster look', function () {
     expect($out['typography_font_family'])->toBe('reglo')
         ->and($out['border_radius'])->toBe('0') // club-flyer square
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_surface'])->toBe('solid')
+        ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['effect_shadow_style'])->toBe('hard');
 });
 
@@ -94,7 +94,7 @@ it('maps an acoustic genre to a warm soft look', function () {
 it('maps classical/jazz to an editorial look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Jazz']));
 
-    expect($out['effect_surface'])->toBe('outline')
+    expect($out)->not->toHaveKey('effect_surface')
         ->and($out['typography_font_family'])->toBe('young-serif')
         ->and($out['effect_image_treatment'])->toBe('duotone');
 });
@@ -103,7 +103,7 @@ it('maps pop/indie to a clean medium-weight look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Indie Pop']));
 
     expect($out['weight_regular'])->toBe('500')
-        ->and($out['effect_surface'])->toBe('outline')
+        ->and($out)->not->toHaveKey('effect_surface')
         ->and($out)->not->toHaveKey('color_bg');
 });
 
@@ -166,14 +166,14 @@ it('an apple-music hip-hop genre lights up the electronic look', function () {
     $out = (new MusicGenreFactor)->detect($evidence);
     expect($out['typography_font_family'])->toBe('reglo')
         ->and($out['weight_regular'])->toBe('600')
-        ->and($out['effect_surface'])->toBe('solid');
+        ->and($out)->not->toHaveKey('effect_surface');
 });
 
 it('an apple-music alternative genre lights up the pop/indie look', function () {
     $evidence = mgAppleEvidence(['input' => 'A Band', 'genre' => 'alternative']);
 
     expect($evidence->musicGenre())->toBe('alternative');
-    expect((new MusicGenreFactor)->detect($evidence)['effect_surface'])->toBe('outline');
+    expect((new MusicGenreFactor)->detect($evidence)['weight_regular'])->toBe('500');
 });
 
 // ── Safety contract ──────────────────────────────────────────────────────────

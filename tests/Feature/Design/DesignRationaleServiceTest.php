@@ -84,7 +84,7 @@ it('labels a manually-overridden column "You set this." and drops its factor att
 
 it('surfaces a launch recipe as a neutral "curated look" and aesthetic-expression neutrally', function () {
     $siteId = (string) Str::uuid();
-    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'effect_surface', 'glass', 'one_shot');
+    contribute($siteId, 'launch-recipe:archetype', 'launch-recipe', 70, 'effect_shadow_style', 'soft', 'one_shot');
     contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'weight_regular', '300', 'one_shot');
 
     $out = app(DesignRationaleService::class)->forSite($siteId);
@@ -98,7 +98,7 @@ it('surfaces a launch recipe as a neutral "curated look" and aesthetic-expressio
 it('never surfaces raw column names, factor keys, or sensitive/demographic detail', function () {
     $siteId = (string) Str::uuid();
     // A spread across many sources, including the sensitive aesthetic one.
-    contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'effect_surface', 'glass', 'one_shot');
+    contribute($siteId, 'aesthetic-expression:lean', 'aesthetic-expression', 64, 'effect_image_treatment', 'warm', 'one_shot');
     contribute($siteId, 'instagram:category', 'instagram', 30, 'color_accent', '#b8375a');
     contribute($siteId, 'store:price-point', 'store', 58, 'space_regular', '1.15rem');
     contribute($siteId, 'hours-rhythm:energy', 'hours', 15, 'motion_pace', 'fast');

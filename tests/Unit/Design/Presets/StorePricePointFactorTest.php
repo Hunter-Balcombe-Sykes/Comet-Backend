@@ -71,7 +71,7 @@ it('classifies a luxury median (>= A$150) to the airy recipe', function () {
     expect($out['space_regular'])->toBe('0.8rem')
         ->and($out['border_thickness'])->toBe('0.5px')
         ->and($out['motion_pace'])->toBe('slow')
-        ->and($out['effect_surface'])->toBe('outline'); // hairline boutique restraint
+        ->and($out)->not->toHaveKey('effect_surface'); // hairline boutique restraint
 });
 
 it('classifies a casual median (<= A$40) to the compact recipe', function () {
@@ -80,7 +80,7 @@ it('classifies a casual median (<= A$40) to the compact recipe', function () {
     expect($out['space_regular'])->toBe('0.5rem')
         ->and($out['border_radius'])->toBe('0.25rem')
         ->and($out['weight_regular'])->toBe('500')
-        ->and($out['effect_surface'])->toBe('solid'); // filled, friendly, accessible
+        ->and($out)->not->toHaveKey('effect_surface'); // filled, friendly, accessible
 });
 
 it('classifies a mid median to the neutral recipe', function () {

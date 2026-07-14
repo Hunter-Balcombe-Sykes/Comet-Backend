@@ -52,7 +52,6 @@ class DesignRationaleService
         'layout_density' => 'Layout',
         'border_style' => 'Layout',
         'motion_pace' => 'Motion',
-        'effect_surface' => 'Style',
         'effect_shadow_style' => 'Style',
         'effect_link_style' => 'Style',
         'effect_image_treatment' => 'Style',

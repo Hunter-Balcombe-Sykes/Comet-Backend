@@ -117,12 +117,10 @@ function swResolve(IdentityEvidence $evidence): array
 }
 
 /**
- * Assert a merged kit is internally coherent. The axes surface / radius /
- * weight / shadow must not pull in contradictory directions (backgrounds are
- * theme_mode-owned since 2026-07-10, so the material axis is effect_surface).
- * Concretely (spec §1c, re-based for the theme/surface era):
- *   • a GLASS surface (the soft material) must NOT co-occur with a HARD shadow
- *     — translucent panels with brutal drop shadows is the canonical mash-up.
+ * Assert a merged kit is internally coherent. The axes radius / weight /
+ * shadow must not pull in contradictory directions (backgrounds are
+ * theme_mode-owned since 2026-07-10; the effect_surface material axis was
+ * REMOVED 2026-07-15, so no kit may carry it at all). Concretely (spec §1c):
  *   • a VERY-ROUNDED radius (1.5rem, the soft shape) must NOT co-occur with a
  *     HEAVY weight — soft shapes want light-to-regular type.
  * These are deliberately narrow, high-confidence contradiction checks — they
@@ -133,16 +131,15 @@ function swResolve(IdentityEvidence $evidence): array
  */
 function assertCoherent(array $kit): void
 {
-    $surface = $kit['effect_surface'] ?? null;
     $shadow = $kit['effect_shadow_style'] ?? null;
     $radius = $kit['border_radius'] ?? null;
     $weight = $kit['weight_regular'] ?? null;
 
     $heavyWeight = in_array($weight, ['600', '700'], true);
 
-    expect($surface === 'glass' && $shadow === 'hard')->toBeFalse(
-        "incoherent: glass surface + hard shadow (weight {$weight}, radius {$radius})",
-    );
+    // The surface axis is retired — a merged kit carrying it means a factor
+    // is still emitting the dead column.
+    expect($kit)->not->toHaveKey('effect_surface');
 
     expect($radius === '1.5rem' && $heavyWeight)->toBeFalse(
         "incoherent: very-rounded radius ({$radius}) + heavy weight ({$weight})",
@@ -169,8 +166,7 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
     expect($r['kit']['border_radius'])->toBe('1.5rem')
         ->and($r['kit']['weight_regular'])->toBe('300')
         ->and($r['kit']['typography_font_family'])->toBe('melodrama')
-        ->and($r['kit']['effect_surface'])->toBe('glass')
-        ->and($r['kit']['effect_shadow_style'])->toBe('soft');
+                ->and($r['kit']['effect_shadow_style'])->toBe('soft');
     assertCoherent($r['kit']);
 });
 
@@ -185,8 +181,7 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['weight_regular'])->toBe('600')
         ->and($r['kit']['border_radius'])->toBe('0') // square — the 2-signal poster archetype earns the extreme stop
-        ->and($r['kit']['effect_surface'])->toBe('solid')
-        ->and($r['kit']['effect_shadow_style'])->toBe('hard')
+                ->and($r['kit']['effect_shadow_style'])->toBe('hard')
         ->and($r['kit']['color_accent'])->toBe('#c81e1e');
     assertCoherent($r['kit']);
 });
@@ -199,8 +194,7 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('young-serif')
-        ->and($r['kit']['effect_surface'])->toBe('glass')
-        ->and($r['kit']['effect_image_treatment'])->toBe('warm');
+                ->and($r['kit']['effect_image_treatment'])->toBe('warm');
     assertCoherent($r['kit']);
 });
 
@@ -215,8 +209,7 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
     expect($r['kit']['typography_font_family'])->toBe('young-serif')
         ->and($r['kit']['color_accent'])->toBe('#c9a24b')
         ->and($r['kit']['weight_regular'])->toBe('300')
-        ->and($r['kit']['effect_surface'])->toBe('outline')
-        ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
+                ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
     assertCoherent($r['kit']);
 });
 
@@ -228,8 +221,7 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('geist')
-        ->and($r['kit']['effect_surface'])->toBe('outline')
-        ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
+                ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
     assertCoherent($r['kit']);
 });
 
@@ -241,8 +233,7 @@ it('maker archetype resolves to the maker recipe, coherently', function () {
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('origin')
-        ->and($r['kit']['border_radius'])->toBe('0.85rem')
-        ->and($r['kit']['effect_surface'])->toBe('solid'); // tactile craft, not glass
+        ->and($r['kit']['border_radius'])->toBe('0.85rem');
     assertCoherent($r['kit']);
 });
 
@@ -328,7 +319,6 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
         'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold
         'space_regular' => ['0.5rem', '0.625rem', '0.8rem'],            // compact / regular / generous (ALD)
         'motion_pace' => ['slow', 'normal', 'fast'],
-        'effect_surface' => ['glass', 'solid', 'outline'],
         'effect_shadow_style' => ['flat', 'soft', 'hard'],
         'effect_link_style' => ['underline-hover', 'underline-always', 'plain'],
         'effect_image_treatment' => ['none', 'mono', 'duotone', 'warm', 'muted'],

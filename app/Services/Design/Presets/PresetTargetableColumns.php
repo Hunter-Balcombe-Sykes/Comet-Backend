@@ -44,16 +44,17 @@ final class PresetTargetableColumns
         'border_style',             // selection (solid | double | none)
         // Animation + effects (selection)
         'motion_pace',
-        'effect_surface',           // glass | solid | outline — storage-only Surface type
         // R6 identity axes (migration 20260707130000) — the factor system is the
         // PRIMARY setter of these; the dashboard exposes only the Visual Style
         // preset + Customize expando (spec §1, §6).
         'effect_shadow_style',      // flat | soft | hard
         'effect_link_style',        // underline-hover | underline-always | plain  (NOT underline-grow — unrenderable; the sitepage renderer + kit validator only accept these three, a stray 'underline-grow' silently falls back to hover)
         'effect_image_treatment',   // none | mono | duotone | warm | muted
-        // effect_button_fill retired 2026-07-10 (surfaces): buttons render as
-        // the effect_surface chip. The glass knobs (effect_glass_blur,
-        // motion_glass_shine_duration) are deliberately NOT factor-targetable.
+        // effect_button_fill retired 2026-07-10; effect_surface retired
+        // 2026-07-15 (the surface-type kit axis is gone — stale contributions
+        // targeting it are dropped by this allowlist). The glass knobs
+        // (effect_glass_blur, motion_glass_shine_duration) are deliberately
+        // NOT factor-targetable.
     ];
 
     public static function isValid(string $column): bool

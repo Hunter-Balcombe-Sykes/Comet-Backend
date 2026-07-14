@@ -45,7 +45,6 @@ it('maps a creator-AV-heavy mix to fast motion + hard shadows + solid surface', 
     expect($out)->toBe([
         'motion_pace' => 'fast',
         'effect_shadow_style' => 'hard',
-        'effect_surface' => 'solid',
     ]);
 });
 
@@ -55,7 +54,6 @@ it('maps a social-lifestyle mix to normal motion + soft shadows + glass surface'
     expect($out)->toBe([
         'motion_pace' => 'normal',
         'effect_shadow_style' => 'soft',
-        'effect_surface' => 'glass',
     ]);
 });
 
@@ -65,7 +63,6 @@ it('maps a local-service mix to slow motion + soft shadows + glass surface', fun
     expect($out)->toBe([
         'motion_pace' => 'slow',
         'effect_shadow_style' => 'soft',
-        'effect_surface' => 'glass',
     ]);
 });
 
@@ -79,7 +76,6 @@ it('maps a retail-only mix to normal motion + flat shadows + outline surface', f
     expect($out)->toBe([
         'motion_pace' => 'normal',
         'effect_shadow_style' => 'flat',
-        'effect_surface' => 'outline',
     ]);
 });
 
@@ -96,7 +92,7 @@ it('ignores unregistered / uncategorised slugs when tallying', function () {
     // 'custom' has no design vibe; two social platforms still carry the read.
     $out = mixFactor()->detect(mixEvidence(['custom', 'instagram', 'tiktok']));
 
-    expect($out['effect_surface'])->toBe('glass');
+    expect($out)->not->toHaveKey('effect_surface');
 });
 
 it('is registered in band A (ambient) as an auto factor', function () {

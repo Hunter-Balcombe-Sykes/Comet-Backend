@@ -63,7 +63,7 @@ it('applies the restaurant preset for a Google Business restaurant', function ()
         ->and($layer['border_radius'])->toBe('0')
         ->and($layer['typography_font_family'])->toBe('young-serif')
         ->and($layer['motion_pace'])->toBe('fast')
-        ->and($layer['effect_surface'])->toBe('solid');
+        ->and($layer)->not->toHaveKey('effect_surface');
 });
 
 it('contributes nothing for a Google Business type with no matching bucket', function () {

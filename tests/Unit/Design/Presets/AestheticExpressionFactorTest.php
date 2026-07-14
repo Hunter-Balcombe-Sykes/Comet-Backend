@@ -43,7 +43,7 @@ it('concludes SOFT when category and name both lean soft', function () {
     ]));
 
     // Surface carries the soft material read (bg is theme_mode-owned now).
-    expect($out['effect_surface'])->toBe('glass')
+    expect($out)->not->toHaveKey('effect_surface')
         ->and($out['border_radius'])->toBe('1.5rem')
         ->and($out['weight_regular'])->toBe('300')
         ->and($out['motion_pace'])->toBe('slow')
@@ -56,7 +56,7 @@ it('concludes BOLD when category and name both lean bold', function () {
         'fullName' => 'Iron Forge Strength',
     ]));
 
-    expect($out['effect_surface'])->toBe('solid')
+    expect($out)->not->toHaveKey('effect_surface')
         ->and($out['border_radius'])->toBe('0.25rem')
         ->and($out['weight_regular'])->toBe('600')
         ->and($out['motion_pace'])->toBe('fast')

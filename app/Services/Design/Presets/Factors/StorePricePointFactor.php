@@ -74,7 +74,6 @@ class StorePricePointFactor implements EvidenceFactor
             'space_regular' => '0.8rem',    // generous (ALD-tightened)
             'border_thickness' => '0.5px',  // hairline
             'motion_pace' => 'slow',
-            'effect_surface' => 'outline',  // hairline boutique restraint
         ],
         self::BAND_MID => [
             'space_regular' => '0.625rem',  // regular (ALD base)
@@ -89,7 +88,6 @@ class StorePricePointFactor implements EvidenceFactor
             'border_radius' => '0.25rem',   // softly rounded (ALD-square-centered)
             'weight_regular' => '500',
             'motion_pace' => 'normal',
-            'effect_surface' => 'solid',    // filled, friendly, accessible
         ],
     ];
 

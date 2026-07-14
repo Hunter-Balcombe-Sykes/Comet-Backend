@@ -66,12 +66,12 @@ it('applies the sector bucket preset for a manually declared sector', function (
 
     $layer = identityResolver()->presetLayer($user->site->id);
     // therapist → HEALTH_FITNESS bucket (poster-athletic since the 2026-07-10
-    // factor pass: medium weight, fast pace, solid cards).
+    // factor pass: medium weight, fast pace).
     expect($layer['color_accent'])->toBe('#2f6b57')
         ->and($layer['typography_font_family'])->toBe('oswald')
         ->and($layer['weight_regular'])->toBe('500')
         ->and($layer['motion_pace'])->toBe('fast')
-        ->and($layer['effect_surface'])->toBe('solid');
+        ->and($layer)->not->toHaveKey('effect_surface');
 });
 
 it('contributes nothing for a google-derived sector (GB type already covers it)', function () {
@@ -111,10 +111,9 @@ it('refines a bucket with nightlife attributes — fast pace + glass override, c
     // Bucket (food_drink) colours/font survive …
     expect($layer['color_accent'])->toBe('#e0491f')
         ->and($layer['typography_font_family'])->toBe('young-serif')
-        // … while the attribute refinement (band D, 52 > 40) owns pace and
-        // flips the bucket's solid cards to night-venue glass.
+        // … while the attribute refinement (band D, 52 > 40) owns pace.
         ->and($layer['motion_pace'])->toBe('fast')
-        ->and($layer['effect_surface'])->toBe('glass');
+        ->and($layer)->not->toHaveKey('effect_surface');
 });
 
 it('refines an upscale listing to the composed treatment', function () {
@@ -127,10 +126,10 @@ it('refines an upscale listing to the composed treatment', function () {
     identityResolver()->resolveForUser($user);
 
     $layer = identityResolver()->presetLayer($user->site->id);
-    // Premium restraint: slow + light + outline (52) over the food bucket (40).
+    // Premium restraint: slow + light (52) over the food bucket (40).
     expect($layer['motion_pace'])->toBe('slow')
         ->and($layer['weight_regular'])->toBe('300')
-        ->and($layer['effect_surface'])->toBe('outline');
+        ->and($layer)->not->toHaveKey('effect_surface');
 });
 
 it('contributes no attribute refinement when no signal is present', function () {
