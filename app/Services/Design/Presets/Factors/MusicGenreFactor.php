@@ -78,23 +78,23 @@ class MusicGenreFactor implements EvidenceFactor
         self::ELECTRONIC => [
             'border_radius' => '0',             // square — club-flyer geometry; reglo is a brutalist face and the genre is a declared fact, not an inference
             'weight_regular' => '600',          // chunky
-            // reglo IS the DJ/producer face (knowledge base §2) — with the dark
-            // ground gone this is the family's identity anchor.
-            'typography_font_family' => 'reglo',
+            // Brutalist club-poster register — monument-grotesk is the roster's
+            // bold industrial grotesque (KB §4 brutalist cluster).
+            'typography_font_family' => 'monument-grotesk',
             'motion_pace' => 'fast',
             'effect_shadow_style' => 'hard',
         ],
         self::ACOUSTIC => [
             'border_radius' => '1.5rem',        // very rounded
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'origin',
+            'typography_font_family' => 'general-sans',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'soft',
             'effect_image_treatment' => 'warm',
         ],
         self::REFINED => [
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'young-serif',
+            'typography_font_family' => 'helvetica-neue',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'flat',
             'effect_image_treatment' => 'duotone', // jazz-poster mood

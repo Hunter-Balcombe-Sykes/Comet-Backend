@@ -31,19 +31,18 @@ final class StyleTiers
     /** @var array<string, array<string, string>> signal => tier => literal */
     private const TIERS = [
         // Font tiers ARE the catalog slugs — validated against this set.
-        // 9-font roster locked 2026-07-09 (docs/design/font-icon-knowledge.md).
-        // RETIRED — never reintroduce: the 4 pre-2026-07 slugs plus the 13
-        // dropped in the 17->9 swap (see RETIRED_FONT_MIGRATION in the registry).
+        // 7-font single-font roster (2026-07-12 rework; this bridge re-synced
+        // 2026-07-15 — it had been left on the retired 9-roster, so factor
+        // emissions could stamp dead slugs). Canon:
+        // docs/design/font-icon-knowledge.md §1/§4.
         'font' => [
             'geist' => 'geist',
-            'humane' => 'humane',
-            'melodrama' => 'melodrama',
-            'origin' => 'origin',
-            'ostrich-sans' => 'ostrich-sans',
-            'oswald' => 'oswald',
-            'parceh' => 'parceh',
-            'reglo' => 'reglo',
-            'young-serif' => 'young-serif',
+            'inter' => 'inter',
+            'general-sans' => 'general-sans',
+            'monument-grotesk' => 'monument-grotesk',
+            'forma-djr' => 'forma-djr',
+            'helvetica-neue' => 'helvetica-neue',
+            'helvetica-now' => 'helvetica-now',
         ],
         'weight' => [
             'light' => '300',

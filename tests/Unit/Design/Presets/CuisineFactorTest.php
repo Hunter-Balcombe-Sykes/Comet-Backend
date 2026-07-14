@@ -47,7 +47,7 @@ it('concludes fine-dining editorial look for a fine-dining category', function (
     // square editorial shape refining the food bucket's soft corners.
     expect($out['weight_regular'])->toBe('300')
         ->and($out['border_radius'])->toBe('0')
-        ->and($out['typography_font_family'])->toBe('young-serif')
+        ->and($out['typography_font_family'])->toBe('helvetica-neue')
         ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['effect_shadow_style'])->toBe('flat')
         ->and($out['effect_image_treatment'])->toBe('duotone')
@@ -77,7 +77,7 @@ it('concludes a restrained look for a specific cuisine', function () {
 
     // Warm imagery, not muted — appetite rules food photography; the restraint
     // reads through the serif + slow pace + outline surface.
-    expect($out['typography_font_family'])->toBe('origin')
+    expect($out['typography_font_family'])->toBe('general-sans')
         ->and($out)->not->toHaveKey('effect_surface')
         ->and($out['motion_pace'])->toBe('slow')
         ->and($out['effect_image_treatment'])->toBe('warm');

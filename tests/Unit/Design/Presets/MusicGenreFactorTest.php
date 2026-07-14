@@ -76,7 +76,7 @@ it('maps an electronic genre to a heavy club-poster look', function () {
 
     // Dark ground retired (theme_mode owns bg) — the family reads through the
     // brutalist face + heavy weight + solid blocks + hard shadows.
-    expect($out['typography_font_family'])->toBe('reglo')
+    expect($out['typography_font_family'])->toBe('monument-grotesk')
         ->and($out['border_radius'])->toBe('0') // club-flyer square
         ->and($out['weight_regular'])->toBe('600')
         ->and($out)->not->toHaveKey('effect_surface')
@@ -87,7 +87,7 @@ it('maps an acoustic genre to a warm soft look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Acoustic Folk']));
 
     expect($out['border_radius'])->toBe('1.5rem')
-        ->and($out['typography_font_family'])->toBe('origin')
+        ->and($out['typography_font_family'])->toBe('general-sans')
         ->and($out['effect_image_treatment'])->toBe('warm');
 });
 
@@ -95,7 +95,7 @@ it('maps classical/jazz to an editorial look', function () {
     $out = (new MusicGenreFactor)->detect(mgEvidence(['genre' => 'Jazz']));
 
     expect($out)->not->toHaveKey('effect_surface')
-        ->and($out['typography_font_family'])->toBe('young-serif')
+        ->and($out['typography_font_family'])->toBe('helvetica-neue')
         ->and($out['effect_image_treatment'])->toBe('duotone');
 });
 
@@ -164,7 +164,7 @@ it('an apple-music hip-hop genre lights up the electronic look', function () {
     expect($evidence->musicGenre())->toBe('hip-hop/rap');
 
     $out = (new MusicGenreFactor)->detect($evidence);
-    expect($out['typography_font_family'])->toBe('reglo')
+    expect($out['typography_font_family'])->toBe('monument-grotesk')
         ->and($out['weight_regular'])->toBe('600')
         ->and($out)->not->toHaveKey('effect_surface');
 });

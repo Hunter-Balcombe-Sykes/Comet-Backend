@@ -42,7 +42,7 @@ class CuisineFactor implements EvidenceFactor
         CuisineLexicon::FINE_DINING => [
             'border_radius' => '0',             // square — the editorial shape; refines the food bucket's soft corners (44 > 40)
             'weight_regular' => '300',          // light
-            'typography_font_family' => 'young-serif',
+            'typography_font_family' => 'helvetica-neue',
             'motion_pace' => 'slow',
             'effect_shadow_style' => 'flat',
             'effect_image_treatment' => 'duotone',
@@ -69,7 +69,7 @@ class CuisineFactor implements EvidenceFactor
      */
     private const SPECIFIC_TARGET = [
         'weight_regular' => '400',
-        'typography_font_family' => 'origin', // refined humanist serif (17->9 swap; PROVISIONAL)
+        'typography_font_family' => 'general-sans', // refined humanist warmth (KB §4 cluster)
         'motion_pace' => 'slow',
         'effect_image_treatment' => 'warm',
     ];

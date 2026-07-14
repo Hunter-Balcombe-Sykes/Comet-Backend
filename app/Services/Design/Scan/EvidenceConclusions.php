@@ -655,24 +655,27 @@ class EvidenceConclusions
     }
 
     /**
-     * Closest of our 17 catalog fonts, by family-name keyword
-     * (docs/design/font-icon-knowledge.md §4 — keep both in sync).
+     * Closest of the 7 live catalog fonts, by family-name keyword
+     * (docs/design/font-icon-knowledge.md §4 — keep both in sync; re-synced
+     * 2026-07-15 after the single-font rework left this map on the retired
+     * roster).
      *
      * Ordered specific-before-generic. Two disambiguation guards run first
-     * ('cooper hewitt' before the bare 'cooper' that young-serif claims;
-     * 'cormorant garamond' before the bare 'cormorant' that playfair-display
-     * claims) — every other keyword in the doc's own row order is already
-     * conflict-free. 'serif' / 'sans serif' are the generic catch-alls and
-     * stay last. Keywords are written space-separated (never hyphenated):
-     * firstFamily() already turns '-apple-system' / 'system-ui' into
-     * 'apple system' / 'system ui' before this method ever sees the string.
+     * ('cooper hewitt' before the bare 'cooper' the chunky-serif cluster
+     * claims; 'cormorant garamond' before the bare 'cormorant' the didone
+     * cluster claims) — every other keyword in the doc's own row order is
+     * already conflict-free. 'serif' / 'sans serif' are the generic
+     * catch-alls and stay last. Keywords are written space-separated (never
+     * hyphenated): firstFamily() already turns '-apple-system' / 'system-ui'
+     * into 'apple system' / 'system ui' before this method ever sees the
+     * string.
      */
     private function fontSlug(string $family): ?string
     {
         $map = [
             // Disambiguation guards — must run before their generic substrings.
             'cooper hewitt' => 'geist',
-            'cormorant garamond' => 'origin',
+            'cormorant garamond' => 'helvetica-neue',
 
             // Monospace.
             'office code' => 'geist', 'source code' => 'geist',
@@ -683,55 +686,55 @@ class EvidenceConclusions
             'menlo' => 'geist', 'monaco' => 'geist',
             'mono' => 'geist', 'monospace' => 'geist',
 
-            // Didone / high-contrast display serif.
-            'playfair' => 'origin', 'didot' => 'origin',
-            'bodoni' => 'origin', 'abril' => 'origin',
-            'prata' => 'origin', 'cormorant' => 'origin',
+            // Didone / high-contrast display serif → the editorial classic.
+            'playfair' => 'helvetica-neue', 'didot' => 'helvetica-neue',
+            'bodoni' => 'helvetica-neue', 'abril' => 'helvetica-neue',
+            'prata' => 'helvetica-neue', 'cormorant' => 'helvetica-neue',
 
-            // Old-style (Garalde) serif.
-            'garamond' => 'origin', 'sabon' => 'origin',
-            'minion' => 'origin', 'bembo' => 'origin', 'caslon' => 'origin',
+            // Old-style (Garalde) serif → warm humanist sans.
+            'garamond' => 'general-sans', 'sabon' => 'general-sans',
+            'minion' => 'general-sans', 'bembo' => 'general-sans', 'caslon' => 'general-sans',
 
-            // Transitional serif / generic serif fallback.
-            'baskerville' => 'origin', 'georgia' => 'origin',
-            'times' => 'origin', 'merriweather' => 'origin',
-            'lora' => 'origin', 'pt serif' => 'origin',
-            'source serif' => 'origin', 'crimson' => 'origin',
-            'charter' => 'origin', 'literata' => 'origin',
+            // Transitional serif / generic serif fallback → warm humanist sans.
+            'baskerville' => 'general-sans', 'georgia' => 'general-sans',
+            'times' => 'general-sans', 'merriweather' => 'general-sans',
+            'lora' => 'general-sans', 'pt serif' => 'general-sans',
+            'source serif' => 'general-sans', 'crimson' => 'general-sans',
+            'charter' => 'general-sans', 'literata' => 'general-sans',
 
-            // Chunky old-style serif.
-            'young serif' => 'young-serif', 'recoleta' => 'young-serif',
-            'windsor' => 'young-serif', 'clearface' => 'young-serif',
-            'souvenir' => 'young-serif', 'cooper' => 'young-serif',
+            // Chunky old-style serif → the sturdy workhorse.
+            'young serif' => 'forma-djr', 'recoleta' => 'forma-djr',
+            'windsor' => 'forma-djr', 'clearface' => 'forma-djr',
+            'souvenir' => 'forma-djr', 'cooper' => 'forma-djr',
 
-            // Slab serif.
-            'zilla' => 'origin', 'rockwell' => 'origin', 'roboto slab' => 'origin',
-            'arvo' => 'origin', 'bitter' => 'origin', 'museo slab' => 'origin',
-            'josefin slab' => 'origin', 'clarendon' => 'origin', 'slab' => 'origin',
+            // Slab serif → the bold grotesque.
+            'zilla' => 'monument-grotesk', 'rockwell' => 'monument-grotesk', 'roboto slab' => 'monument-grotesk',
+            'arvo' => 'monument-grotesk', 'bitter' => 'monument-grotesk', 'museo slab' => 'monument-grotesk',
+            'josefin slab' => 'monument-grotesk', 'clarendon' => 'monument-grotesk', 'slab' => 'monument-grotesk',
 
-            // Condensed gothic display.
-            'oswald' => 'oswald', 'bebas' => 'oswald', 'anton' => 'oswald',
-            'league gothic' => 'oswald', 'impact' => 'oswald', 'haettenschweiler' => 'oswald',
-            'tungsten' => 'oswald', 'din condensed' => 'oswald',
-            'barlow condensed' => 'oswald', 'roboto condensed' => 'oswald',
+            // Condensed gothic display → the bold grotesque.
+            'oswald' => 'monument-grotesk', 'bebas' => 'monument-grotesk', 'anton' => 'monument-grotesk',
+            'league gothic' => 'monument-grotesk', 'impact' => 'monument-grotesk', 'haettenschweiler' => 'monument-grotesk',
+            'tungsten' => 'monument-grotesk', 'din condensed' => 'monument-grotesk',
+            'barlow condensed' => 'monument-grotesk', 'roboto condensed' => 'monument-grotesk',
 
-            // Deco display sans.
-            'ostrich' => 'ostrich-sans', 'josefin' => 'ostrich-sans',
+            // Deco display sans → the workhorse with display presence.
+            'ostrich' => 'forma-djr', 'josefin' => 'forma-djr',
 
-            // Brutalist geometric sans.
-            'reglo' => 'reglo', 'druk' => 'reglo', 'eurostile' => 'reglo',
-            'microgramma' => 'reglo', 'agency' => 'reglo',
+            // Brutalist geometric sans → the bold grotesque.
+            'reglo' => 'monument-grotesk', 'druk' => 'monument-grotesk', 'eurostile' => 'monument-grotesk',
+            'microgramma' => 'monument-grotesk', 'agency' => 'monument-grotesk',
 
-            // Handwritten script.
-            'caveat' => 'melodrama', 'dancing script' => 'melodrama', 'pacifico' => 'melodrama',
-            'satisfy' => 'melodrama', 'kalam' => 'melodrama', 'indie flower' => 'melodrama',
-            'shadows into light' => 'melodrama', 'amatic' => 'melodrama', 'permanent marker' => 'melodrama',
-            'lobster' => 'melodrama', 'great vibes' => 'melodrama', 'sacramento' => 'melodrama', 'cursive' => 'melodrama',
+            // Handwritten script → warm humanist sans.
+            'caveat' => 'general-sans', 'dancing script' => 'general-sans', 'pacifico' => 'general-sans',
+            'satisfy' => 'general-sans', 'kalam' => 'general-sans', 'indie flower' => 'general-sans',
+            'shadows into light' => 'general-sans', 'amatic' => 'general-sans', 'permanent marker' => 'general-sans',
+            'lobster' => 'general-sans', 'great vibes' => 'general-sans', 'sacramento' => 'general-sans', 'cursive' => 'general-sans',
 
-            // Rounded geometric sans.
-            'quicksand' => 'geist', 'nunito' => 'geist', 'comfortaa' => 'geist',
-            'varela' => 'geist', 'baloo' => 'geist', 'fredoka' => 'geist',
-            'rubik' => 'geist', 'vag' => 'geist',
+            // Rounded geometric sans → warm humanist sans.
+            'quicksand' => 'general-sans', 'nunito' => 'general-sans', 'comfortaa' => 'general-sans',
+            'varela' => 'general-sans', 'baloo' => 'general-sans', 'fredoka' => 'general-sans',
+            'rubik' => 'general-sans', 'vag' => 'general-sans',
 
             // Contemporary geometric sans.
             'gotham' => 'geist', 'montserrat' => 'geist', 'proxima' => 'geist',
@@ -744,29 +747,31 @@ class EvidenceConclusions
             'm plus' => 'geist', 'mplus' => 'geist', 'zen kaku' => 'geist',
             'noto sans jp' => 'geist', 'din' => 'geist',
 
-            // Grotesque sans (American gothic lineage).
-            'archivo' => 'geist', 'franklin' => 'geist', 'trade gothic' => 'geist',
-            'barlow' => 'geist', 'public sans' => 'geist', 'libre franklin' => 'geist',
-            'oscine' => 'geist',
+            // Grotesque sans (American gothic lineage) → modern Helvetica.
+            'archivo' => 'helvetica-now', 'franklin' => 'helvetica-now', 'trade gothic' => 'helvetica-now',
+            'barlow' => 'helvetica-now', 'public sans' => 'helvetica-now', 'libre franklin' => 'helvetica-now',
+            'oscine' => 'helvetica-now',
 
-            // Helvetica-clone grotesque.
-            'helvetica' => 'geist', 'neue haas' => 'geist', 'haas' => 'geist',
-            'nimbus' => 'geist', 'arial' => 'geist', 'univers' => 'geist',
-            'aktiv' => 'geist', 'suisse' => 'geist', 'swiss 721' => 'geist',
-            'akzidenz' => 'geist',
+            // Helvetica-lineage grotesque → the classic itself.
+            'helvetica' => 'helvetica-neue', 'neue haas' => 'helvetica-neue', 'haas' => 'helvetica-neue',
+            'nimbus' => 'helvetica-neue', 'arial' => 'helvetica-neue', 'univers' => 'helvetica-neue',
+            'swiss 721' => 'helvetica-neue', 'akzidenz' => 'helvetica-neue',
 
-            // Neo-grotesque / system UI sans.
-            'roboto' => 'geist', 'noto sans' => 'geist', 'inter' => 'geist',
-            'san francisco' => 'geist', 'sf pro' => 'geist', 'apple system' => 'geist',
-            'system ui' => 'geist', 'segoe' => 'geist', 'ubuntu' => 'geist', 'ibm plex sans' => 'geist',
+            // Modern Swiss grotesque → modern Helvetica.
+            'aktiv' => 'helvetica-now', 'suisse' => 'helvetica-now',
 
-            // Humanist grotesque / generic sans fallback.
-            'work sans' => 'geist', 'open sans' => 'geist', 'lato' => 'geist',
-            'source sans' => 'geist', 'pt sans' => 'geist', 'karla' => 'geist',
-            'mulish' => 'geist', 'assistant' => 'geist', 'figtree' => 'geist',
+            // Neo-grotesque / system UI sans → the proven UI standard.
+            'roboto' => 'inter', 'noto sans' => 'inter', 'inter' => 'inter',
+            'san francisco' => 'inter', 'sf pro' => 'inter', 'apple system' => 'inter',
+            'system ui' => 'inter', 'segoe' => 'inter', 'ubuntu' => 'inter', 'ibm plex sans' => 'inter',
+
+            // Humanist grotesque / generic sans fallback → the proven UI standard.
+            'work sans' => 'inter', 'open sans' => 'inter', 'lato' => 'inter',
+            'source sans' => 'inter', 'pt sans' => 'inter', 'karla' => 'inter',
+            'mulish' => 'inter', 'assistant' => 'inter', 'figtree' => 'inter',
 
             // Generic catch-alls — must stay last.
-            'serif' => 'origin',
+            'serif' => 'general-sans',
             'sans serif' => 'geist',
         ];
         foreach ($map as $keyword => $slug) {

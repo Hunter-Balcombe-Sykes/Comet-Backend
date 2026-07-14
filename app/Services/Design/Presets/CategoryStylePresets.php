@@ -47,16 +47,15 @@ final class CategoryStylePresets
 
     /** @var array<string, array<string, string>> */
     private const BUCKETS = [
-        // Warm, appetite-driving, some character — young-serif artisanal
-        // headlines, tomato accent, quick menu-board energy on solid cards.
-        // (Ollies' frozen contributions predate the 2026-07-10 rework; the
-        // surviving columns still match.)
+        // Warm, appetite-driving, some character — friendly humanist sans,
+        // tomato accent, quick menu-board energy. (Fonts re-synced to the
+        // 7-font roster per KB §5, 2026-07-15.)
         self::FOOD_DRINK => [
             'color_accent' => '#e0491f',
             'text_body' => '0.75rem',
             'weight_regular' => '300',
             'border_radius' => '0',
-            'typography_font_family' => 'young-serif',
+            'typography_font_family' => 'general-sans',
             'motion_pace' => 'fast',
         ],
         // Soft, elegant, a little luxe — glass panels carry the premium-soft
@@ -66,7 +65,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '400',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'helvetica-now', // KB §5: sleek modern-premium
             'motion_pace' => 'normal',
         ],
         // Athletic, poster-energy — gym customers respond to drive, not calm:
@@ -78,7 +77,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '500',
             'border_radius' => '0',
-            'typography_font_family' => 'oswald',
+            'typography_font_family' => 'monument-grotesk', // KB §5: bold, athletic grotesque
             'motion_pace' => 'fast',
         ],
         // Trustworthy, structured, confident — outline cards read precise,
@@ -88,7 +87,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '500',
             'border_radius' => '0',
-            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'geist', // KB §5: neutral engineered trust
             'motion_pace' => 'normal',
         ],
         // Bold, boutique, fashion-forward — editorial serif + shoppable
@@ -98,7 +97,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '500',
             'border_radius' => '0',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'helvetica-neue', // KB §5: fashion/editorial classic
             'motion_pace' => 'fast',
         ],
         // Practical, sturdy, high-visibility trade colour — homeowners want
@@ -111,7 +110,7 @@ final class CategoryStylePresets
             'text_body' => '0.8125rem',
             'weight_regular' => '500',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'forma-djr', // KB §5: sturdy workhorse
             'motion_pace' => 'normal',
         ],
         // Warm, inviting, relaxed — airy glass + unhurried motion, the lounge
@@ -121,7 +120,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '400',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'general-sans', // KB §5: warm hospitality
             'motion_pace' => 'slow',
         ],
         // Bold, industrial, high-contrast — garage-signage confidence: heavy
@@ -132,7 +131,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '600',
             'border_radius' => '0',
-            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'monument-grotesk', // KB §5: industrial
             'motion_pace' => 'fast',
         ],
         // Expressive, distinctive, gallery-like — outline frames let the work
@@ -142,7 +141,7 @@ final class CategoryStylePresets
             'text_body' => '0.75rem',
             'weight_regular' => '400',
             'border_radius' => '0',
-            'typography_font_family' => 'reglo',
+            'typography_font_family' => 'forma-djr', // KB §5: expressive workhorse
             'motion_pace' => 'fast',
         ],
         // Approachable, clear, encouraging — larger text, friendly rounding,
@@ -152,7 +151,7 @@ final class CategoryStylePresets
             'text_body' => '0.8125rem',
             'weight_regular' => '400',
             'border_radius' => '0.25rem',
-            'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
+            'typography_font_family' => 'inter', // KB §5: approachable, proven UI
             'motion_pace' => 'normal',
         ],
     ];

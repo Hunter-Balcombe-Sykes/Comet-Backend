@@ -68,7 +68,7 @@ it('applies the sector bucket preset for a manually declared sector', function (
     // therapist → HEALTH_FITNESS bucket (poster-athletic since the 2026-07-10
     // factor pass: medium weight, fast pace).
     expect($layer['color_accent'])->toBe('#2f6b57')
-        ->and($layer['typography_font_family'])->toBe('oswald')
+        ->and($layer['typography_font_family'])->toBe('monument-grotesk')
         ->and($layer['weight_regular'])->toBe('500')
         ->and($layer['motion_pace'])->toBe('fast')
         ->and($layer)->not->toHaveKey('effect_surface');
@@ -95,7 +95,7 @@ it('lets a declared sector outrank the Google Business category on contested col
     $layer = identityResolver()->presetLayer($user->site->id);
     // Declared identity (band E, 60) wins over the scraped category (band C, 40).
     expect($layer['color_accent'])->toBe('#2f6b57')
-        ->and($layer['typography_font_family'])->toBe('oswald');
+        ->and($layer['typography_font_family'])->toBe('monument-grotesk');
 });
 
 it('refines a bucket with nightlife attributes — fast pace + glass override, colours intact', function () {
@@ -110,7 +110,7 @@ it('refines a bucket with nightlife attributes — fast pace + glass override, c
     $layer = identityResolver()->presetLayer($user->site->id);
     // Bucket (food_drink) colours/font survive …
     expect($layer['color_accent'])->toBe('#e0491f')
-        ->and($layer['typography_font_family'])->toBe('young-serif')
+        ->and($layer['typography_font_family'])->toBe('general-sans')
         // … while the attribute refinement (band D, 52 > 40) owns pace.
         ->and($layer['motion_pace'])->toBe('fast')
         ->and($layer)->not->toHaveKey('effect_surface');
