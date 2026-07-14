@@ -85,6 +85,65 @@ class InstagramScraper extends PlatformScraper
         return is_string($url) ? $url : null;
     }
 
+    // Cap on returned bio links — plenty for a "synced" popup, bounds the work
+    // InstagramAutoSync does per connect.
+    private const MAX_BIO_LINKS = 10;
+
+    /**
+     * BE2: the raw Apify profile item, defensively read for bio links — actor
+     * field names vary by version, and TODAY's actor doesn't return any of
+     * these at all (confirmed via recon), so every source is optional. Collects,
+     * in order: `externalUrl` (Instagram's single "website" field), each
+     * `externalUrls[].url` (or a bare string entry — some actor versions return
+     * a plain string list), then URLs regexed out of `biography` free text.
+     * Deduped (exact string match) and capped at MAX_BIO_LINKS. Empty array
+     * when the profile carries none of these fields (older connections, or an
+     * account with an empty bio) — never throws on malformed types.
+     *
+     * @param  array<string,mixed>  $profile
+     * @return list<string>
+     */
+    public function bioLinks(array $profile): array
+    {
+        $links = [];
+
+        $external = data_get($profile, 'externalUrl');
+        if (is_string($external) && $this->isHttpUrl($external)) {
+            $links[] = trim($external);
+        }
+
+        $externalUrls = data_get($profile, 'externalUrls');
+        if (is_array($externalUrls)) {
+            foreach ($externalUrls as $entry) {
+                $url = is_array($entry) ? data_get($entry, 'url') : $entry;
+                if (is_string($url) && $this->isHttpUrl($url)) {
+                    $links[] = trim($url);
+                }
+            }
+        }
+
+        $bio = data_get($profile, 'biography');
+        if (is_string($bio) && $bio !== '') {
+            if (preg_match_all('~https?://[^\s<>"\']+~i', $bio, $matches)) {
+                foreach ($matches[0] as $match) {
+                    // Trim common trailing sentence punctuation a bio's prose
+                    // leaves stuck to the URL ("...my site: https://x.com.").
+                    $url = rtrim($match, '.,!?)]}');
+                    if ($this->isHttpUrl($url)) {
+                        $links[] = $url;
+                    }
+                }
+            }
+        }
+
+        return array_slice(array_values(array_unique($links)), 0, self::MAX_BIO_LINKS);
+    }
+
+    private function isHttpUrl(string $url): bool
+    {
+        return preg_match('~^https?://~i', trim($url)) === 1;
+    }
+
     /**
      * AUTO mode: the most-recent PHOTO and the most-recent VIDEO/REEL for the
      * account, picked independently. Apify returns pinned posts first (so a pinned
