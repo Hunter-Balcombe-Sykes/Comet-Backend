@@ -45,6 +45,9 @@ class InstagramAutoSync
         'fresha' => 'booking', 'square' => 'booking',
     ];
 
+    /** Mutually-exclusive booking providers — mirrors FreshaController/SquareController::hasConflictingConnection()'s XOR and GoogleBusinessAutoSync::BOOKING_PLATFORMS. */
+    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value];
+
     public function __construct(private readonly WebsiteLinkHarvester $harvester) {}
 
     /**
@@ -104,6 +107,34 @@ class InstagramAutoSync
                 }
 
                 $write = $this->resolveWrite($platform, $url);
+
+                if (self::ACTIONABLE[$platform] === 'booking') {
+                    // XOR invariant (FreshaController/SquareController::
+                    // hasConflictingConnection() both 409 the other way): only
+                    // one booking provider may be live at a time. Mirrors
+                    // GoogleBusinessAutoSync::seedBooking's group-level check —
+                    // unlike the same-platform branch below, GB's own group
+                    // check never compares urls (there's no meaningful "same
+                    // link" across two different providers), so neither do we
+                    // here: any OTHER live booking connection always conflicts,
+                    // never a silent write of a second live provider.
+                    $conflictingBooking = IntegrationConnection::query()
+                        ->where('user_id', $userId)
+                        ->whereIn('platform', self::BOOKING_PLATFORMS)
+                        ->where('platform', '!=', $platform)
+                        ->first();
+
+                    if ($conflictingBooking !== null) {
+                        $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                            'remove' => self::BOOKING_PLATFORMS,
+                            'write' => $write,
+                        ]);
+                        $seenPlatforms[$platform] = true;
+
+                        continue;
+                    }
+                }
+
                 $existing = IntegrationConnection::query()
                     ->where('user_id', $userId)->where('platform', $platform)
                     ->first();

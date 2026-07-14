@@ -100,24 +100,33 @@ it('marks conflict when a social platform exists with a DIFFERENT url, leaving t
 
 // ── booking: fresha / square ───────────────────────────────────────────────────
 
-it('seeds fresha and square booking connections with url-only payloads', function () {
+it('seeds only the FIRST booking platform from a bio listing both fresha and square — the second conflicts, never a live second row', function () {
     $user = igAutoSyncUser('igas4');
 
+    // A bio listing both is the exact scenario the booking XOR guards against:
+    // FreshaController/SquareController::hasConflictingConnection() forbids two
+    // simultaneous live booking connections, so only the first-processed one
+    // (fresha) may seed — the second (square) must conflict, never write.
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
         'https://www.fresha.com/a/doc-cuts',
         'https://acme.square.site',
     ]);
 
-    expect(collect($result['findings'])->pluck('category')->unique()->all())->toBe(['booking']);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeFalse();
+
+    expect(collect($result['findings'])->pluck('outcome')->all())->toBe(['seeded', 'conflict']);
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['fresha', 'square']);
 
     $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
     expect($fresha)->toMatchArray(['url' => 'https://www.fresha.com/a/doc-cuts', 'selection' => null, 'source' => 'instagram']);
 
-    $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;
-    expect($square)->toMatchArray(['url' => 'https://acme.square.site', 'source' => 'instagram']);
+    $squareConflict = $result['findings'][1];
+    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square']);
+    expect($squareConflict['apply']['write']['platform'])->toBe('square');
 });
 
-it('marks conflict for booking when the platform exists with a different url', function () {
+it('marks conflict for booking when the SAME platform exists with a different url', function () {
     $user = igAutoSyncUser('igas5');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
@@ -129,8 +138,48 @@ it('marks conflict for booking when the platform exists with a different url', f
 
     expect($result['findings'][0]['outcome'])->toBe('conflict');
     expect($result['findings'][0]['platform'])->toBe('fresha');
+    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha']); // same-platform conflict — only itself, not the whole group
     $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
     expect($fresha['url'])->toBe('https://www.fresha.com/a/mine'); // untouched
+});
+
+// ── booking XOR: mirrors GoogleBusinessAutoSync::seedBooking's group-level
+// check — Fresha and Square are mutually exclusive (FreshaController /
+// SquareController::hasConflictingConnection() both 409 the other way) ──────
+
+it('never writes a second live booking provider — an existing Square connection blocks a Fresha bio-link write, emitting a conflict instead', function () {
+    $user = igAutoSyncUser('igas14');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'square', 'resource_id' => 'square',
+        'payload' => ['url' => 'https://acme.square.site', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeTrue();
+
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['outcome'])->toBe('conflict');
+    expect($result['findings'][0]['platform'])->toBe('fresha');
+    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square']);
+    expect($result['findings'][0]['apply']['write']['platform'])->toBe('fresha');
+
+    $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;
+    expect($square['url'])->toBe('https://acme.square.site'); // untouched
+});
+
+it('seeds fresha booking when no booking provider is connected yet', function () {
+    $user = igAutoSyncUser('igas15');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
+
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect($result['findings'][0]['platform'])->toBe('fresha');
+    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
+    expect($fresha['url'])->toBe('https://www.fresha.com/a/doc-cuts');
 });
 
 // ── unmatched: unclassified + classified-but-not-actionable ──────────────────
