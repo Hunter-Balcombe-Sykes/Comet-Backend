@@ -758,6 +758,36 @@ it('422s scan apply for a negative price', function () {
     ])->assertStatus(422);
 });
 
+it('422s scan apply for a price above the sane upper bound', function () {
+    $user = menuUser('scan8c');
+    // 140000 = the rule comment's motivating case ($1400.00 scanned with the
+    // decimal point dropped). max:100000 is inclusive — exactly 100000 passes.
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => null, 'price' => 140000, 'category' => null]],
+    ])->assertStatus(422);
+});
+
+it('scan apply accepts boundary-legal prices — zero and just under the cap', function () {
+    $user = menuUser('scan8d');
+
+    // price 0 also guards the applier: base_price is set via `?? null` / a
+    // `!== null` check, so a free item stores 0, not null — a truthiness
+    // regression (empty(0) is true) would silently drop it.
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [
+            ['name' => 'Free Tasting', 'description' => null, 'price' => 0, 'category' => null],
+            ['name' => 'Banquet Buyout', 'description' => null, 'price' => 99999.99, 'category' => null],
+        ],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
+    $menuId = Menu::query()->where('user_id', $user->id)->value('id');
+    $free = MenuItem::query()->where('menu_id', $menuId)->where('name', 'Free Tasting')->firstOrFail();
+    expect((float) $free->base_price)->toBe(0.0);
+    $banquet = MenuItem::query()->where('menu_id', $menuId)->where('name', 'Banquet Buyout')->firstOrFail();
+    expect((float) $banquet->base_price)->toBe(99999.99);
+});
+
 // ── BE3: refresh-survival — scan content must outlive a scraper rebuild ──
 // MenuFetchJob wholesale-deletes+reinserts menu_categories/menu_items on
 // every real scrape (persist()) and on losing the last ordering link
