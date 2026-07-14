@@ -322,11 +322,11 @@ function swAllStaticEmissions(): array
 
 it('every statically-enumerable emission sits exactly on the locked vocabulary', function () {
     $vocab = [
-        'text_body' => ['0.8rem', '0.85rem', '0.9rem'],                 // Small / Medium / Large body
+        'text_body' => ['0.6875rem', '0.75rem', '0.8125rem'],          // Small / Medium / Large body (ALD)
         'weight_regular' => ['300', '400', '500', '600'],
         'border_radius' => ['0', '0.25rem', '0.85rem', '1.5rem'],       // Square / Soft / Rounded / Pill
         'border_thickness' => ['0.5px', '1px', '2px'],                  // hairline / standard / bold
-        'space_regular' => ['0.8rem', '0.95rem', '1.15rem'],            // compact / regular / generous
+        'space_regular' => ['0.5rem', '0.625rem', '0.8rem'],            // compact / regular / generous (ALD)
         'motion_pace' => ['slow', 'normal', 'fast'],
         'effect_surface' => ['glass', 'solid', 'outline'],
         'effect_shadow_style' => ['flat', 'soft', 'hard'],

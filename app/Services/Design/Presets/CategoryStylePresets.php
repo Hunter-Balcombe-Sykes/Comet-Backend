@@ -53,9 +53,9 @@ final class CategoryStylePresets
         // surviving columns still match.)
         self::FOOD_DRINK => [
             'color_accent' => '#e0491f',
-            'text_body' => '0.8rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '300',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'young-serif',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
@@ -64,9 +64,9 @@ final class CategoryStylePresets
         // read the old pastel bg used to.
         self::BEAUTY_PERSONAL_CARE => [
             'color_accent' => '#b8375a',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '400',
-            'border_radius' => '1.5rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'melodrama', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'glass',
@@ -77,9 +77,9 @@ final class CategoryStylePresets
         // still refines pace for the daytime-clinic end of the bucket.)
         self::HEALTH_FITNESS => [
             'color_accent' => '#2f6b57',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '500',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'oswald',
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
@@ -88,9 +88,9 @@ final class CategoryStylePresets
         // nothing-to-hide.
         self::PROFESSIONAL_SERVICES => [
             'color_accent' => '#1d3557',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '500',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'outline',
@@ -99,23 +99,23 @@ final class CategoryStylePresets
         // solid-card energy.
         self::RETAIL_SHOPPING => [
             'color_accent' => '#d6336c',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '500',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'fast',
             'effect_surface' => 'solid',
         ],
         // Practical, sturdy, high-visibility trade colour — homeowners want
         // legible text and dependable filled panels, no design flourish.
-        // Rounded (not the sharp cluster): the audience is a homeowner hiring
-        // a person — approachable beats industrial; pre-vocab this sat at
-        // 0.5rem, deliberately the roundest of the work buckets.
+        // Softly rounded (0.25rem, ALD-centered): the audience is a homeowner
+        // hiring a person — approachable beats industrial, so it keeps the
+        // whisper of softening where the sharper work buckets go square.
         self::HOME_SERVICES => [
             'color_accent' => '#d97706',
-            'text_body' => '0.9rem',
+            'text_body' => '0.8125rem',
             'weight_regular' => '500',
-            'border_radius' => '0.85rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'humane', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',
@@ -124,20 +124,19 @@ final class CategoryStylePresets
         // welcome.
         self::HOSPITALITY => [
             'color_accent' => '#7c2d12',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '400',
-            'border_radius' => '0.85rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'origin', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'slow',
             'effect_surface' => 'glass',
         ],
         // Bold, industrial, high-contrast — garage-signage confidence: heavy
-        // weight, true-square corners, filled panels. The one bucket on the
-        // Square stop: trade signage is square, and pre-vocab this was
-        // deliberately the sharpest entry in the table (0.2rem).
+        // weight, true-square corners, filled panels. Square (0): trade
+        // signage is square — the sharpest register in the table.
         self::AUTOMOTIVE => [
             'color_accent' => '#c81e1e',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '600',
             'border_radius' => '0',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
@@ -148,9 +147,9 @@ final class CategoryStylePresets
         // speak.
         self::CREATIVE_ENTERTAINMENT => [
             'color_accent' => '#7c3aed',
-            'text_body' => '0.85rem',
+            'text_body' => '0.75rem',
             'weight_regular' => '400',
-            'border_radius' => '0.25rem',
+            'border_radius' => '0',
             'typography_font_family' => 'reglo',
             'motion_pace' => 'fast',
             'effect_surface' => 'outline',
@@ -159,9 +158,9 @@ final class CategoryStylePresets
         // modern-app glass.
         self::EDUCATION_COACHING => [
             'color_accent' => '#2563eb',
-            'text_body' => '0.9rem',
+            'text_body' => '0.8125rem',
             'weight_regular' => '400',
-            'border_radius' => '0.85rem',
+            'border_radius' => '0.25rem',
             'typography_font_family' => 'geist', // 17->9 swap (PROVISIONAL)
             'motion_pace' => 'normal',
             'effect_surface' => 'glass',

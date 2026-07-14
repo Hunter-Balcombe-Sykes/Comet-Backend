@@ -50,15 +50,13 @@ final class StyleTiers
             'regular' => '400',
             'medium' => '500',
         ],
-        // NOTE (2026-07-14): the design-kit DEFAULT text_body is now ALD 0.75rem,
-        // but this analyzer-bridge stays cohesive with CategoryStylePresets /
-        // LaunchRecipes / StorePricePointFactor (all still ~0.85rem). Moving the
-        // whole auto-integration factor layer to ALD is a deferred product
-        // decision (flatten per-business variation, or re-center it on ALD?).
+        // ALD-centered 2026-07-14: the whole auto-integration factor layer moved
+        // to ALD (per-business variation re-centered on ALD, not flattened) — this
+        // analyzer bridge tracks it. regular = the 12px body default.
         'text' => [
-            'small' => '0.8rem',
-            'regular' => '0.85rem',
-            'large' => '0.9rem',
+            'small' => '0.6875rem',
+            'regular' => '0.75rem',
+            'large' => '0.8125rem',
         ],
         // 2026-07-10 corner vocabulary {0, 0.25, 0.85, 1.5}rem — the four
         // analyzer tiers map 1:1 onto the four stops. 'sharp' means the old
@@ -72,12 +70,13 @@ final class StyleTiers
             'rounded' => '0.85rem',
             'very_rounded' => '1.5rem',
         ],
-        // Cohesive with the factor layer (see the text-tier note above) — the
-        // auto-integration → ALD move is deferred.
+        // ALD-tightened 2026-07-14 (see the text-tier note) — regular = the
+        // 0.625rem default base; distinct values so the analyzer + price bands
+        // reverse-map cleanly.
         'space' => [
-            'compact' => '0.8rem',
-            'regular' => '0.95rem',
-            'generous' => '1.15rem',
+            'compact' => '0.5rem',
+            'regular' => '0.625rem',
+            'generous' => '0.8rem',
         ],
         'motion' => [
             'fast' => 'fast',

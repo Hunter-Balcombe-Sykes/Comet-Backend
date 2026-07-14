@@ -71,13 +71,13 @@ class StorePricePointFactor implements EvidenceFactor
     /** Each band's sparse overlay. space_regular is the distinct hysteresis anchor (reverse-mapped on the next resolve). */
     private const BAND_TARGETS = [
         self::BAND_LUXURY => [
-            'space_regular' => '1.15rem',   // generous
+            'space_regular' => '0.8rem',    // generous (ALD-tightened)
             'border_thickness' => '0.5px',  // hairline
             'motion_pace' => 'slow',
             'effect_surface' => 'outline',  // hairline boutique restraint
         ],
         self::BAND_MID => [
-            'space_regular' => '0.95rem',   // regular
+            'space_regular' => '0.625rem',  // regular (ALD base)
             // Standard border (1px) — mid means NEUTRAL. The 2026-07-10 label
             // shift briefly dragged this to 0.5px, collapsing the luxury
             // hairline into it; the tier contrast is restored deliberately.
@@ -85,8 +85,8 @@ class StorePricePointFactor implements EvidenceFactor
             'motion_pace' => 'normal',
         ],
         self::BAND_CASUAL => [
-            'space_regular' => '0.8rem',    // compact
-            'border_radius' => '0.85rem',   // rounded/friendly
+            'space_regular' => '0.5rem',    // compact (ALD-tightened)
+            'border_radius' => '0.25rem',   // softly rounded (ALD-square-centered)
             'weight_regular' => '500',
             'motion_pace' => 'normal',
             'effect_surface' => 'solid',    // filled, friendly, accessible
@@ -95,9 +95,9 @@ class StorePricePointFactor implements EvidenceFactor
 
     /** Reverse of each band's space_regular anchor → the band that emitted it. */
     private const SPACE_TO_BAND = [
-        '1.15rem' => self::BAND_LUXURY,
-        '0.95rem' => self::BAND_MID,
-        '0.8rem' => self::BAND_CASUAL,
+        '0.8rem' => self::BAND_LUXURY,
+        '0.625rem' => self::BAND_MID,
+        '0.5rem' => self::BAND_CASUAL,
     ];
 
     public function key(): string

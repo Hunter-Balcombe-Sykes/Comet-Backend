@@ -79,7 +79,7 @@ final class LaunchRecipes
                     'border_radius' => '1.5rem',        // very rounded
                     'weight_regular' => '300',          // light
                     'typography_font_family' => 'melodrama', // the roster's beauty-premium display serif (matches the beauty bucket)
-                    'space_regular' => '1.15rem',       // generous/airy
+                    'space_regular' => '0.8rem',       // generous/airy
                     'motion_pace' => 'slow',
                     'effect_surface' => 'glass',        // soft translucency carries the luxe read
                     'effect_shadow_style' => 'soft',
@@ -111,7 +111,7 @@ final class LaunchRecipes
                     'border_radius' => '0',             // square — full poster-brutalist shape (2-signal archetype earns the extreme stop)
                     'weight_regular' => '600',          // chunky
                     'typography_font_family' => 'oswald', // condensed grotesque
-                    'space_regular' => '0.8rem',        // compact/energetic
+                    'space_regular' => '0.5rem',        // compact/energetic (ALD-tightened)
                     'motion_pace' => 'fast',
                     'effect_surface' => 'solid',        // filled poster blocks
                     'effect_shadow_style' => 'hard',
@@ -146,7 +146,7 @@ final class LaunchRecipes
                     'border_radius' => '0.85rem',       // rounded — sharp corners contradicted the glass/soft/warm read (soft direction ⇢ rounded)
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'young-serif', // artisanal warmth — cafés are its home turf
-                    'space_regular' => '0.95rem',       // regular
+                    'space_regular' => '0.625rem',       // regular
                     'motion_pace' => 'normal',
                     'effect_surface' => 'glass',        // soft, welcoming panels
                     'effect_shadow_style' => 'soft',
@@ -194,7 +194,7 @@ final class LaunchRecipes
                     'border_radius' => '0',             // square — luxury print is square; completes the editorial outline/flat register
                     'weight_regular' => '300',          // light
                     'typography_font_family' => 'young-serif', // elegant serif
-                    'space_regular' => '1.15rem',       // generous
+                    'space_regular' => '0.8rem',       // generous
                     'motion_pace' => 'slow',
                     'effect_surface' => 'outline',      // hairline editorial restraint
                     'effect_shadow_style' => 'flat',
@@ -223,7 +223,7 @@ final class LaunchRecipes
                     'border_radius' => '0',             // square — gallery/editorial media frames are square by convention
                     'weight_regular' => '500',          // medium
                     'typography_font_family' => 'geist', // gallery-neutral grotesque — the chrome recedes, the work speaks
-                    'space_regular' => '0.95rem',       // regular
+                    'space_regular' => '0.625rem',       // regular
                     'motion_pace' => 'normal',
                     'effect_surface' => 'outline',      // gallery frames
                     'effect_shadow_style' => 'flat',
@@ -270,7 +270,7 @@ final class LaunchRecipes
                     'border_radius' => '0.85rem',       // rounded
                     'weight_regular' => '400',          // regular
                     'typography_font_family' => 'origin', // sturdy serif (17->9 swap; PROVISIONAL)
-                    'space_regular' => '0.95rem',       // regular
+                    'space_regular' => '0.625rem',       // regular
                     'motion_pace' => 'normal',
                     // Solid, not glass: handmade goods read tactile on filled cards;
                     // glass is a digital-luxe texture that fights the earthy register.
