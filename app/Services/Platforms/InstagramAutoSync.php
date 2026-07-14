@@ -3,6 +3,8 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Throwable;
@@ -26,6 +28,13 @@ use Throwable;
 // classifies to one of those surfaces in `unmatched` instead — a safe "add as
 // custom link" suggestion rather than a half-built card.
 //
+// Capability split (mirrors GoogleBusinessAutoSync::seed exactly): the SOCIAL
+// bucket is a Business-Partna convenience, gated on the same capability GB's
+// socials tier uses — AccountCapabilities::google_business_full_sync. A
+// standard (partna) account's classified social links fall through to
+// `unmatched` (still offered as custom links, never silently dropped). Booking
+// syncs for EVERY account type, exactly like GB's seedBooking.
+//
 // Best-effort: each link is isolated in its own try/catch so one bad link
 // never blocks the rest (mirrors GoogleBusinessAutoSync's per-seed try/catch).
 class InstagramAutoSync
@@ -44,6 +53,18 @@ class InstagramAutoSync
      */
     public function seed(string $userId, array $bioLinks): array
     {
+        // Dominant case today: the Apify actor returns no bio fields at all, so
+        // the connect job calls this with []. Skip the user lookup entirely.
+        if ($bioLinks === []) {
+            return ['findings' => [], 'unmatched' => []];
+        }
+
+        // Social auto-sync is gated on the SAME capability GB's socials tier
+        // uses (see class docblock). A missing user reads as no capability —
+        // fail closed, socials fall through to unmatched. Booking is universal.
+        $user = User::find($userId);
+        $canSyncSocial = $user !== null && AccountCapabilities::for($user)->google_business_full_sync;
+
         $findings = [];
         $unmatched = [];
         $seenPlatforms = [];
@@ -70,10 +91,17 @@ class InstagramAutoSync
 
                     continue;
                 }
-                if (isset($seenPlatforms[$platform])) {
-                    continue; // first bio link per platform wins this run
+                if (self::ACTIONABLE[$platform] === 'social' && ! $canSyncSocial) {
+                    // Capability-gated (RULING 1): a standard account keeps the
+                    // link as a custom-link suggestion instead of an auto-synced
+                    // connection — surfaced, never silently dropped.
+                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                    continue;
                 }
-                $seenPlatforms[$platform] = true;
+                if (isset($seenPlatforms[$platform])) {
+                    continue; // first HANDLED bio link per platform wins this run
+                }
 
                 $write = $this->resolveWrite($platform, $url);
                 $existing = IntegrationConnection::query()
@@ -83,9 +111,18 @@ class InstagramAutoSync
                 if ($existing === null) {
                     $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
                     $findings[] = $this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url);
+                    // Consume the platform slot only AFTER the write succeeded —
+                    // a caught throw (query/write above) must leave it open so a
+                    // later same-platform link in this run still gets its attempt.
+                    $seenPlatforms[$platform] = true;
 
                     continue;
                 }
+
+                // An existing row was found: both outcomes below (same-url skip,
+                // conflict finding) are handled, throw-free array work — consume
+                // the slot now.
+                $seenPlatforms[$platform] = true;
 
                 $existingUrl = CardPayload::fromArray($existing->payload)->url();
                 if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {

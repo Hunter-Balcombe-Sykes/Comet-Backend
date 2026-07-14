@@ -16,13 +16,17 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-function igAsyncUser(string $h): User
+// Default stays the legacy 'individual' type (these tests predate the
+// partna/business split and don't exercise capability-gated paths). Pass
+// 'business' when the test asserts the bio-social auto-sync seeding path —
+// social seeds are gated on google_business_full_sync (RULING 1).
+function igAsyncUser(string $h, string $accountType = 'individual'): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => $accountType,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -601,7 +605,9 @@ it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the
     config(['services.apify.token' => 'test-token']);
     Http::fake(['api.apify.com/*' => Http::response([igItemWithBio()], 201)]);
 
-    $user = igAsyncUser('igbio1');
+    // Business account: this test exercises the social SEEDING path, which is
+    // gated on google_business_full_sync (partna accounts get unmatched instead).
+    $user = igAsyncUser('igbio1', 'business');
     $connection = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',

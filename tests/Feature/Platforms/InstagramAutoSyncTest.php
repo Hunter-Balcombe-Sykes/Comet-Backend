@@ -15,13 +15,18 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-function igAutoSyncUser(string $h): User
+// Defaults to a Business Partna because the social-seed assertions below cover
+// the capability-gated path — social auto-sync requires google_business_full_sync,
+// the SAME capability GB's socials tier gates on (mirrors gbApifyUser's default).
+// Pass 'partna' to exercise the standard-account fall-through: social links
+// route to `unmatched` (offered as custom links); booking still seeds.
+function igAutoSyncUser(string $h, string $accountType = 'business'): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'partna',
+        'account_type' => $accountType,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -187,6 +192,91 @@ it('skips malformed bio-link entries without throwing', function () {
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['', '   ', 123, null]);
 
     expect($result)->toBe(['findings' => [], 'unmatched' => []]);
+});
+
+// ── capability gate: social requires google_business_full_sync (RULING 1) ─────
+// Mirrors GoogleBusinessAutoSync::seed()'s split exactly: socials are a
+// Business-Partna convenience, booking syncs for EVERY account type.
+
+it('routes classified social links to unmatched for a standard partna account (no google_business_full_sync)', function () {
+    $user = igAutoSyncUser('igascap1', 'partna');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
+        'https://www.facebook.com/docpizzabar',
+        'https://www.tiktok.com/@docpizza',
+    ]);
+
+    // Not silently dropped — surfaced as "add as custom link" suggestions with
+    // their real classified labels.
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([
+        ['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook'],
+        ['url' => 'https://www.tiktok.com/@docpizza', 'label' => 'TikTok'],
+    ]);
+    foreach (['facebook', 'tiktok'] as $p) {
+        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $p)->exists())
+            ->toBeFalse("expected no {$p} row for a partna account");
+    }
+});
+
+it('seeds booking for a partna account while its social link falls through to unmatched', function () {
+    $user = igAutoSyncUser('igascap2', 'partna');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
+        'https://www.fresha.com/a/doc-cuts',
+        'https://www.facebook.com/docpizzabar',
+    ]);
+
+    // Booking is universal (all account types) — exactly like GB's seedBooking.
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['platform'])->toBe('fresha');
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+
+    // The social link is gated → custom-link suggestion, no row.
+    expect($result['unmatched'])->toBe([['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+});
+
+it('seeds social links for a business account (google_business_full_sync present)', function () {
+    $user = igAutoSyncUser('igascap3', 'business');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.facebook.com/docpizzabar']);
+
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['platform'])->toBe('facebook');
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect($result['unmatched'])->toBe([]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
+});
+
+// ── seenPlatforms: a throw must not consume the platform slot ─────────────────
+
+it('a throw on the first attempt does not consume the platform slot — a later same-platform link still seeds', function () {
+    $user = igAutoSyncUser('igasthrow1');
+
+    // Force the FIRST facebook write to blow up (transient DB/observer failure);
+    // the per-link try/catch reports it. The platform slot must stay open so
+    // the run's second facebook link still gets its attempt.
+    $threw = false;
+    IntegrationConnection::creating(function ($model) use (&$threw) {
+        if ($model->platform === 'facebook' && ! $threw) {
+            $threw = true;
+            throw new RuntimeException('transient write failure');
+        }
+    });
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
+        'https://www.facebook.com/first',
+        'https://www.facebook.com/second',
+    ]);
+
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['platform'])->toBe('facebook');
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect($result['findings'][0]['foundUrl'])->toBe('https://www.facebook.com/second');
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['url'])->toBe('https://www.facebook.com/second');
 });
 
 // ── applyFinding() — "Change to" swap, mirrors GoogleBusinessAutoSync::applyFinding ──
