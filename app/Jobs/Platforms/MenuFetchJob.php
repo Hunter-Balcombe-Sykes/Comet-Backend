@@ -100,9 +100,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     {
         $plan = $source->resolveAll($this->userId);
 
-        // No connected menu-platform link (registry-driven, FOUND-23) → clear any existing menu.
+        // No connected menu-platform link (registry-driven, FOUND-23) → clear any
+        // scraped content. Scan-sourced categories (menu-scan-apply endpoint, see
+        // MenuScanApplier) have no scraper counterpart to lose — this is the SAME
+        // wholesale-rebuild trigger as a real refresh, just via a different route
+        // (removing the last online-ordering entry also dispatches this job), so it
+        // needs the same guard as persist() below or a scan-only menu vanishes the
+        // moment the user touches any unrelated online-ordering link.
         if ($plan === null) {
-            Menu::query()->where('user_id', $this->userId)->delete();
+            $this->clearScrapedContent($this->userId);
 
             return;
         }
@@ -233,15 +239,21 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // persist() only runs when handle()'s unchanged-skip gate misses (genuine content
             // change / forced refresh / recovery), so it is not a hot path. There is also no
             // stable per-item identity to diff against — ue_external_id was dropped and
-            // menu_items.id is a fresh UUID each scrape; the menu is dashboard-only and read
-            // fresh, so UUID churn is invisible to consumers. Keep it atomic in the txn.
+            // menu_items.id is a fresh UUID each scrape; the menu is read fresh on both the
+            // dashboard and the public sitepage, so UUID churn is invisible to consumers.
+            // Keep it atomic in the txn.
+            //
+            // Scoped to rebuildableCategoryIds() (NOT every category) — scan-sourced
+            // categories (source_platform='scan', written by MenuScanApplier) are never
+            // scraper output and must survive every rebuild; see that method's docblock.
             //
             // Also clears children explicitly (FK cascade covers this on Postgres, but being
             // explicit prevents orphaned item-platform rows in SQLite tests).
-            $itemIds = MenuItem::query()->where('menu_id', $menu->id)->pluck('id');
+            $categoryIds = $this->rebuildableCategoryIds($menu->id);
+            $itemIds = MenuItem::query()->whereIn('category_id', $categoryIds)->pluck('id');
             MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
-            MenuItem::query()->where('menu_id', $menu->id)->delete();
-            MenuCategory::query()->where('menu_id', $menu->id)->delete();
+            MenuItem::query()->whereIn('category_id', $categoryIds)->delete();
+            MenuCategory::query()->whereIn('id', $categoryIds)->delete();
 
             $store = $merged['store'];
             $menu->forceFill([
@@ -317,6 +329,63 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
             if ($platformRows !== []) {
                 MenuItemPlatform::query()->insert($platformRows);
+            }
+        });
+    }
+
+    /**
+     * Category ids under $menuId that the SCRAPER is allowed to wholesale
+     * delete/replace — every category except source_platform='scan' ones
+     * (menu-scan-apply endpoint, MenuScanApplier). Shared by persist()'s
+     * rebuild and clearScrapedContent() below so both delete points treat
+     * scan content identically. NULL source_platform (shouldn't occur in
+     * practice — every scraper-written category always sets one) is treated
+     * as rebuildable, matching the pre-scan behaviour of deleting everything.
+     *
+     * @return Collection<int, string>
+     */
+    private function rebuildableCategoryIds(string $menuId): Collection
+    {
+        return MenuCategory::query()
+            ->where('menu_id', $menuId)
+            ->where(fn ($q) => $q->whereNull('source_platform')->orWhere('source_platform', '!=', 'scan'))
+            ->pluck('id');
+    }
+
+    /**
+     * Clear every NON-scan-sourced category/item/item-platform row for a user
+     * (the same scope persist() rebuilds), used when no ordering platform is
+     * connected at all. Also clears the menu's platformLinks — by definition
+     * no platform is connected at this point, so no menu_platform_links row
+     * can be legitimately valid afterward; leaving one behind would let a
+     * later reconnect's urlUnchanged+settled skip-gate (handle(), above)
+     * wrongly compare against stale data and no-op a scrape that should run.
+     * When nothing scan-sourced remains afterward, the menu row itself is
+     * soft-deleted — IDENTICAL to the prior unconditional-delete behaviour
+     * for every user who has never used menu scan. When scan content DOES
+     * remain, the row survives and content_source flips to 'scan' (the only
+     * real content left) instead of keeping a now-inaccurate scraped
+     * platform name.
+     */
+    private function clearScrapedContent(string $userId): void
+    {
+        $menu = Menu::query()->where('user_id', $userId)->first();
+        if ($menu === null) {
+            return;
+        }
+
+        DB::connection('pgsql')->transaction(function () use ($menu) {
+            $categoryIds = $this->rebuildableCategoryIds($menu->id);
+            $itemIds = MenuItem::query()->whereIn('category_id', $categoryIds)->pluck('id');
+            MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
+            MenuItem::query()->whereIn('category_id', $categoryIds)->delete();
+            MenuCategory::query()->whereIn('id', $categoryIds)->delete();
+            $menu->platformLinks()->delete();
+
+            if (! $menu->categories()->exists()) {
+                $menu->delete();
+            } else {
+                $menu->forceFill(['content_source' => 'scan'])->save();
             }
         });
     }

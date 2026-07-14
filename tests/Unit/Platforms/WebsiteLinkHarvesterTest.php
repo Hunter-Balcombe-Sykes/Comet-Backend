@@ -51,3 +51,65 @@ it('returns nothing for a missing or non-http website', function () {
     expect($harvester->harvest(null))->toBe([])
         ->and($harvester->harvest('not-a-url'))->toBe([]);
 });
+
+// ── classify() — single-URL host classification (BE2: reused by InstagramAutoSync) ──
+
+function classifierHarvester(): WebsiteLinkHarvester
+{
+    return new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
+}
+
+it('classifies each known social host to its platform + label', function (string $url, string $platform, string $label) {
+    $out = classifierHarvester()->classify($url);
+
+    expect($out)->toBe(['platform' => $platform, 'category' => 'social', 'label' => $label]);
+})->with([
+    ['https://www.instagram.com/acme', 'instagram', 'Instagram'],
+    ['https://www.facebook.com/acme', 'facebook', 'Facebook'],
+    ['https://www.tiktok.com/@acme', 'tiktok', 'TikTok'],
+    ['https://twitter.com/acme', 'x', 'X'],
+    ['https://x.com/acme', 'x', 'X'],
+    ['https://www.linkedin.com/in/acme', 'linkedin', 'LinkedIn'],
+    ['https://www.youtube.com/@acme', 'youtube', 'YouTube'],
+    ['https://www.pinterest.com/acme', 'pinterest', 'Pinterest'],
+]);
+
+it('classifies booking hosts to their specific provider platform', function (string $url, string $platform, string $label) {
+    expect(classifierHarvester()->classify($url))->toBe(['platform' => $platform, 'category' => 'booking', 'label' => $label]);
+})->with([
+    ['https://www.fresha.com/a/doc-cuts', 'fresha', 'Fresha'],
+    ['https://squareup.com/book/acme', 'square', 'Square'],
+    ['https://acme.square.site', 'square', 'Square'],
+]);
+
+it('classifies reservation hosts to their specific provider platform', function (string $url, string $platform, string $label) {
+    expect(classifierHarvester()->classify($url))->toBe(['platform' => $platform, 'category' => 'reservations', 'label' => $label]);
+})->with([
+    ['https://www.opentable.com.au/r/doc-pizza', 'opentable', 'OpenTable'],
+    ['https://www.resdiary.com/restaurant/doc', 'resdiary', 'ResDiary'],
+    ['https://acme.nowbookit.com', 'nowbookit', 'NowBookit'],
+]);
+
+it('classifies ordering hosts to the generic online-ordering platform, keeping the provider as the label', function () {
+    expect(classifierHarvester()->classify('https://www.ubereats.com/au/store/doc-pizza'))
+        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'Uber Eats']);
+    expect(classifierHarvester()->classify('https://www.doordash.com/store/doc-pizza'))
+        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'DoorDash']);
+});
+
+it('returns null for an unrecognised host', function () {
+    expect(classifierHarvester()->classify('https://linktr.ee/acme'))->toBeNull();
+    expect(classifierHarvester()->classify('https://www.acme-personal-site.example'))->toBeNull();
+});
+
+it('returns null for a bare social domain or a share/intent widget link', function () {
+    expect(classifierHarvester()->classify('https://instagram.com/'))->toBeNull();
+    expect(classifierHarvester()->classify('https://www.facebook.com/sharer/sharer.php?u=x'))->toBeNull();
+    expect(classifierHarvester()->classify('https://twitter.com/intent/tweet?text=hi'))->toBeNull();
+});
+
+it('returns null for a malformed or non-http url', function () {
+    expect(classifierHarvester()->classify('not-a-url'))->toBeNull();
+    expect(classifierHarvester()->classify('javascript:alert(1)'))->toBeNull();
+    expect(classifierHarvester()->classify(''))->toBeNull();
+});

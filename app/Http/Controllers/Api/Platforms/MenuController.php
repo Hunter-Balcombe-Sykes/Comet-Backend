@@ -4,41 +4,52 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Http\Requests\Platforms\ApplyMenuScanRequest;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
+use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// Read-only dashboard surface for a user's fetched menu (the relational
-// site.menus + menu_categories + menu_items) plus the per-item order links
-// computed at read time from the live online-ordering entries. The menu CONTENT
-// is owned by MenuFetchJob (auto-scraped on online-ordering connect) — this
-// controller never scrapes inline. POST /refresh re-dispatches the job (forced).
-// Dashboard-only: the menu is never exposed on the public sitepage.
+// Dashboard surface for a user's menu (the relational site.menus +
+// menu_categories + menu_items) plus the per-item order links computed at
+// read time from the live online-ordering entries. Most menu CONTENT is owned
+// by MenuFetchJob (auto-scraped on online-ordering connect) — this controller
+// never scrapes inline. POST /refresh re-dispatches the job (forced).
+// POST /scan/apply is the one write path this controller DOES own directly:
+// it applies AI-extracted items from a user-uploaded menu photo/PDF via
+// MenuScanApplier, independent of any scrape. The menu itself IS also served
+// publicly — see PublicMenuController — this controller's endpoints are just
+// the authenticated dashboard read/write surface.
 class MenuController extends ApiController
 {
     use ResolveCurrentUser;
 
-    public function __construct(private readonly MenuSource $source) {}
+    public function __construct(
+        private readonly MenuSource $source,
+        private readonly MenuScanApplier $scanApplier,
+    ) {}
 
     // GET /api/platforms/menu/status — drives the integrations index card.
     public function status(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+        $menu = Menu::query()->where('user_id', $user->id)->first();
 
-        // A menu only exists while a backing Uber Eats / DoorDash ordering link
-        // does. Guard against orphaned rows whose links were removed via a path
-        // that didn't clear the menu — otherwise a stale menu reads as connected
-        // even though refresh() can't re-scrape it (no source).
-        if ($this->source->resolveAll($user) === null) {
+        // A menu is valid while it has a backing Uber Eats / DoorDash ordering
+        // link OR its own scan-sourced content (which never depended on one —
+        // see MenuScanApplier). Otherwise it's an orphaned scraped row whose
+        // links were removed via a path that didn't clear the menu — guard
+        // against that reading as connected when refresh() can't re-scrape it.
+        if ($this->source->resolveAll($user) === null && ! $this->hasScanContent($menu)) {
             return $this->success(['connected' => false, 'itemCount' => 0, 'source' => null, 'fetchStatus' => null]);
         }
 
-        $menu = Menu::query()->where('user_id', $user->id)->first();
         $itemCount = $menu ? MenuItem::query()->where('menu_id', $menu->id)->count() : 0;
 
         return $this->success([
@@ -53,9 +64,13 @@ class MenuController extends ApiController
     public function show(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        // No backing Uber Eats / DoorDash ordering link → no menu (don't serve an
-        // orphaned row whose links were removed without clearing the menu).
-        $menu = $this->source->resolveAll($user) === null ? null : $this->menuFor($user);
+        $menu = $this->menuFor($user);
+
+        // Same orphan guard as status(): a menu with scan-sourced content is
+        // never orphaned by a missing ordering link — don't null it out.
+        if ($this->source->resolveAll($user) === null && ! $this->hasScanContent($menu)) {
+            $menu = null;
+        }
 
         return $this->success([
             'source' => $menu?->content_source,
@@ -88,6 +103,33 @@ class MenuController extends ApiController
         MenuFetchJob::dispatch((string) $user->id, true);
 
         return $this->success(['fetchStatus' => 'pending']);
+    }
+
+    // POST /api/platforms/menu/scan/apply — apply AI-extracted items from a
+    // user-uploaded menu photo/PDF scan (FE10's contract). Never touches the
+    // scraper; MenuScanApplier matches by name and merges. Works even for a
+    // user with no Uber Eats/DoorDash link at all (creates the menu row).
+    public function applyScan(ApplyMenuScanRequest $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $result = $this->scanApplier->apply($user, $request->validated()['items']);
+
+        return $this->success($result);
+    }
+
+    /**
+     * Whether $menu carries at least one scan-sourced category — such a menu
+     * never depends on a live ordering link (see the orphan guards above).
+     */
+    private function hasScanContent(?Menu $menu): bool
+    {
+        if ($menu === null) {
+            return false;
+        }
+
+        return $menu->relationLoaded('categories')
+            ? $menu->categories->contains(fn (MenuCategory $c) => $c->source_platform === 'scan')
+            : MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->exists();
     }
 
     private function menuFor(User $user): ?Menu

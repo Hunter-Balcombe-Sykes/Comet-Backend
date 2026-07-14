@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Platforms\AppleController;
 use App\Http\Controllers\Api\Platforms\BookingController;
 use App\Http\Controllers\Api\Platforms\CustomLinksController;
+use App\Http\Controllers\Api\Platforms\DisplaySettingsController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\EventsController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
@@ -14,7 +15,6 @@ use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;
 use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
-use App\Http\Controllers\Api\Platforms\DisplaySettingsController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
 use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
@@ -103,6 +103,10 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [InstagramController::class, 'connect']);
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
             Route::get('/selection', [InstagramController::class, 'selection']);
+            // BE2: bio-link auto-sync popup contract — mirrors the Google Business
+            // /synced + /synced/apply pair below.
+            Route::get('/synced', [InstagramController::class, 'synced']);
+            Route::post('/synced/apply', [InstagramController::class, 'applySync']);
             Route::delete('/', [InstagramController::class, 'forget']);
         });
 
@@ -208,15 +212,19 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/custom/{id}', [EventsController::class, 'removeCustom'])->where('id', '[A-Za-z0-9._-]+');
         });
 
-    // Menu — read-only view of the fetched Uber Eats / DoorDash menu (the single
-    // site.menus row), auto-populated from the online-ordering links. No connect
-    // step; /refresh re-scrapes. Dashboard-only.
+    // Menu — the fetched Uber Eats / DoorDash menu (the single site.menus row),
+    // auto-populated from the online-ordering links, plus one direct write path:
+    // /scan/apply merges AI-extracted items from a user-uploaded menu photo/PDF
+    // (independent of any scrape — see MenuScanApplier). No connect step for the
+    // scrape side; /refresh re-scrapes. Authenticated dashboard surface — the
+    // menu is ALSO served publicly, via PublicMenuController.
     Route::prefix("{$base}/menu")
         ->middleware($middleware)
         ->group(function () {
             Route::get('/status', [MenuController::class, 'status']);
             Route::get('/', [MenuController::class, 'show']);
             Route::post('/refresh', [MenuController::class, 'refresh']);
+            Route::post('/scan/apply', [MenuController::class, 'applyScan']);
         });
 
     // ── Registry-driven simple-archetype routes (FOUND-21) ───────────────────

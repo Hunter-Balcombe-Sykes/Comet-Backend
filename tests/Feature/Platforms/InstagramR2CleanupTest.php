@@ -5,6 +5,7 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Observers\Core\IntegrationConnectionObserver;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
@@ -143,8 +144,9 @@ it('the async connect job stores the R2 _folder in the payload', function () {
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'X']);
     $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => 'https://scontent.cdninstagram.com/i.jpg', 'shortCode' => 'i'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
 
-    (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper);
+    (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper, app(InstagramAutoSync::class));
     $conn->refresh();
 
     expect($conn->payload['_folder'])->toBe('platforms/instagram/'.$conn->created_at->timestamp);

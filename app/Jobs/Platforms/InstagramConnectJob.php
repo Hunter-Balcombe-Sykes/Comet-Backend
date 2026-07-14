@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -28,7 +29,9 @@ use Throwable;
 //   1. Apify scrape via InstagramScraper::fetchProfile (up to 110s).
 //   2. Mirror the SINGLE latest post to R2 — its cover image always, plus the
 //      reel mp4 when the latest is a video.
-//   3. Upsert the connection row with last_refresh_status='ok'/'unavailable'.
+//   3. BE2: auto-sync the profile's bio links (InstagramAutoSync::seed) into
+//      social/booking connections — mirrors the Google Business connect flow.
+//   4. Upsert the connection row with last_refresh_status='ok'/'unavailable'.
 //
 // The connection row is written with last_refresh_status='pending' by the
 // controller BEFORE this job is dispatched, so the status endpoint can respond
@@ -120,7 +123,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         return now()->addMinutes(15);
     }
 
-    public function handle(InstagramScraper $scraper): void
+    public function handle(InstagramScraper $scraper, InstagramAutoSync $autoSync): void
     {
         // ::find() respects the soft-delete scope, so a null result already covers
         // both "never existed" and "user disconnected (soft-deleted) while queued".
@@ -173,6 +176,13 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         $picSrc = $scraper->profilePicUrl($profile);
         $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
 
+        // BE2: bio links — externalUrl + externalUrls[].url + URLs regexed out of
+        // biography, defensively (Apify actor field names vary by version; today's
+        // actor returns none of these at all, so bioLinks() safely returns []).
+        $bioLinks = $scraper->bioLinks($profile);
+        $website = data_get($profile, 'externalUrl');
+        $website = is_string($website) && preg_match('~^https?://~i', trim($website)) ? trim($website) : null;
+
         // Reclaim stale mirrors of a media type no longer present this run (e.g. a
         // prior reel + its cover when the account now leads with a photo, or a
         // removed profile pic). The folder is stable per connection
@@ -219,6 +229,10 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
             // public endpoint by PublicIntegrationConnectionResource.
             '_folder' => $folder,
+            // BE2: the profile's own "website" field + every bio link found (both
+            // internal — never emitted by InstagramConnectionResource).
+            'website' => $website,
+            'bioLinks' => $bioLinks,
         ];
 
         // Preserve the google-business origin tag across a re-scrape (it drives the
@@ -226,6 +240,16 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         if (($source = InstagramPayload::fromArray($connection->payload)->source) !== null) {
             $selection['source'] = $source;
         }
+
+        // BE2: harvest the bio links into social/booking connections the same way
+        // Google Business connect harvests its own found links — auto-add what's
+        // missing, flag conflicts, surface leftovers for "add as custom link".
+        // Best-effort: InstagramAutoSync isolates each link in its own try/catch,
+        // so a bad link can't fail this job. Findings persist alongside the profile
+        // in ONE write (not a follow-up save) so /synced never sees a half-written row.
+        $sync = $autoSync->seed($this->userId, $bioLinks);
+        $selection['syncFindings'] = $sync['findings'];
+        $selection['unmatched'] = $sync['unmatched'];
 
         $connection->update([
             'payload' => $selection,

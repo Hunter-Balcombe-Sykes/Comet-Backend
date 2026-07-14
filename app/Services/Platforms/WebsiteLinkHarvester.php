@@ -31,8 +31,19 @@ class WebsiteLinkHarvester
         'pinterest' => '~(^|\.)pinterest\.[a-z.]+$~',
     ];
 
-    /** Reservation provider hosts — the seeder's own provider services re-validate. */
-    private const RESERVATION_HOSTS = '~(^|\.)(opentable\.[a-z.]+|resdiary\.com|nowbookit\.com)$~';
+    /**
+     * Reservation provider hosts, keyed by label — the seeder's own provider
+     * services re-validate. Kept per-provider (not one joined regex) so
+     * classify() can report WHICH provider matched, not just "reservation-y".
+     */
+    private const RESERVATION_HOSTS = [
+        'OpenTable' => '~(^|\.)opentable\.[a-z.]+$~',
+        'ResDiary' => '~(^|\.)resdiary\.com$~',
+        'NowBookit' => '~(^|\.)nowbookit\.com$~',
+    ];
+
+    /** Label => platform slug for RESERVATION_HOSTS, used only by classify(). */
+    private const RESERVATION_PLATFORM = ['OpenTable' => 'opentable', 'ResDiary' => 'resdiary', 'NowBookit' => 'nowbookit'];
 
     /** Online-ordering provider hosts (AU market set). */
     private const ORDERING_HOSTS = [
@@ -43,8 +54,25 @@ class WebsiteLinkHarvester
         'Order Online' => '~(^|\.)order\.online$~',
     ];
 
-    /** Booking provider hosts (Fresha / Square). */
-    private const BOOKING_HOSTS = '~(^|\.)(fresha\.com|squareup\.com|square\.site)$~';
+    /** Booking provider hosts (Fresha / Square), keyed by label — see RESERVATION_HOSTS note. */
+    private const BOOKING_HOSTS = [
+        'Fresha' => '~(^|\.)fresha\.com$~',
+        'Square' => '~(^|\.)(squareup\.com|square\.site)$~',
+    ];
+
+    /** Label => platform slug for BOOKING_HOSTS, used only by classify(). */
+    private const BOOKING_PLATFORM = ['Fresha' => 'fresha', 'Square' => 'square'];
+
+    /** SOCIAL_HOSTS key => [platform slug, display label], used only by classify(). */
+    private const SOCIAL_PLATFORM = [
+        'instagram' => ['instagram', 'Instagram'],
+        'facebook' => ['facebook', 'Facebook'],
+        'tiktok' => ['tiktok', 'TikTok'],
+        'twitter' => ['x', 'X'],
+        'linkedin' => ['linkedin', 'LinkedIn'],
+        'youtube' => ['youtube', 'YouTube'],
+        'pinterest' => ['pinterest', 'Pinterest'],
+    ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -90,7 +118,7 @@ class WebsiteLinkHarvester
                 }
             }
 
-            if (preg_match(self::RESERVATION_HOSTS, $host)) {
+            if ($this->matchesAnyHost(self::RESERVATION_HOSTS, $host)) {
                 $reservationLinks[] = ['url' => $url];
                 continue;
             }
@@ -102,7 +130,7 @@ class WebsiteLinkHarvester
                 }
             }
 
-            if (preg_match(self::BOOKING_HOSTS, $host)) {
+            if ($this->matchesAnyHost(self::BOOKING_HOSTS, $host)) {
                 $booking[] = $url;
             }
         }
@@ -117,6 +145,71 @@ class WebsiteLinkHarvester
             'booking' => $booking !== [] ? $booking : null,
             'socials' => $socials !== [] ? $socials : null,
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * Classify a single URL by host into {platform, category, label}, or null
+     * when it matches none of this class's known host patterns. Reuses the SAME
+     * SOCIAL_HOSTS / RESERVATION_HOSTS / ORDERING_HOSTS / BOOKING_HOSTS constants
+     * harvest() classifies a scraped homepage's anchors with — the one
+     * host→platform mapping in the codebase (BE2: InstagramAutoSync classifies
+     * Instagram bio links through this, instead of a second table). Category
+     * values match GoogleBusinessAutoSync's finding categories
+     * ('social'/'booking'/'reservations'/'online-ordering') so a consumer can
+     * treat either source's findings identically.
+     *
+     * @return array{platform:string, category:string, label:string}|null
+     */
+    public function classify(string $url): ?array
+    {
+        $url = trim($url);
+        if (! preg_match('~^https?://~i', $url)) {
+            return null;
+        }
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return null;
+        }
+
+        foreach (self::SOCIAL_HOSTS as $key => $pattern) {
+            if (preg_match($pattern, $host) && isset(self::SOCIAL_PLATFORM[$key]) && $this->looksLikeProfile($key, $url)) {
+                [$platform, $label] = self::SOCIAL_PLATFORM[$key];
+
+                return ['platform' => $platform, 'category' => 'social', 'label' => $label];
+            }
+        }
+
+        foreach (self::BOOKING_HOSTS as $label => $pattern) {
+            if (preg_match($pattern, $host)) {
+                return ['platform' => self::BOOKING_PLATFORM[$label], 'category' => 'booking', 'label' => $label];
+            }
+        }
+
+        foreach (self::RESERVATION_HOSTS as $label => $pattern) {
+            if (preg_match($pattern, $host)) {
+                return ['platform' => self::RESERVATION_PLATFORM[$label], 'category' => 'reservations', 'label' => $label];
+            }
+        }
+
+        foreach (self::ORDERING_HOSTS as $label => $pattern) {
+            if (preg_match($pattern, $host)) {
+                return ['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => $label];
+            }
+        }
+
+        return null;
+    }
+
+    /** Whether $host matches ANY pattern in a label => regex map. */
+    private function matchesAnyHost(array $hostMap, string $host): bool
+    {
+        foreach ($hostMap as $pattern) {
+            if (preg_match($pattern, $host)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Absolute, deduped, http(s)-only hrefs from the page (≤500 to bound work). */

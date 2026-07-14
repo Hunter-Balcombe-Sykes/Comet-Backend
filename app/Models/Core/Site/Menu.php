@@ -21,7 +21,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // last-sync timestamp, and status live in site.menu_platform_links (one row per
 // platform), tracking each scrape independently. Per-item order LINKS are
 // still computed at read time from the live ordering entries (MenuSource), never
-// stored. Dashboard-only — never exposed on the public sitepage.
+// stored. Served both on the authenticated dashboard (MenuController) AND
+// publicly on the sitepage (PublicMenuController, gated on last_fetched_at
+// being set + the owner's Google Business menu display toggle). Content isn't
+// only scraped either — menu_categories.source_platform can be 'scan' for
+// items a user added by scanning a photo/PDF menu (MenuScanApplier); those
+// rows are exempt from MenuFetchJob's wholesale scrape rebuild.
 class Menu extends BaseModel
 {
     use HasUuids;

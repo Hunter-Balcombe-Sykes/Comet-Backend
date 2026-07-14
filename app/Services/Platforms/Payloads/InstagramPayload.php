@@ -14,6 +14,16 @@ namespace App\Services\Platforms\Payloads;
 // WRITE stays literal (live-scrape writes are not migrated); this DTO is the READ
 // boundary (controller status/selection, the job's source read, the observer's
 // _folder reads).
+//
+// BE2: also carries the bio-link auto-sync fields — `website` (the profile's
+// `externalUrl`), `bioLinks` (every URL InstagramScraper::bioLinks() found),
+// `syncFindings` (InstagramAutoSync's seed/conflict findings, mirroring
+// GoogleBusinessPayload::syncFindings()), and `unmatched` (bio links that
+// classified to nothing InstagramAutoSync seeds, or to nothing at all — the
+// "add as custom link" leftovers). Same INTERNAL-field contract as _folder/source:
+// present in the DTO, never emitted by InstagramConnectionResource. An old
+// connection row that predates this feature has none of these keys and reads
+// them as null/[] — never breaks.
 final readonly class InstagramPayload
 {
     public function __construct(
@@ -30,6 +40,10 @@ final readonly class InstagramPayload
         public int $imagesDropped,
         public ?string $source,
         public ?string $folder,
+        public ?string $website,
+        public array $bioLinks,
+        public array $syncFindings,
+        public array $unmatched,
     ) {}
 
     public static function fromArray(mixed $payload): self
@@ -50,6 +64,10 @@ final readonly class InstagramPayload
             imagesDropped: is_int($p['imagesDropped'] ?? null) ? $p['imagesDropped'] : 0,
             source: self::stringOrNull($p['source'] ?? null),
             folder: self::stringOrNull($p['_folder'] ?? null),
+            website: self::stringOrNull($p['website'] ?? null),
+            bioLinks: is_array($p['bioLinks'] ?? null) ? array_values($p['bioLinks']) : [],
+            syncFindings: is_array($p['syncFindings'] ?? null) ? array_values($p['syncFindings']) : [],
+            unmatched: is_array($p['unmatched'] ?? null) ? array_values($p['unmatched']) : [],
         );
     }
 
@@ -70,6 +88,10 @@ final readonly class InstagramPayload
             'imagesDropped' => $this->imagesDropped,
             'source' => $this->source,
             '_folder' => $this->folder,
+            'website' => $this->website,
+            'bioLinks' => $this->bioLinks,
+            'syncFindings' => $this->syncFindings,
+            'unmatched' => $this->unmatched,
         ];
     }
 

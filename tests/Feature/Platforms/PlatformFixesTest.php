@@ -6,6 +6,7 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AppleSearch;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
@@ -345,9 +346,10 @@ it('surfaces dropped Instagram images when mirroring fails (job-level)', functio
     $scraper->shouldReceive('latestMedia')
         ->andReturn(['photo' => ['thumbnailUrl' => 'https://scontent.cdninstagram.com/1.jpg', 'shortCode' => 'a'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->andReturn(null);
+    $scraper->shouldReceive('bioLinks')->andReturn([]);
 
     $job = new InstagramConnectJob($user->id, 'jane', $connection->id);
-    $job->handle($scraper);
+    $job->handle($scraper, app(InstagramAutoSync::class));
 
     $connection->refresh();
     expect($connection->payload['images'])->toHaveCount(0);   // photo mirror failed → no image
