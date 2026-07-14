@@ -25,7 +25,10 @@ class ApplyMenuScanRequest extends FormRequest
             // trims before checking), so no separate non-empty rule is needed.
             'items.*.name' => ['required', 'string', 'max:160'],
             'items.*.description' => ['nullable', 'string'],
-            'items.*.price' => ['nullable', 'numeric'],
+            // Bounded like a real menu price — min:0 rejects a scan misread as
+            // negative, max:100000 catches a decimal-point misread (e.g. $1400.00
+            // scanned as 140000) without constraining any real-world price.
+            'items.*.price' => ['nullable', 'numeric', 'min:0', 'max:100000'],
             'items.*.category' => ['nullable', 'string'],
         ];
     }

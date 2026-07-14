@@ -751,6 +751,13 @@ it('422s scan apply for a non-numeric price', function () {
     ])->assertStatus(422);
 });
 
+it('422s scan apply for a negative price', function () {
+    $user = menuUser('scan8b');
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => null, 'price' => -5, 'category' => null]],
+    ])->assertStatus(422);
+});
+
 // ── BE3: refresh-survival — scan content must outlive a scraper rebuild ──
 // MenuFetchJob wholesale-deletes+reinserts menu_categories/menu_items on
 // every real scrape (persist()) and on losing the last ordering link
