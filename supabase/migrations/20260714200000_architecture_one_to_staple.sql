@@ -11,6 +11,16 @@
 -- The site.public_site_payload view's JSONB wire key `skeleton_id` is
 -- untouched (value flows from the column; renaming that public wire key stays
 -- a separate consumer-coordinated change — see 20260710230000).
+--
+-- Exempt from the ADD CONSTRAINT CHECK NOT VALID rule (guard:no-unsafe-
+-- migrations, Master Pattern 20): site.sites has 10 rows total in dev (a
+-- complete census, matching site.workplaces at the same tiny scale), so the
+-- CHECK rebuild below takes a harmless, sub-millisecond lock — same
+-- justification class as 20260612100000/20260629120000's platform_connections
+-- exemptions. The UPDATE two statements above also already normalizes every
+-- row to 'staple' first, so the CHECK can never fail validation.
+--
+-- guard:no-unsafe-migrations:disable-file
 
 ALTER TABLE site.sites DROP CONSTRAINT IF EXISTS sites_architecture_id_check;
 
