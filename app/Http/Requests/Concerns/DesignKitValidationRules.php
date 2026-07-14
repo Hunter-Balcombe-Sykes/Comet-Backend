@@ -60,11 +60,13 @@ trait DesignKitValidationRules
             'design_kit.color_contrasting_text' => $hex,
 
             // Typography — fontFamily is a slug resolved by
-            // @partnaau/design-system/design-assets.
+            // @partnaau/design-system/design-assets. tracking is the
+            // letter-spacing register selection (2026-07-15 axis).
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_line_height' => $len,
             'design_kit.typography_logo_height' => $len,
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
+            'design_kit.typography_tracking' => ['sometimes', 'nullable', 'string', 'in:tight,normal,wide'],
 
             // Text scale — semantic slots (2026-07-10): body is the value
             // base; the rest are inferred but keep nullable columns for
@@ -80,8 +82,10 @@ trait DesignKitValidationRules
             'design_kit.text_desktop_display' => $size,
 
             // Weight scale — regular is the value base; light/medium/semibold/
-            // bold are inferred (base∓100/200/300).
+            // bold are inferred (base∓100/200/300). heading is its own Value
+            // (2026-07-15 axis): heading/display weight independent of body.
             'design_kit.weight_regular' => $len,
+            'design_kit.weight_heading' => $len,
             'design_kit.weight_light' => $len,
             'design_kit.weight_medium' => $len,
             'design_kit.weight_semibold' => $len,
@@ -141,6 +145,9 @@ trait DesignKitValidationRules
             // visitor clock; user-only, default true code-side.
             'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:bleach,dust,warm,dusk,midnight'],
             'design_kit.theme_night_shift_auto' => ['sometimes', 'nullable', 'boolean'],
+            // Contrast register (2026-07-15 axis) — the dispatcher transforms
+            // the mode's palette variants server-side.
+            'design_kit.theme_contrast' => ['sometimes', 'nullable', 'string', 'in:soft,normal,stark'],
         ];
     }
 }
