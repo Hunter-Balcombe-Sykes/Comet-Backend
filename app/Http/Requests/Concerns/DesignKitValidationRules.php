@@ -23,12 +23,13 @@ namespace App\Http\Requests\Concerns;
 // h3/h2/h1/display + desktop body/h1/display).
 //
 // 2026-07-10 surfaces (migration 20260710210000): effect_button_fill dropped;
-// effect_glass_blur + motion_glass_shine_duration added (glass knobs —
-// code-side defaults '5px' / '6s' in the design-system package; the glass
-// tint is a theme_mode palette value, not a column).
+// the glass knobs were added (and removed again 2026-07-15 — see below).
 //
 // 2026-07-15 sitepage rebuild: effect_surface (glass/solid/outline Surface
-// type) dropped — component look flows from the kit vars directly.
+// type) dropped (migration 20260714210000), then its glass satellites —
+// effect_scrim_blur / effect_glass_blur / motion_glass_shine_duration —
+// dropped too (migration 20260714230000). Component look flows from the kit
+// vars directly.
 trait DesignKitValidationRules
 {
     /**
@@ -125,13 +126,10 @@ trait DesignKitValidationRules
             'design_kit.motion_fade_duration' => $len,
             'design_kit.motion_expand_duration' => $len,
             'design_kit.motion_spin_duration' => $len,
-            'design_kit.motion_glass_shine_duration' => $len,
             'design_kit.motion_spring_curve' => ['sometimes', 'nullable', 'string', 'max:64'],
 
             // Effects — media-scrim blur values + the per-axis identity
             // selections (Surface type removed 2026-07-15).
-            'design_kit.effect_scrim_blur' => $len,
-            'design_kit.effect_glass_blur' => $len,
             'design_kit.effect_shadow_style' => ['sometimes', 'nullable', 'string', 'in:flat,soft,hard'],
             'design_kit.effect_link_style' => ['sometimes', 'nullable', 'string', 'in:underline-hover,underline-always,plain'],
             'design_kit.effect_image_treatment' => ['sometimes', 'nullable', 'string', 'in:none,mono,duotone,warm,muted'],

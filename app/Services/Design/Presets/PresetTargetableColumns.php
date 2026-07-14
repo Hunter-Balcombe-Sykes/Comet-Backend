@@ -50,11 +50,10 @@ final class PresetTargetableColumns
         'effect_shadow_style',      // flat | soft | hard
         'effect_link_style',        // underline-hover | underline-always | plain  (NOT underline-grow — unrenderable; the sitepage renderer + kit validator only accept these three, a stray 'underline-grow' silently falls back to hover)
         'effect_image_treatment',   // none | mono | duotone | warm | muted
-        // effect_button_fill retired 2026-07-10; effect_surface retired
-        // 2026-07-15 (the surface-type kit axis is gone — stale contributions
-        // targeting it are dropped by this allowlist). The glass knobs
-        // (effect_glass_blur, motion_glass_shine_duration) are deliberately
-        // NOT factor-targetable.
+        // effect_button_fill retired 2026-07-10; effect_surface + its glass
+        // satellite columns retired 2026-07-15 (the surface-type kit axis is
+        // gone — stale contributions targeting any of them are dropped by
+        // this allowlist).
     ];
 
     public static function isValid(string $column): bool
