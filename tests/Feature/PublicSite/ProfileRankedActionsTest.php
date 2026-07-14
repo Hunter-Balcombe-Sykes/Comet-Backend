@@ -208,6 +208,55 @@ it('applies manual page order when smart_page_order is off — unknown dropped, 
     expect($payload['pageOrder'])->toBe(['links', 'home', 'listen']);
 });
 
+it('skips a non-uuid service content_key (Fresha-embedded booking service) without letting it hijack a whereIn lookup', function () {
+    $tenant = createTenant('pay-fresha-svc');
+
+    $realServiceId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.services')->insert([
+        'id' => $realServiceId,
+        'user_id' => $tenant->id,
+        'title' => 'Haircut',
+        'is_active' => 1,
+        'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
+    ]);
+
+    // SQLite's site.services.id is untyped TEXT (tests/Pest.php's
+    // setupServicesTable()), so a row can be planted at a non-uuid key too —
+    // something the real Postgres uuid column could never hold. If
+    // itemLabels() ever sent this key into the whereIn() unfiltered, it would
+    // "accidentally" resolve a label here under SQLite (masking the bug)
+    // instead of throwing SQLSTATE[22P02] like it does against the real uuid
+    // column. The fix — filtering to uuid-shaped keys before the query — must
+    // skip it regardless of whether a row happens to match.
+    DB::connection('pgsql')->table('site.services')->insert([
+        'id' => 's:19380420',
+        'user_id' => $tenant->id,
+        'title' => 'Ghost service (should never resolve)',
+        'is_active' => 1,
+        'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
+    ]);
+
+    // Both ranked in the top ITEMS_PER_TYPE=2 for content_type='service'. The
+    // second key mirrors Fresha's own scraped service id format verbatim
+    // (FreshaScraper::extractServices(): "Only real services (id prefixed
+    // s:) are kept") — how a Fresha-embedded booking service actually reaches
+    // item-seen/click tracking on the Services/booking section, since
+    // ItemSeenRequest only requires item_id be a string, not a uuid.
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'service', 'content_key' => $realServiceId, 'score' => 5.0, 'rank' => 1, 'computed_at' => now()->toISOString()],
+        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'service', 'content_key' => 's:19380420', 'score' => 4.0, 'rank' => 2, 'computed_at' => now()->toISOString()],
+    ]);
+
+    $payload = buildProfilePayload($tenant);
+    $serviceActions = collect($payload['rankedActions'])->where('itemType', 'service')->keyBy('itemKey');
+
+    expect($serviceActions)->toHaveCount(2)
+        ->and($serviceActions[$realServiceId]['label'])->toBe('Haircut')
+        ->and($serviceActions['s:19380420']['label'])->toBeNull();
+});
+
 it('emits ordering defaults (smart everywhere) and keeps the popularity map action-free', function () {
     $tenant = createTenant('pay-defaults');
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);

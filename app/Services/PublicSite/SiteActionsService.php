@@ -12,6 +12,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\RankedActionsComputer;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * Unified site ACTIONS — the one ranked list the ONE lander renders its CTA
@@ -255,12 +256,27 @@ class SiteActionsService
         $labels = [];
 
         if (! empty($byType['service'])) {
-            $titles = Service::query()
-                ->whereIn('id', $byType['service'])
-                ->pluck('title', 'id');
-            foreach ($titles as $id => $title) {
-                if (is_string($title) && trim($title) !== '') {
-                    $labels['service'][(string) $id] = trim($title);
+            // Item keys of type 'service' are normally site.services uuids, but a
+            // Fresha-embedded booking service can also score here: its click/
+            // impression events carry Fresha's own catalog id verbatim as item_id
+            // (format "s:<numericId>" — see FreshaScraper::extractServices()), and
+            // ItemSeenRequest only requires item_id be a string, not a uuid.
+            // Postgres rejects a non-uuid literal in a uuid whereIn() outright
+            // (SQLSTATE 22P02), so filter to uuid-shaped keys first — a Fresha id
+            // then falls through to label:null, the same "can't backend-resolve,
+            // skip it" contract already used below for shop/listen/watch/events.
+            $serviceIds = array_values(array_filter(
+                $byType['service'],
+                static fn (string $id): bool => Str::isUuid($id),
+            ));
+            if ($serviceIds !== []) {
+                $titles = Service::query()
+                    ->whereIn('id', $serviceIds)
+                    ->pluck('title', 'id');
+                foreach ($titles as $id => $title) {
+                    if (is_string($title) && trim($title) !== '') {
+                        $labels['service'][(string) $id] = trim($title);
+                    }
                 }
             }
         }
