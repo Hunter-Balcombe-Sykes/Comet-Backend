@@ -730,6 +730,74 @@ it('reports mixed updated/added counts for a batch with both matches and new ite
     expect(MenuItem::query()->where('category_id', $sides->id)->count())->toBe(2);
 });
 
+// ── BE3: category-aware name matching (same-name items across sections) ──
+// indexByNormalizedName() used to keep "first occurrence wins" with NO
+// orderBy — non-deterministic on Postgres — and matched on name alone, so
+// two items sharing a normalized name in different categories (e.g. "Garlic
+// Bread" as both a Starter and a Side) could have a scan update land on the
+// wrong one. A scan-supplied category now disambiguates; with no category
+// and no unambiguous single match, a new item is created instead of guessed.
+
+it('updates the item within the matching category when the same name exists in two categories', function () {
+    $user = menuUser('scan15');
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
+        ['name' => 'Sides', 'items' => [['name' => 'Garlic Bread', 'base_price' => 6.0]]],
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Garlic Bread', 'description' => 'Toasted, buttery.', 'price' => 6.5, 'category' => 'sides']],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    $starters = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Starters'))->firstOrFail();
+    $sides = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Sides'))->firstOrFail();
+    expect((float) $sides->base_price)->toBe(6.5);
+    expect($sides->description)->toBe('Toasted, buttery.');
+    expect((float) $starters->base_price)->toBe(8.0); // untouched
+    expect($starters->description)->toBeNull();
+});
+
+it('creates a new item instead of guessing when the same name exists in two categories and the scan supplies no category', function () {
+    $user = menuUser('scan16');
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
+        ['name' => 'Sides', 'items' => [['name' => 'Garlic Bread', 'base_price' => 6.0]]],
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Garlic Bread', 'description' => null, 'price' => 7.0, 'category' => null]],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 0, 'added' => 1]);
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Garlic Bread')->count())->toBe(3);
+
+    $starters = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Starters'))->firstOrFail();
+    $sides = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Sides'))->firstOrFail();
+    expect((float) $starters->base_price)->toBe(8.0); // untouched
+    expect((float) $sides->base_price)->toBe(6.0);     // untouched
+
+    $newItem = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('source_platform', 'scan'))->firstOrFail();
+    expect((float) $newItem->base_price)->toBe(7.0);
+    expect($newItem->category->name)->toBe('Menu'); // default category, no category supplied
+});
+
+it('still updates by name alone when exactly one item shares that name and the scan supplies no category (pinned existing behavior)', function () {
+    $user = menuUser('scan17');
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [['name' => 'Caesar Salad', 'base_price' => 12.0]]],
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'caesar salad', 'description' => 'With anchovies.', 'price' => 13.0, 'category' => null]],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    expect((float) $item->base_price)->toBe(13.0);
+    expect($item->description)->toBe('With anchovies.');
+});
+
 it('422s scan apply for an empty (whitespace-only) item name', function () {
     $user = menuUser('scan6');
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [

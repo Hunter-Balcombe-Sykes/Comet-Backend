@@ -21,11 +21,17 @@ use Illuminate\Support\Facades\DB;
 // Matching: an item whose trimmed, case-insensitive name matches an EXISTING
 // menu_items row — scraped or previously scanned, any source — is UPDATED in
 // place (description/base_price only, and only the fields the scan actually
-// supplied; a field the scan omitted never null's out existing content). No
-// match creates a new item under a scan-owned category, matched
-// case-insensitively by trimmed name among the menu's OWN 'scan' categories
-// ONLY — never reusing a scraped category, or the new item would be deleted
-// right along with it on the next scrape refresh.
+// supplied; a field the scan omitted never null's out existing content).
+// Same-named items across DIFFERENT categories (e.g. "Garlic Bread" as both a
+// Starter and a Side) are a real, disambiguation-worthy collision: when the
+// scan supplies a category, the (name, category) match wins; otherwise (or
+// when that scoped match misses) the plain name-only match is used ONLY when
+// it's unambiguous (exactly one candidate) — with 2+ same-name candidates and
+// nothing to disambiguate them, a new item is created rather than guessed.
+// No match (or an unresolved ambiguity) creates a new item under a scan-owned
+// category, matched case-insensitively by trimmed name among the menu's OWN
+// 'scan' categories ONLY — never reusing a scraped category, or the new item
+// would be deleted right along with it on the next scrape refresh.
 class MenuScanApplier
 {
     private const DEFAULT_CATEGORY_NAME = 'Menu';
@@ -41,10 +47,29 @@ class MenuScanApplier
         return DB::connection('pgsql')->transaction(function () use ($user, $items) {
             $menu = $this->resolveMenu($user);
 
-            $itemsByName = $this->indexByNormalizedName(
-                MenuItem::query()->where('menu_id', $menu->id)->get(),
-                fn (MenuItem $item) => $item->name,
-            );
+            // orderBy gives a deterministic base for "first occurrence wins"
+            // below — without it, two same-name rows on Postgres could resolve
+            // in an arbitrary order across requests.
+            $existingItems = MenuItem::query()
+                ->where('menu_id', $menu->id)
+                ->with('category')
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->get();
+
+            $itemsByName = $this->groupByNormalizedName($existingItems, fn (MenuItem $item) => $item->name);
+
+            // (name, category) scoped index for disambiguating a same-name
+            // collision across sections — first occurrence per pair wins.
+            $itemsByNameAndCategory = [];
+            foreach ($existingItems as $existingItem) {
+                $categoryName = $existingItem->category?->name;
+                if ($categoryName === null) {
+                    continue;
+                }
+                $itemsByNameAndCategory[$this->normalize($existingItem->name)][$this->normalize($categoryName)] ??= $existingItem;
+            }
+
             $scanCategoriesByName = $this->indexByNormalizedName(
                 MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', self::SOURCE)->get(),
                 fn (MenuCategory $category) => $category->name,
@@ -57,10 +82,12 @@ class MenuScanApplier
 
             foreach ($items as $item) {
                 $name = trim((string) $item['name']);
-                $key = $this->normalize($name);
+                $nameKey = $this->normalize($name);
+                $scanCategoryName = $this->cleanString($item['category'] ?? null);
 
-                if (isset($itemsByName[$key])) {
-                    $this->updateItem($itemsByName[$key], $item);
+                $match = $this->resolveMatch($nameKey, $scanCategoryName, $itemsByNameAndCategory, $itemsByName);
+                if ($match !== null) {
+                    $this->updateItem($match, $item);
                     $updated++;
 
                     continue;
@@ -91,12 +118,42 @@ class MenuScanApplier
                     'description' => $this->cleanString($item['description'] ?? null),
                     'base_price' => $item['price'] ?? null,
                 ]);
-                $itemsByName[$key] = $newItem;
+                // The new item joins both lookup pools too, so a LATER scan
+                // item in this SAME batch sharing this name can still find it
+                // (mirrors the prior single-map "first occurrence wins" reuse).
+                $itemsByName[$nameKey][] = $newItem;
+                $itemsByNameAndCategory[$nameKey][$categoryKey] ??= $newItem;
                 $added++;
             }
 
             return ['updated' => $updated, 'added' => $added];
         });
+    }
+
+    /**
+     * The existing item a scan item should update, or null when no
+     * unambiguous match exists. A scan-supplied category wins first
+     * (case-insensitive category-name match); otherwise — or when that
+     * scoped lookup misses — fall back to the name-only match, but ONLY when
+     * it's unambiguous (exactly one candidate). A same-name collision across
+     * categories with nothing to disambiguate it is a "don't guess" case,
+     * left to the caller to create a new item instead.
+     *
+     * @param  array<string, array<string, MenuItem>>  $itemsByNameAndCategory
+     * @param  array<string, list<MenuItem>>  $itemsByName
+     */
+    private function resolveMatch(string $nameKey, ?string $scanCategoryName, array $itemsByNameAndCategory, array $itemsByName): ?MenuItem
+    {
+        if ($scanCategoryName !== null) {
+            $scoped = $itemsByNameAndCategory[$nameKey][$this->normalize($scanCategoryName)] ?? null;
+            if ($scoped !== null) {
+                return $scoped;
+            }
+        }
+
+        $candidates = $itemsByName[$nameKey] ?? [];
+
+        return count($candidates) === 1 ? $candidates[0] : null;
     }
 
     /**
@@ -136,6 +193,21 @@ class MenuScanApplier
         $index = [];
         foreach ($models as $model) {
             $index[$this->normalize($nameOf($model))] ??= $model;
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param  iterable<MenuItem>  $models
+     * @param  callable(MenuItem): string  $nameOf
+     * @return array<string, list<MenuItem>> normalized name => every matching model, insertion order preserved
+     */
+    private function groupByNormalizedName(iterable $models, callable $nameOf): array
+    {
+        $index = [];
+        foreach ($models as $model) {
+            $index[$this->normalize($nameOf($model))][] = $model;
         }
 
         return $index;
