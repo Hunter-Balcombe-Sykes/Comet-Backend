@@ -892,3 +892,49 @@ it('serves the full menu for a scan-only menu with no ordering platform', functi
     // order links, not assume/require a platform source.
     expect($item['platforms'])->toBe([]);
 });
+
+// ── BE3: platforms-key seam — scanned item on a CONNECTED menu ─────────
+// Frontend MenuOrderActions treats `item.platforms` being ABSENT (undefined)
+// as "pre-platforms-schema item — fall back to the restaurant-level pickup/
+// delivery/order links" (menu-section.tsx). A scan-added item has zero
+// menu_item_platforms rows; if the dashboard GET ever omitted `platforms`
+// instead of emitting `[]` for such an item, a menu that ALSO has a
+// connected Uber Eats/DoorDash link would wrongly attach that platform's
+// order button to a scanned dish that isn't actually on it. Distinct from
+// scan12 above: that menu has NO ordering connection at all, so its
+// restaurant-level `links` are already null and the bug couldn't manifest
+// even if `platforms` were omitted — this test needs a real connected link
+// to actually exercise the misleading-button risk.
+
+it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a menu with a connected ordering platform', function () {
+    $user = menuUser('scan13');
+    // A real, connected Uber Eats link — links.orderUrl will be non-null,
+    // which is the exact bait a legacy-fallback bug would wrongly serve.
+    ordering($user, 'https://www.ubereats.com/store/scanseam', null, '2026-06-17 10:00:00');
+    seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [[
+            'name' => 'Scraped Dish', 'base_price' => 10.0,
+            'platforms' => [
+                ['platform' => 'uber-eats', 'pickupPrice' => null, 'pickupUrl' => null, 'deliveryPrice' => 10.0, 'deliveryUrl' => 'https://www.ubereats.com/store/scanseam'],
+            ],
+        ]]],
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Scanned Dish', 'description' => null, 'price' => 7.0, 'category' => 'Specials']],
+    ])->assertOk();
+
+    $res = actingAsUser($user)->getJson('/api/platforms/menu')->assertOk();
+    // Confirm the restaurant-level fallback link really is populated here...
+    expect($res->json('links.orderUrl'))->toBe('https://www.ubereats.com/store/scanseam');
+
+    $items = collect($res->json('categories'))->flatMap(fn ($c) => $c['items'])->keyBy('name');
+    $scanned = $items['Scanned Dish'];
+    // ...but the scanned item has zero menu_item_platforms rows, so its own
+    // `platforms` key must be present-and-empty, never omitted, or the
+    // frontend's legacy branch would inherit the restaurant's Uber Eats button.
+    expect(array_key_exists('platforms', $scanned))->toBeTrue();
+    expect($scanned['platforms'])->toBe([]);
+    // The scraped sibling dish keeps its own real per-platform entry, unaffected.
+    expect($items['Scraped Dish']['platforms'])->toHaveCount(1);
+});
