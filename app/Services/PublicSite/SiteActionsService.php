@@ -282,16 +282,29 @@ class SiteActionsService
         }
 
         if (! empty($byType['gallery_item'])) {
-            $media = SiteMedia::query()
-                ->where('site_id', $site->id)
-                ->whereIn('id', $byType['gallery_item'])
-                ->get(['id', 'caption', 'alt_text']);
-            foreach ($media as $row) {
-                $label = trim((string) ($row->caption ?? '')) !== ''
-                    ? trim((string) $row->caption)
-                    : trim((string) ($row->alt_text ?? ''));
-                if ($label !== '') {
-                    $labels['gallery_item'][(string) $row->id] = $label;
+            // Same class of bug as the 'service' branch above: a gallery_item
+            // content_key can be any string (ItemSeenRequest only requires
+            // item_id be a string), but site.site_media.id is a genuine
+            // Postgres uuid NOT NULL column — a non-uuid literal in
+            // whereIn('id', ...) throws SQLSTATE[22P02] there. Filter to
+            // uuid-shaped keys first; a non-uuid key falls through to
+            // label:null, same "can't backend-resolve, skip it" contract.
+            $mediaIds = array_values(array_filter(
+                $byType['gallery_item'],
+                static fn (string $id): bool => Str::isUuid($id),
+            ));
+            if ($mediaIds !== []) {
+                $media = SiteMedia::query()
+                    ->where('site_id', $site->id)
+                    ->whereIn('id', $mediaIds)
+                    ->get(['id', 'caption', 'alt_text']);
+                foreach ($media as $row) {
+                    $label = trim((string) ($row->caption ?? '')) !== ''
+                        ? trim((string) $row->caption)
+                        : trim((string) ($row->alt_text ?? ''));
+                    if ($label !== '') {
+                        $labels['gallery_item'][(string) $row->id] = $label;
+                    }
                 }
             }
         }
