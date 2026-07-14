@@ -40,7 +40,7 @@ use Illuminate\Support\Facades\DB;
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
  *     designMedia: DesignMediaItem[],
- *     architectureId: 'one',
+ *     architectureId: 'staple',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *

@@ -100,13 +100,13 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'architecture_id' => 'one',
+            'architecture_id' => 'staple',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('one');
+        ->toBe('staple');
 });
 
 it('rejects a genuinely unknown architecture id', function () {
@@ -120,7 +120,7 @@ it('rejects a genuinely unknown architecture id', function () {
 
 it('collapses every historical architecture id to one on write', function () {
     // The platform is single-architecture (2026-07-10). Any stale dashboard/chat
-    // build sending an old id must succeed and store 'one' — never 422, never
+    // build sending an old id must succeed and store 'staple' — never 422, never
     // persist a layout that no longer renders.
     $pro = createTenant('legacy-architecture-pro');
 
@@ -130,13 +130,13 @@ it('collapses every historical architecture id to one on write', function () {
             ->assertOk();
 
         expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-            ->toBe('one', "legacy id {$legacy} must collapse to 'one'");
+            ->toBe('staple', "legacy id {$legacy} must collapse to 'staple'");
     }
 });
 
 it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
     // Old clients (pre-rename dashboards) still send skeleton_id. prepareForValidation
-    // merges it into architecture_id, so the write must succeed and store 'one'.
+    // merges it into architecture_id, so the write must succeed and store 'staple'.
     $pro = createTenant('legacy-field-pro');
 
     actingAsUser($pro)
@@ -144,5 +144,5 @@ it('accepts the legacy skeleton_id field name and collapses it (transition alias
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('one');
+        ->toBe('staple');
 });

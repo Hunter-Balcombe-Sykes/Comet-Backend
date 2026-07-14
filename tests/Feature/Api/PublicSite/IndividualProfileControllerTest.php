@@ -25,12 +25,12 @@ beforeEach(function () {
     setupContentSelectionTable();
 
     // Architecture column shim — production has architecture_id with a CHECK
-    // enum default 'one', and the SitepageDataResolverService reads it via
+    // enum default 'staple', and the SitepageDataResolverService reads it via
     // $site->architecture_id. Plus a stub design_kits table whose shape mirrors
     // the post-phase-7a column set so the PayloadBuilder's loadDesignKit()
     // lookup + grouping logic exercises real columns even on SQLite.
     try {
-        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'one'");
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'staple'");
     } catch (Throwable $e) {
         // Column already exists from a prior test in the same process.
     }
@@ -122,9 +122,9 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
-    expect($data['architectureId'])->toBe('one');
+    expect($data['architectureId'])->toBe('staple');
     // Transition alias — must mirror architectureId until apps/pages migrates.
-    expect($data['skeletonId'])->toBe('one');
+    expect($data['skeletonId'])->toBe('staple');
     // Empty designKit decodes to [] under json() because PHP can't tell
     // {} from [] post-decode; the wire byte-level check happens below.
     expect($data['designKit'])->toEqual([]);
@@ -179,10 +179,10 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
 });
 
 it('returns the user-selected architecture_id (with skeletonId transition alias)', function () {
-    seedIndividualProfile('solo-sk2', 'one');
+    seedIndividualProfile('solo-sk2', 'staple');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
-    expect($data['architectureId'])->toBe('one');
-    expect($data['skeletonId'])->toBe('one');
+    expect($data['architectureId'])->toBe('staple');
+    expect($data['skeletonId'])->toBe('staple');
 });
 
 it('groups stored design_kit columns into nested camelCase wire shape', function () {
@@ -1113,8 +1113,8 @@ it('single-flights concurrent requests so only one payload is built', function (
         ->andReturn([
             'profile' => ['handle' => 'singleflight-pro'],
             'designKit' => new stdClass,
-            'architectureId' => 'one',
-            'skeletonId' => 'one',
+            'architectureId' => 'staple',
+            'skeletonId' => 'staple',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
             'designMedia' => [],
         ]);

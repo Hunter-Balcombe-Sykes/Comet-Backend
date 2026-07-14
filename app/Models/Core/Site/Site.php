@@ -21,14 +21,15 @@ use Illuminate\Support\Facades\DB;
 // `architecture_id` is a TEXT enum. An "architecture" is how the sitepage is
 // laid out / how its pages connect — the renderer (partna-pages) picks a
 // code-side architecture from that value. Vestigial: the DB CHECK constrains it
-// to 'one' and every write collapses historical ids to 'one' (single-architecture
-// platform). Per-user design vars live in site.design_kits (separate table).
+// to 'staple' (replaced 'one' 2026-07-15) and every write collapses historical
+// ids to 'staple' (single-architecture platform). Per-user design vars live in
+// site.design_kits (separate table).
 class Site extends BaseModel
 {
     use HasFactory, HasUuids;
 
     /** Default architecture when none has been explicitly chosen. Must match the DB CHECK constraint. */
-    public const DEFAULT_ARCHITECTURE_ID = 'one';
+    public const DEFAULT_ARCHITECTURE_ID = 'staple';
 
     /**
      * Allowed GLOBAL shop link modes — mirrors the value the shop-settings

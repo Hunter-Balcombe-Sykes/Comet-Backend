@@ -78,24 +78,24 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'architecture_id' => 'dock', // legacy id — must collapse to 'one'
+        'architecture_id' => 'dock', // legacy id — must collapse to 'staple'
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('one');
+        ->toBe('staple');
 });
 
 it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
     // Old staff-dashboard builds still send skeleton_id — prepareForValidation
-    // merges it into architecture_id, so the write succeeds and stores 'one'.
+    // merges it into architecture_id, so the write succeeds and stores 'staple'.
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-legacy-field');
 
     patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('one');
+        ->toBe('staple');
 });
 
 // ── OV-I: staff endpoint enforces the same ordering-payload rules as the user

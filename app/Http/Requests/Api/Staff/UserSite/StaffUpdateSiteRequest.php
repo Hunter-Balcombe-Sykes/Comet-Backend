@@ -54,7 +54,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
         $currentSiteId = $professional?->site?->id;
 
         return [
-            // Architecture — always 'one' (shares UpdateSiteRequest::ALLOWED_ARCHITECTURES;
+            // Architecture — always 'staple' (shares UpdateSiteRequest::ALLOWED_ARCHITECTURES;
             // legacy ids collapse in prepareForValidation).
             'architecture_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_ARCHITECTURES)],
 

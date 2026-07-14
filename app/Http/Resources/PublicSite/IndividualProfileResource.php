@@ -154,7 +154,7 @@ class IndividualProfileResource extends ApiResource
             'designMedia' => $this->sections['design_media'] ?? [],
 
             // Which code-side architecture (page layout / how pages connect)
-            // renders this site — always 'one' (single-architecture platform).
+            // renders this site — always 'staple' (single-architecture platform).
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
             // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
             'skeletonId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,

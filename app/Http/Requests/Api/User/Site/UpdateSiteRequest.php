@@ -18,35 +18,37 @@ class UpdateSiteRequest extends BaseFormRequest
     use DesignKitValidationRules, SiteOrderingValidationRules;
 
     /**
-     * The platform is single-architecture: 'one' is the only layout (2026-07-10
-     * — the bento/dock/flick/deck/atlas architectures were deleted and the
-     * dashboard picker removed). Mirrors the DB CHECK constraint.
+     * The platform is single-architecture: 'staple' is the only layout
+     * (2026-07-15 — replaced 'one', which replaced the bento/dock/flick/deck/
+     * atlas generation on 2026-07-10). Mirrors the DB CHECK constraint.
      */
     public const ALLOWED_ARCHITECTURES = [
-        'one',
+        'staple',
     ];
 
     /**
      * Every historical architecture id, all generations (skeleton-N → named →
-     * bento-class renames → the 2026-07-10 collapse to 'one'). Accepted on
-     * write and normalized to 'one' so a stale dashboard/chat build can never
-     * 422 on a value that used to be valid — the layout is fixed regardless.
+     * bento-class renames → 'one' → the 2026-07-15 collapse to 'staple').
+     * Accepted on write and normalized to 'staple' so a stale dashboard/chat
+     * build can never 422 on a value that used to be valid — the layout is
+     * fixed regardless.
      */
     public const LEGACY_ARCHITECTURE_IDS = [
-        'skeleton-1' => 'one',
-        'skeleton-2' => 'one',
-        'skeleton-3' => 'one',
-        'skeleton-4' => 'one',
-        'hub' => 'one',
-        'stories' => 'one',
-        'flow' => 'one',
-        'sheet' => 'one',
-        'thread' => 'one',
-        'bento' => 'one',
-        'dock' => 'one',
-        'flick' => 'one',
-        'deck' => 'one',
-        'atlas' => 'one',
+        'skeleton-1' => 'staple',
+        'skeleton-2' => 'staple',
+        'skeleton-3' => 'staple',
+        'skeleton-4' => 'staple',
+        'hub' => 'staple',
+        'stories' => 'staple',
+        'flow' => 'staple',
+        'sheet' => 'staple',
+        'thread' => 'staple',
+        'bento' => 'staple',
+        'dock' => 'staple',
+        'flick' => 'staple',
+        'deck' => 'staple',
+        'atlas' => 'staple',
+        'one' => 'staple',
     ];
 
     protected function prepareForValidation(): void
@@ -138,8 +140,8 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Architecture — always 'one' (every legacy id normalized to it in
-            // prepareForValidation; only genuinely unknown strings 422).
+            // Architecture — always 'staple' (every legacy id normalized to it
+            // in prepareForValidation; only genuinely unknown strings 422).
             'architecture_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_ARCHITECTURES)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
