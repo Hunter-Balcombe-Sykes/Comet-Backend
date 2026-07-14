@@ -751,6 +751,72 @@ it('422s scan apply for a non-numeric price', function () {
     ])->assertStatus(422);
 });
 
+// ── BE3: refresh-survival — scan content must outlive a scraper rebuild ──
+// MenuFetchJob wholesale-deletes+reinserts menu_categories/menu_items on
+// every real scrape (persist()) and on losing the last ordering link
+// (handle()'s early-return). Both paths must skip source_platform='scan'
+// rows or a user's scanned menu silently vanishes on the next refresh.
+
+it('preserves scan-sourced categories and items across a forced scraper rebuild (refresh-survival)', function () {
+    $user = menuUser('scan9');
+    ordering($user, 'https://www.ubereats.com/store/scanguard', null, '2026-06-17 10:00:00');
+
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [['name' => 'Old Scraped Dish', 'base_price' => 10.0]]],
+    ]);
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Special Lasagna', 'description' => 'Family recipe.', 'price' => 22.0, 'category' => 'Specials']],
+    ])->assertOk();
+
+    $scanCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->firstOrFail();
+    $scanItem = MenuItem::query()->where('category_id', $scanCategory->id)->firstOrFail();
+
+    // A forced scraper refresh returns entirely different scraped content.
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New Scraped Dish', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
+        ]]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    // Scraped content rebuilt as expected...
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Old Scraped Dish')->exists())->toBeFalse();
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'New Scraped Dish')->exists())->toBeTrue();
+
+    // ...but the scan-sourced category + item survived, untouched.
+    expect(MenuCategory::query()->where('id', $scanCategory->id)->exists())->toBeTrue();
+    $scanItem->refresh();
+    expect($scanItem->name)->toBe('Special Lasagna');
+    expect((float) $scanItem->base_price)->toBe(22.0);
+});
+
+it('preserves scan-sourced content when the user disconnects their only ordering platform', function () {
+    $user = menuUser('scan10');
+    ordering($user, 'https://www.ubereats.com/store/scanguard2', null, '2026-06-17 10:00:00');
+
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'base_price' => 10.0]]],
+    ]);
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Scanned Special', 'description' => null, 'price' => 12.0, 'category' => 'Specials']],
+    ])->assertOk();
+    $scanItem = MenuItem::query()->where('name', 'Scanned Special')->firstOrFail();
+
+    // Remove the only ordering link — MenuFetchJob now dispatches with no
+    // resolvable source at all (resolveAll() returns null).
+    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    // Scraped content is gone, but the scan item + the menu row itself survive.
+    expect(MenuItem::query()->where('name', 'Scraped Dish')->exists())->toBeFalse();
+    expect(MenuItem::query()->where('id', $scanItem->id)->exists())->toBeTrue();
+    $menu->refresh();
+    expect($menu->trashed())->toBeFalse();
+    expect($menu->content_source)->toBe('scan');
+});
+
 // ── BE3: scan-only menus (no ordering platform ever connected) ─────────
 // MenuController's status()/show() historically treated "no resolvable
 // Uber Eats/DoorDash link" as an orphan-menu signal and hid the menu
