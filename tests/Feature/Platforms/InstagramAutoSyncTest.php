@@ -250,6 +250,41 @@ it('seeds social links for a business account (google_business_full_sync present
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
 });
 
+// ── soft-deleted connections: a tombstone must not be silently resurrected ────
+// IntegrationConnection uses SoftDeletes, and forgetConnection() soft-deletes
+// on an explicit user disconnect. The default Eloquent scope excludes trashed
+// rows, so a naive "no live row" check can't tell "never connected" apart
+// from "the user removed this on purpose" — respect the tombstone.
+
+it('does not resurrect a soft-deleted connection the user explicitly disconnected — routes it to unmatched instead', function () {
+    $user = igAutoSyncUser('igas13');
+    $trashed = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'facebook', 'resource_id' => 'facebook',
+        'payload' => ['username' => 'old', 'url' => 'https://facebook.com/old', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $trashed->delete();
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.facebook.com/docpizzabar']);
+
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    // Still just the one trashed row — no resurrection, no second write.
+    expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->where('platform', 'facebook')->count())->toBe(1);
+});
+
+it('still seeds normally when the platform was never connected before (no trashed row)', function () {
+    $user = igAutoSyncUser('igas13b');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.facebook.com/docpizzabar']);
+
+    expect($result['unmatched'])->toBe([]);
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['url'])->toBe('https://www.facebook.com/docpizzabar');
+});
+
 // ── seenPlatforms: a throw must not consume the platform slot ─────────────────
 
 it('a throw on the first attempt does not consume the platform slot — a later same-platform link still seeds', function () {

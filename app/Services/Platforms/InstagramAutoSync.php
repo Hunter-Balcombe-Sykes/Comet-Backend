@@ -109,6 +109,27 @@ class InstagramAutoSync
                     ->first();
 
                 if ($existing === null) {
+                    // A soft-deleted row means the user explicitly disconnected
+                    // this platform before (ManagesIntegrationConnection::
+                    // forgetConnection() soft-deletes on disconnect) — a
+                    // tombstone, not "never connected". The default Eloquent
+                    // scope excludes it, so treating "no live row" as blank
+                    // slate would silently resurrect a connection the user
+                    // chose to remove. Respect it: route the link to unmatched
+                    // instead (still addable manually). NOTE: GoogleBusiness-
+                    // AutoSync has the same gap (no trashed-check either) —
+                    // parity fix deferred to the owner.
+                    $wasDisconnected = IntegrationConnection::onlyTrashed()
+                        ->where('user_id', $userId)->where('platform', $platform)
+                        ->exists();
+
+                    if ($wasDisconnected) {
+                        $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+                        $seenPlatforms[$platform] = true;
+
+                        continue;
+                    }
+
                     $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
                     $findings[] = $this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url);
                     // Consume the platform slot only AFTER the write succeeded —
