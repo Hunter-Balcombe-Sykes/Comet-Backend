@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -247,9 +248,12 @@ class IndividualProfilePayloadBuilder
      * the reserved ig-reel (slot 1) + ig-post (slot 2) with the reel carrying a
      * poster. Unservable rows (disconnected IG, missing/soft-deleted upload,
      * dangling Google ref) are already dropped by resolve(). Projected into the
-     * same camelCase DesignMediaItem shape the sitepage consumes.
+     * same camelCase DesignMediaItem shape the sitepage consumes. `origin`
+     * carries the selection entry_type (upload | google-photo | ig-reel |
+     * ig-post) so the sitepage can tell the reserved Instagram slots from the
+     * owner's own picks (the backdrop's reel → post → rotation ladder).
      *
-     * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: null, alt: null, caption: null, poster: string|null, durationMs: null}>
+     * @return list<array{id: string, sortOrder: int, kind: string, origin: string, url: string, urlHd: null, alt: null, caption: null, poster: string|null, durationMs: null}>
      */
     private function buildDesignMedia(?Site $site): array
     {
@@ -267,6 +271,7 @@ class IndividualProfilePayloadBuilder
                 'id' => (string) ($entry['id'] ?? ''),
                 'sortOrder' => (int) ($entry['position'] ?? $i),
                 'kind' => (string) ($entry['kind'] ?? 'image'),
+                'origin' => (string) ($entry['type'] ?? ContentSelection::TYPE_UPLOAD),
                 'url' => $url,
                 'urlHd' => null,
                 'alt' => null,
