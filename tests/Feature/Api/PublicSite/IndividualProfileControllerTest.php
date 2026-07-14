@@ -406,9 +406,11 @@ it('surfaces content-pool site_media as top-level designMedia[] in camelCase', f
     expect($data['designMedia'])->toBeArray()->toHaveCount(1);
     // Wire shape is camelCase, matching gallery[i] and every engine output.
     expect($data['designMedia'][0])->toHaveKeys([
-        'id', 'sortOrder', 'kind', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
+        'id', 'sortOrder', 'kind', 'origin', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
     ]);
     expect($data['designMedia'][0]['kind'])->toBe('image');
+    // origin = the selection entry_type — the sitepage backdrop's ladder key.
+    expect($data['designMedia'][0]['origin'])->toBe('upload');
     expect($data['designMedia'][0]['url'])->not->toBe('');
     // sortOrder mirrors the selection position (1-based).
     expect($data['designMedia'][0]['sortOrder'])->toBe(1);
