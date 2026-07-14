@@ -922,6 +922,63 @@ it('preserves scan-sourced content when the user disconnects their only ordering
     expect($menu->content_source)->toBe('scan');
 });
 
+// ── BE3: reconnect-after-disconnect must not be silently skipped ────────
+// clearScrapedContent() kept the menu's stale menu_platform_links rows alive
+// (status 'ok', the ORIGINAL store_url) even though, by definition, no
+// platform is connected at that point. On reconnect to the SAME store,
+// handle()'s urlUnchanged+settled skip-gate compared against that leftover
+// row and wrongly saw "nothing changed" — silently no-op'ing a scrape that
+// should have run, permanently losing the store's scraped content.
+
+it('re-scrapes after a disconnect + reconnect to the same store — a stale platformLinks row must not fool the skip-gate', function () {
+    $user = menuUser('scan18');
+    $storeUrl = 'https://www.ubereats.com/store/reconnectguard';
+    ordering($user, $storeUrl, null, '2026-06-17 10:00:00');
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn(
+            ['uber-eats' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Mains', 'items' => [['name' => 'Original Scraped Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]]],
+            ]],
+            ['uber-eats' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Mains', 'items' => [['name' => 'Post-Reconnect Dish', 'pickupPrice' => 11.0, 'deliveryPrice' => 11.0]]]],
+            ]],
+        );
+    });
+
+    // Connect → real scrape (handle(), not seedMenu()) so a genuine
+    // menu_platform_links row (status 'ok') gets written — the exact row the
+    // bug leaves behind after disconnect.
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Original Scraped Dish')->exists())->toBeTrue();
+    expect(MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->exists())->toBeTrue();
+
+    // Scan content that must survive the disconnect.
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Scanned Special', 'description' => null, 'price' => 12.0, 'category' => 'Specials']],
+    ])->assertOk();
+
+    // Disconnect the only ordering link.
+    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    // Scraped content + the stale platformLinks row are gone; scan content survives.
+    expect(MenuItem::query()->where('name', 'Original Scraped Dish')->exists())->toBeFalse();
+    expect(MenuItem::query()->where('name', 'Scanned Special')->exists())->toBeTrue();
+    expect(MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->exists())->toBeFalse();
+
+    // Reconnect the SAME store — must force a real re-scrape, not a silent skip.
+    ordering($user, $storeUrl, null, '2026-06-17 11:00:00');
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    expect(MenuItem::query()->where('name', 'Post-Reconnect Dish')->exists())->toBeTrue();
+    $menu->refresh();
+    expect($menu->content_source)->toBe('uber-eats');
+});
+
 // ── BE3: scan-only menus (no ordering platform ever connected) ─────────
 // MenuController's status()/show() historically treated "no resolvable
 // Uber Eats/DoorDash link" as an orphan-menu signal and hid the menu

@@ -355,12 +355,17 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     /**
      * Clear every NON-scan-sourced category/item/item-platform row for a user
      * (the same scope persist() rebuilds), used when no ordering platform is
-     * connected at all. When nothing scan-sourced remains afterward, the menu
-     * row itself is soft-deleted — IDENTICAL to the prior unconditional-delete
-     * behaviour for every user who has never used menu scan. When scan
-     * content DOES remain, the row survives and content_source flips to
-     * 'scan' (the only real content left) instead of keeping a now-inaccurate
-     * scraped platform name.
+     * connected at all. Also clears the menu's platformLinks — by definition
+     * no platform is connected at this point, so no menu_platform_links row
+     * can be legitimately valid afterward; leaving one behind would let a
+     * later reconnect's urlUnchanged+settled skip-gate (handle(), above)
+     * wrongly compare against stale data and no-op a scrape that should run.
+     * When nothing scan-sourced remains afterward, the menu row itself is
+     * soft-deleted — IDENTICAL to the prior unconditional-delete behaviour
+     * for every user who has never used menu scan. When scan content DOES
+     * remain, the row survives and content_source flips to 'scan' (the only
+     * real content left) instead of keeping a now-inaccurate scraped
+     * platform name.
      */
     private function clearScrapedContent(string $userId): void
     {
@@ -375,6 +380,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
             MenuItem::query()->whereIn('category_id', $categoryIds)->delete();
             MenuCategory::query()->whereIn('id', $categoryIds)->delete();
+            $menu->platformLinks()->delete();
 
             if (! $menu->categories()->exists()) {
                 $menu->delete();
