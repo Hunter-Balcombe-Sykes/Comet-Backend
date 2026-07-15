@@ -245,6 +245,16 @@ class MenuMerger
      * explanation (G6-2). Groups preserve first-seen order; a group of 1
      * passes through unchanged.
      *
+     * Scoping (fix-round, critic-backend P2): a same-normalized-name pair from
+     * DIFFERENT platforms always merges — that's the actual bug report (one
+     * section scraped once per platform). A pair from the SAME platform only
+     * merges when their item sets materially overlap (≥50% of the smaller
+     * set, by normalized item name) — otherwise they're two genuinely
+     * distinct sections that merely share a name (reproduced: a by-the-glass
+     * "Wine" list and an unrelated takeaway "Wine" list, both scraped from one
+     * platform, used to silently fuse their items together). See
+     * clusterMergeableCategories()/shouldMergePair().
+     *
      * @param  list<array<string,mixed>>  $categories
      * @return list<array<string,mixed>>
      */
@@ -260,10 +270,102 @@ class MenuMerger
             $groups[$norm][] = $category;
         }
 
-        return array_map(
-            fn (string $norm) => count($groups[$norm]) === 1 ? $groups[$norm][0] : $this->mergeCategoryGroup($groups[$norm]),
-            $order
-        );
+        $result = [];
+        foreach ($order as $norm) {
+            foreach ($this->clusterMergeableCategories($groups[$norm]) as $cluster) {
+                $result[] = count($cluster) === 1 ? $cluster[0] : $this->mergeCategoryGroup($cluster);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Partition a same-normalized-name group into the clusters that should
+     * actually fuse: a union over every pair, joined when shouldMergePair()
+     * licenses it (transitively — if A merges with B and B merges with C, all
+     * three land in one cluster even if A/C alone wouldn't have). Clusters
+     * preserve first-seen member order; a category with no mergeable partner
+     * comes back as its own 1-element cluster (dedupeCategories() passes that
+     * straight through, unchanged).
+     *
+     * @param  list<array<string,mixed>>  $group
+     * @return list<list<array<string,mixed>>>
+     */
+    private function clusterMergeableCategories(array $group): array
+    {
+        $n = count($group);
+        if ($n <= 1) {
+            return $n === 1 ? [$group] : [];
+        }
+
+        // Union-find over the group's indices — small (realistically 2-4
+        // categories per normalized name), so the O(n²) pair scan below is
+        // cheap.
+        $parent = range(0, $n - 1);
+        $find = function (int $i) use (&$find, &$parent): int {
+            while ($parent[$i] !== $i) {
+                $parent[$i] = $parent[$parent[$i]];
+                $i = $parent[$i];
+            }
+
+            return $i;
+        };
+        $union = function (int $a, int $b) use ($find, &$parent): void {
+            $ra = $find($a);
+            $rb = $find($b);
+            if ($ra !== $rb) {
+                $parent[$ra] = $rb;
+            }
+        };
+
+        for ($i = 0; $i < $n; $i++) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                if ($this->shouldMergePair($group[$i], $group[$j])) {
+                    $union($i, $j);
+                }
+            }
+        }
+
+        $clusters = [];
+        foreach ($group as $i => $category) {
+            $clusters[$find($i)][] = $category;
+        }
+
+        return array_values($clusters);
+    }
+
+    /**
+     * Whether two same-normalized-name categories should fuse: always for a
+     * different-platform pair (the real bug — one section scraped once per
+     * platform, unconditionally); for a same-platform pair, only when their
+     * item sets overlap materially (≥50% of the smaller set, by normalized
+     * item name) — otherwise they're two genuinely distinct sections that
+     * merely happen to share a name.
+     */
+    private function shouldMergePair(array $a, array $b): bool
+    {
+        if ($a['sourcePlatform'] !== $b['sourcePlatform']) {
+            return true;
+        }
+
+        $namesA = $this->normalizedItemNames($a);
+        $namesB = $this->normalizedItemNames($b);
+        $smaller = min(count($namesA), count($namesB));
+        if ($smaller === 0) {
+            return false;
+        }
+
+        return (count(array_intersect($namesA, $namesB)) / $smaller) >= 0.5;
+    }
+
+    /** @return list<string> deduplicated normalized item names in a category. */
+    private function normalizedItemNames(array $category): array
+    {
+        return array_values(array_unique(array_map(
+            fn (array $item) => $this->norm((string) ($item['name'] ?? '')),
+            $category['items']
+        )));
     }
 
     /**

@@ -369,6 +369,80 @@ it('merges categories whose names collide once normalized, across platforms (G6-
         ->toBe(['Margherita', 'Capricciosa', 'Diavola']);
 });
 
+// ── fix-round: dedupe scoping (critic P2 — same-platform dedupe used to
+// merge ANY pair sharing a normalized name, regardless of content, silently
+// fusing genuinely distinct sections) ──────────────────────────────────────
+
+it('always merges a same-normalized-name category pair from DIFFERENT platforms, even with zero item overlap (fix-round)', function () {
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Wine', 'items' => [normItem(['name' => 'Pinot Noir', 'deliveryPrice' => 11.0])]],
+        ],
+    ];
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            // Completely different items — no cross-platform item-level match
+            // either — but cross-platform category dedupe stays unconditional:
+            // this is the actual "one section scraped once per platform" bug.
+            ['name' => 'wine', 'items' => [normItem(['name' => 'Sauvignon Blanc', 'pickupPrice' => 12.0])]],
+        ],
+    ];
+    $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
+
+    expect($merged['categories'])->toHaveCount(1);
+    expect(collect($merged['categories'][0]['items'])->pluck('name')->all())->toBe(['Pinot Noir', 'Sauvignon Blanc']);
+});
+
+it('keeps two SAME-platform categories separate when their item sets do not materially overlap — reproduces the Wine+Wine false positive (fix-round)', function () {
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Wine', 'items' => [normItem(['name' => 'House Red (glass)', 'pickupPrice' => 9.0])]],
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'pickupPrice' => 32.0])]],
+            // A SECOND, unrelated "Wine" section on the SAME platform — a
+            // takeaway-bottles list sharing zero items with the by-the-glass
+            // list above. Before the fix-round, same-platform dedupe merged
+            // ANY pair sharing a normalized category name regardless of
+            // content, silently fusing two genuinely different sections.
+            ['name' => 'Wine', 'items' => [normItem(['name' => 'Bottle of Shiraz (takeaway)', 'pickupPrice' => 28.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+
+    // Both "Wine" categories survive, unmerged — 3 categories in, 3 out.
+    expect($merged['categories'])->toHaveCount(3);
+    $wines = collect($merged['categories'])->filter(fn ($c) => $c['name'] === 'Wine');
+    expect($wines)->toHaveCount(2);
+    $wineItemNames = $wines->flatMap(fn ($c) => collect($c['items'])->pluck('name'))->all();
+    expect($wineItemNames)->toBe(['House Red (glass)', 'Bottle of Shiraz (takeaway)']);
+});
+
+it('merges two SAME-platform categories sharing a name when their item sets materially overlap (fix-round)', function () {
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            // Same platform, same normalized name, and the SAME dish repeated
+            // — a raw scrape artifact (e.g. a paginated section split in two)
+            // rather than two distinct sections. 1/1 shared name = 100% overlap
+            // of the smaller set, well over the 50% threshold.
+            ['name' => 'Wine', 'items' => [normItem(['name' => 'House Red', 'pickupPrice' => 9.0])]],
+            ['name' => 'wine', 'items' => [
+                normItem(['name' => 'House Red', 'pickupPrice' => 9.0]),
+                normItem(['name' => 'House White', 'pickupPrice' => 9.0]),
+            ]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+
+    expect($merged['categories'])->toHaveCount(1);
+    expect(collect($merged['categories'][0]['items'])->pluck('name')->all())->toBe(['House Red', 'House White']);
+});
+
 it('drops an exact-duplicate item (same normalized name + price) when merging same-named categories (G6-1b)', function () {
     // Two categories on the SAME platform that normalize to one name — a raw
     // scrape artifact, not a cross-platform match (item-level matching only
