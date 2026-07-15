@@ -17,6 +17,7 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Support\BusinessName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -176,6 +177,12 @@ class GoogleBusinessController extends ApiController
         if ($name === '' || ! AccountCapabilities::for($user)->google_business_sets_display_name) {
             return;
         }
+
+        // Business names cap at 15 chars. This value is auto-adopted from
+        // Google, not typed by hand, so it can't be rejected outright like
+        // UpsertWorkplaceRequest does for manual entry — word-trimmed instead.
+        $name = BusinessName::wordTrim($name);
+
         if ($user->display_name === $name) {
             return;
         }

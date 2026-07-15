@@ -165,7 +165,7 @@ it('does not dispatch the enrich job when no apify token is configured', functio
     Bus::assertNotDispatched(GoogleBusinessEnrichJob::class);
 });
 
-it('adopts the Google Business name as display_name for a Business account', function () {
+it('adopts the Google Business name as display_name for a Business account, word-trimmed to the 15-char cap', function () {
     config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => null]);
     Http::fake([
         'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
@@ -179,7 +179,9 @@ it('adopts the Google Business name as display_name for a Business account', fun
         'placeId' => 'ChIJtest', 'name' => 'Fade Lab Barbers', 'lat' => -37.0, 'lng' => 144.0,
     ])->assertOk();
 
-    expect($user->fresh()->display_name)->toBe('Fade Lab Barbers');
+    // Picker name "Fade Lab Barbers" (16 chars) is over the cap — maybeAdoptGoogleName
+    // word-trims it, keeping whole words, rather than rejecting it outright.
+    expect($user->fresh()->display_name)->toBe('Fade Lab');
 });
 
 it('leaves display_name untouched for a standard (partna) account', function () {

@@ -6,6 +6,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Profile\SectorTaxonomy;
+use App\Support\BusinessName;
 
 /**
  * Central-identity precedence engine: folds a Google Business payload into the
@@ -57,7 +58,7 @@ class IdentitySync
             // over a stored value. Email is deliberately NOT here — Places never
             // returns one, so contact_email stays manual-only.
             $candidates = [
-                'name' => $this->stringOrNull($gbPayload['name'] ?? null),
+                'name' => $this->nameOrNull($gbPayload['name'] ?? null),
                 'address' => $this->stringOrNull($gbPayload['address'] ?? null),
                 'phone' => $this->stringOrNull($gbPayload['phone'] ?? null),
                 'website' => $this->stringOrNull($gbPayload['website'] ?? null),
@@ -233,6 +234,17 @@ class IdentitySync
         $trimmed = trim($value);
 
         return $trimmed !== '' ? $trimmed : null;
+    }
+
+    /**
+     * Business names cap at 15 chars. Auto-adopted from Google, so it can't
+     * be rejected mid-sync like manual entry — word-trimmed instead.
+     */
+    private function nameOrNull(mixed $value): ?string
+    {
+        $name = $this->stringOrNull($value);
+
+        return $name !== null ? BusinessName::wordTrim($name) : null;
     }
 
     private function floatOrNull(mixed $value): ?float

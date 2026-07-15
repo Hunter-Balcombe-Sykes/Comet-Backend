@@ -61,6 +61,22 @@ it('rejects a payload with no name', function () {
     expect($errors)->toHaveKey('name');
 });
 
+it('rejects a name over 15 characters', function () {
+    $errors = validateWorkplacePayload([
+        'name' => str_repeat('a', 16),
+    ]);
+
+    expect($errors)->toHaveKey('name');
+});
+
+it('accepts a name at exactly 15 characters', function () {
+    $errors = validateWorkplacePayload([
+        'name' => str_repeat('a', 15),
+    ]);
+
+    expect($errors)->toBe([]);
+});
+
 it('rejects an invalid latitude', function () {
     $errors = validateWorkplacePayload([
         'name' => 'Studio',

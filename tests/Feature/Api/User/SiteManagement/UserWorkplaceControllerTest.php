@@ -97,6 +97,28 @@ it('upsert returns the exact workplace-card shape and never leaks previous_websi
     expect($response->json('workplace.address'))->toBe('2 Other St');
 });
 
+it('rejects a workplace upsert whose name is over 15 characters', function () {
+    $user = uwcUser('longname');
+    uwcSite($user);
+
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => str_repeat('a', 16),
+    ])->assertStatus(422);
+});
+
+it('accepts a workplace upsert whose name is exactly 15 characters', function () {
+    $user = uwcUser('capname');
+    uwcSite($user);
+
+    $name = str_repeat('a', 15);
+
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => $name,
+    ])
+        ->assertOk()
+        ->assertJsonPath('workplace.name', $name);
+});
+
 it('returns a null workplace when the stored name is blank after trimming', function () {
     $user = uwcUser('noname');
     $siteId = uwcSite($user);

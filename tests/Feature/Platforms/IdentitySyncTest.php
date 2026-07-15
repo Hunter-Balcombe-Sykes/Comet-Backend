@@ -122,7 +122,9 @@ it('business google connect overwrites manual name/phone, sets hours + sector, s
     $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
 
     // Overwritten from Google.
-    expect($workplace->name)->toBe('Fade Lab Barbers');
+    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
+    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
+    expect($workplace->name)->toBe('Fade Lab');
     expect($workplace->phone)->toBe('(03) 9123 4567');
     expect($workplace->website)->toBe('https://fadelab.example');
     expect($workplace->address)->toBe('12 Example St, Melbourne VIC 3000');
@@ -220,7 +222,9 @@ it('never writes contact_email from a google connect, even for business', functi
     expect($workplace->contact_email)->toBeNull();
     expect($workplace->field_sources)->not->toHaveKey('contact_email');
     // Other fields still synced, proving the connect ran.
-    expect($workplace->name)->toBe('Fade Lab Barbers');
+    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
+    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
+    expect($workplace->name)->toBe('Fade Lab');
 });
 
 // ── (d) Manual upsert: manual provenance + mirrors + (business) display_name ─
@@ -254,14 +258,16 @@ it('manual upsert on a business account mirrors the name to display_name', funct
     $user = idsyncUser('manualbiz', 'business');
     idsyncSite($user);
 
+    // Manual entry is capped at 15 chars by UpsertWorkplaceRequest (unlike
+    // the auto-adopted Google path, which word-trims instead of rejecting).
     actingAsUser($user)->putJson('/api/site/workplace', [
-        'name' => 'Business Trading Name',
+        'name' => 'Trading Name',
         'phone' => '(03) 3333 3333',
     ])->assertOk();
 
     $user->refresh();
     // Business capability google_business_sets_display_name → name adopted.
-    expect($user->display_name)->toBe('Business Trading Name');
+    expect($user->display_name)->toBe('Trading Name');
     expect($user->public_contact_number)->toBe('(03) 3333 3333');
 });
 
@@ -294,6 +300,35 @@ it('manual upsert preserves a google-business badge on a field the user did not 
     expect($workplace->field_sources['website']['source'])->toBe('google-business');
 });
 
+// ── (e) Auto-adopted names are word-trimmed to the 15-char cap ───────────────
+
+it('word-trims a Google-sourced name that exceeds the business-name cap', function () {
+    config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => null]);
+    Http::fake([
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/x.jpg']),
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response([
+            'id' => 'ChIJlongname',
+            'displayName' => ['text' => 'Bayside Cafe And Bakery'],
+            'location' => ['latitude' => -37.8, 'longitude' => 144.96],
+        ]),
+    ]);
+    $user = idsyncUser('longname', 'business');
+    $siteId = idsyncSite($user);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJlongname',
+        'name' => 'Bayside Cafe',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
+    // "Bayside Cafe And Bakery" (24 chars) → whole words kept up to the cap.
+    expect($workplace->name)->toBe('Bayside Cafe');
+    expect(mb_strlen($workplace->name))->toBeLessThanOrEqual(15);
+});
+
 // ── Refresh path also folds identity (proves observer covers ->update) ───────
 
 it('a scheduled refresh that changes the payload folds identity for a business account', function () {
@@ -318,7 +353,9 @@ it('a scheduled refresh that changes the payload folds identity for a business a
     $this->artisan('integrations:refresh')->assertSuccessful();
 
     $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
-    expect($workplace->name)->toBe('Fade Lab Barbers');
+    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
+    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
+    expect($workplace->name)->toBe('Fade Lab');
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
     $user->refresh();
     expect($user->sector)->toBe('barber');
