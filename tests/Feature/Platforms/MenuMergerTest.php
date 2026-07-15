@@ -481,12 +481,44 @@ it('is conservative: does not filter a genuine dish category that merely resembl
         'categories' => [
             ['name' => 'Recommended Pizzas', 'items' => [normItem(['name' => 'Margherita', 'pickupPrice' => 18.0])]],
             ['name' => 'Add-Ons', 'items' => [normItem(['name' => 'Extra Cheese', 'pickupPrice' => 3.0])]],
+            // A real build-your-own-style section sharing the OLD pattern's
+            // "add ___ to your order" shape but with no trailing source-brand
+            // clause — the critic's reproduced P1 false positive: the OLD
+            // pattern (no "from <retailer>" requirement) dropped this.
+            ['name' => 'Add Toppings to Your Order', 'items' => [normItem(['name' => 'Jalapenos', 'pickupPrice' => 1.5])]],
         ],
     ];
     $links = storeLinks(['doordash' => ['pickup']]);
     $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
 
-    // Both are real categories (neither matches an ad pattern) — order
-    // follows source position, unaffected by the ad filter.
-    expect(collect($merged['categories'])->pluck('name')->all())->toBe(['Recommended Pizzas', 'Add-Ons']);
+    // All three are real categories (none matches the narrowed ad pattern) —
+    // order follows source position, unaffected by the ad filter.
+    expect(collect($merged['categories'])->pluck('name')->all())
+        ->toBe(['Recommended Pizzas', 'Add-Ons', 'Add Toppings to Your Order']);
+});
+
+// ── fix-round: ad-filter narrowing (critic P1 — "Add ___ to Your Order"
+// with no source-brand tail is a plausible real restaurant section name,
+// not platform ad copy) ───────────────────────────────────────────────────
+
+it('narrows the ad-filter to require a trailing source-brand clause, both directions (fix-round)', function () {
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            // Plausible real menu sections sharing the "Add ___ to Your
+            // Order" shape but with NO trailing "from <retailer>" — must
+            // survive (these are the critic's exact reproduced strings).
+            ['name' => 'Add Extras to Your Order', 'items' => [normItem(['name' => 'Extra Sauce', 'pickupPrice' => 1.0])]],
+            ['name' => 'Add a Side to Your Order', 'items' => [normItem(['name' => 'Garlic Bread', 'pickupPrice' => 5.0])]],
+            // The genuine platform-injected cross-sell shape — a trailing
+            // "from <retailer>" clause — is still dropped.
+            ['name' => 'Add Drinks to Your Order from Liquorland', 'items' => [normItem(['name' => 'Coke Can', 'pickupPrice' => 4.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+
+    $names = collect($merged['categories'])->pluck('name')->all();
+    expect($names)->toBe(['Add Extras to Your Order', 'Add a Side to Your Order']);
+    expect($names)->not->toContain('Add Drinks to Your Order from Liquorland');
 });

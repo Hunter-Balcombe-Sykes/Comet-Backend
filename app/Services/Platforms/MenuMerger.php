@@ -197,8 +197,17 @@ class MenuMerger
     // to Your Order from Liquorland" — G6-2). Kept conservative on purpose:
     // only patterns that are structurally unmistakable ad copy, never
     // something a restaurant might plausibly name a real section.
+    //
+    // Fix-round (critic-backend P1): the first pattern originally matched ANY
+    // "add ___ to your order" phrasing, which is also how a real build-your-own
+    // restaurant section talks ("Add Toppings to Your Order", "Add a Side to
+    // Your Order") — reproduced as a false-positive drop. The platform-injected
+    // ad copy always names the source retailer at the end ("...from
+    // Liquorland"); a genuine restaurant section never does, since it has no
+    // OTHER store to attribute the upsell to. Requiring that trailing "from"
+    // clause narrows the pattern back to the actual ad shape.
     private const AD_CATEGORY_PATTERNS = [
-        '~^add\b.*\bto\s+your\s+order\b~i',
+        '~^add\b.*\bto\s+your\s+order\s+from\b~i',
         '~\byou\s+may\s+also\s+like\b~i',
         '~\bfrequently\s+bought\s+together\b~i',
         '~\bcustomers\s+also\s+(bought|ordered)\b~i',
