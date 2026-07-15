@@ -1,5 +1,9 @@
 <?php
 
+use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\MenuCategory;
+use App\Models\Core\Site\MenuItem;
+use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
 use App\Services\Platforms\MenuScanApplier;
 use Illuminate\Support\Str;
@@ -51,10 +55,74 @@ it('serves a scan-only menu (no scrape ever ran) on the public endpoint', functi
     // base_price formatted to 2dp — proves serialization doesn't require a
     // platform-sourced item (no menu_item_platforms rows exist for it).
     expect($item['price'])->toBe('11.50');
+    // A scan item has no pickup/delivery price, no currency (Uber-Eats-only),
+    // and zero menu_item_platforms rows — additive fields degrade safely.
+    expect($item['pickupPrice'])->toBeNull();
+    expect($item['deliveryPrice'])->toBeNull();
+    expect($item['currency'])->toBeNull();
+    expect($item['platforms'])->toBe([]);
 });
 
 it('returns 404 for a handle with no menu at all', function () {
     $user = publicMenuUser('pubscan2');
 
     $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertStatus(404);
+});
+
+// ── T2/T3: split prices + per-platform order links + per-item currency ──
+
+it('serves pickup/delivery prices, per-item currency, and per-platform links on the public endpoint', function () {
+    $user = publicMenuUser('pubmenu1');
+
+    $menu = Menu::create([
+        'user_id' => $user->id,
+        'content_source' => 'uber-eats',
+        'currency' => 'AUD',
+        'fetch_status' => 'ok',
+        'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $item = MenuItem::create([
+        'menu_id' => $menu->id,
+        'category_id' => $category->id,
+        'position' => 0,
+        'name' => 'Margherita',
+        'base_price' => 11.0,
+        'pickup_price' => 11.0,
+        'pickup_source' => 'doordash',
+        'delivery_price' => 12.5,
+        'delivery_source' => 'uber-eats',
+        'currency' => 'AUD',
+    ]);
+    MenuItemPlatform::create([
+        'menu_item_id' => $item->id,
+        'platform' => 'uber-eats',
+        'delivery_price' => 12.5,
+        'delivery_url' => 'https://www.ubereats.com/store/d',
+    ]);
+    MenuItemPlatform::create([
+        'menu_item_id' => $item->id,
+        'platform' => 'doordash',
+        'pickup_price' => 11.0,
+        'pickup_url' => 'https://www.doordash.com/store/x',
+    ]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['price'])->toBe('11.00');
+    expect($publicItem['pickupPrice'])->toBe('11.00');
+    expect($publicItem['deliveryPrice'])->toBe('12.50');
+    expect($publicItem['currency'])->toBe('AUD');
+    expect($publicItem['platforms'])->toHaveCount(2);
+    expect($publicItem['platforms'][0]['platform'])->toBe('uber-eats');
+    expect($publicItem['platforms'][0]['pickupUrl'])->toBeNull();
+    expect($publicItem['platforms'][0]['deliveryUrl'])->toBe('https://www.ubereats.com/store/d');
+    expect($publicItem['platforms'][0]['pickupPrice'])->toBeNull();
+    expect((float) $publicItem['platforms'][0]['deliveryPrice'])->toBe(12.5);
+    expect($publicItem['platforms'][1]['platform'])->toBe('doordash');
+    expect((float) $publicItem['platforms'][1]['pickupPrice'])->toBe(11.0);
+    expect($publicItem['platforms'][1]['deliveryUrl'])->toBeNull();
 });
