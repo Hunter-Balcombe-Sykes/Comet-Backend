@@ -182,3 +182,91 @@ it('reads the site name from the WP REST root when fetching the brand', function
     expect($brand['name'])->toBe('Organic Shop');
     expect($brand['favicon'])->toBe('https://store.example/fav.png');
 });
+
+// ── images[] gallery + description sanitization ─────────────────────────
+
+it('captures the full image gallery and a sanitized short_description', function () {
+    $products = json_encode([[
+        'id' => 900,
+        'name' => 'Gallery Item',
+        'slug' => 'gallery-item',
+        'permalink' => 'https://store.example/product/gallery-item/',
+        'prices' => ['price' => '1000', 'currency_code' => 'AUD', 'currency_minor_unit' => 2],
+        'images' => [
+            ['src' => 'https://store.example/img/1.jpg'],
+            ['src' => 'https://store.example/img/2.jpg'],
+        ],
+        'short_description' => "<p>Hand &amp; <em>machine</em>\nstitched.</p>",
+        'description' => '<p>Full description, unused when short is present.</p>',
+        'is_in_stock' => true,
+    ]]);
+
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => $products, 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('https://store.example')[0];
+
+    expect($out['images'])->toBe(['https://store.example/img/1.jpg', 'https://store.example/img/2.jpg']);
+    expect($out['image'])->toBe('https://store.example/img/1.jpg'); // hero unchanged
+    expect($out['description'])->toBe('Hand & machine stitched.');
+});
+
+it('falls back to description when short_description is blank', function () {
+    $products = json_encode([[
+        'id' => 901, 'name' => 'No Short', 'slug' => 'no-short',
+        'permalink' => 'https://store.example/product/no-short/',
+        'prices' => ['price' => '500', 'currency_code' => 'AUD', 'currency_minor_unit' => 2],
+        'images' => [], 'short_description' => '', 'description' => '<p>Full desc only.</p>',
+        'is_in_stock' => true,
+    ]]);
+
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => $products, 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('https://store.example')[0];
+
+    expect($out['description'])->toBe('Full desc only.');
+    expect($out['images'])->toBe([]);
+});
+
+it('caps the image gallery at 25', function () {
+    $images = array_map(fn ($i) => ['src' => "https://store.example/img/{$i}.jpg"], range(1, 30));
+    $products = json_encode([[
+        'id' => 902, 'name' => 'Many Images', 'slug' => 'many-images',
+        'permalink' => 'https://store.example/product/many-images/',
+        'prices' => ['price' => '500', 'currency_code' => 'AUD', 'currency_minor_unit' => 2],
+        'images' => $images, 'is_in_stock' => true,
+    ]]);
+
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => $products, 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    expect($scraper->fetchProducts('https://store.example')[0]['images'])->toHaveCount(25);
+});
+
+it('strips non-http(s) image URLs from the client-posted images array', function () {
+    // productsFromClient() is the browser-assisted path — a hostile client
+    // could post javascript:/data: entries; the hero `image` is already
+    // filtered this way, `images[]` must be too (same documented invariant).
+    $raw = [[
+        'id' => 903,
+        'name' => 'Client Item',
+        'slug' => 'client-item',
+        'permalink' => 'https://store.example/product/client-item/',
+        'prices' => ['price' => '500', 'currency_code' => 'AUD', 'currency_minor_unit' => 2],
+        'images' => [
+            ['src' => 'https://store.example/img/ok.jpg'],
+            ['src' => 'javascript:alert(1)'],
+            ['src' => 'data:text/html,evil'],
+        ],
+        'is_in_stock' => true,
+    ]];
+
+    $scraper = wooScraperWith([]);
+    $out = $scraper->productsFromClient('https://store.example', $raw)[0];
+
+    expect($out['images'])->toBe(['https://store.example/img/ok.jpg']);
+});

@@ -90,3 +90,42 @@ it('maps products.json to the canonical product shape', function () {
     expect($out[1]['image'])->toBeNull();
     expect($out[1]['price'])->toBe('12.50');
 });
+
+it('captures the full image gallery from products.json', function () {
+    $scraper = bigcartelScraperWith([
+        '/atakontu/products.json' => ['status' => 200, 'body' => json_encode([
+            [
+                'id' => 3,
+                'name' => 'Gallery Tee',
+                'permalink' => 'gallery-tee',
+                'price' => 25.0,
+                'status' => 'active',
+                'url' => '/product/gallery-tee',
+                'images' => [
+                    ['url' => 'http://assets.bigcartel.com/a.jpg', 'secure_url' => 'https://assets.bigcartel.com/a.jpg'],
+                    ['url' => 'http://assets.bigcartel.com/b.jpg'],
+                ],
+            ],
+        ]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('atakontu', 'EUR')[0];
+
+    expect($out['image'])->toBe('https://assets.bigcartel.com/a.jpg');   // hero unchanged (secure_url preferred)
+    expect($out['images'])->toBe(['https://assets.bigcartel.com/a.jpg', 'http://assets.bigcartel.com/b.jpg']);
+});
+
+it('caps the image gallery at 25 and yields an empty array when there are none', function () {
+    $images = array_map(fn ($i) => ['url' => "http://assets.bigcartel.com/{$i}.jpg"], range(1, 30));
+    $scraper = bigcartelScraperWith([
+        '/atakontu/products.json' => ['status' => 200, 'body' => json_encode([
+            ['id' => 4, 'name' => 'Many', 'permalink' => 'many', 'price' => 10.0, 'status' => 'active', 'url' => '/p/many', 'images' => $images],
+            ['id' => 5, 'name' => 'None', 'permalink' => 'none', 'price' => 5.0, 'status' => 'active', 'url' => '/p/none', 'images' => []],
+        ]), 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $out = $scraper->fetchProducts('atakontu');
+
+    expect($out[0]['images'])->toHaveCount(25);
+    expect($out[1]['images'])->toBe([]);
+});

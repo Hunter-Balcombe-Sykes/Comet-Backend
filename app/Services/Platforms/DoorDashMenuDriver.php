@@ -89,6 +89,8 @@ class DoorDashMenuDriver implements MenuPlatformDriver
                 'logo' => $this->safeUrl(data_get($store, 'cover_square_image'))
                     ?? $this->safeUrl(data_get($store, 'cover_image'))
                     ?? $this->safeUrl(data_get($store, 'header_image')),
+                // DoorDash's actor exposes no dining-mode field (Uber Eats only).
+                'diningModes' => null,
             ],
             'categories' => $categories,
         ];

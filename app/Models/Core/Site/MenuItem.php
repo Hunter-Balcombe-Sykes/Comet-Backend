@@ -17,7 +17,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // `pickup_price` / `delivery_price` are aggregates (min among pickup-capable /
 // delivery-capable platforms), each tagged with the platform backing the min
 // (`*_source`) for back-compat. `rating` (👍 percent) + `rating_count` +
-// `badges` are DoorDash-only — Uber Eats exposes none per item. Items are
+// `badges` are DoorDash-only — Uber Eats exposes none per item. `currency`
+// (ISO 4217, e.g. 'AUD') is Uber-Eats-only per item — DoorDash's actor carries
+// no per-item currency field, so it stays null there. Items are
 // rebuilt wholesale on every scrape.
 // `badges` stays JSONB by design (reviewed 2026-07-04, audit #FOUND-13) — DoorDash
 // display copy with no query/filter usage anywhere in the codebase; revisit only
@@ -48,6 +50,7 @@ class MenuItem extends BaseModel
         'delivery_price',
         'delivery_source',
         'dd_external_id',
+        'currency',
     ];
 
     protected $casts = [

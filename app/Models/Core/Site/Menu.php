@@ -19,14 +19,16 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // user's online-ordering links) — every item then carries a pickup_price and a
 // delivery_price from those platforms. Each delivery platform's store URL,
 // last-sync timestamp, and status live in site.menu_platform_links (one row per
-// platform), tracking each scrape independently. Per-item order LINKS are
-// still computed at read time from the live ordering entries (MenuSource), never
-// stored. Served both on the authenticated dashboard (MenuController) AND
-// publicly on the sitepage (PublicMenuController, gated on last_fetched_at
-// being set + the owner's Google Business menu display toggle). Content isn't
-// only scraped either — menu_categories.source_platform can be 'scan' for
-// items a user added by scanning a photo/PDF menu (MenuScanApplier); those
-// rows are exempt from MenuFetchJob's wholesale scrape rebuild.
+// platform), tracking each scrape independently. `dining_modes` is the store's
+// supported dining modes (e.g. ["DELIVERY","PICKUP"]) from the Uber Eats scrape
+// — display-only, null when unavailable (DoorDash exposes none). Per-item order
+// LINKS are still computed at read time from the live ordering entries
+// (MenuSource), never stored. Served both on the authenticated dashboard
+// (MenuController) AND publicly on the sitepage (PublicMenuController, gated on
+// last_fetched_at being set + the owner's Google Business menu display toggle).
+// Content isn't only scraped either — menu_categories.source_platform can be
+// 'scan' for items a user added by scanning a photo/PDF menu (MenuScanApplier);
+// those rows are exempt from MenuFetchJob's wholesale scrape rebuild.
 class Menu extends BaseModel
 {
     use HasUuids;
@@ -49,12 +51,14 @@ class Menu extends BaseModel
         'pickup_platform',
         'delivery_platform',
         'fetch_status',
+        'dining_modes',
         'last_fetched_at',
     ];
 
     protected $casts = [
         'rating' => 'float',
         'review_count' => 'integer',
+        'dining_modes' => 'array',
         'last_fetched_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

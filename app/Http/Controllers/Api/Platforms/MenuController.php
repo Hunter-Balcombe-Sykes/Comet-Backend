@@ -82,6 +82,7 @@ class MenuController extends ApiController
             'pickupPlatform' => $menu?->pickup_platform,
             'deliveryPlatform' => $menu?->delivery_platform,
             'fetchStatus' => $menu?->fetch_status,
+            'diningModes' => $menu?->dining_modes,
             'categories' => $this->categories($menu),
             'links' => $this->source->links($user),
         ]);
@@ -173,6 +174,7 @@ class MenuController extends ApiController
                 'pickupSource' => $item->pickup_source,
                 'deliveryPrice' => $item->delivery_price,
                 'deliverySource' => $item->delivery_source,
+                'currency' => $item->currency,
                 'platforms' => $this->platforms($item),
             ])->all(),
         ])->all();

@@ -575,7 +575,8 @@ function setupSitesTable(): void
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
     // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
-    // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables).
+    // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables)
+    // + 20260715090000 (menu_items.currency, menus.dining_modes).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -588,11 +589,20 @@ function setupSitesTable(): void
         pickup_platform TEXT NULL,
         delivery_platform TEXT NULL,
         fetch_status TEXT NULL,
+        dining_modes TEXT NULL,
         last_fetched_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )');
+    // Defensive ALTER for suites that created site.menus before dining_modes
+    // existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
+    // already-created table within a run).
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.menus ADD COLUMN dining_modes TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_categories (
         id TEXT PRIMARY KEY,
@@ -621,9 +631,17 @@ function setupSitesTable(): void
         delivery_price REAL NULL,
         delivery_source TEXT NULL,
         dd_external_id TEXT NULL,
+        currency TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    // Defensive ALTER for suites that created site.menu_items before currency
+    // existed (mirrors the site.menus dining_modes pattern above).
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.menu_items ADD COLUMN currency TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_platform_links (
         id TEXT PRIMARY KEY,

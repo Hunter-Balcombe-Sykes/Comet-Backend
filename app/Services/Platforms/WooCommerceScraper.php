@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Str;
 
 // Scrapes a WooCommerce store with no auth via the public Store API
 // (/wp-json/wc/store/v1/products — unauthenticated by design, used by Woo's
@@ -16,6 +17,10 @@ use App\Services\Http\SafeUrlFetcher;
 class WooCommerceScraper extends PlatformScraper
 {
     private const PRODUCTS_PATH = '/wp-json/wc/store/v1/products';
+
+    // Gallery cap — mirrors ShopifyScraper::MAX_IMAGES so no provider's product
+    // row can bloat past a sane multi-image-strip size.
+    private const MAX_IMAGES = 25;
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -88,7 +93,7 @@ class WooCommerceScraper extends PlatformScraper
      * `variantId` mirrors the product id (Woo variations aren't needed for a
      * view-product deep link; `url` is the permalink).
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, description:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string}>
      */
     public function fetchProducts(string $origin): array
     {
@@ -119,7 +124,7 @@ class WooCommerceScraper extends PlatformScraper
      * Raw Store-API products → the canonical product shape (shared by the
      * server fetch above and the client-assisted path below).
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, description:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string}>
      */
     public function mapStoreApiProducts(array $data, string $origin): array
     {
@@ -129,6 +134,20 @@ class WooCommerceScraper extends PlatformScraper
                 continue;
             }
             $prices = is_array($product['prices'] ?? null) ? $product['prices'] : [];
+
+            // Full image gallery (compat `image` below stays the first entry) —
+            // capped so a huge gallery can't bloat the stored product row.
+            $images = [];
+            foreach (is_array($product['images'] ?? null) ? $product['images'] : [] as $img) {
+                $src = is_array($img) ? ($img['src'] ?? null) : null;
+                if (! is_string($src) || $src === '') {
+                    continue;
+                }
+                if (count($images) >= self::MAX_IMAGES) {
+                    break;
+                }
+                $images[] = $src;
+            }
 
             // Store API exposes purchasable variations (id + attribute values)
             // on variable products — capped like the Shopify scraper, titled
@@ -155,7 +174,12 @@ class WooCommerceScraper extends PlatformScraper
                 'title' => html_entity_decode((string) ($product['name'] ?? ''), ENT_QUOTES | ENT_HTML5),
                 'handle' => (string) ($product['slug'] ?? ''),
                 'vendor' => null,
+                // Store API's excerpt wins when present; the full description is
+                // the fallback (same content-priority the storefront theme uses).
+                'description' => $this->sanitizeDescription($product['short_description'] ?? null)
+                    ?? $this->sanitizeDescription($product['description'] ?? null),
                 'image' => data_get($product, 'images.0.src'),
+                'images' => $images,
                 'price' => $this->minorToDecimal($prices['price'] ?? null, (int) ($prices['currency_minor_unit'] ?? 2)),
                 'currency' => isset($prices['currency_code']) ? strtoupper((string) $prices['currency_code']) : null,
                 'variantId' => (string) $product['id'],
@@ -196,6 +220,10 @@ class WooCommerceScraper extends PlatformScraper
                 && ! preg_match('~^https?://~i', (string) $product['image'])) {
                 $product['image'] = null;
             }
+            $product['images'] = array_values(array_filter(
+                $product['images'],
+                fn ($src) => is_string($src) && preg_match('~^https?://~i', $src) === 1,
+            ));
 
             $product['productId'] = mb_substr($product['productId'], 0, 64);
             $product['variantId'] = mb_substr($product['variantId'], 0, 64);
@@ -251,6 +279,21 @@ class WooCommerceScraper extends PlatformScraper
     }
 
     // ── internals ────────────────────────────────────────────────
+
+    /**
+     * short_description/description HTML → plain-text: strip tags, decode
+     * entities, collapse whitespace, cap length. Blank/non-string input becomes
+     * null.
+     */
+    private function sanitizeDescription(mixed $html): ?string
+    {
+        if (! is_string($html) || trim($html) === '') {
+            return null;
+        }
+        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
+
+        return $text !== '' ? $text : null;
+    }
 
     private function json(string $url): ?array
     {

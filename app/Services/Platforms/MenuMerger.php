@@ -14,7 +14,12 @@ namespace App\Services\Platforms;
 //   • collects BOTH platforms into `platforms[]` — one entry per platform, each
 //     carrying its pickupPrice + pickupUrl and deliveryPrice + deliveryUrl (a
 //     mode the store doesn't offer is null on both),
-//   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither).
+//   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither),
+//   • gap-fills the item's `currency` (Uber Eats only — DoorDash items carry
+//     none) the same way as the other display fields.
+//
+// Store-level fields also gap-fill `diningModes` (Uber Eats' supported dining
+// modes; DoorDash always null) the same way as name/rating/currency/logo.
 //
 // Aggregate prices are derived from `platforms[]`:
 //   basePrice     = cheapest price the dish can be had for, any mode/platform,
@@ -189,6 +194,7 @@ class MenuMerger
             'rating' => $this->pickRaw($versions, 'rating'),         // DoorDash only (UE items carry null)
             'ratingCount' => $this->pickRaw($versions, 'ratingCount'),
             'badges' => $this->pickRaw($versions, 'badges'),
+            'currency' => $this->pick($versions, 'currency'),        // Uber Eats only (DoorDash items carry none)
             'basePrice' => $aggregates['basePrice'],
             'pickupPrice' => $aggregates['pickupPrice'],
             'pickupSource' => $aggregates['pickupSource'],
@@ -322,7 +328,7 @@ class MenuMerger
      */
     private function mergeStore(array $menus, string $contentSource): array
     {
-        $name = $rating = $reviewCount = $currency = $logo = null;
+        $name = $rating = $reviewCount = $currency = $logo = $diningModes = null;
         foreach ($this->priorityOrder($contentSource) as $p) {
             $store = $menus[$p]['store'] ?? null;
             if ($store === null) {
@@ -333,6 +339,7 @@ class MenuMerger
             $reviewCount ??= $store['reviewCount'] ?? null;
             $currency ??= $store['currency'] ?? null;
             $logo ??= $store['logo'] ?? null;
+            $diningModes ??= $store['diningModes'] ?? null;
         }
 
         return [
@@ -341,6 +348,7 @@ class MenuMerger
             'reviewCount' => $reviewCount,
             'currency' => $currency ?? 'AUD',
             'logo' => $logo,
+            'diningModes' => $diningModes,      // Uber Eats only; DoorDash always null
             'contentSource' => $contentSource,
         ];
     }

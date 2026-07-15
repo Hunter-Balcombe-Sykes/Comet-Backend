@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Str;
 
 // Scrapes a Shopify store with no auth: products from /products.json, and a small
 // brand profile (id + name from /meta.json, favicon + logo from the homepage).
@@ -83,7 +84,7 @@ class ShopifyScraper extends PlatformScraper
      * `$defaultCurrency` is the shop-level currency used as a fallback when a
      * variant lacks presentment_prices.
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string, createdAt:?string, variants:list<array{id:string, title:?string, price:?string, available:bool, image:?string}>}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, description:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string, createdAt:?string, variants:list<array{id:string, title:?string, price:?string, available:bool, image:?string}>}>
      */
     public function fetchProducts(string $origin, ?string $defaultCurrency = null): array
     {
@@ -147,6 +148,7 @@ class ShopifyScraper extends PlatformScraper
                 'title' => (string) ($product['title'] ?? ''),
                 'handle' => $handle,
                 'vendor' => $product['vendor'] ?? null,
+                'description' => $this->sanitizeDescription($product['body_html'] ?? null),
                 // Compat single hero image (first product image); `images` below
                 // carries the full gallery for a multi-image strip.
                 'image' => $images[0] ?? data_get($product, 'images.0.src'),
@@ -191,6 +193,20 @@ class ShopifyScraper extends PlatformScraper
     }
 
     // ── internals ────────────────────────────────────────────────
+
+    /**
+     * body_html → plain-text description: strip tags, decode entities, collapse
+     * whitespace, cap length. Blank/non-string input becomes null.
+     */
+    private function sanitizeDescription(mixed $html): ?string
+    {
+        if (! is_string($html) || trim($html) === '') {
+            return null;
+        }
+        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
+
+        return $text !== '' ? $text : null;
+    }
 
     private function json(string $url): ?array
     {

@@ -45,8 +45,39 @@ it('maps a memo23 Uber Eats store into the normalized shape', function () {
     expect($item['externalId'])->toBeNull();                              // flattened list has no id
     expect($item['name'])->toBe('Burritos');
     expect($item['price'])->toBe(17.8);                                   // already dollars
+    expect($item['currency'])->toBe('AUD');                               // per-item currency (UE only)
     expect($item['image'])->toBe('https://tb-static.uber.com/x.jpeg');
     expect($item['rating'])->toBeNull();                                  // UE has no per-item rating
+    // Store-level supported dining modes, normalized from [{mode, isAvailable}]
+    // to the available mode-name strings only.
+    expect($menu['store']['diningModes'])->toBe(['DELIVERY', 'PICKUP']);
+});
+
+it('normalizes supportedDiningModes to only the available mode names', function () {
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'title' => 'X',
+        'currencyCode' => 'AUD',
+        'supportedDiningModes' => [
+            ['mode' => 'DELIVERY', 'isAvailable' => true],
+            ['mode' => 'DINE_IN', 'isAvailable' => false],
+        ],
+        'menuItems' => [['name' => 'Item', 'section' => 'Cat', 'price' => 5.0]],
+    ]], 201)]);
+
+    $menu = app(MenuApifyScraper::class)->fetch('https://www.ubereats.com/au/store/x', 'uber-eats', 'u1');
+
+    expect($menu['store']['diningModes'])->toBe(['DELIVERY']);
+});
+
+it('yields a null diningModes when supportedDiningModes is absent', function () {
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'currencyCode' => 'AUD',
+        'menuItems' => [['name' => 'Item', 'section' => 'Cat', 'price' => 5.0]],
+    ]], 201)]);
+
+    $menu = app(MenuApifyScraper::class)->fetch('https://www.ubereats.com/au/store/x', 'uber-eats', 'u1');
+
+    expect($menu['store']['diningModes'])->toBeNull();
 });
 
 it('maps a dz_omar DoorDash store into the normalized shape', function () {
@@ -91,6 +122,9 @@ it('maps a dz_omar DoorDash store into the normalized shape', function () {
     expect($item['rating'])->toBe(95.0);
     expect($item['ratingCount'])->toBe(213);
     expect($item['badges'][0])->toMatchArray(['text' => '#1 Most liked', 'type' => 'popular']);
+    // DoorDash's actor carries no per-item currency or store dining-mode field.
+    expect($item['currency'] ?? null)->toBeNull();
+    expect($menu['store']['diningModes'])->toBeNull();
 });
 
 it('sends DoorDash the startUrls + address input shape', function () {

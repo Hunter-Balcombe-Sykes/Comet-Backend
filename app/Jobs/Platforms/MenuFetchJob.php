@@ -263,6 +263,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 'rating' => $store['rating'] ?? null,
                 'review_count' => $store['reviewCount'] ?? null,
                 'currency' => $store['currency'] ?? 'AUD',
+                'dining_modes' => $store['diningModes'] ?? null,
                 'fetch_status' => 'ok',
                 'last_fetched_at' => $now,
             ])->save();
@@ -300,6 +301,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                         'delivery_price' => $item['deliveryPrice'] ?? null,
                         'delivery_source' => $item['deliverySource'] ?? null,
                         'dd_external_id' => $item['ddExternalId'] ?? null,
+                        'currency' => $item['currency'] ?? null,
                         'created_at' => $now,
                         'updated_at' => $now,
                     ];

@@ -392,6 +392,31 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect($res->json('links.deliveryUrl'))->toBe('https://www.ubereats.com/store/d');
 });
 
+it('captures and serves the uber eats item currency and store dining modes end to end', function () {
+    $user = menuUser('m20');
+    ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD', 'diningModes' => ['DELIVERY', 'PICKUP']],
+            'categories' => [['name' => 'Pizzas', 'items' => [[
+                'name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5, 'currency' => 'AUD',
+            ]]]],
+        ]]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    expect($menu->dining_modes)->toBe(['DELIVERY', 'PICKUP']);
+    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    expect($item->currency)->toBe('AUD');
+
+    $res = actingAsUser($user)->getJson('/api/platforms/menu')->assertOk();
+    expect($res->json('diningModes'))->toBe(['DELIVERY', 'PICKUP']);
+    expect($res->json('categories.0.items.0.currency'))->toBe('AUD');
+});
+
 it('refresh dispatches a forced menu fetch job', function () {
     Queue::fake();
     $user = menuUser('m12');

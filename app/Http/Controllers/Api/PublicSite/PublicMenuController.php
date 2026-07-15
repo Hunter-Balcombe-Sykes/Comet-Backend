@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
@@ -50,7 +51,7 @@ class PublicMenuController extends ApiController
 
         $menu = Menu::with([
             'categories' => fn ($q) => $q->with([
-                'items' => fn ($q2) => $q2->orderBy('position'),
+                'items' => fn ($q2) => $q2->orderBy('position')->with('platformLinks'),
             ]),
         ])
             ->where('user_id', $userId)
@@ -83,11 +84,31 @@ class PublicMenuController extends ApiController
                     'price' => $item->base_price !== null
                         ? number_format((float) $item->base_price, 2)
                         : null,
+                    // Aggregate per-mode prices (min across platforms) — same 2dp
+                    // string-or-null formatting as `price` above.
+                    'pickupPrice' => $item->pickup_price !== null
+                        ? number_format((float) $item->pickup_price, 2)
+                        : null,
+                    'deliveryPrice' => $item->delivery_price !== null
+                        ? number_format((float) $item->delivery_price, 2)
+                        : null,
+                    // Uber-Eats-only (ISO 4217, e.g. 'AUD'); null for DoorDash-only dishes.
+                    'currency' => $item->currency,
                     // DoorDash-sourced (null for Uber Eats): 👍 percent + count and
                     // the "#N Most liked" badges, rendered on the sitepage menu cards.
                     'rating' => $item->rating,
                     'ratingCount' => $item->rating_count,
                     'badges' => $item->badges,
+                    // Per-platform order links — mirrors MenuController::platforms()'s
+                    // exact field semantics for the dashboard equivalent. Always an
+                    // array (never omitted) — a scan-sourced item has zero rows here.
+                    'platforms' => $item->platformLinks->map(fn (MenuItemPlatform $p) => [
+                        'platform' => $p->platform,
+                        'pickupUrl' => $this->textOrNull($p->pickup_url),
+                        'deliveryUrl' => $this->textOrNull($p->delivery_url),
+                        'pickupPrice' => $this->numberOrNull($p->pickup_price),
+                        'deliveryPrice' => $this->numberOrNull($p->delivery_price),
+                    ])->values()->toArray(),
                     'popularityRank' => $itemRanks[(string) $item->id] ?? null,
                 ])->values()->toArray(),
             ])
@@ -102,5 +123,17 @@ class PublicMenuController extends ApiController
                 'categories' => $categories,
             ],
         ]);
+    }
+
+    /** Mirrors MenuController::numberOrNull() — kept local, duplication over a shared dependency. */
+    private function numberOrNull(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    /** Mirrors MenuController::textOrNull() — kept local, duplication over a shared dependency. */
+    private function textOrNull(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 }
