@@ -33,8 +33,6 @@ class FreshaController extends ApiController
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
-
-
     public function __construct(private readonly FreshaScraper $scraper) {}
 
     protected function platform(): string
@@ -53,6 +51,13 @@ class FreshaController extends ApiController
     public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15): a food business books via
+        // Reservations, not Booking — Fresha is a bespoke connect flow (never
+        // routes through GenericPlatformController), so it needs its own check.
+        if (! AccountCapabilities::for($user)->can_use_booking) {
+            return $this->error('Booking is not available for your account.', 403);
+        }
 
         // Fresha + Square are mutually exclusive booking providers (XOR).
         if ($this->hasConflictingConnection($user, Platform::Square->value)) {
@@ -255,5 +260,4 @@ class FreshaController extends ApiController
 
         return $this->success(['url' => null, 'selection' => null]);
     }
-
 }

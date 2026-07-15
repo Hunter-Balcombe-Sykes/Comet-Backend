@@ -13,13 +13,18 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-function catUser(string $h): User
+// Defaults to 'individual' (booking/reservations are unconditional for
+// partna/individual — 2026-07-15 sector gating). Online ordering is
+// food-business-only, so the two online-ordering tests below override to
+// business + a food sector.
+function catUser(string $h, string $accountType = 'individual', ?string $sector = null): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => $accountType,
+        'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -190,7 +195,8 @@ it('reports opentable as the connected reservation', function () {
 
 it('adds, lists and removes online-ordering entries', function () {
     Queue::fake();
-    $user = catUser('cat8');
+    // Online ordering is food-business-only (2026-07-15 sector gating).
+    $user = catUser('cat8', 'business', 'restaurant');
 
     fakeScraper([
         'url' => 'https://www.ubereats.com/store/my-cafe',
@@ -233,7 +239,8 @@ it('adds an unfetchable online-ordering link as a branded card (no 422)', functi
     // so SafeUrlFetcher is never invoked. The mock is kept as documentation but unused.
     Queue::fake();
     test()->mock(SafeUrlFetcher::class, fn ($m) => $m->shouldReceive('tryFetch')->andReturn(null));
-    $user = catUser('cat9');
+    // Online ordering is food-business-only (2026-07-15 sector gating).
+    $user = catUser('cat9', 'business', 'restaurant');
 
     actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
         'url' => 'https://www.ubereats.com/au/store/ollies-pizza-parlour/abc',

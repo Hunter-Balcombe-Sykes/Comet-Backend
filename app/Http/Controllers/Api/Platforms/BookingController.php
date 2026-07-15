@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
@@ -43,6 +44,16 @@ class BookingController extends ApiController
     public function detect(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15): a food business books via
+        // Reservations, not Booking (partna + non-food business keep Booking
+        // unconditionally). Covers the custom-card fallback below directly;
+        // the Fresha/Square redirects are separately gated in their own bespoke
+        // connect controllers (FreshaController/SquareController::connect).
+        if (! AccountCapabilities::for($user)->can_use_booking) {
+            return $this->error('Booking is not available for your account.', 403);
+        }
+
         $validated = $request->validate(['url' => ['required', 'string', 'max:1000']]);
 
         $provider = $this->detector->detectFor('booking', $validated['url']);

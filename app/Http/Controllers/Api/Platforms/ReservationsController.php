@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -47,6 +48,17 @@ class ReservationsController extends ApiController
     public function detect(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15): reservations are food-business-only
+        // for a business account (partna keeps them unconditionally). This also
+        // covers the keyless-provider redirect below — the actual opentable/
+        // resdiary/nowbookit connect is separately gated via PlatformDescriptor::
+        // availableFor() (GenericPlatformController::connect), since a client
+        // could call those endpoints directly without hitting /detect first.
+        if (! AccountCapabilities::for($user)->can_use_reservations) {
+            return $this->error('Reservations are not available for your account.', 403);
+        }
+
         $validated = $request->validate(['url' => ['required', 'string', 'max:1000']]);
 
         $provider = $this->detector->detectFor('reservations', $validated['url']);

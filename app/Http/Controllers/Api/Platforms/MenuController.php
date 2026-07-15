@@ -11,6 +11,7 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Http\JsonResponse;
@@ -93,6 +94,13 @@ class MenuController extends ApiController
     {
         $user = $this->currentUser($request);
 
+        // Sector-derived gate (2026-07-15): Menu is a food-business feature.
+        // GET status()/show() stay open (UI-hidden, not endpoint-blocked) — only
+        // this mutating path is gated.
+        if (! AccountCapabilities::for($user)->can_use_menu) {
+            return $this->error('Menu is not available for your account.', 403);
+        }
+
         // Only meaningful when the user has a resolvable Uber Eats / DoorDash link.
         if ($this->source->resolveAll($user) === null) {
             return $this->error('Connect Uber Eats or DoorDash in Online ordering first.', 422);
@@ -113,6 +121,12 @@ class MenuController extends ApiController
     public function applyScan(ApplyMenuScanRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15) — same rule as refresh() above.
+        if (! AccountCapabilities::for($user)->can_use_menu) {
+            return $this->error('Menu is not available for your account.', 403);
+        }
+
         $result = $this->scanApplier->apply($user, $request->validated()['items']);
 
         return $this->success($result);

@@ -58,6 +58,30 @@ it('availableFor is a single-call-site seam that returns true — regression anc
     expect($d->availableFor($user))->toBeTrue();
 });
 
+// requiresCapability() — the seam the 2026-07-15 sector gating wired for the
+// reservation-family platforms (opentable/resdiary/nowbookit). The CAP-1
+// regression anchor above proves a descriptor WITHOUT an opt-in predicate is
+// unaffected; these prove the predicate itself, in isolation from any real
+// AccountCapabilities/User setup.
+
+it('requiresCapability makes availableFor consult the predicate', function () {
+    $d = PlatformDescriptor::make('opentable')
+        ->label('OpenTable')
+        ->category(PlatformCategory::Reservations)
+        ->requiresCapability(fn (User $user) => $user->display_name === 'Allowed');
+
+    expect($d->availableFor(new User(['display_name' => 'Allowed'])))->toBeTrue();
+    expect($d->availableFor(new User(['display_name' => 'Denied'])))->toBeFalse();
+});
+
+it('requiresCapability only affects the descriptor it is called on', function () {
+    $gated = PlatformDescriptor::make('opentable')->requiresCapability(fn () => false);
+    $ungated = PlatformDescriptor::make('resdiary');
+
+    expect($gated->availableFor(new User))->toBeFalse();
+    expect($ungated->availableFor(new User))->toBeTrue();
+});
+
 it('carries a live connect strategy and its error message', function () {
     $d = PlatformDescriptor::linkOnly(
         'x', 'X', LinkConnectionResource::class,

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,13 @@ class SquareController extends ApiController
     public function connect(PlatformConnectRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15): a food business books via
+        // Reservations, not Booking — Square is a bespoke connect flow (never
+        // routes through GenericPlatformController), so it needs its own check.
+        if (! AccountCapabilities::for($user)->can_use_booking) {
+            return $this->error('Booking is not available for your account.', 403);
+        }
 
         if ($this->hasConflictingConnection($user, Platform::Fresha->value)) {
             return $this->error('Disconnect Fresha before connecting Square — only one booking provider can be active at a time.', 409);
