@@ -9,6 +9,7 @@ use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -54,6 +55,14 @@ class OnlineOrderingController extends ApiController
     public function addEntry(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15): online ordering is a food-business
+        // feature (partna lost it entirely — explicit owner override). Reads
+        // and disconnect (entries()/entryStatus()/removeEntry()/forget()) stay open.
+        if (! AccountCapabilities::for($user)->can_use_online_ordering) {
+            return $this->error('Online ordering is not available for your account.', 403);
+        }
+
         $validated = $request->validate(['url' => ['required', 'string', 'max:1000']]);
 
         $url = $this->scraper->normalizeUrl($validated['url']);

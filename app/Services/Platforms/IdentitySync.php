@@ -109,14 +109,28 @@ class IdentitySync
     }
 
     /**
-     * Sector precedence: map Google's category to a curated slug, then apply the
-     * same account-type rule (business overwrites a differing value; partna fills
-     * only when sector is currently blank). Provenance in users.sector_source.
+     * Sector precedence (fixed 2026-07-15 — a manual pick is now permanent): map
+     * Google's category to a curated slug, then apply precedence in two steps.
+     * First, sector_source='manual' (stamped by SectorController on a user's own
+     * pick) is NEVER overwritten by Google, for EITHER account type — this is
+     * the bug fix: business used to overwrite a manually-chosen sector on every
+     * resync just like any other differing value, silently reverting the user's
+     * choice. Only once that's ruled out does the account-type rule apply:
+     * business overwrites a differing value (blank, or previously google-sourced);
+     * partna fills only when sector is currently blank. Provenance in
+     * users.sector_source.
      */
     private function applySector(User $user, bool $overwrite, ?string $category): void
     {
         $mapped = SectorTaxonomy::fromGoogleCategory($category);
         if ($mapped === null) {
+            return;
+        }
+
+        // A user-chosen sector is permanent from Google's perspective, for
+        // either account type. Google may still fill a blank sector or replace
+        // one it set itself on an earlier sync.
+        if ($user->sector_source === 'manual') {
             return;
         }
 

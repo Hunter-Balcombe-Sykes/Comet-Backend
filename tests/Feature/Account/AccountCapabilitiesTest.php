@@ -6,11 +6,12 @@ use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
+use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Http\Request;
 
-function makeProForCapabilities(string $accountType): User
+function makeProForCapabilities(string $accountType, ?string $sector = null): User
 {
-    return new User(['account_type' => $accountType]);
+    return new User(['account_type' => $accountType, 'sector' => $sector]);
 }
 
 beforeEach(fn () => AccountCapabilities::flushCache());
@@ -118,6 +119,84 @@ describe('AccountCapabilities — lifestyle pages (standard only)', function () 
 
     it('withholds the lifestyle/creator pages from Business accounts', function () {
         expect(AccountCapabilities::for(makeProForCapabilities('business'))->can_use_lifestyle_pages)->toBeFalse();
+    });
+});
+
+describe('AccountCapabilities — sector-derived (2026-07-15 industry/sector gating)', function () {
+    // Contract is LAW (docs/superpowers/plans/2026-07-15-industry-sector-gating.md):
+    //   can_use_menu            = business && food
+    //   can_use_reservations    = business ? food : true
+    //   can_use_booking         = business ? !food : true
+    //   can_use_online_ordering = business && food
+    // partna is unconditional on all four regardless of sector; a business with
+    // a null sector reads as not-food (same row as an explicit non-food sector).
+    it('gives the full matrix for every account-type × sector combination', function (
+        string $accountType,
+        ?string $sector,
+        bool $menu,
+        bool $reservations,
+        bool $booking,
+        bool $onlineOrdering,
+    ) {
+        $caps = AccountCapabilities::for(makeProForCapabilities($accountType, $sector));
+
+        expect($caps->can_use_menu)->toBe($menu);
+        expect($caps->can_use_reservations)->toBe($reservations);
+        expect($caps->can_use_booking)->toBe($booking);
+        expect($caps->can_use_online_ordering)->toBe($onlineOrdering);
+    })->with([
+        'partna × food (restaurant)' => ['partna', 'restaurant', false, true, true, false],
+        'partna × non-food (barber)' => ['partna', 'barber', false, true, true, false],
+        'partna × null sector' => ['partna', null, false, true, true, false],
+        'business × food (restaurant)' => ['business', 'restaurant', true, true, false, true],
+        'business × non-food (barber)' => ['business', 'barber', false, false, true, false],
+        'business × null sector (defaults not-food)' => ['business', null, false, false, true, false],
+        'individual (legacy) × food — treated like partna, never food-gated' => ['individual', 'restaurant', false, true, true, false],
+    ]);
+
+    it('isFood is false for every non-Food & Drink sector, true for exactly the Food & Drink group', function () {
+        foreach (SectorTaxonomy::FOOD_SECTORS as $foodSlug) {
+            expect(SectorTaxonomy::isFood($foodSlug))->toBeTrue();
+        }
+        expect(SectorTaxonomy::isFood('barber'))->toBeFalse();
+        expect(SectorTaxonomy::isFood('photographer'))->toBeFalse();
+        expect(SectorTaxonomy::isFood(null))->toBeFalse();
+        expect(SectorTaxonomy::isFood('not-a-real-sector'))->toBeFalse();
+    });
+});
+
+describe('UserDashboardResource — sector + capabilities (2026-07-15)', function () {
+    it('emits sector, sector_source, and camelCase capabilities for a food business', function () {
+        // sector_source is deliberately NOT fillable (service-written only) —
+        // forceFill it directly, same as SectorController/IdentitySync do.
+        $pro = (new User(['account_type' => 'business', 'sector' => 'restaurant']))
+            ->forceFill(['sector_source' => 'manual']);
+
+        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
+
+        expect($payload['sector'])->toBe('restaurant');
+        expect($payload['sector_source'])->toBe('manual');
+        expect($payload['capabilities'])->toBe([
+            'canUseMenu' => true,
+            'canUseReservations' => true,
+            'canUseBooking' => false,
+            'canUseOnlineOrdering' => true,
+        ]);
+    });
+
+    it('emits null sector/sector_source and the partna capability row when nothing is set', function () {
+        $pro = new User(['account_type' => 'partna']);
+
+        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
+
+        expect($payload['sector'])->toBeNull();
+        expect($payload['sector_source'])->toBeNull();
+        expect($payload['capabilities'])->toBe([
+            'canUseMenu' => false,
+            'canUseReservations' => true,
+            'canUseBooking' => true,
+            'canUseOnlineOrdering' => false,
+        ]);
     });
 });
 

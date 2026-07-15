@@ -13,13 +13,19 @@ beforeEach(function () {
     setupSitesTable();
 });
 
+// Business + food sector: online ordering is a food-business-only capability
+// (2026-07-15 sector gating — partna explicitly lost access). Every test in
+// this file exercises the addEntry()/entries endpoints, so this is the one
+// persona the whole suite needs; no test here asserts account-type-dependent
+// behaviour, so there's no other default to preserve.
 function ooUser(string $h): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'partna',
+        'account_type' => 'business',
+        'sector' => 'restaurant',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);

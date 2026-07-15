@@ -202,6 +202,71 @@ it('partna google connect only fills blank fields and never clobbers manual valu
     expect($user->public_contact_number)->toBe('(03) 1111 1111');
 });
 
+// ── (b2) Sector precedence fix (2026-07-15): manual is permanent, for either
+// account type; only a blank or previously google-sourced value may update ──
+
+it('never overwrites a MANUALLY-set sector on a business google resync, even when the mapped category differs', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizmanualsector', 'business');
+    $siteId = idsyncSite($user);
+    // sector_source is deliberately not fillable (service-written) — forceFill
+    // it directly, same as SectorController does on a manual pick.
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'manual'])->save();
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // Google's data maps to 'barber' (idsyncPlaceDetailsResponse: "Barber shop")
+    // — this is THE bug fix: business used to overwrite a manual sector on
+    // every resync just like any other differing value.
+    $user->refresh();
+    expect($user->sector)->toBe('restaurant');
+    expect($user->sector_source)->toBe('manual');
+    // Confirms this connect really did run (workplace fields still overwrite).
+    expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab');
+});
+
+it('never overwrites a MANUALLY-set sector on a partna google resync', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('partnamanualsector', 'partna');
+    idsyncSite($user);
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'manual'])->save();
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    $user->refresh();
+    expect($user->sector)->toBe('restaurant');
+    expect($user->sector_source)->toBe('manual');
+});
+
+it('still lets Google replace its OWN previously google-sourced sector on a business resync', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizgooglesector', 'business');
+    idsyncSite($user);
+    // A prior sync's value — not manual, so business precedence still applies.
+    $user->forceFill(['sector' => 'cafe', 'sector_source' => 'google-business'])->save();
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    $user->refresh();
+    expect($user->sector)->toBe('barber'); // Google's new category wins over its own prior value
+    expect($user->sector_source)->toBe('google-business');
+});
+
 // ── (c) Email is never written by Google ─────────────────────────────────────
 
 it('never writes contact_email from a google connect, even for business', function () {

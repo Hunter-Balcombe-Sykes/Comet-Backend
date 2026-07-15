@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 
 // Own-profile shape returned to the authenticated professional (dashboard show, update, bootstrap).
@@ -9,10 +10,28 @@ class UserDashboardResource extends ApiResource
 {
     public function toArray(Request $request): array
     {
+        // $this->resource (not a magic-proxied property) is the actual User
+        // model — AccountCapabilities::for() needs the instance, not a value.
+        $capabilities = AccountCapabilities::for($this->resource);
+
         return [
             'id' => (string) $this->id,
             'auth_user_id' => $this->auth_user_id,
             'account_type' => $this->account_type?->value,
+            // Curated industry/sector slug + its provenance ('manual' | 'google-business' |
+            // null) — see App\Services\Profile\SectorTaxonomy. The dashboard never branches
+            // on sector directly; it reads `capabilities` below for feature gating.
+            'sector' => $this->sector,
+            'sector_source' => $this->sector_source,
+            // Sector-derived feature flags (2026-07-15 industry/sector gating).
+            // Camel-cased for the frontend contract; source of truth is
+            // AccountCapabilities — never rederive these from sector client-side.
+            'capabilities' => [
+                'canUseMenu' => $capabilities->can_use_menu,
+                'canUseReservations' => $capabilities->can_use_reservations,
+                'canUseBooking' => $capabilities->can_use_booking,
+                'canUseOnlineOrdering' => $capabilities->can_use_online_ordering,
+            ],
             // Staff-ness is independent of account_type (which stays
             // partna/business) — it derives from a linked core.partna_staff
             // record. The dashboard reads this to switch to the staff surface.

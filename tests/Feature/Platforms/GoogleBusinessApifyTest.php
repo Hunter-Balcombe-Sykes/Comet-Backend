@@ -31,14 +31,18 @@ beforeEach(function () {
 
 // Defaults to a Business Partna because the GB auto-sync assertions below cover
 // the FULL sync (reservations / ordering / socials), which is Business-only. Pass
-// 'partna' to exercise the booking-only standard-account path.
-function gbApifyUser(string $h, string $accountType = 'business'): User
+// 'partna' to exercise the booking-only standard-account path. Sector defaults
+// to null (not-food) — reservations/online-ordering are food-business-only
+// (2026-07-15 sector gating); pass sector: 'restaurant' (or similar) on the
+// specific tests exercising that family.
+function gbApifyUser(string $h, string $accountType = 'business', ?string $sector = null): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
         'account_type' => $accountType,
+        'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -207,7 +211,11 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
-    $user = gbApifyUser('gba3');
+    // Food sector: reservations + online-ordering are food-business-only
+    // (2026-07-15 sector gating) — this fixture's enrichment carries reservation,
+    // order AND booking links at once specifically to prove the gate (not
+    // absent data) decides the outcome; see the booking assertion below.
+    $user = gbApifyUser('gba3', sector: 'restaurant');
     $conn = gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
@@ -261,16 +269,16 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($ig->payload['source'])->toBe('google-business');
     Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
 
-    // Booking → a custom card seeded from Google's appointment-booking link.
-    $booking = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail()->payload;
-    expect($booking['provider'])->toBe('custom');
-    expect($booking['url'])->toBe('https://booking.example/fadelab');
-    expect($booking['source'])->toBe('google-business');
+    // Booking → NOT seeded: a food business books via Reservations (above),
+    // even though Google's data also carried a booking link (proves the gate,
+    // not absent data, is what withheld it).
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
 });
 
 it('consolidates same-store pickup and delivery ordering providers into one row', function () {
     Bus::fake();
-    $user = gbApifyUser('gbaorder');
+    // Online-ordering is food-business-only (2026-07-15 sector gating).
+    $user = gbApifyUser('gbaorder', sector: 'restaurant');
 
     // Google lists each provider×mode separately. Two of these are the SAME Uber
     // Eats store (the diningMode query differs); they must collapse into one row
@@ -295,7 +303,9 @@ it('consolidates same-store pickup and delivery ordering providers into one row'
 
 it('does not re-seed an ordering store the user already has (only-if-empty per store)', function () {
     Bus::fake();
-    $user = gbApifyUser('gbaorder2');
+    // Food sector so the only-if-empty check itself is exercised (not just a
+    // capability skip that would trivially leave the manual row untouched).
+    $user = gbApifyUser('gbaorder2', sector: 'restaurant');
 
     // The user already has the Uber Eats store (added manually, pickup variant).
     IntegrationConnection::create([
@@ -409,7 +419,8 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
-    $user = gbApifyUser('gba4');
+    // Food sector: this test asserts reservation + online-ordering synced rows.
+    $user = gbApifyUser('gba4', sector: 'restaurant');
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
@@ -438,7 +449,9 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
-    $user = gbApifyUser('gba8');
+    // Food sector: this test asserts the only-if-empty rule for BOTH the
+    // reservation slot (manual opentable, below) and online-ordering.
+    $user = gbApifyUser('gba8', sector: 'restaurant');
     gbApifyConnection($user);
 
     // Pre-existing manual reservation + facebook the user curated themselves.
@@ -568,7 +581,8 @@ it('exposes only this run findings on /synced with a live status per platform', 
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
-    $user = gbApifyUser('gbsync1');
+    // Food sector: this test asserts reservation + online-ordering findings.
+    $user = gbApifyUser('gbsync1', sector: 'restaurant');
     gbApifyConnection($user);
 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
@@ -583,8 +597,9 @@ it('exposes only this run findings on /synced with a live status per platform', 
     expect(collect($synced)->firstWhere('platform', 'facebook')['status'])->toBe('synced');
     expect(collect($synced)->firstWhere('platform', 'instagram')['status'])->toBe('syncing');
     expect(collect($synced)->where('category', 'online-ordering'))->toHaveCount(2);
-    // The booking custom card from this run is in there too.
-    expect(collect($synced)->firstWhere('platform', 'booking')['status'])->toBe('synced');
+    // No booking finding: a food business books via Reservations (above), even
+    // though Google's data also carried a booking link.
+    expect(collect($synced)->firstWhere('platform', 'booking'))->toBeNull();
 });
 
 it('marks an already-connected platform as a conflict and Change-to swaps it in', function () {

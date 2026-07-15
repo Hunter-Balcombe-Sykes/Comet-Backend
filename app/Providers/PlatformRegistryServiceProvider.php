@@ -28,6 +28,8 @@ use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\EventbriteScraper;
@@ -273,6 +275,16 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->connect(fn () => new NowBookitConnect(app(NowBookitService::class)), 'Enter a NowBookit booking link (nowbookit.com/...).');
             $r->get('resdiary')->connect(fn () => new ResDiaryConnect(app(ResDiaryService::class)), 'Enter a ResDiary booking link (resdiary.com/...).');
             $r->get('opentable')->connect(fn () => new OpenTableConnect(app(OpenTableService::class)), 'Enter an OpenTable restaurant link (opentable.com.au/...).');
+            // Sector-derived gate (2026-07-15): all three reservation-family
+            // providers route connect() through GenericPlatformController →
+            // IntegrationConnectionPolicy::connect → this predicate, so gating
+            // here covers all three in one place (unlike Fresha/Square, which
+            // are bespoke and gate themselves inline).
+            foreach (['opentable', 'resdiary', 'nowbookit'] as $reservationProvider) {
+                $r->get($reservationProvider)->requiresCapability(
+                    fn (User $user) => AccountCapabilities::for($user)->can_use_reservations,
+                );
+            }
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
             // Booking: fresha host (mirrors the fresha connect regex), then Square (squareup.com / *.square.site).

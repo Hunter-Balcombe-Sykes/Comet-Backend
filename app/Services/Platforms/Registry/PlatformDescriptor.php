@@ -68,6 +68,9 @@ class PlatformDescriptor
     /** @var (Closure(): HighlightsStrategy)|null Lazily builds the highlights strategy (same rationale as fetch()). */
     private ?Closure $highlightsFactory = null;
 
+    /** @var (Closure(User): bool)|null Optional capability predicate consulted by availableFor(). Null = always available (every platform's default). */
+    private ?Closure $capabilityGate = null;
+
     private function __construct(private readonly string $key)
     {
         $this->label = $key;
@@ -409,16 +412,34 @@ class PlatformDescriptor
     }
 
     /**
-     * Capability gate — intentional not-yet-wired seam. Returns true for all
-     * users today. Currently consulted at EXACTLY ONE production call site:
-     * `GenericPlatformController::connect` via `abort_unless($descriptor->availableFor($user), 403)`.
+     * Restrict connect() to accounts where the given predicate on
+     * AccountCapabilities returns true — e.g. the reservation-family platforms
+     * (opentable/resdiary/nowbookit) gated on can_use_reservations (2026-07-15
+     * industry/sector gating). Wraps the same availableFor() seam every other
+     * descriptor already implements as always-true; only descriptors that opt
+     * in change behaviour.
      *
-     * Introducing a non-trivial predicate (e.g. paid-tier gating) REQUIRES first
-     * wiring the ~20 bespoke connect flows + `PublicIntegrationController::show`.
-     * The preferred wiring point for the public render path is
-     * `ManagesIntegrationConnection::writeConnection()`, which would need to resolve
-     * `app(PlatformRegistry::class)->get($this->platform())` since the trait holds
-     * no descriptor today.
+     * @param  Closure(User): bool  $predicate
+     */
+    public function requiresCapability(Closure $predicate): self
+    {
+        $this->capabilityGate = $predicate;
+
+        return $this;
+    }
+
+    /**
+     * Capability gate — consulted at EXACTLY ONE production call site:
+     * `GenericPlatformController::connect` → `IntegrationConnectionPolicy::connect`
+     * via `$descriptor->availableFor($actor)` (403 on deny). True for every
+     * platform that hasn't called requiresCapability() (the vast majority).
+     *
+     * A platform whose connect ALSO has a bespoke (non-generic) controller —
+     * Fresha, Square, the Booking/Reservations custom-card fallbacks, Menu,
+     * Online-ordering — is NOT covered by this seam; each of those gates itself
+     * inline (mirrors FreshaController::connect's can_book_storewide check).
+     * Only wire requiresCapability() on a platform whose connect is fully
+     * registry-driven (routeShape() !== Bespoke, null connectController).
      *
      * CRITICAL — if ever wired into the PUBLIC render path it MUST return 404, not
      * 403. The public endpoint already 404s unknown handles to prevent enumeration;
@@ -426,6 +447,6 @@ class PlatformDescriptor
      */
     public function availableFor(User $user): bool
     {
-        return true;
+        return $this->capabilityGate === null || ($this->capabilityGate)($user);
     }
 }

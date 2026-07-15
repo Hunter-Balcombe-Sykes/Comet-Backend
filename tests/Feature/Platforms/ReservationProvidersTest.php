@@ -23,15 +23,19 @@ beforeEach(function () {
 });
 
 // Defaults to a Business Partna: the Google auto-sync assertions below exercise
-// the FULL sync (reservation + workplace seeds), which is Business-only. The
-// detection / connect / booking-seed tests are account-type-agnostic.
-function resUser(string $h, string $accountType = 'business'): User
+// the FULL sync (reservation + workplace seeds), which is Business-only. Also
+// defaults to a food sector ('restaurant') — reservations are food-business-only
+// (2026-07-15 sector gating), and this file's connect/detect/auto-seed tests are
+// almost all exercising the reservation family. Pass sector: null (or another
+// non-food slug) for the booking-only scenarios (gb1-gb3 below).
+function resUser(string $h, string $accountType = 'business', ?string $sector = 'restaurant'): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
         'account_type' => $accountType,
+        'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -153,6 +157,57 @@ it('auto-seeds a resdiary reservation from a google reservation link', function 
     expect($row['source'])->toBe('google-business');
 });
 
+// ── Sector-derived AutoSync direction (2026-07-15) ──────────────────────
+// A business account's sector picks exactly one family: food → reservations +
+// online-ordering (never booking); non-food → booking (never reservations or
+// online-ordering). Both branches carry all three link types in the enrichment
+// to prove it's the gate — not absent data — deciding the outcome.
+
+it('a food (restaurant) business GB connect seeds reservations + ordering but not booking', function () {
+    $user = resUser('rpfood', sector: 'restaurant');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
+        'reservation' => ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies', 'provider' => 'ResDiary'],
+        'order' => ['providers' => [
+            ['name' => 'UberEats', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'type' => 'pickup'],
+        ]],
+        'booking' => ['https://www.fresha.com/a/ollies-salon'],
+    ], 'Ollies');
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+});
+
+it('a non-food (barbershop) business GB connect seeds booking but not reservations/ordering', function () {
+    $user = resUser('rpnonfood', sector: 'barber');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
+        'reservation' => ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies', 'provider' => 'ResDiary'],
+        'order' => ['providers' => [
+            ['name' => 'UberEats', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'type' => 'pickup'],
+        ]],
+        'booking' => ['https://www.fresha.com/a/ollies-salon'],
+    ], 'Ollies');
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeFalse();
+});
+
+it('a null-sector business GB connect defaults to booking-only (not-food default)', function () {
+    $user = resUser('rpnullsector', sector: null);
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
+        'reservation' => ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies', 'provider' => 'ResDiary'],
+        'booking' => ['https://www.fresha.com/a/ollies-salon'],
+    ], 'Ollies');
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+});
+
 it('auto-fills workplace category, description and old website from place details', function () {
     $user = resUser('rp6');
     resSite($user);
@@ -207,7 +262,9 @@ it('truncates a long Google description to the workplace field cap', function ()
 // ── Google booking auto-connect (Fresha pending / Square full / custom) ──
 
 it('auto-connects a pending Fresha from a google booking link', function () {
-    $user = resUser('gb1');
+    // Booking is a non-food-business capability (2026-07-15 sector gating) —
+    // a food business books via Reservations instead. See T7 direction tests below.
+    $user = resUser('gb1', sector: null);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://www.fresha.com/a/ollies-salon']], 'Ollies');
 
@@ -218,7 +275,7 @@ it('auto-connects a pending Fresha from a google booking link', function () {
 });
 
 it('auto-connects Square fully (no picker) from a google booking link', function () {
-    $user = resUser('gb2');
+    $user = resUser('gb2', sector: null);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://book.squareup.com/appointments/x']], 'Ollies');
 
@@ -229,7 +286,7 @@ it('auto-connects Square fully (no picker) from a google booking link', function
 });
 
 it('seeds a custom booking card for an unknown google booking link', function () {
-    $user = resUser('gb3');
+    $user = resUser('gb3', sector: null);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://calendly.com/ollies']], 'Ollies');
 

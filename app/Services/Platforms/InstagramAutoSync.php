@@ -33,7 +33,9 @@ use Throwable;
 // socials tier uses — AccountCapabilities::google_business_full_sync. A
 // standard (partna) account's classified social links fall through to
 // `unmatched` (still offered as custom links, never silently dropped). Booking
-// syncs for EVERY account type, exactly like GB's seedBooking.
+// is gated on can_use_booking (2026-07-15 sector gating: food-sector
+// businesses don't use booking) — gated links ALSO fall to `unmatched`,
+// mirroring GB's now-gated seedBooking.
 //
 // Best-effort: each link is isolated in its own try/catch so one bad link
 // never blocks the rest (mirrors GoogleBusinessAutoSync's per-seed try/catch).
@@ -63,10 +65,12 @@ class InstagramAutoSync
         }
 
         // Social auto-sync is gated on the SAME capability GB's socials tier
-        // uses (see class docblock). A missing user reads as no capability —
-        // fail closed, socials fall through to unmatched. Booking is universal.
+        // uses (see class docblock); booking on can_use_booking (sector
+        // gating). A missing user reads as no capability — fail closed, gated
+        // links fall through to unmatched.
         $user = User::find($userId);
         $canSyncSocial = $user !== null && AccountCapabilities::for($user)->google_business_full_sync;
+        $canSyncBooking = $user !== null && AccountCapabilities::for($user)->can_use_booking;
 
         $findings = [];
         $unmatched = [];
@@ -98,6 +102,14 @@ class InstagramAutoSync
                     // Capability-gated (RULING 1): a standard account keeps the
                     // link as a custom-link suggestion instead of an auto-synced
                     // connection — surfaced, never silently dropped.
+                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                    continue;
+                }
+                if (self::ACTIONABLE[$platform] === 'booking' && ! $canSyncBooking) {
+                    // Sector-gated (2026-07-15): a food-sector business doesn't
+                    // use booking — same unmatched routing as gated socials, so
+                    // the link still surfaces as a custom-link suggestion.
                     $unmatched[] = ['url' => $url, 'label' => $classified['label']];
 
                     continue;

@@ -23,13 +23,19 @@ beforeEach(function () {
     setupSitesTable();
 });
 
+// Business + food sector: Menu is a food-business-only capability (2026-07-15
+// sector gating; partna/individual never qualify — can_use_menu requires
+// isBusiness()). Every test in this file exercises Menu content/endpoints, so
+// this is the one persona the whole suite needs; no test here asserts
+// account-type-dependent behaviour, so there's no other default to preserve.
 function menuUser(string $h): User
 {
     return User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => 'business',
+        'sector' => 'restaurant',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);

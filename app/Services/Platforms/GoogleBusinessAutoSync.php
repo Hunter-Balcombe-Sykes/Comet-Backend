@@ -56,22 +56,43 @@ class GoogleBusinessAutoSync
     {
         $findings = [];
 
-        // Booking is the one platform synced for EVERY account type (only-if-empty):
-        // a professional with no booking link yet still gets the one Google has on
-        // file, regardless of whether they're a Business Partna.
-        $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName)];
+        // Fresh lookup (not a caller-supplied instance) so this always reads the
+        // CURRENT row — specifically, the sector IdentitySync just wrote earlier
+        // in this same connect (IntegrationConnectionObserver::syncIdentityFromGoogle
+        // runs synchronously off the connection save, before GoogleBusinessEnrichJob
+        // is even dispatched; see GoogleBusinessController::connect). Capabilities
+        // below are therefore evaluated AT SEED TIME, post-identity-sync, never off
+        // a stale pre-connect snapshot.
+        $user = User::find($userId);
+        if ($user === null) {
+            return $findings;
+        }
+        $capabilities = AccountCapabilities::for($user);
+
+        // Booking (only-if-empty): synced for every account type EXCEPT a food
+        // business, which books via Reservations instead (2026-07-15 sector
+        // gating — replaces the old unconditional "everyone books" seed).
+        // Independent of the Business-Partna block below — partna keeps this.
+        if ($capabilities->can_use_booking) {
+            $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName)];
+        }
 
         // Reservations / online-ordering / workplace / socials are a Business-Partna
-        // convenience. A standard (partna) account only gets the booking link above —
-        // it's never handed reservation/ordering/menu cards it doesn't surface. Gate
-        // on the capability so the account_type read stays inside AccountCapabilities.
-        $user = User::find($userId);
-        if ($user === null || ! AccountCapabilities::for($user)->google_business_full_sync) {
+        // convenience — unchanged, still gated on google_business_full_sync so a
+        // standard (partna) account is never handed cards it doesn't surface.
+        // Reservations + ordering are ADDITIONALLY narrowed to food businesses only
+        // (a non-food business, e.g. a barbershop, gets neither — see can_use_*
+        // above); workplace + socials stay unconditional within this block.
+        if (! $capabilities->google_business_full_sync) {
             return $findings;
         }
 
-        $findings = [...$findings, ...$this->seedReservation($userId, $enrichment, $businessName)];
-        $findings = [...$findings, ...$this->seedOrdering($userId, $enrichment)];
+        if ($capabilities->can_use_reservations) {
+            $findings = [...$findings, ...$this->seedReservation($userId, $enrichment, $businessName)];
+        }
+        if ($capabilities->can_use_online_ordering) {
+            $findings = [...$findings, ...$this->seedOrdering($userId, $enrichment)];
+        }
         $this->seedWorkplace($userId, $gbPayload ?? []);
         $findings = [...$findings, ...$this->seedSocials($userId, $enrichment)];
 
