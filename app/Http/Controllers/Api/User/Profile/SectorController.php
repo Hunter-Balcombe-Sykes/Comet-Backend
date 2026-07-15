@@ -9,9 +9,12 @@ use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Http\JsonResponse;
 
-// Sets the user's sector/industry from the curated picker. A manual pick always
-// stamps sector_source='manual' so the Google precedence rule in IdentitySync
-// knows this value was user-chosen (business overwrites it, partna does not).
+// Sets the user's sector/industry from the curated picker. A manual PICK stamps
+// sector_source='manual' so IdentitySync's precedence rule knows the value was
+// user-chosen (manual is permanent vs Google, 2026-07-15). CLEARING the pick
+// clears provenance too — a null sector stamped 'manual' would permanently
+// block Google from ever filling the field, freezing a business's
+// sector-derived capabilities in the not-food state.
 class SectorController extends ApiController
 {
     use ResolveCurrentUser;
@@ -24,7 +27,7 @@ class SectorController extends ApiController
         // sector_source is not fillable (service-written) — assign directly.
         $changed = $user->sector !== $sector;
         $user->sector = $sector;
-        $user->sector_source = 'manual';
+        $user->sector_source = $sector === null ? null : 'manual';
         $user->save();
 
         // A manually-declared sector drives the SectorFactor design preset —

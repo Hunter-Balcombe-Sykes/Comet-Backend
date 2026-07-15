@@ -30,7 +30,14 @@ final class BusinessName
         $words = explode(' ', $squished);
         $first = $words[0];
         if (mb_strlen($first) > $max) {
-            return mb_substr($first, 0, $max);
+            // Same "never end mid-punctuation" contract as the multi-word
+            // path below: strip trailing non-letter/digit chars off the hard
+            // cut, unless the token is ALL punctuation (degenerate — keep the
+            // cut rather than return empty).
+            $cut = mb_substr($first, 0, $max);
+            $stripped = preg_replace('/[^\pL\pN]+$/u', '', $cut) ?? $cut;
+
+            return $stripped !== '' ? $stripped : $cut;
         }
 
         $kept = [$first];

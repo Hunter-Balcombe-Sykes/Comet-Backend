@@ -230,6 +230,26 @@ it('never overwrites a MANUALLY-set sector on a business google resync, even whe
     expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab');
 });
 
+it('lets Google FILL a sector that was manually CLEARED — (null, manual) rows never block the fill', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizclearedsector', 'business');
+    idsyncSite($user);
+    // The pre-fix stuck state: SectorController used to stamp 'manual' even on
+    // a clear. Manual permanence must apply to a manual VALUE, not a null.
+    $user->forceFill(['sector' => null, 'sector_source' => 'manual'])->save();
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    $user->refresh();
+    expect($user->sector)->toBe('barber');
+    expect($user->sector_source)->toBe('google-business');
+});
+
 it('never overwrites a MANUALLY-set sector on a partna google resync', function () {
     idsyncFakePlaces();
     $user = idsyncUser('partnamanualsector', 'partna');

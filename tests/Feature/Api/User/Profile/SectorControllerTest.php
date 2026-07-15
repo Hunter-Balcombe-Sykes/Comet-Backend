@@ -70,7 +70,7 @@ it('accepts a valid sector slug and stamps sector_source=manual', function () {
     expect($user->sector_source)->toBe('manual');
 });
 
-it('accepts a null sector to clear the field', function () {
+it('accepts a null sector to clear the field — clearing also clears provenance so Google may fill again', function () {
     $user = sectorUser('sectclear');
     $user->forceFill(['sector' => 'barber', 'sector_source' => 'google-business'])->save();
 
@@ -80,5 +80,7 @@ it('accepts a null sector to clear the field', function () {
 
     $user->refresh();
     expect($user->sector)->toBeNull();
-    expect($user->sector_source)->toBe('manual');
+    // A cleared pick carries NO provenance — (null, 'manual') would permanently
+    // block IdentitySync's Google fill and freeze sector-derived capabilities.
+    expect($user->sector_source)->toBeNull();
 });

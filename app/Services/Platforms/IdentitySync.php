@@ -129,8 +129,11 @@ class IdentitySync
 
         // A user-chosen sector is permanent from Google's perspective, for
         // either account type. Google may still fill a blank sector or replace
-        // one it set itself on an earlier sync.
-        if ($user->sector_source === 'manual') {
+        // one it set itself on an earlier sync. The `sector !== null` leg is
+        // defensive: SectorController clears provenance when the pick is
+        // cleared, but rows stamped (null, 'manual') before that fix must not
+        // block Google's fill forever.
+        if ($user->sector_source === 'manual' && $user->sector !== null) {
             return;
         }
 
