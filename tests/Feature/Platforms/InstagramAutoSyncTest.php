@@ -182,6 +182,29 @@ it('seeds fresha booking when no booking provider is connected yet', function ()
     expect($fresha['url'])->toBe('https://www.fresha.com/a/doc-cuts');
 });
 
+it('routes a booking bio link to unmatched for a FOOD-sector business (can_use_booking false) — no connection written', function () {
+    $user = igAutoSyncUser('igasfood');
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'manual'])->save();
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
+
+    expect($result['findings'])->toBeEmpty();
+    expect($result['unmatched'])->toHaveCount(1);
+    expect($result['unmatched'][0]['url'])->toBe('https://www.fresha.com/a/doc-cuts');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+});
+
+it('still seeds booking for a NON-food business (barbershop keeps can_use_booking)', function () {
+    $user = igAutoSyncUser('igasbarber');
+    $user->forceFill(['sector' => 'barber', 'sector_source' => 'manual'])->save();
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
+
+    expect($result['findings'])->toHaveCount(1);
+    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+});
+
 // ── unmatched: unclassified + classified-but-not-actionable ──────────────────
 
 it('routes a genuinely unclassified link to unmatched with a host-derived label', function () {
