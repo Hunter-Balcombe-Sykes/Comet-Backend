@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Str;
 
 // Last-resort shop provider: reads schema.org Product JSON-LD off the exact
 // page the user pasted (a shop/collection/landing page). Covers Squarespace,
@@ -19,6 +20,10 @@ class GenericShopScraper extends PlatformScraper
     public const OUTCOME_NO_PRODUCT = 'no_product';
 
     public const OUTCOME_UNREACHABLE = 'unreachable';
+
+    // Gallery cap — mirrors ShopifyScraper::MAX_IMAGES so no provider's product
+    // row can bloat past a sane multi-image-strip size.
+    private const MAX_IMAGES = 25;
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -214,7 +219,7 @@ class GenericShopScraper extends PlatformScraper
      * ItemList.itemListElement (both ListItem.item and bare Product forms) —
      * and flatten to the canonical product shape.
      *
-     * @return list<array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}>
+     * @return list<array{productId:string, title:string, handle:string, vendor:?string, description:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:string, available:bool, url:string}>
      */
     private function productsFromJsonLd(string $html, string $pageUrl, string $origin): array
     {
@@ -279,7 +284,9 @@ class GenericShopScraper extends PlatformScraper
                 'title' => $title,
                 'handle' => $id,
                 'vendor' => null,
+                'description' => $this->sanitizeDescription($node['description'] ?? null),
                 'image' => $this->imageUrl($node['image'] ?? null, $origin),
+                'images' => $this->imageUrls($node['image'] ?? null, $origin),
                 'price' => is_scalar($price) ? (string) $price : null,
                 'currency' => is_string($offers['priceCurrency'] ?? null) ? strtoupper($offers['priceCurrency']) : null,
                 'variantId' => $id,
@@ -314,6 +321,46 @@ class GenericShopScraper extends PlatformScraper
         }
 
         return is_string($image) && $image !== '' ? $this->absoluteUrl($image, $origin) : null;
+    }
+
+    /**
+     * image: string | [string, ...] | ImageObject{url} | [ImageObject, ...] → every
+     * resolved absolute URL (capped), for a multi-image strip. `imageUrl()` above
+     * stays the single-hero reader; this normalizes the same shapes to the full list.
+     *
+     * @return list<string>
+     */
+    private function imageUrls(mixed $image, string $origin): array
+    {
+        $list = is_array($image) && array_is_list($image) ? $image : ($image !== null ? [$image] : []);
+
+        $out = [];
+        foreach ($list as $item) {
+            $url = is_array($item) ? ($item['url'] ?? null) : $item;
+            if (! is_string($url) || $url === '') {
+                continue;
+            }
+            if (count($out) >= self::MAX_IMAGES) {
+                break;
+            }
+            $out[] = $this->absoluteUrl($url, $origin);
+        }
+
+        return $out;
+    }
+
+    /**
+     * schema.org description → plain-text: strip tags, decode entities, collapse
+     * whitespace, cap length. Blank/non-string input becomes null.
+     */
+    private function sanitizeDescription(mixed $html): ?string
+    {
+        if (! is_string($html) || trim($html) === '') {
+            return null;
+        }
+        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
+
+        return $text !== '' ? $text : null;
     }
 
     private function firstString(mixed ...$candidates): ?string

@@ -11,6 +11,10 @@ use App\Services\Http\SafeUrlFetcher;
 // Cartel stores fall through to the generic JSON-LD provider.
 class BigCartelScraper extends PlatformScraper
 {
+    // Gallery cap — mirrors ShopifyScraper::MAX_IMAGES so no provider's product
+    // row can bloat past a sane multi-image-strip size.
+    private const MAX_IMAGES = 25;
+
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
     /** The account subdomain from a *.bigcartel.com URL, or null. */
@@ -45,7 +49,7 @@ class BigCartelScraper extends PlatformScraper
     }
 
     /**
-     * @return list<array{productId:string, title:?string, handle:?string, image:?string, price:?string, currency:?string, variantId:?string, available:bool, url:?string}>
+     * @return list<array{productId:string, title:?string, handle:?string, image:?string, images:list<string>, price:?string, currency:?string, variantId:?string, available:bool, url:?string}>
      */
     public function fetchProducts(string $account, ?string $currency = null): array
     {
@@ -64,11 +68,23 @@ class BigCartelScraper extends PlatformScraper
             $image = $item['images'][0]['secure_url'] ?? $item['images'][0]['url'] ?? null;
             $price = $item['price'] ?? $item['default_price'] ?? null;
 
+            // Full gallery, same per-image field preference (secure_url over url)
+            // as the hero `image` above — capped so a huge gallery can't bloat
+            // the stored product row.
+            $images = [];
+            foreach (array_slice(is_array($item['images'] ?? null) ? $item['images'] : [], 0, self::MAX_IMAGES) as $img) {
+                $src = is_array($img) ? ($img['secure_url'] ?? $img['url'] ?? null) : null;
+                if (is_string($src) && $src !== '') {
+                    $images[] = $src;
+                }
+            }
+
             $products[] = [
                 'productId' => (string) $item['id'],
                 'title' => is_string($item['name'] ?? null) ? trim($item['name']) : null,
                 'handle' => is_string($item['permalink'] ?? null) ? $item['permalink'] : null,
                 'image' => is_string($image) ? $image : null,
+                'images' => $images,
                 'price' => is_numeric($price) ? number_format((float) $price, 2, '.', '') : null,
                 'currency' => $currency,
                 'variantId' => (string) $item['id'],

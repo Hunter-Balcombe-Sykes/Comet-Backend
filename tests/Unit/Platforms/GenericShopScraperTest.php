@@ -63,6 +63,57 @@ it('extracts products from an ItemList of Product JSON-LD nodes', function () {
     expect($page['products'][1]['image'])->toBe('https://shop.example/img/vase.jpg');
 });
 
+// ── images[] gallery + description sanitization ─────────────────────────
+
+it('extracts the full image array and a sanitized description from JSON-LD', function () {
+    $ld = json_encode([
+        '@type' => 'Product',
+        'name' => 'Ceramic Bowl',
+        'sku' => 'BOWL-1',
+        'url' => '/products/ceramic-bowl',
+        'image' => ['https://shop.example/img/bowl1.jpg', 'https://shop.example/img/bowl2.jpg'],
+        'description' => "<p>Hand &amp; <em>wheel</em>\nthrown.</p>",
+        'offers' => ['price' => '45.00', 'priceCurrency' => 'AUD', 'availability' => 'https://schema.org/InStock'],
+    ]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $product = genericScraperWith($html)->fetchPage('https://shop.example/store')['products'][0];
+
+    expect($product['image'])->toBe('https://shop.example/img/bowl1.jpg');
+    expect($product['images'])->toBe(['https://shop.example/img/bowl1.jpg', 'https://shop.example/img/bowl2.jpg']);
+    expect($product['description'])->toBe('Hand & wheel thrown.');
+});
+
+it('resolves an images array of ImageObjects and yields a null description when absent', function () {
+    $ld = json_encode([
+        '@type' => 'Product',
+        'name' => 'Linen Shirt',
+        'sku' => 'SHIRT-1',
+        'url' => '/products/linen-shirt',
+        'image' => [['@type' => 'ImageObject', 'url' => 'https://shop.example/img/shirt1.jpg']],
+        'offers' => ['price' => '80.00', 'priceCurrency' => 'AUD'],
+    ]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $product = genericScraperWith($html)->fetchPage('https://shop.example/store')['products'][0];
+
+    expect($product['images'])->toBe(['https://shop.example/img/shirt1.jpg']);
+    expect($product['description'])->toBeNull();
+});
+
+it('caps the JSON-LD image array at 25', function () {
+    $images = array_map(fn ($i) => "https://shop.example/img/{$i}.jpg", range(1, 30));
+    $ld = json_encode([
+        '@type' => 'Product', 'name' => 'Many', 'sku' => 'MANY-1', 'url' => '/products/many',
+        'image' => $images, 'offers' => ['price' => '10.00', 'priceCurrency' => 'AUD'],
+    ]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $product = genericScraperWith($html)->fetchPage('https://shop.example/store')['products'][0];
+
+    expect($product['images'])->toHaveCount(25);
+});
+
 it('returns null when the page has no Product JSON-LD', function () {
     $html = '<html><head><script type="application/ld+json">{"@type":"Organization","name":"X"}</script></head></html>';
 

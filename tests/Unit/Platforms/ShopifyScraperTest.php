@@ -153,3 +153,48 @@ it('yields an empty images array for a product with no images', function () {
     expect($p['image'])->toBeNull();
     expect($p['variants'][0]['image'])->toBeNull();
 });
+
+// ── description sanitization (body_html → plain text) ──────────────────
+
+it('sanitizes body_html into a plain-text description', function () {
+    $json = json_encode(['products' => [[
+        'id' => 555,
+        'title' => 'Cotton Tee',
+        'handle' => 'cotton-tee',
+        'body_html' => "<p>Soft &amp; <strong>breathable</strong>\n\ncotton.</p>",
+        'variants' => [['id' => 601, 'title' => 'One', 'price' => '25.00', 'available' => true]],
+    ]]]);
+
+    $p = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0];
+
+    expect($p['description'])->toBe('Soft & breathable cotton.');
+});
+
+it('yields a null description when body_html is empty or absent', function () {
+    $json = json_encode(['products' => [[
+        'id' => 556, 'title' => 'No Desc', 'handle' => 'no-desc', 'body_html' => '',
+        'variants' => [['id' => 602, 'title' => 'One', 'price' => '10.00', 'available' => true]],
+    ], [
+        'id' => 558, 'title' => 'Also No Desc', 'handle' => 'also-no-desc',
+        'variants' => [['id' => 604, 'title' => 'One', 'price' => '10.00', 'available' => true]],
+    ]]]);
+
+    $products = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example');
+
+    expect($products[0]['description'])->toBeNull();
+    expect($products[1]['description'])->toBeNull(); // body_html key absent entirely
+});
+
+it('caps a very long description at 2000 characters', function () {
+    // Unbroken run (no whitespace) so the 2000-char cut point can never land on
+    // a space Str::limit's internal rtrim would then trim away.
+    $long = str_repeat('a', 2500);
+    $json = json_encode(['products' => [[
+        'id' => 557, 'title' => 'Long', 'handle' => 'long', 'body_html' => "<p>{$long}</p>",
+        'variants' => [['id' => 603, 'title' => 'One', 'price' => '10.00', 'available' => true]],
+    ]]]);
+
+    $description = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0]['description'];
+
+    expect(mb_strlen($description))->toBe(2000);
+});
