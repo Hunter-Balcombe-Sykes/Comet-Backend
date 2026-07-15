@@ -99,3 +99,25 @@ it('projects is_staff=false when there is no partna_staff relation', function ()
 
     expect($data['is_staff'])->toBeFalse();
 });
+
+// ── PATCH /me: display_name cap follows the business-name rule ────────────────
+
+it('caps display_name at 15 chars for a business account (display name IS the business name)', function () {
+    $user = accountTypeUser('bizdncap', 'business');
+
+    actingAsUser($user)
+        ->patchJson('/api/me', ['display_name' => 'Sixteen Char Nme!'])
+        ->assertStatus(422);
+
+    actingAsUser($user)
+        ->patchJson('/api/me', ['display_name' => 'D.O.C Pizza'])
+        ->assertOk();
+});
+
+it('keeps the roomy 255-char display_name for a partna account (personal names are long)', function () {
+    $user = accountTypeUser('partnadn', 'partna');
+
+    actingAsUser($user)
+        ->patchJson('/api/me', ['display_name' => 'Bartholomew Montgomery-Featherstonehaugh III'])
+        ->assertOk();
+});

@@ -13,8 +13,11 @@ class UpdateUserRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            // keep handle out of this endpoint (handle changes should be a dedicated flow)
-            'display_name' => ['sometimes', 'required', 'string', 'max:255'],
+            // keep handle out of this endpoint (handle changes should be a dedicated flow).
+            // Business accounts' display name IS the business name (Google adoption
+            // mirrors it — capability google_business_sets_display_name), so it gets
+            // the same 15-char cap as workplace names; personal partna names keep 255.
+            'display_name' => ['sometimes', 'required', 'string', $this->displayNameMax()],
 
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -44,6 +47,16 @@ class UpdateUserRequest extends BaseFormRequest
             'location_postcode' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_country' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
+    }
+
+    /** max:15 when display_name is a business name (see rules() comment), else max:255. */
+    private function displayNameMax(): string
+    {
+        $user = $this->attributes->get('professional');
+
+        return $user instanceof User && \App\Services\Accounts\AccountCapabilities::for($user)->google_business_sets_display_name
+            ? 'max:15'
+            : 'max:255';
     }
 
     protected function prepareForValidation(): void
