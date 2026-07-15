@@ -3,7 +3,6 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
-use Illuminate\Support\Str;
 
 // Scrapes a Shopify store with no auth: products from /products.json, and a small
 // brand profile (id + name from /meta.json, favicon + logo from the homepage).
@@ -193,20 +192,8 @@ class ShopifyScraper extends PlatformScraper
     }
 
     // ── internals ────────────────────────────────────────────────
-
-    /**
-     * body_html → plain-text description: strip tags, decode entities, collapse
-     * whitespace, cap length. Blank/non-string input becomes null.
-     */
-    private function sanitizeDescription(mixed $html): ?string
-    {
-        if (! is_string($html) || trim($html) === '') {
-            return null;
-        }
-        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
-
-        return $text !== '' ? $text : null;
-    }
+    // (body_html → plain-text description: sanitizeDescription() lives on the
+    // shared PlatformScraper base — identical logic, once, for every scraper.)
 
     private function json(string $url): ?array
     {

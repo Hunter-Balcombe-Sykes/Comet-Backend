@@ -3,7 +3,6 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
-use Illuminate\Support\Str;
 
 // Scrapes a WooCommerce store with no auth via the public Store API
 // (/wp-json/wc/store/v1/products — unauthenticated by design, used by Woo's
@@ -279,21 +278,9 @@ class WooCommerceScraper extends PlatformScraper
     }
 
     // ── internals ────────────────────────────────────────────────
-
-    /**
-     * short_description/description HTML → plain-text: strip tags, decode
-     * entities, collapse whitespace, cap length. Blank/non-string input becomes
-     * null.
-     */
-    private function sanitizeDescription(mixed $html): ?string
-    {
-        if (! is_string($html) || trim($html) === '') {
-            return null;
-        }
-        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
-
-        return $text !== '' ? $text : null;
-    }
+    // (short_description/description HTML → plain-text: sanitizeDescription()
+    // lives on the shared PlatformScraper base — identical logic, once, for
+    // every scraper.)
 
     private function json(string $url): ?array
     {

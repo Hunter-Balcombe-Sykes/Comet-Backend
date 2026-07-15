@@ -170,6 +170,35 @@ it('sanitizes body_html into a plain-text description', function () {
     expect($p['description'])->toBe('Soft & breathable cotton.');
 });
 
+it('inserts a space at former block-element boundaries instead of gluing adjacent blocks together (B4)', function () {
+    // strip_tags() alone has no concept of a block boundary: "<p>Hello</p><p>world</p>"
+    // used to become "Helloworld" (no space where the paragraph break was) —
+    // Str::squish() only collapses whitespace that already exists, it can't
+    // invent it. body_html with no whitespace at all between adjacent blocks
+    // is exactly what real merchant-authored HTML looks like.
+    $json = json_encode(['products' => [[
+        'id' => 559, 'title' => 'Glued Text Check', 'handle' => 'glued-text-check',
+        'body_html' => '<p>Hello</p><p>world</p>',
+        'variants' => [['id' => 605, 'title' => 'One', 'price' => '10.00', 'available' => true]],
+    ]]]);
+
+    $description = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0]['description'];
+
+    expect($description)->toBe('Hello world');
+});
+
+it('inserts boundary spaces across paragraphs AND list items in the same description (B4)', function () {
+    $json = json_encode(['products' => [[
+        'id' => 560, 'title' => 'Glued List Check', 'handle' => 'glued-list-check',
+        'body_html' => '<p>Hello</p><p>world</p><ul><li>One</li><li>Two</li></ul>',
+        'variants' => [['id' => 606, 'title' => 'One', 'price' => '10.00', 'available' => true]],
+    ]]]);
+
+    $description = shopifyScraperWithProducts($json)->fetchProducts('https://shop.example')[0]['description'];
+
+    expect($description)->toBe('Hello world One Two');
+});
+
 it('yields a null description when body_html is empty or absent', function () {
     $json = json_encode(['products' => [[
         'id' => 556, 'title' => 'No Desc', 'handle' => 'no-desc', 'body_html' => '',

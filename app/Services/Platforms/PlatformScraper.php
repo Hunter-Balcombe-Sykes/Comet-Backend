@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 // Shared base for the test-mode platform scrapers. Holds the one browser
 // user-agent they all present, plus the generic HTML-extraction helpers
@@ -267,5 +268,39 @@ abstract class PlatformScraper
 
             return Carbon::parse($aDate)->getTimestamp() <=> Carbon::parse($bDate)->getTimestamp();
         });
+    }
+
+    // Block-level element boundaries that must become whitespace BEFORE
+    // strip_tags() runs — otherwise adjacent blocks glue together with no
+    // separator ("<p>Hello</p><p>world</p>" → "Helloworld"). Matches both the
+    // opening and closing form (and self-closing <br/>, <br />) so a stray
+    // bare-text-then-block seam is covered too, though in practice it's each
+    // block's OWN closing tag that supplies the separating space.
+    private const BLOCK_BOUNDARY_TAGS = 'p|div|li|ul|ol|h[1-6]|br|hr|tr|td|th|table|thead|tbody|blockquote';
+
+    /**
+     * Product-description HTML → plain text: insert whitespace at block-element
+     * boundaries, strip remaining tags, decode entities, collapse whitespace,
+     * cap length. Blank/non-string input becomes null. Shared by ShopifyScraper,
+     * WooCommerceScraper, and GenericShopScraper — their sanitizeDescription()
+     * bodies were byte-for-byte identical (and shared the same glued-text bug:
+     * strip_tags() alone has no concept of block boundaries, and Str::squish()
+     * only collapses whitespace that already exists — it can't invent it).
+     */
+    protected function sanitizeDescription(mixed $html): ?string
+    {
+        if (! is_string($html) || trim($html) === '') {
+            return null;
+        }
+
+        $withBoundarySpaces = preg_replace(
+            '~</?(?:'.self::BLOCK_BOUNDARY_TAGS.')(?:\s[^>]*)?/?>~i',
+            ' ',
+            $html
+        );
+
+        $text = Str::limit(Str::squish(html_entity_decode(strip_tags((string) $withBoundarySpaces), ENT_QUOTES | ENT_HTML5)), 2000, '');
+
+        return $text !== '' ? $text : null;
     }
 }

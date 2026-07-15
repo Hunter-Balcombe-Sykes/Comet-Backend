@@ -84,6 +84,24 @@ it('extracts the full image array and a sanitized description from JSON-LD', fun
     expect($product['description'])->toBe('Hand & wheel thrown.');
 });
 
+it('inserts a space at former block-element boundaries in a JSON-LD description, instead of gluing blocks together (B4)', function () {
+    // Shared PlatformScraper::sanitizeDescription() fix — strip_tags() alone
+    // glues "<p>Hello</p><p>world</p>" into "Helloworld" with no boundary space.
+    $ld = json_encode([
+        '@type' => 'Product',
+        'name' => 'Glued Text Check',
+        'sku' => 'GLUED-1',
+        'url' => '/products/glued-text-check',
+        'description' => '<p>Hello</p><p>world</p><ul><li>One</li><li>Two</li></ul>',
+        'offers' => ['price' => '10.00', 'priceCurrency' => 'AUD'],
+    ]);
+    $html = '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>';
+
+    $product = genericScraperWith($html)->fetchPage('https://shop.example/store')['products'][0];
+
+    expect($product['description'])->toBe('Hello world One Two');
+});
+
 it('resolves an images array of ImageObjects and yields a null description when absent', function () {
     $ld = json_encode([
         '@type' => 'Product',

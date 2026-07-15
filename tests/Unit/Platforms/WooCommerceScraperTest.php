@@ -212,6 +212,26 @@ it('captures the full image gallery and a sanitized short_description', function
     expect($out['description'])->toBe('Hand & machine stitched.');
 });
 
+it('inserts a space at former block-element boundaries instead of gluing adjacent blocks together (B4)', function () {
+    // Shared PlatformScraper::sanitizeDescription() fix — strip_tags() alone
+    // glues "<p>Hello</p><p>world</p>" into "Helloworld" with no boundary space.
+    $products = json_encode([[
+        'id' => 902, 'name' => 'Glued Text Check', 'slug' => 'glued-text-check',
+        'permalink' => 'https://store.example/product/glued-text-check/',
+        'prices' => ['price' => '1000', 'currency_code' => 'AUD', 'currency_minor_unit' => 2],
+        'images' => [], 'short_description' => '<p>Hello</p><p>world</p><ul><li>One</li><li>Two</li></ul>',
+        'is_in_stock' => true,
+    ]]);
+
+    $scraper = wooScraperWith([
+        '/wp-json/wc/store/v1/products' => ['status' => 200, 'body' => $products, 'finalUrl' => 'x', 'contentType' => 'application/json'],
+    ]);
+
+    $description = $scraper->fetchProducts('https://store.example')[0]['description'];
+
+    expect($description)->toBe('Hello world One Two');
+});
+
 it('falls back to description when short_description is blank', function () {
     $products = json_encode([[
         'id' => 901, 'name' => 'No Short', 'slug' => 'no-short',

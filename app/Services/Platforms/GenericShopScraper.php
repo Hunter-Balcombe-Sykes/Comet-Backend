@@ -3,7 +3,6 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
-use Illuminate\Support\Str;
 
 // Last-resort shop provider: reads schema.org Product JSON-LD off the exact
 // page the user pasted (a shop/collection/landing page). Covers Squarespace,
@@ -349,19 +348,8 @@ class GenericShopScraper extends PlatformScraper
         return $out;
     }
 
-    /**
-     * schema.org description → plain-text: strip tags, decode entities, collapse
-     * whitespace, cap length. Blank/non-string input becomes null.
-     */
-    private function sanitizeDescription(mixed $html): ?string
-    {
-        if (! is_string($html) || trim($html) === '') {
-            return null;
-        }
-        $text = Str::limit(Str::squish(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5)), 2000, '');
-
-        return $text !== '' ? $text : null;
-    }
+    // schema.org description → plain-text: sanitizeDescription() lives on the
+    // shared PlatformScraper base — identical logic, once, for every scraper.
 
     private function firstString(mixed ...$candidates): ?string
     {
