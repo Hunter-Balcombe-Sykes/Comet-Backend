@@ -37,7 +37,10 @@ class UpsertWorkplaceRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            // Business/workplace names cap at 15 chars (manual entry — rejected
+            // outright; auto-adopted names are silently word-trimmed instead,
+            // see App\Support\BusinessName::wordTrim).
+            'name' => ['required', 'string', 'max:15'],
             'address' => ['nullable', 'string', 'max:500'],
             // Structured fields — stored alongside the formatted `address`
             // so manual edits to a single component don't lose the whole
