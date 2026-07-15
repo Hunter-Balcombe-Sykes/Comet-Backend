@@ -157,3 +157,52 @@ it('Facebook keeps an empty username for a profile.php link with no id', functio
 it('Facebook rejects a bare facebook.com/ link with no handle', function () {
     expect((new FacebookNormalizer)('https://www.facebook.com/'))->toBeNull();
 });
+
+// ── fix-round P3 sweep (critic-backend): gaps this PR's own FacebookNormalizer
+// rewrite left uncovered ───────────────────────────────────────────────────
+
+it('Facebook recognizes the short fb.com domain the same way as facebook.com (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://fb.com/MyPage'))
+        ->toBe(['username' => 'MyPage', 'url' => 'https://www.facebook.com/MyPage']);
+});
+
+it('Facebook does not mistake an unrelated domain merely ending in "fb.com" for the short domain (fix-round P3)', function () {
+    // \bfb\.com requires a word boundary before "fb" — "myfb.com" must NOT
+    // be parsed as the fb.com short domain; it falls through to the generic
+    // bare-input branch like any other unrecognized string.
+    expect((new FacebookNormalizer)('myfb.com/MyPage'))
+        ->toBe(['username' => 'myfb.com/MyPage', 'url' => 'https://www.facebook.com/myfb.com/MyPage']);
+});
+
+it('Facebook unwraps an l.facebook.com click-through redirect to the real target (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.facebook.com%2FMyPage%3Ffbclid%3Dabc123&h=xyz'))
+        ->toBe(['username' => 'MyPage', 'url' => 'https://www.facebook.com/MyPage']);
+});
+
+it('Facebook unwraps the lm.facebook.com mobile variant the same way (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://lm.facebook.com/l.php?u=https%3A%2F%2Fwww.facebook.com%2FMyPage'))
+        ->toBe(['username' => 'MyPage', 'url' => 'https://www.facebook.com/MyPage']);
+});
+
+it('Facebook treats an l.facebook.com redirect with no usable u param as reserved/unrecognized, not the literal "l.php" as a username (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://l.facebook.com/l.php'))
+        ->toBe(['username' => '', 'url' => 'https://l.facebook.com/l.php']);
+});
+
+it('Facebook decodes a percent-encoded unicode Page name for the username but keeps the url percent-encoded (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/Caf%C3%A9-Ren%C3%A9'))
+        ->toBe(['username' => 'Café-René', 'url' => 'https://www.facebook.com/Caf%C3%A9-Ren%C3%A9']);
+});
+
+it('Facebook decodes a percent-encoded unicode name past a reserved /pages/ segment too (fix-round P3)', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/pages/Caf%C3%A9-Ren%C3%A9/123456'))
+        ->toBe(['username' => 'Café-René', 'url' => 'https://www.facebook.com/pages/Caf%C3%A9-Ren%C3%A9/123456']);
+});
+
+it('Facebook returns an empty reserved username for a bare "/pages/" link with no name/id segment at all (P4 regression coverage)', function () {
+    // Already handled correctly by the existing reserved-segment logic
+    // (critic P4) — this pins the exact degenerate-input case with a test,
+    // since none previously covered it.
+    expect((new FacebookNormalizer)('https://www.facebook.com/pages/'))
+        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages']);
+});
