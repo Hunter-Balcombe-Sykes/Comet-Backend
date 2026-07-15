@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Throwable;
@@ -50,7 +51,10 @@ class InstagramAutoSync
     /** Mutually-exclusive booking providers — mirrors FreshaController/SquareController::hasConflictingConnection()'s XOR and GoogleBusinessAutoSync::BOOKING_PLATFORMS. */
     private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value];
 
-    public function __construct(private readonly WebsiteLinkHarvester $harvester) {}
+    public function __construct(
+        private readonly WebsiteLinkHarvester $harvester,
+        private readonly FacebookNormalizer $facebookNormalizer,
+    ) {}
 
     /**
      * @param  list<mixed>  $bioLinks  raw bio links (InstagramScraper::bioLinks() output — defensively typed here too)
@@ -306,8 +310,17 @@ class InstagramAutoSync
     /** Best-effort handle from a canonical social profile URL ('' when none) — mirrors GoogleBusinessAutoSync::socialUsername. */
     private function socialUsername(string $platform, string $url): string
     {
+        if ($platform === 'facebook') {
+            // Delegate to the same parser the manual connect form uses (G4-4) —
+            // see GoogleBusinessAutoSync::socialUsername()'s identical fix; this
+            // was a byte-for-byte copy of that same standalone regex, sharing
+            // its blind spot for reserved path segments (pages/people/etc.).
+            $parsed = ($this->facebookNormalizer)($url);
+
+            return $parsed['username'] ?? '';
+        }
+
         $patterns = [
-            'facebook' => '~facebook\.com/([A-Za-z0-9.]+)~i',
             'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
             'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
             'linkedin' => '~linkedin\.com/(?:in|company)/([A-Za-z0-9-]+)~i',

@@ -481,6 +481,25 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(2);
 });
 
+it('seeds a legacy /pages/ Facebook link with the extracted Page name, not "pages" (G4-4)', function () {
+    // Regression for the real bug: GoogleBusinessAutoSync::socialUsername() used
+    // to run its OWN standalone regex (independent of FacebookNormalizer) that
+    // had no concept of reserved path segments, so a business whose website (or
+    // Google listing) linked a legacy facebook.com/pages/<Name>/<id> Page had
+    // "pages" itself stored as the username. socialUsername() now delegates to
+    // FacebookNormalizer so both entry points share one fix.
+    $user = gbApifyUser('gbafbpages');
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
+        'socials' => ['facebook' => 'https://www.facebook.com/pages/DOC-Pizza-Carlton/12345'],
+    ], 'DOC Pizza');
+
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['username'])->toBe('DOC-Pizza-Carlton');
+    expect($fb['url'])->toBe('https://www.facebook.com/pages/DOC-Pizza-Carlton/12345');
+    expect($fb['source'])->toBe('google-business');
+});
+
 it('marks apify unavailable when the scrape returns nothing', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([], 201)]);  // empty dataset

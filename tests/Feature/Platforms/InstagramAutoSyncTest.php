@@ -59,6 +59,23 @@ it('seeds a facebook, tiktok, x and linkedin connection from bio links when none
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'linkedin')->exists())->toBeTrue();
 });
 
+it('seeds a legacy /pages/ Facebook bio link with the extracted Page name, not "pages" (G4-4)', function () {
+    // Regression: this service used to run its OWN standalone regex (a
+    // byte-for-byte copy of GoogleBusinessAutoSync's, sharing its bug) with no
+    // concept of reserved path segments — a bio link to a legacy Facebook Page
+    // stored "pages" itself as the username. Now delegates to FacebookNormalizer.
+    $user = igAutoSyncUser('igasfbpages');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
+        'https://www.facebook.com/pages/DOC-Pizza-Carlton/12345',
+    ]);
+
+    expect(collect($result['findings'])->pluck('outcome')->all())->toBe(['seeded']);
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['username'])->toBe('DOC-Pizza-Carlton');
+    expect($fb['url'])->toBe('https://www.facebook.com/pages/DOC-Pizza-Carlton/12345');
+});
+
 it('never overwrites a social connection the user already set with the same url (only-if-empty is silent, not a finding)', function () {
     $user = igAutoSyncUser('igas2');
     IntegrationConnection::create([

@@ -10,6 +10,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Throwable;
@@ -45,6 +46,7 @@ class GoogleBusinessAutoSync
         private readonly NowBookitService $nowBookit,
         private readonly ProviderDetector $detector,
         private readonly ApifyBudget $apifyBudget,
+        private readonly FacebookNormalizer $facebookNormalizer,
     ) {}
 
     /**
@@ -698,8 +700,19 @@ class GoogleBusinessAutoSync
     /** Best-effort handle from a canonical social profile URL ('' when none). */
     private function socialUsername(string $platform, string $url): string
     {
+        if ($platform === 'facebook') {
+            // Delegate to the same parser the manual connect form uses (G4-4).
+            // This used to be a standalone regex duplicating that logic, which
+            // is exactly how it silently drifted out of sync and kept storing
+            // the literal reserved segment ("pages") as the username for a
+            // legacy facebook.com/pages/<Name>/<id> link discovered on a
+            // business's own website.
+            $parsed = ($this->facebookNormalizer)($url);
+
+            return $parsed['username'] ?? '';
+        }
+
         $patterns = [
-            'facebook' => '~facebook\.com/([A-Za-z0-9.]+)~i',
             'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
             'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
             'linkedin' => '~linkedin\.com/(?:in|company)/([A-Za-z0-9-]+)~i',
