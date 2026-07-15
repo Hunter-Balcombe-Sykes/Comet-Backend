@@ -102,6 +102,38 @@ it('inserts a space at former block-element boundaries in a JSON-LD description,
     expect($product['description'])->toBe('Hello world One Two');
 });
 
+it('falls back to the original html when the boundary-space preg_replace engine-errors, instead of silently degrading to empty (fix-round P4)', function () {
+    // preg_replace returns null (not an exception) on a PCRE engine error —
+    // simulated here via an artificially tiny backtrack limit. Tested
+    // directly against the shared PlatformScraper::sanitizeDescription()
+    // (protected, exposed via an anonymous subclass) rather than through a
+    // full fetchPage() pipeline: the same tiny backtrack limit would also
+    // break the OTHER regexes fetchPage() depends on (JSON-LD extraction,
+    // meta tags) for reasons unrelated to this fix.
+    $scraper = new class(Mockery::mock(SafeUrlFetcher::class)) extends GenericShopScraper
+    {
+        public function sanitize(mixed $html): ?string
+        {
+            return $this->sanitizeDescription($html);
+        }
+    };
+
+    $originalLimit = ini_get('pcre.backtrack_limit');
+    ini_set('pcre.backtrack_limit', 1);
+    try {
+        $result = $scraper->sanitize('<p>Hello</p><p>world</p>');
+    } finally {
+        ini_set('pcre.backtrack_limit', $originalLimit);
+    }
+
+    // Without the `?? $html` fallback, (string) null === '' would silently
+    // collapse this to an empty/null description before strip_tags() even
+    // runs. strip_tags() on the untouched original html still yields text —
+    // the boundary-space enhancement is degraded (no inserted space, same as
+    // pre-B4 behavior), but the description itself survives non-empty.
+    expect($result)->toBe('Helloworld');
+});
+
 it('resolves an images array of ImageObjects and yields a null description when absent', function () {
     $ld = json_encode([
         '@type' => 'Product',

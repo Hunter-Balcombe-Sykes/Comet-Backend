@@ -293,11 +293,16 @@ abstract class PlatformScraper
             return null;
         }
 
+        // preg_replace returns null on a PCRE engine error (e.g. the
+        // backtrack/recursion limit) rather than throwing — fall back to the
+        // untouched $html so a rare engine error degrades to "no boundary
+        // spaces inserted" instead of silently producing an empty/null
+        // description (fix-round P4).
         $withBoundarySpaces = preg_replace(
             '~</?(?:'.self::BLOCK_BOUNDARY_TAGS.')(?:\s[^>]*)?/?>~i',
             ' ',
             $html
-        );
+        ) ?? $html;
 
         $text = Str::limit(Str::squish(html_entity_decode(strip_tags((string) $withBoundarySpaces), ENT_QUOTES | ENT_HTML5)), 2000, '');
 
