@@ -282,3 +282,143 @@ it('preserves PLATFORMS priority order regardless of map insertion order', funct
     expect($merged['categories'][0]['items'][0]['platforms'][0]['platform'])->toBe('uber-eats')
         ->and($merged['categories'][0]['items'][0]['platforms'][1]['platform'])->toBe('doordash');
 });
+
+// ── B2: refresh stability (G6-1/G6-2) — deterministic order, cross-platform
+// category dedupe, platform ad/upsell category filtering ──────────────────
+
+it('produces identical category order across repeated merges of unchanged input (G6-1a)', function () {
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Featured items', 'items' => [normItem(['name' => 'Hero Dish', 'deliveryPrice' => 10.0])]],
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'deliveryPrice' => 30.0])]],
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'deliveryPrice' => 6.0])]],
+        ],
+    ];
+    $links = storeLinks(['uber-eats' => ['delivery']]);
+
+    $first = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links);
+    $second = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links);
+
+    $firstNames = collect($first['categories'])->pluck('name')->all();
+    expect($firstNames)->toBe(collect($second['categories'])->pluck('name')->all());
+    // Source order preserved when no category collides on position.
+    expect($firstNames)->toBe(['Featured items', 'Mains', 'Sides']);
+});
+
+it('sorts a leftover category into canonical order by source position, using normalized name as the tiebreak (G6-1a)', function () {
+    // UE (canonical) has 2 categories; DoorDash's one exclusive category
+    // ("Sides") lands at DD's own index 0 — the SAME raw position as UE's
+    // "Mains". Without a tiebreak this is an arbitrary insertion-order tie;
+    // normalized name gives a total, reproducible order every time, and this
+    // proves the SORT (not incidental spine-then-leftover insertion order)
+    // controls the final sequence: plain insertion order would have put
+    // Sides last (appended in the leftover pass), not second.
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Filet Mignon', 'deliveryPrice' => 30.0])]],
+            ['name' => 'Desserts', 'items' => [normItem(['name' => 'Tiramisu', 'deliveryPrice' => 9.0])]],
+        ],
+    ];
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'pickupPrice' => 6.0])]],
+        ],
+    ];
+
+    $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
+
+    expect(collect($merged['categories'])->pluck('name')->all())->toBe(['Mains', 'Sides', 'Desserts']);
+});
+
+it('merges categories whose names collide once normalized, across platforms (G6-1b)', function () {
+    // "DOP Pizza" scraped from Uber Eats and, with different case/punctuation,
+    // from DoorDash — the real bug: these rendered as two separate sections.
+    // "Margherita" is fused cross-platform by MenuMerger's existing item-level
+    // matching BEFORE category-dedupe runs (it lives in the index regardless
+    // of which category holds it), so only ONE Margherita reaches this point —
+    // this test proves the CATEGORY shells themselves collapse into one.
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'DOP Pizza', 'items' => [
+                normItem(['name' => 'Margherita', 'deliveryPrice' => 20.0]),
+                normItem(['name' => 'Capricciosa', 'deliveryPrice' => 22.0]),
+            ]],
+        ],
+    ];
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'dop  pizza!', 'items' => [
+                normItem(['name' => 'Margherita', 'pickupPrice' => 20.0]),
+                normItem(['name' => 'Diavola', 'pickupPrice' => 24.0]),
+            ]],
+        ],
+    ];
+
+    $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
+
+    expect($merged['categories'])->toHaveCount(1);
+    expect($merged['categories'][0]['name'])->toBe('DOP Pizza'); // canonical casing wins
+    expect(collect($merged['categories'][0]['items'])->pluck('name')->all())
+        ->toBe(['Margherita', 'Capricciosa', 'Diavola']);
+});
+
+it('drops an exact-duplicate item (same normalized name + price) when merging same-named categories (G6-1b)', function () {
+    // Two categories on the SAME platform that normalize to one name — a raw
+    // scrape artifact, not a cross-platform match (item-level matching only
+    // compares ACROSS platforms) — each independently lists "Margherita" at
+    // the identical price; the merge must keep exactly one.
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Pizza', 'items' => [normItem(['name' => 'Margherita', 'deliveryPrice' => 20.0])]],
+            ['name' => 'PIZZA', 'items' => [
+                normItem(['name' => 'Margherita', 'deliveryPrice' => 20.0]),  // exact duplicate → dropped
+                normItem(['name' => 'Hawaiian', 'deliveryPrice' => 21.0]),    // distinct → kept
+            ]],
+        ],
+    ];
+    $links = storeLinks(['uber-eats' => ['delivery']]);
+    $merged = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links);
+
+    expect($merged['categories'])->toHaveCount(1);
+    expect(collect($merged['categories'][0]['items'])->pluck('name')->all())->toBe(['Margherita', 'Hawaiian']);
+});
+
+it('filters out a platform ad/upsell category like "Add Drinks to Your Order from Liquorland" (G6-1c)', function () {
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Antipasti', 'items' => [normItem(['name' => 'Bruschetta', 'pickupPrice' => 12.0])]],
+            ['name' => 'Add Drinks to Your Order from Liquorland', 'items' => [normItem(['name' => 'Coke Can', 'pickupPrice' => 4.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+
+    $names = collect($merged['categories'])->pluck('name')->all();
+    expect($names)->toBe(['Antipasti']);
+    expect($names)->not->toContain('Add Drinks to Your Order from Liquorland');
+});
+
+it('is conservative: does not filter a genuine dish category that merely resembles ad copy (G6-1c)', function () {
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Recommended Pizzas', 'items' => [normItem(['name' => 'Margherita', 'pickupPrice' => 18.0])]],
+            ['name' => 'Add-Ons', 'items' => [normItem(['name' => 'Extra Cheese', 'pickupPrice' => 3.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    $merged = (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+
+    // Both are real categories (neither matches an ad pattern) — order
+    // follows source position, unaffected by the ad filter.
+    expect(collect($merged['categories'])->pluck('name')->all())->toBe(['Recommended Pizzas', 'Add-Ons']);
+});

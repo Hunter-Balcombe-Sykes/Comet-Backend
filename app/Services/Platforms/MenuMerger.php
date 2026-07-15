@@ -96,8 +96,10 @@ class MenuMerger
 
         // Canonical spine pass: walk the content-source's categories; for each
         // item, cross-match against every other platform and fuse all versions.
+        // Each category records its ORIGINAL index in this source's own scrape
+        // as 'position' — the sort key stableSortCategories() uses later (G6-1).
         $categories = [];
-        foreach ($canonical['categories'] as $category) {
+        foreach ($canonical['categories'] as $ci => $category) {
             $items = [];
             foreach ((array) ($category['items'] ?? []) as $item) {
                 $versions = [$contentSource => $item];
@@ -115,6 +117,7 @@ class MenuMerger
                     'name' => (string) ($category['name'] ?? 'Menu'),
                     'sourcePlatform' => $contentSource,
                     'items' => $items,
+                    'position' => $ci,
                 ];
             }
         }
@@ -147,15 +150,166 @@ class MenuMerger
                         'name' => (string) ($category['name'] ?? 'Menu'),
                         'sourcePlatform' => $p,
                         'items' => $items,
+                        'position' => $category['position'],
                     ];
                 }
             }
         }
 
+        // Stability pass (G6-1/G6-2): drop platform ad/upsell sections, merge
+        // categories that are really the same section scraped twice (once per
+        // platform), then sort deterministically so an unchanged upstream set
+        // always renders in the same order — refresh no longer reshuffles or
+        // silently duplicates categories. 'position' was internal bookkeeping
+        // for the sort and is stripped before returning (the caller derives the
+        // PERSISTED position from this list's final array order).
+        $categories = $this->dropAdCategories($categories);
+        $categories = $this->dedupeCategories($categories);
+        $categories = $this->stableSortCategories($categories);
+        $categories = array_map(function (array $c) {
+            unset($c['position']);
+
+            return $c;
+        }, $categories);
+
         return [
             'store' => $this->mergeStore($menus, $contentSource),
             'categories' => $categories,
         ];
+    }
+
+    // ── stability: ad filtering, cross-platform dedupe, deterministic order (G6-1/G6-2) ──
+
+    // Platform-injected upsell/ad sections to drop entirely before they ever
+    // reach the merged menu — DoorDash/UberEats occasionally scrape their own
+    // cross-sell carousel as if it were a real menu section (e.g. "Add Drinks
+    // to Your Order from Liquorland" — G6-2). Kept conservative on purpose:
+    // only patterns that are structurally unmistakable ad copy, never
+    // something a restaurant might plausibly name a real section.
+    private const AD_CATEGORY_PATTERNS = [
+        '~^add\b.*\bto\s+your\s+order\b~i',
+        '~\byou\s+may\s+also\s+like\b~i',
+        '~\bfrequently\s+bought\s+together\b~i',
+        '~\bcustomers\s+also\s+(bought|ordered)\b~i',
+        '~^recommended\s+for\s+you$~i',
+    ];
+
+    /** Whether a category name matches a known platform ad/upsell pattern (G6-2). */
+    private function isAdCategory(string $name): bool
+    {
+        foreach (self::AD_CATEGORY_PATTERNS as $pattern) {
+            if (preg_match($pattern, $name) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<array<string,mixed>>  $categories
+     * @return list<array<string,mixed>>
+     */
+    private function dropAdCategories(array $categories): array
+    {
+        return array_values(array_filter(
+            $categories,
+            fn (array $c) => ! $this->isAdCategory((string) $c['name'])
+        ));
+    }
+
+    /**
+     * Merge categories whose names collide once normalized (case/punctuation/
+     * whitespace-insensitive) — e.g. "DOP Pizza" scraped separately from Uber
+     * Eats and DoorDash renders as two back-to-back sections with no
+     * explanation (G6-2). Groups preserve first-seen order; a group of 1
+     * passes through unchanged.
+     *
+     * @param  list<array<string,mixed>>  $categories
+     * @return list<array<string,mixed>>
+     */
+    private function dedupeCategories(array $categories): array
+    {
+        $groups = [];
+        $order = [];
+        foreach ($categories as $category) {
+            $norm = $this->norm((string) $category['name']);
+            if (! isset($groups[$norm])) {
+                $order[] = $norm;
+            }
+            $groups[$norm][] = $category;
+        }
+
+        return array_map(
+            fn (string $norm) => count($groups[$norm]) === 1 ? $groups[$norm][0] : $this->mergeCategoryGroup($groups[$norm]),
+            $order
+        );
+    }
+
+    /**
+     * Fuse 2+ same-normalized-name categories into one: items concatenated in
+     * original (first-seen platform first) order, but an item whose normalized
+     * name + basePrice already appeared earlier in the merge is dropped as an
+     * exact duplicate — the same dish scraped into a same-named category on
+     * two platforms. The first category in the group (canonical-priority order,
+     * since that's the order categories were built in) donates the display
+     * name/sourcePlatform; 'position' is the group's minimum so the merged
+     * section sorts wherever its most-prominent occurrence did.
+     *
+     * @param  list<array<string,mixed>>  $group  2+ categories sharing one normalized name
+     * @return array<string,mixed>
+     */
+    private function mergeCategoryGroup(array $group): array
+    {
+        $items = [];
+        $seen = [];
+        foreach ($group as $category) {
+            foreach ($category['items'] as $item) {
+                $key = $this->norm((string) ($item['name'] ?? '')).'|'.($item['basePrice'] ?? '');
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $items[] = $item;
+            }
+        }
+
+        return [
+            'name' => $group[0]['name'],
+            'sourcePlatform' => $group[0]['sourcePlatform'],
+            'items' => $items,
+            'position' => min(array_column($group, 'position')),
+        ];
+    }
+
+    /**
+     * Deterministic category order: primary key is the position the category
+     * held in its OWN source platform's scrape (so a category that's always
+     * first when present — e.g. "Featured items" — always sorts first);
+     * normalized name is a tiebreaker giving a total order (categories reaching
+     * this point already have distinct normalized names post-dedupe, so ties
+     * only break identical-position categories from different source
+     * platforms). Guarantees identical output order across consecutive
+     * refreshes when the upstream category SET is unchanged, even when the
+     * platform's own scrape happened to return them in a different sequence
+     * this run (G6-1).
+     *
+     * @param  list<array<string,mixed>>  $categories
+     * @return list<array<string,mixed>>
+     */
+    private function stableSortCategories(array $categories): array
+    {
+        $indexed = array_values($categories);
+        usort($indexed, function (array $a, array $b) {
+            $byPosition = $a['position'] <=> $b['position'];
+            if ($byPosition !== 0) {
+                return $byPosition;
+            }
+
+            return $this->norm((string) $a['name']) <=> $this->norm((string) $b['name']);
+        });
+
+        return $indexed;
     }
 
     /**
@@ -367,7 +521,7 @@ class MenuMerger
      *
      * @param  list<array<string,mixed>>  $categories
      * @param  array<string,bool>  $matched  keys of items already fused into a canonical dish
-     * @return list<array{name:string, items:list<array<string,mixed>>}>
+     * @return list<array{name:string, items:list<array<string,mixed>>, position:int}>
      */
     private function leftovers(array $categories, array $matched): array
     {
@@ -381,7 +535,9 @@ class MenuMerger
                 $items[] = $item;
             }
             if ($items !== []) {
-                $out[] = ['name' => (string) ($category['name'] ?? 'Menu'), 'items' => $items];
+                // 'position' = this category's own index in the source platform's
+                // scrape (NOT $ci re-keyed by anything) — feeds stableSortCategories().
+                $out[] = ['name' => (string) ($category['name'] ?? 'Menu'), 'items' => $items, 'position' => $ci];
             }
         }
 
