@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use Illuminate\Support\Facades\Log;
+
 // Fuses the two platform menus (from MenuApifyScraper) into the single persisted
 // menu as a UNION across every connected platform — no platform's items are
 // dropped. The CONTENT platform (Uber Eats preferred) supplies the canonical
@@ -232,10 +234,24 @@ class MenuMerger
      */
     private function dropAdCategories(array $categories): array
     {
-        return array_values(array_filter(
-            $categories,
-            fn (array $c) => ! $this->isAdCategory((string) $c['name'])
-        ));
+        $kept = [];
+        foreach ($categories as $c) {
+            if ($this->isAdCategory((string) $c['name'])) {
+                // Observability (fix-round P2): a dropped category is
+                // invisible on the rendered menu with no other trail — one
+                // line per drop (bounded by category count, never per-item)
+                // is what lets a bad ad-filter match actually get noticed.
+                Log::info('menu.merger.ad_category_dropped', [
+                    'name' => $c['name'],
+                    'platform' => $c['sourcePlatform'] ?? null,
+                ]);
+
+                continue;
+            }
+            $kept[] = $c;
+        }
+
+        return $kept;
     }
 
     /**
@@ -273,7 +289,21 @@ class MenuMerger
         $result = [];
         foreach ($order as $norm) {
             foreach ($this->clusterMergeableCategories($groups[$norm]) as $cluster) {
-                $result[] = count($cluster) === 1 ? $cluster[0] : $this->mergeCategoryGroup($cluster);
+                if (count($cluster) === 1) {
+                    $result[] = $cluster[0];
+
+                    continue;
+                }
+                // Observability (fix-round P2): a dedupe merge silently
+                // fuses categories/items with no other trail — one line per
+                // merge EVENT (bounded by category-group count, never
+                // per-item) is what lets a bad merge decision get noticed.
+                Log::info('menu.merger.categories_deduped', [
+                    'names' => array_column($cluster, 'name'),
+                    'platforms' => array_column($cluster, 'sourcePlatform'),
+                    'itemCounts' => array_map(fn (array $c) => count($c['items']), $cluster),
+                ]);
+                $result[] = $this->mergeCategoryGroup($cluster);
             }
         }
 

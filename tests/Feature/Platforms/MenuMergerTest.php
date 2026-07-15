@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\MenuMerger;
+use Illuminate\Support\Facades\Log;
 
 // MenuMerger is pure logic (no DB / no HTTP) — it UNIONs two already-normalized
 // platform menus (the shape MenuApifyScraper::fetchStore returns, where each item
@@ -595,4 +596,72 @@ it('narrows the ad-filter to require a trailing source-brand clause, both direct
     $names = collect($merged['categories'])->pluck('name')->all();
     expect($names)->toBe(['Add Extras to Your Order', 'Add a Side to Your Order']);
     expect($names)->not->toContain('Add Drinks to Your Order from Liquorland');
+});
+
+// ── fix-round: observability (critic P2 — every destructive MenuMerger
+// decision was silent; one Log::info line per drop / per merge EVENT, never
+// per-item, so a bad ad-filter or dedupe decision can actually be noticed) ──
+
+it('logs one line (name + platform) when an ad category is dropped (fix-round observability)', function () {
+    Log::shouldReceive('info')->once()->with('menu.merger.ad_category_dropped', [
+        'name' => 'Add Drinks to Your Order from Liquorland',
+        'platform' => 'doordash',
+    ]);
+
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Antipasti', 'items' => [normItem(['name' => 'Bruschetta', 'pickupPrice' => 12.0])]],
+            ['name' => 'Add Drinks to Your Order from Liquorland', 'items' => [normItem(['name' => 'Coke Can', 'pickupPrice' => 4.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
+});
+
+it('logs one line (names + platforms + item counts) when categories are deduped (fix-round observability)', function () {
+    Log::shouldReceive('info')->once()->with('menu.merger.categories_deduped', [
+        'names' => ['DOP Pizza', 'dop  pizza!'],
+        'platforms' => ['uber-eats', 'doordash'],
+        // UE's canonical category carries 2 items (Margherita, already fused
+        // with DD's Margherita by item-level matching, + Capricciosa); DD's
+        // leftover category carries 1 (Diavola — its own Margherita was
+        // excluded from leftovers() as already-matched).
+        'itemCounts' => [2, 1],
+    ]);
+
+    $ue = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'DOP Pizza', 'items' => [
+                normItem(['name' => 'Margherita', 'deliveryPrice' => 20.0]),
+                normItem(['name' => 'Capricciosa', 'deliveryPrice' => 22.0]),
+            ]],
+        ],
+    ];
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'dop  pizza!', 'items' => [
+                normItem(['name' => 'Margherita', 'pickupPrice' => 20.0]),
+                normItem(['name' => 'Diavola', 'pickupPrice' => 24.0]),
+            ]],
+        ],
+    ];
+    $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
+    (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links);
+});
+
+it('logs nothing when nothing is dropped or deduped (no spam on the common case)', function () {
+    Log::shouldReceive('info')->never();
+
+    $dd = [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'pickupPrice' => 30.0])]],
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'pickupPrice' => 6.0])]],
+        ],
+    ];
+    $links = storeLinks(['doordash' => ['pickup']]);
+    (new MenuMerger)->merge(['doordash' => $dd], 'doordash', $links);
 });
