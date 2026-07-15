@@ -49,6 +49,7 @@ class UberEatsMenuDriver implements MenuPlatformDriver
                 'name' => $itemName,
                 'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                 'price' => is_numeric($price) ? round((float) $price, 2) : null,
+                'currency' => $this->cleanString(data_get($item, 'currency')),
                 'image' => $this->safeUrl(data_get($item, 'imageUrl')),
                 'rating' => null,
                 'ratingCount' => null,
@@ -73,8 +74,37 @@ class UberEatsMenuDriver implements MenuPlatformDriver
                 'reviewCount' => is_numeric($reviews) ? (int) $reviews : null,
                 'currency' => $this->cleanString(data_get($store, 'currencyCode')) ?? 'AUD',
                 'logo' => $this->safeUrl(data_get($store, 'image')),
+                'diningModes' => $this->diningModes(data_get($store, 'supportedDiningModes')),
             ],
             'categories' => $categories,
         ];
+    }
+
+    /**
+     * supportedDiningModes → the available mode-name strings only. Uber Eats
+     * (memo23) returns [{mode, isAvailable}, ...]; tolerate a bare string list
+     * too. Null when absent or nothing is available.
+     *
+     * @return list<string>|null
+     */
+    private function diningModes(mixed $modes): ?array
+    {
+        if (! is_array($modes)) {
+            return null;
+        }
+
+        $out = [];
+        foreach ($modes as $mode) {
+            if (is_string($mode) && $mode !== '') {
+                $out[] = $mode;
+
+                continue;
+            }
+            if (is_array($mode) && ($mode['isAvailable'] ?? true) && is_string($mode['mode'] ?? null) && $mode['mode'] !== '') {
+                $out[] = $mode['mode'];
+            }
+        }
+
+        return $out === [] ? null : array_values($out);
     }
 }
