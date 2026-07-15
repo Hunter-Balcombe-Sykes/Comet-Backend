@@ -61,9 +61,16 @@ class MenuMerger
      * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $platformMenus  slug-keyed menus
      * @param  string  $contentSource  platform whose category structure is canonical
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $storeLinks
+     * @param  list<string>  $persistedCategoryOrder  the site's PREVIOUSLY persisted category names,
+     *                                                in their last-persisted position order (the caller reads this from MenuCategory rows before
+     *                                                rebuilding them — see MenuFetchJob). Empty on a site's first-ever scrape. Categories matching
+     *                                                one of these names (by normalized name) keep that persisted order regardless of where THIS
+     *                                                run's scrape happened to place them — the actual cross-refresh stability fix (fix-round);
+     *                                                scrape position is only the fallback ordering for genuinely new categories. See
+     *                                                stableSortCategories().
      * @return array{store:array<string,mixed>, categories:list<array{name:string, sourcePlatform:string, items:list<array<string,mixed>>}>}
      */
-    public function merge(array $platformMenus, string $contentSource, array $storeLinks = []): array
+    public function merge(array $platformMenus, string $contentSource, array $storeLinks = [], array $persistedCategoryOrder = []): array
     {
         // Normalize to a full platforms-keyed map; absent keys become null.
         $menus = [];
@@ -156,16 +163,20 @@ class MenuMerger
             }
         }
 
-        // Stability pass (G6-1/G6-2): drop platform ad/upsell sections, merge
-        // categories that are really the same section scraped twice (once per
-        // platform), then sort deterministically so an unchanged upstream set
-        // always renders in the same order — refresh no longer reshuffles or
-        // silently duplicates categories. 'position' was internal bookkeeping
-        // for the sort and is stripped before returning (the caller derives the
-        // PERSISTED position from this list's final array order).
+        // Stability pass (G6-1/G6-2, cross-run fix-round): drop platform ad/
+        // upsell sections, merge categories that are really the same section
+        // scraped twice, then sort against the site's PREVIOUSLY PERSISTED
+        // category order (when one exists) so a category's rendered position
+        // survives the upstream scrape returning categories in a different
+        // array order between refreshes — the actual instability this guards
+        // against (per-call scrape position alone cannot, since it's
+        // recomputed from that same volatile order every run). 'position' was
+        // internal bookkeeping for the sort and is stripped before returning
+        // (the caller derives the PERSISTED position from this list's final
+        // array order).
         $categories = $this->dropAdCategories($categories);
         $categories = $this->dedupeCategories($categories);
-        $categories = $this->stableSortCategories($categories);
+        $categories = $this->stableSortCategories($categories, $persistedCategoryOrder);
         $categories = array_map(function (array $c) {
             unset($c['position']);
 
@@ -283,24 +294,49 @@ class MenuMerger
     }
 
     /**
-     * Deterministic category order: primary key is the position the category
-     * held in its OWN source platform's scrape (so a category that's always
-     * first when present — e.g. "Featured items" — always sorts first);
-     * normalized name is a tiebreaker giving a total order (categories reaching
-     * this point already have distinct normalized names post-dedupe, so ties
-     * only break identical-position categories from different source
-     * platforms). Guarantees identical output order across consecutive
-     * refreshes when the upstream category SET is unchanged, even when the
-     * platform's own scrape happened to return them in a different sequence
-     * this run (G6-1).
+     * Deterministic category order across refreshes (G6-1, cross-run
+     * fix-round). Categories matching a name in $persistedCategoryOrder
+     * (normalized) are KNOWN — they keep that persisted position, full stop,
+     * regardless of where this run's raw scrape happened to place them. This
+     * is what actually survives the upstream scrape reordering its categories
+     * between runs: the old sort keyed primarily on THIS call's own scrape
+     * position, which reproduced a reorder instead of resisting it (it only
+     * ever proved single-call determinism).
+     *
+     * Categories with no persisted-order match — genuinely NEW this run, or
+     * every category on a site's first-ever scrape (empty
+     * $persistedCategoryOrder) — are appended AFTER every known category, in
+     * turn ordered among themselves by this run's own source position with
+     * normalized name as the tiebreak (the pre-fix-round behavior; still
+     * correct here since there's no external reference point for a category
+     * that has never been persisted).
      *
      * @param  list<array<string,mixed>>  $categories
+     * @param  list<string>  $persistedCategoryOrder
      * @return list<array<string,mixed>>
      */
-    private function stableSortCategories(array $categories): array
+    private function stableSortCategories(array $categories, array $persistedCategoryOrder = []): array
     {
-        $indexed = array_values($categories);
-        usort($indexed, function (array $a, array $b) {
+        // normalized name => its index in the persisted order (first wins on
+        // a repeated normalized name, which shouldn't occur in persisted data).
+        $persistedIndex = [];
+        foreach ($persistedCategoryOrder as $i => $name) {
+            $persistedIndex[$this->norm((string) $name)] ??= $i;
+        }
+
+        $known = [];
+        $new = [];
+        foreach (array_values($categories) as $category) {
+            $norm = $this->norm((string) $category['name']);
+            if (isset($persistedIndex[$norm])) {
+                $known[] = [$persistedIndex[$norm], $category];
+            } else {
+                $new[] = $category;
+            }
+        }
+
+        usort($known, fn (array $a, array $b) => $a[0] <=> $b[0]);
+        usort($new, function (array $a, array $b) {
             $byPosition = $a['position'] <=> $b['position'];
             if ($byPosition !== 0) {
                 return $byPosition;
@@ -309,7 +345,7 @@ class MenuMerger
             return $this->norm((string) $a['name']) <=> $this->norm((string) $b['name']);
         });
 
-        return $indexed;
+        return [...array_map(fn (array $pair) => $pair[1], $known), ...$new];
     }
 
     /**

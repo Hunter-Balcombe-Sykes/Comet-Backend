@@ -639,6 +639,51 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
     expect($menu->fetch_status)->toBe('ok');
 });
 
+// ── fix-round: real cross-run category-position stability through the DB ──
+// MenuMerger's persisted-order stability (critic P1) is only real if
+// MenuFetchJob actually feeds it the PREVIOUS scrape's persisted order before
+// persist() wholesale-deletes it. Runs handle() twice with the SAME 3
+// categories but a reshuffled scrape order the second time, and asserts the
+// PERSISTED `position` column (not just in-memory merge output) is identical
+// both times — this is what the dashboard/public-site read-time `orderBy
+// position` actually depends on.
+
+it('persists identical category positions across two scrapes even when the upstream scrape reorders categories (fix-round)', function () {
+    $user = menuUser('mstable1');
+    ordering($user, 'https://www.ubereats.com/store/stable', null, '2026-06-17 10:00:00');
+
+    $run1Output = [
+        'uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [
+                ['name' => 'Featured items', 'items' => [['name' => 'Hero Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]],
+                ['name' => 'Mains', 'items' => [['name' => 'Steak', 'pickupPrice' => 30.0, 'deliveryPrice' => 30.0]]],
+                ['name' => 'Sides', 'items' => [['name' => 'Fries', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0]]],
+            ],
+        ],
+    ];
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run1Output));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $positions1 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name', 'position')->all();
+    expect($positions1)->toBe([0 => 'Featured items', 1 => 'Mains', 2 => 'Sides']);
+
+    // Run 2 — SAME 3 categories, upstream scrape reshuffled the array order.
+    // A forced refresh always re-scrapes regardless of url/settled state.
+    $run2Output = $run1Output;
+    $run2Output['uber-eats']['categories'] = [
+        $run1Output['uber-eats']['categories'][2], // Sides
+        $run1Output['uber-eats']['categories'][0], // Featured items
+        $run1Output['uber-eats']['categories'][1], // Mains
+    ];
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run2Output));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $positions2 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name', 'position')->all();
+    expect($positions2)->toBe($positions1);
+});
+
 it('resolveAll returns null as the doordash locale address when only a street is stored (no city/state)', function () {
     $user = menuUser('m18');
     ordering($user, 'https://www.doordash.com/store/priv2-nolocale/', null, '2026-06-17 10:00:00');

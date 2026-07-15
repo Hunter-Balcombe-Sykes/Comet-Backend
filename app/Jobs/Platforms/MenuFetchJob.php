@@ -116,7 +116,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // Registry platform slugs in content-priority order (Uber Eats first).
         $slugs = array_keys(config('partna.menu.platforms'));
 
-        $existing = Menu::query()->where('user_id', $this->userId)->with('platformLinks')->first();
+        // Categories eager-loaded here (position order) feed stableSortCategories()'s
+        // cross-run persisted-order match below — loaded BEFORE persist() wholesale
+        // deletes/rebuilds them, and nothing between here and the merge() call
+        // touches menu_categories, so this stays fresh for that read.
+        $existing = Menu::query()->where('user_id', $this->userId)
+            ->with(['platformLinks', 'categories' => fn ($q) => $q->orderBy('position')])
+            ->first();
         $existingLinks = $existing?->platformLinks->keyBy('platform') ?? collect();
 
         // Skip the scrape when EVERY registry platform's store URL is unchanged
@@ -205,9 +211,31 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 break;
             }
         }
-        $merged = $merger->merge($menus, $contentSource, $storeLinks);
+        $merged = $merger->merge($menus, $contentSource, $storeLinks, $this->previousCategoryOrder($existing));
 
         $this->persist($menu, $contentSource, $merged, $now);
+    }
+
+    /**
+     * The site's previously persisted category names, in position order — the
+     * cross-run stability baseline MenuMerger sorts known categories against
+     * (fix-round). Scoped to the same set persist() rebuilds (excludes
+     * source_platform='scan' — those are never scraper output and were never
+     * part of a prior merge() result, so they can't meaningfully anchor one).
+     *
+     * @return list<string>
+     */
+    private function previousCategoryOrder(?Menu $existing): array
+    {
+        if ($existing === null) {
+            return [];
+        }
+
+        return $existing->categories
+            ->filter(fn (MenuCategory $c) => $c->source_platform !== 'scan')
+            ->pluck('name')
+            ->values()
+            ->all();
     }
 
     /**

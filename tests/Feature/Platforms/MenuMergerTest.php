@@ -407,6 +407,74 @@ it('filters out a platform ad/upsell category like "Add Drinks to Your Order fro
     expect($names)->not->toContain('Add Drinks to Your Order from Liquorland');
 });
 
+// ── fix-round: REAL cross-run stability (critic P1 — position was the
+// per-call array index, so it reproduced an upstream reorder instead of
+// resisting it) ─────────────────────────────────────────────────────────
+
+it('preserves the PERSISTED category order across a refresh even when the upstream scrape reshuffles categories (fix-round, real cross-run stability)', function () {
+    $links = storeLinks(['uber-eats' => ['delivery']]);
+
+    // Run 1 — upstream returns categories in this order.
+    $run1 = (new MenuMerger)->merge(['uber-eats' => [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Featured items', 'items' => [normItem(['name' => 'Hero Dish', 'deliveryPrice' => 10.0])]],
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'deliveryPrice' => 30.0])]],
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'deliveryPrice' => 6.0])]],
+        ],
+    ]], 'uber-eats', $links);
+    $persistedOrder = collect($run1['categories'])->pluck('name')->all();
+    expect($persistedOrder)->toBe(['Featured items', 'Mains', 'Sides']);
+
+    // Run 2 — the SAME 3 categories, but the platform's own scrape this time
+    // returned them in a completely different array order (the exact
+    // real-world failure mode — nothing about the menu changed, only the
+    // upstream ordering). The persisted order from run 1 is fed back in, the
+    // way MenuFetchJob does from the DB.
+    $run2 = (new MenuMerger)->merge(['uber-eats' => [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'deliveryPrice' => 6.0])]],
+            ['name' => 'Featured items', 'items' => [normItem(['name' => 'Hero Dish', 'deliveryPrice' => 10.0])]],
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'deliveryPrice' => 30.0])]],
+        ],
+    ]], 'uber-eats', $links, $persistedOrder);
+
+    // Output order matches run 1 EXACTLY, not the shuffled upstream order —
+    // known categories now sort by their PERSISTED position, not this call's
+    // own array index.
+    expect(collect($run2['categories'])->pluck('name')->all())->toBe($persistedOrder);
+});
+
+it('appends a genuinely new category after every persisted category, regardless of where it lands in this run\'s scrape order (fix-round)', function () {
+    $links = storeLinks(['uber-eats' => ['delivery']]);
+
+    $run1 = (new MenuMerger)->merge(['uber-eats' => [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'deliveryPrice' => 30.0])]],
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'deliveryPrice' => 6.0])]],
+        ],
+    ]], 'uber-eats', $links);
+    $persistedOrder = collect($run1['categories'])->pluck('name')->all();
+    expect($persistedOrder)->toBe(['Mains', 'Sides']);
+
+    // Run 2 — a brand-new "Desserts" category is inserted FIRST in the raw
+    // scrape (source position 0). If known-category order still fell back to
+    // scrape position it would jump to the front; it must append AFTER the
+    // known Mains/Sides instead.
+    $run2 = (new MenuMerger)->merge(['uber-eats' => [
+        'store' => ['name' => 'Store', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Desserts', 'items' => [normItem(['name' => 'Tiramisu', 'deliveryPrice' => 9.0])]],
+            ['name' => 'Mains', 'items' => [normItem(['name' => 'Steak', 'deliveryPrice' => 30.0])]],
+            ['name' => 'Sides', 'items' => [normItem(['name' => 'Fries', 'deliveryPrice' => 6.0])]],
+        ],
+    ]], 'uber-eats', $links, $persistedOrder);
+
+    expect(collect($run2['categories'])->pluck('name')->all())->toBe(['Mains', 'Sides', 'Desserts']);
+});
+
 it('is conservative: does not filter a genuine dish category that merely resembles ad copy (G6-1c)', function () {
     $dd = [
         'store' => ['name' => 'Store', 'currency' => 'AUD'],
