@@ -112,6 +112,7 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
     $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
 
     $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['id'])->toBe((string) $item->id);
     expect($publicItem['price'])->toBe('11.00');
     expect($publicItem['pickupPrice'])->toBe('11.00');
     expect($publicItem['deliveryPrice'])->toBe('12.50');
@@ -125,4 +126,41 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
     expect($publicItem['platforms'][1]['platform'])->toBe('doordash');
     expect((float) $publicItem['platforms'][1]['pickupPrice'])->toBe(11.0);
     expect($publicItem['platforms'][1]['deliveryUrl'])->toBeNull();
+});
+
+it('B6: item id is stable across a category reorder, so a URL keyed off it never points at the wrong dish (G6-1)', function () {
+    // The old positional {categoryIndex}:{itemIndex} URL scheme broke exactly
+    // like this: a refresh reshuffles category order and the SAME index now
+    // resolves to a different dish. A stable persisted id can't drift.
+    $user = publicMenuUser('pubmenu2');
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $catA = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Featured', 'position' => 0, 'source_platform' => 'uber-eats']);
+    $catB = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 1, 'source_platform' => 'uber-eats']);
+    $target = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $catB->id, 'position' => 0, 'name' => 'Steak', 'base_price' => 30.0,
+    ]);
+    MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $catA->id, 'position' => 0, 'name' => 'Hero Dish', 'base_price' => 10.0,
+    ]);
+
+    $before = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+    // Before a "refresh": Steak sits at category 1, item 0 — positional "1:0".
+    expect($before->json('data.categories.1.items.0.name'))->toBe('Steak');
+    $steakId = $before->json('data.categories.1.items.0.id');
+    expect($steakId)->toBe((string) $target->id);
+
+    // Simulate a refresh reshuffling category order (G6-1): "Mains" now sorts
+    // first. Positional "1:0" would now resolve to "Hero Dish" — the wrong
+    // dish — but looking the item up by its stable id still finds "Steak".
+    $catB->update(['position' => 0]);
+    $catA->update(['position' => 1]);
+
+    $after = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+    expect($after->json('data.categories.0.items.0.name'))->toBe('Steak');
+    expect($after->json('data.categories.0.items.0.id'))->toBe($steakId);
+    // The positional index that USED to mean Steak now means a different dish.
+    expect($after->json('data.categories.1.items.0.name'))->toBe('Hero Dish');
 });

@@ -77,6 +77,12 @@ class PublicMenuController extends ApiController
                 'name' => $cat->name,
                 'popularityRank' => $categoryRanks[(string) $cat->id] ?? null,
                 'items' => $cat->items->map(fn ($item) => [
+                    // Stable persisted id (G6-1/B6) — the frontend keys item-detail
+                    // URLs off this instead of the positional {categoryIndex}:{itemIndex}
+                    // scheme, which silently pointed at the wrong dish (or 404'd) once a
+                    // Refresh reshuffled category/item order. Additive field; every
+                    // existing consumer reading by key is unaffected.
+                    'id' => (string) $item->id,
                     'name' => $item->name,
                     'description' => $item->description,
                     'imageUrl' => $item->image_url,
