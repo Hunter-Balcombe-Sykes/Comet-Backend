@@ -177,6 +177,14 @@ class MenuController extends ApiController
         return $menu->categories->map(fn ($category) => [
             'name' => $category->name,
             'items' => $category->items->map(fn (MenuItem $item) => [
+                // Stable persisted id (G6-1/B6, fix-round) — mirrors
+                // PublicMenuController's `id` field exactly. This is the
+                // endpoint Partna-Frontend's menu-item-detail URLs actually
+                // read (authedJsonRequest('/platforms/menu')), so the id
+                // needs to live here, not only on the public sitepage
+                // payload. Additive field; every existing consumer reading
+                // by key is unaffected.
+                'id' => (string) $item->id,
                 'name' => $item->name,
                 'description' => $item->description,
                 'image' => $item->image_url,

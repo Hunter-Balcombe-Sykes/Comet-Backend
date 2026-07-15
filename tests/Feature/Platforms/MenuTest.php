@@ -360,7 +360,7 @@ it('returns the full menu with per-mode prices and computed order links', functi
     $user = menuUser('m11');
     ordering($user, 'https://www.ubereats.com/store/p', 'pickup', '2026-06-17 09:00:00');
     ordering($user, 'https://www.ubereats.com/store/d', 'delivery', '2026-06-17 10:00:00');
-    seedMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
+    $menu = seedMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
         ['name' => 'Pizzas', 'items' => [[
             'name' => 'Margherita', 'base_price' => 11.0,
             'delivery_price' => 12.5, 'delivery_source' => 'uber-eats',
@@ -379,6 +379,11 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect((float) $res->json('rating'))->toBe(4.7);
     $item = $res->json('categories.0.items.0');
     expect($item['name'])->toBe('Margherita');
+    // Stable persisted id (fix-round P1) — mirrors PublicMenuController's
+    // `id` field; Partna-Frontend's menu-item-detail URLs key off THIS
+    // endpoint's id, not the public sitepage payload's.
+    $dbItem = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->firstOrFail();
+    expect($item['id'])->toBe((string) $dbItem->id);
     expect((float) $item['basePrice'])->toBe(11.0);
     expect((float) $item['pickupPrice'])->toBe(11.0);
     expect($item['pickupSource'])->toBe('doordash');
