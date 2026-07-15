@@ -94,19 +94,64 @@ it('Facebook normalizes a vanity handle', function () {
         ->toBe(['username' => 'nike', 'url' => 'https://www.facebook.com/nike']);
 });
 
-it('Facebook keeps a legacy /pages/Name/ID link with an empty username', function () {
+it('Facebook normalizes a bare facebook.com/<Page> vanity url', function () {
+    // G4-4 required shape: facebook.com/MyPage.
+    expect((new FacebookNormalizer)('facebook.com/MyPage'))
+        ->toBe(['username' => 'MyPage', 'url' => 'https://www.facebook.com/MyPage']);
+});
+
+it('Facebook extracts the Page name from a legacy /pages/Name/ID link (G4-4)', function () {
+    // G4-4: this used to store the literal reserved segment "pages" as the
+    // username; it must now skip past it to the actual page name.
     expect((new FacebookNormalizer)('https://www.facebook.com/pages/Some-Cafe/123456789'))
-        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+        ->toBe(['username' => 'Some-Cafe', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
 });
 
-it('Facebook strips a query string from a /pages/ link', function () {
+it('Facebook required shape: facebook.com/pages/DOC-Pizza-Carlton/12345', function () {
+    expect((new FacebookNormalizer)('facebook.com/pages/DOC-Pizza-Carlton/12345'))
+        ->toBe(['username' => 'DOC-Pizza-Carlton', 'url' => 'https://www.facebook.com/pages/DOC-Pizza-Carlton/12345']);
+});
+
+it('Facebook strips a query string from a /pages/ link but keeps the extracted name', function () {
     expect((new FacebookNormalizer)('https://www.facebook.com/pages/Some-Cafe/123456789?ref=bookmarks'))
-        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+        ->toBe(['username' => 'Some-Cafe', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
 });
 
-it('Facebook keeps a numeric profile.php link with an empty username', function () {
+it('Facebook falls back to the numeric id when a /pages/ link has no name segment', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/pages/123456789'))
+        ->toBe(['username' => '123456789', 'url' => 'https://www.facebook.com/pages/123456789']);
+});
+
+it('Facebook required shape: m.facebook.com/pages/X/9 (mobile subdomain, single-char name)', function () {
+    expect((new FacebookNormalizer)('m.facebook.com/pages/X/9'))
+        ->toBe(['username' => 'X', 'url' => 'https://www.facebook.com/pages/X/9']);
+});
+
+it('Facebook extracts a /people/Name/ID link the same way as /pages/', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/people/Jane-Doe/100012345'))
+        ->toBe(['username' => 'Jane-Doe', 'url' => 'https://www.facebook.com/people/Jane-Doe/100012345']);
+});
+
+it('Facebook extracts a /groups/Name link the same way as /pages/', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/groups/SomeCommunity'))
+        ->toBe(['username' => 'SomeCommunity', 'url' => 'https://www.facebook.com/groups/SomeCommunity']);
+});
+
+it('Facebook keeps the numeric id from a profile.php link as the username (G4-4)', function () {
+    // G4-4: previously stored an empty username here too; the numeric id is a
+    // better display fallback than nothing since there's no vanity handle at all.
     expect((new FacebookNormalizer)('https://www.facebook.com/profile.php?id=12345'))
-        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/profile.php?id=12345']);
+        ->toBe(['username' => '12345', 'url' => 'https://www.facebook.com/profile.php?id=12345']);
+});
+
+it('Facebook required shape: facebook.com/profile.php?id=123', function () {
+    expect((new FacebookNormalizer)('facebook.com/profile.php?id=123'))
+        ->toBe(['username' => '123', 'url' => 'https://www.facebook.com/profile.php?id=123']);
+});
+
+it('Facebook keeps an empty username for a profile.php link with no id', function () {
+    expect((new FacebookNormalizer)('https://www.facebook.com/profile.php'))
+        ->toBe(['username' => '', 'url' => 'https://www.facebook.com/profile.php']);
 });
 
 it('Facebook rejects a bare facebook.com/ link with no handle', function () {

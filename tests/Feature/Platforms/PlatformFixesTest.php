@@ -35,13 +35,13 @@ function fbActingUser(): User
     ]);
 }
 
-it('stores a legacy /pages/Name/ID Facebook link without mangling the username', function () {
+it('stores a legacy /pages/Name/ID Facebook link, extracting the Page name (G4-4)', function () {
     $res = actingAsUser(fbActingUser())->postJson('/api/platforms/facebook/connect', [
         'username' => 'https://www.facebook.com/pages/Some-Cafe/123456789',
     ]);
 
     $res->assertOk();
-    expect($res->json('username'))->toBe('');
+    expect($res->json('username'))->toBe('Some-Cafe');
     expect($res->json('url'))->toBe('https://www.facebook.com/pages/Some-Cafe/123456789');
 });
 

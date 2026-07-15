@@ -114,11 +114,11 @@ it('facebook connect stores a vanity handle and echoes {username,url}', function
         ->assertExactJson(['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe']);
 });
 
-it('facebook connect keeps a legacy /pages/ link with an empty username', function () {
+it('facebook connect extracts the Page name from a legacy /pages/ link (G4-4)', function () {
     actingAsUser(genericLinkUser('gfb2'))
         ->postJson('/api/platforms/facebook/connect', ['username' => 'https://www.facebook.com/pages/Some-Cafe/123456789'])
         ->assertOk()
-        ->assertExactJson(['username' => '', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+        ->assertExactJson(['username' => 'Some-Cafe', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
 });
 
 it('facebook connect returns the exact 422 message on a handleless link', function () {
