@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\User;
 use App\Enums\AccountType;
 use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Validation\Rule;
 
 // V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
@@ -54,7 +55,7 @@ class UpdateUserRequest extends BaseFormRequest
     {
         $user = $this->attributes->get('professional');
 
-        return $user instanceof User && \App\Services\Accounts\AccountCapabilities::for($user)->google_business_sets_display_name
+        return $user instanceof User && AccountCapabilities::for($user)->google_business_sets_display_name
             ? 'max:15'
             : 'max:255';
     }
