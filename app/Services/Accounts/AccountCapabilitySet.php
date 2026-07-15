@@ -72,5 +72,24 @@ final readonly class AccountCapabilitySet
         // type directly. Shop is deliberately NOT covered — business accounts
         // keep Shop, managed via the dedicated Products page.
         public bool $can_use_lifestyle_pages,
+        // Sector-derived (2026-07-15 industry/sector gating). "Food" = business
+        // AND SectorTaxonomy::isFood(sector) — a business with no sector yet
+        // reads as not-food (booking-only) until an industry is picked/synced.
+        // A standard (partna) account is never food-gated at all: Menu stays
+        // hidden for partna exactly as it was before this flag existed.
+        public bool $can_use_menu,
+        // Food businesses take table reservations instead of appointment
+        // booking; every other account (including every partna account,
+        // unconditionally) keeps reservations available.
+        public bool $can_use_reservations,
+        // The inverse of can_use_reservations for a business account — a food
+        // business books via Reservations, not Booking. Partna is unconditionally
+        // true (unchanged): every partna account keeps Booking.
+        public bool $can_use_booking,
+        // Online ordering is a food-business-only convenience; partna loses
+        // access entirely (explicit owner override — matches nothing partna
+        // could meaningfully do with it) and a non-food business never had a
+        // menu/store to order from in the first place.
+        public bool $can_use_online_ordering,
     ) {}
 }

@@ -22,6 +22,20 @@ use App\Services\Design\Presets\CategoryStylePresets;
 final class SectorTaxonomy
 {
     /**
+     * The "Food & Drink" group's slugs, exactly — the single source of truth
+     * for every food-derived capability (AccountCapabilities::can_use_menu /
+     * can_use_reservations / can_use_booking / can_use_online_ordering). Kept
+     * as an explicit list rather than derived from SECTORS at call time so the
+     * food set is a visible, reviewable contract, not an implicit side effect
+     * of the picker's grouping.
+     *
+     * @var list<string>
+     */
+    public const FOOD_SECTORS = [
+        'restaurant', 'cafe', 'bakery', 'bar', 'food-truck', 'caterer', 'personal-chef',
+    ];
+
+    /**
      * Ordered sector rows. Order within a group is the display order in the
      * picker. `group` is the section header the picker renders.
      *
@@ -251,6 +265,17 @@ final class SectorTaxonomy
         }
 
         return null;
+    }
+
+    /**
+     * Whether a sector slug is in the Food & Drink group — the single predicate
+     * every food-derived AccountCapabilities flag calls through. Null (no
+     * sector chosen/synced yet) is NOT food: a business with no sector defaults
+     * to the booking-only capability set until an industry is picked or synced.
+     */
+    public static function isFood(?string $sector): bool
+    {
+        return $sector !== null && in_array($sector, self::FOOD_SECTORS, true);
     }
 
     /**

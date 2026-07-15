@@ -3,6 +3,7 @@
 namespace App\Services\Accounts;
 
 use App\Models\Core\User\User;
+use App\Services\Profile\SectorTaxonomy;
 
 /**
  * Runtime capability registry — answers "can this account access feature X right now?"
@@ -41,6 +42,12 @@ final class AccountCapabilities
     private static function individualCapabilities(User $pro): AccountCapabilitySet
     {
         $status = (string) ($pro->status ?? '');
+        $isBusiness = $pro->isBusiness();
+        // NULL sector reads as not-food (booking-only default) for a business
+        // until an industry is picked (Settings) or synced (Google) — see
+        // SectorTaxonomy::isFood(). Irrelevant for partna: none of the four
+        // food-derived flags below branch on it for a partna account.
+        $isFood = SectorTaxonomy::isFood($pro->sector);
 
         return new AccountCapabilitySet(
             can_edit_design: true,
@@ -49,11 +56,17 @@ final class AccountCapabilities
             can_submit_feedback: true,
             can_be_reported: $status === 'active',
             receive_moderation_notifications: in_array($status, ['active'], true),
-            can_book_storewide: $pro->isBusiness(),
-            google_business_full_sync: $pro->isBusiness(),
-            google_business_sets_display_name: $pro->isBusiness(),
-            can_use_multipage_site: $pro->isBusiness(),
-            can_use_lifestyle_pages: ! $pro->isBusiness(),
+            can_book_storewide: $isBusiness,
+            google_business_full_sync: $isBusiness,
+            google_business_sets_display_name: $isBusiness,
+            can_use_multipage_site: $isBusiness,
+            can_use_lifestyle_pages: ! $isBusiness,
+            // Sector-derived (2026-07-15 industry/sector gating contract — LAW,
+            // do not rederive): partna is never gated by sector, only business is.
+            can_use_menu: $isBusiness && $isFood,
+            can_use_reservations: $isBusiness ? $isFood : true,
+            can_use_booking: $isBusiness ? ! $isFood : true,
+            can_use_online_ordering: $isBusiness && $isFood,
         );
     }
 }
