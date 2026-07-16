@@ -3,6 +3,7 @@
 namespace App\Services\Cloudflare;
 
 use App\Enums\SitepageId;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -120,6 +121,30 @@ class CloudflarePurgeService
             static fn (string $page): bool => $page !== 'home',
         ));
 
+        // Shop product detail pages (`/products/<handle>`) are their own edge
+        // keys too — the fixed page taxonomy above doesn't know them, which
+        // left freshly-deployed PDPs stale for 24h (2026-07-16). Bounded +
+        // deduped; purgeUrls chunks to the API's 30-URL limit either way.
+        // Never let this optional lookup break the purge itself.
+        try {
+            // BaseModel pins pgsql — match it (the default connection differs
+            // in tests, and must not be assumed in prod either).
+            $productHandles = DB::connection('pgsql')->table('site.shop_products as p')
+                ->join('site.shop_brands as b', 'b.id', '=', 'p.brand_id')
+                ->join('site.platform_connections as c', 'c.id', '=', 'b.connection_id')
+                ->join('core.users as u', 'u.id', '=', 'c.user_id')
+                ->where('u.handle_lc', $h)
+                ->whereNull('c.deleted_at')
+                ->whereRaw("p.data->>'handle' IS NOT NULL")
+                ->selectRaw("DISTINCT p.data->>'handle' AS product_handle")
+                ->limit(100)
+                ->pluck('product_handle')
+                ->all();
+        } catch (\Throwable $e) {
+            Log::debug('CloudflarePurgeService: product-handle lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            $productHandles = [];
+        }
+
         $urls = [];
         foreach ($bases as $base) {
             // Root — slash + slash-less are distinct keys — and its shadow.
@@ -130,6 +155,11 @@ class CloudflarePurgeService
             foreach ($subPages as $page) {
                 $urls[] = "{$base}/{$page}";
                 $urls[] = "{$base}/_swr-shadow/{$page}";
+            }
+            // Each product detail page + its shadow.
+            foreach ($productHandles as $productHandle) {
+                $urls[] = "{$base}/products/{$productHandle}";
+                $urls[] = "{$base}/_swr-shadow/products/{$productHandle}";
             }
         }
 

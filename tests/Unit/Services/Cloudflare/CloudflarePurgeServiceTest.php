@@ -3,6 +3,7 @@
 use App\Enums\SitepageId;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -181,4 +182,37 @@ it('purgeHandle ignores empty handles', function () {
     (new CloudflarePurgeService)->purgeHandle('');
 
     Http::assertNothingSent();
+});
+
+it('purgeHandle also purges shop product detail pages + their shadows', function () {
+    setupUsersTable();
+    setupSitesTable();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $db = DB::connection('pgsql');
+    $db->table('core.users')->insert([
+        'id' => 'u-1', 'handle' => 'prodowner', 'handle_lc' => 'prodowner',
+        'display_name' => 'Prod Owner', 'account_type' => 'business',
+        'status' => 'active', 'auth_user_id' => 'auth-1',
+        'primary_email' => 'prodowner@example.com',
+    ]);
+    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify']);
+    $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
+    $db->table('site.shop_products')->insert([
+        ['id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'crest-pants'])],
+        // No handle in data → contributes nothing (and must not break the purge).
+        ['id' => 'p-2', 'brand_id' => 'b-1', 'product_id' => 'sp2', 'data' => json_encode(['title' => 'No handle'])],
+    ]);
+
+    (new CloudflarePurgeService)->purgeHandle('prodowner');
+
+    $files = cfRecordedFiles();
+    $base = 'https://prodowner.partna.au';
+    expect($files)->toContain("{$base}/products/crest-pants", "{$base}/_swr-shadow/products/crest-pants");
+    // Root + sub-pages still there — the product URLs are additive.
+    expect($files)->toContain("{$base}/", "{$base}/shop");
 });
