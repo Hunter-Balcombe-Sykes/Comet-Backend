@@ -1,0 +1,176 @@
+# Drill 01 — Worker kill mid-job
+
+**Question:** when a queue worker dies while `SyncSubdomainToKvJob` is executing, do the
+DB and Cloudflare KV diverge — and does retry converge them without help?
+
+Two scenarios, because "worker dies" happens two ways with different semantics:
+
+| Scenario | Simulates | Signal | Expected behavior |
+|----------|-----------|--------|-------------------|
+| A — graceful | Deploy / `horizon:terminate` | SIGTERM | Worker finishes the in-flight job, then exits. Nothing lost. |
+| B — crash | OOM-kill / hard crash | SIGKILL (`kill -9`) | Job left in the reserved set; re-delivered after `retry_after` (360s on the `redis` connection); retry converges KV to DB state. |
+
+## Target job facts (verify still true before running)
+
+`app/Jobs/Cloudflare/SyncSubdomainToKvJob.php`:
+- Queue `cloudflare` (redis connection), `$timeout` 30s.
+- Retry policy from `HasCloudflareRetryPolicy`: `$tries` 3, `$backoff` [10, 30, 60], `$maxExceptions` 2.
+- `ShouldBeUnique` with `$uniqueFor` 45s — **a SIGKILL leaves the unique lock held until it
+  expires**, so a re-dispatch within ~45s of the kill is silently dropped. Observe this.
+- Writes: `put(<handle>)` → `put(domain:<custom>)` (if any) → `bulkPut(<aliases>)`. A kill
+  between these is the divergence window.
+
+`config/queue.php`: `redis` connection `retry_after` = 360s (`REDIS_QUEUE_RETRY_AFTER`).
+
+## Preconditions
+
+- [ ] Local stack up: Herd site + local Redis + local `.env` with `QUEUE_CONNECTION=redis`.
+- [ ] **Decide the KV mode up front:**
+  - **Real KV (full drill):** `services.cloudflare.{account_id, kv_namespace_id, api_token}`
+    set in local `.env` (dev-namespace credentials). Only this mode can show real divergence.
+  - **Unconfigured (queue-semantics-only):** `CloudflareKvService` no-ops without
+    credentials (`guardUnconfigured`) — the drill still proves SIGTERM/SIGKILL/retry
+    semantics, but KV checks below become no-ops. Note the mode in the log.
+- [ ] Optional but recommended: shrink the crash-recovery wait for the session —
+  `REDIS_QUEUE_RETRY_AFTER=90` in `.env`, then `php artisan config:clear`. **Revert after.**
+- [ ] Export helpers for the KV curl checks (real-KV mode):
+
+```bash
+export CF_ACCT=<account_id> CF_NS=<kv_namespace_id> CF_TOKEN=<api_token>
+kv_get() { curl -s -H "Authorization: Bearer $CF_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CF_ACCT/storage/kv/namespaces/$CF_NS/values/$1"; echo; }
+```
+
+## ARRANGE — drill user
+
+In `php artisan tinker`:
+
+```php
+$u = \App\Models\Core\User\User::factory()->create([
+    'handle' => 'drill-wk-<YYYYMMDD>',
+    // whatever else the factory needs for an active, publicly-servable user
+]);
+$u->id; // note it
+```
+
+Sanity: `$u->isActive()` must be true and the user must have a site row (the site-creation
+trigger/observer normally handles this — verify `$u->site` is non-null).
+
+Optionally add an alias row so `bulkPut` has something to write (widens the divergence window):
+
+```php
+DB::table('core.user_handle_aliases')->insert([
+    'id' => (string) Str::uuid(), 'user_id' => $u->id,
+    'handle' => 'drill-wk-old-<YYYYMMDD>',
+    'reclaim_until' => now()->addDays(14), 'expires_at' => now()->addDays(90),
+    'created_at' => now(), 'updated_at' => now(),
+]);
+```
+
+## Scenario A — graceful terminate (deploy semantics)
+
+1. Start Horizon in its own terminal: `php artisan horizon`
+2. Dispatch, then immediately terminate:
+
+```php
+// tinker
+\App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch($u->id);
+```
+
+```bash
+php artisan horizon:terminate   # fire within ~1s of the dispatch
+```
+
+3. **Observe:**
+   - Horizon terminal: workers should drain — the in-flight job completes before exit.
+   - `php artisan queue:failed` → expect empty.
+   - Real-KV mode: `kv_get drill-wk-<YYYYMMDD>` → expect `{"type":"individual"}`.
+     `kv_get drill-wk-old-<YYYYMMDD>` → expect the alias redirect entry.
+
+**Pass A:** job completed (or was never started and remains queued for the next worker) —
+either is fine; the failure would be a half-applied write with the job *gone*.
+
+## Scenario B — SIGKILL mid-job (crash semantics)
+
+Horizon supervises its workers and would blur PID targeting — use a bare single worker so
+the kill is deterministic. Stop Horizon first (Ctrl-C in its terminal).
+
+1. Terminal 1 — single worker, cloudflare queue only:
+
+```bash
+php artisan queue:work redis --queue=cloudflare &
+WORKER_PID=$!
+echo $WORKER_PID
+```
+
+2. Terminal 2 — find the queue key, arm a watcher that kills the worker the instant the job
+   is reserved (mid-HTTP-call for a real KV write, which takes ~0.5–2s):
+
+```bash
+# discover the exact prefixed key first (CLAUDE.md: queue = Redis DB 2)
+redis-cli -n 2 --scan --pattern '*queues:cloudflare*'
+QKEY='<the plain list key from above, not :notify / :reserved>'
+while [ "$(redis-cli -n 2 llen "$QKEY")" -eq 0 ]; do sleep 0.05; done  # wait for enqueue
+while [ "$(redis-cli -n 2 llen "$QKEY")" -gt 0 ]; do sleep 0.02; done  # wait for reserve
+kill -9 $WORKER_PID && echo "killed mid-job"
+```
+
+3. Tinker — dispatch (watcher fires automatically):
+
+```php
+\App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch($u->id);
+```
+
+4. **Observe the divergence window** (before recovery):
+   - `redis-cli -n 2 zrange "${QKEY}:reserved" 0 -1` → the job sits in the reserved set.
+   - Real-KV mode: `kv_get` the handle and alias — depending on where the kill landed, the
+     handle entry may exist while the alias entry doesn't (or neither). **This is the
+     divergence — screenshot/copy it into the log.**
+   - Unique-lock behavior: re-dispatch the same job within 45s of the kill →
+     `redis-cli -n 2 llen "$QKEY"` stays 0 (silently dropped by `ShouldBeUnique`). Record.
+
+5. **Observe convergence:**
+   - Start a fresh worker: `php artisan queue:work redis --queue=cloudflare --once` after
+     `retry_after` has elapsed (90s if you shrank it; watch
+     `zrange ... :reserved` empty back into the main list first).
+   - Re-run the KV checks → handle, custom-domain, and alias entries must now ALL match DB
+     state. `php artisan queue:failed` → empty.
+
+**Pass B:** divergence exists only *between* kill and re-delivery; after re-delivery,
+KV == DB with no manual intervention and no failed-jobs entry. The job is idempotent
+(reconciles from current DB state), so re-running must be safe — verify nothing doubled.
+
+**Fail signals:** job vanished from both the queue and reserved set without effect; retry
+lands but KV still diverges; failed-jobs entry with exhausted retries on a healthy network.
+
+## Optional secondary target — `ProcessVideoVariantsJob`
+
+Only if video uploads are enabled locally (`SIDEST_VIDEO_UPLOADS_ENABLED`) and worth the
+time. Facts: connection `redis_video`, queue `videos`, `$tries` 2, `$timeout` 720,
+`retry_after` 3600 (`PARTNA_VIDEO_QUEUE_RETRY_AFTER`); `GuardsMediaProcessing` holds a lock
+with TTL = timeout + 60s and **a retry landing inside the held window silently returns** —
+so after a SIGKILL mid-encode, expect convergence only after lock expiry, not on first
+retry. Kill mid-ffmpeg is easy to time (encodes run for many seconds):
+`php artisan queue:work redis_video --queue=videos` + `kill -9` while ffmpeg is visible in
+`ps`. Verify: no orphaned tmp files, media row not stuck in `processing` forever, second
+attempt (post-lock-expiry) completes or fails cleanly to `failed` state.
+
+## RESTORE
+
+```php
+// tinker — exercises the retire path as a bonus check
+$u->forceDelete();   // observer dispatches a KV delete for the handle
+```
+
+- Real-KV mode: after the queue drains, `kv_get drill-wk-<YYYYMMDD>` → expect 404/empty.
+  If the alias entry lingers, it has a TTL and will self-evict — note it, don't hand-delete.
+- Delete the alias row if `forceDelete` didn't cascade it.
+- Revert `.env` (`REDIS_QUEUE_RETRY_AFTER`, any CF credentials added for the session) +
+  `php artisan config:clear`.
+- Restart Horizon if you use it for normal local dev.
+
+## Record
+
+Copy `logs/TEMPLATE.md` → `logs/<YYYY-MM-DD>-worker-kill.md`. Must capture: KV mode
+(real/unconfigured), where the kill landed, the divergence evidence, time-to-convergence,
+unique-lock observation, verdicts for A and B.
