@@ -12,9 +12,9 @@ use Illuminate\Auth\Access\Response;
  * Authorization for user-submitted Feedback rows.
  *
  * Owner-only read/list. Create gated on the can_submit_feedback capability
- * (always true now; reserved for future per-account bans). A staff
- * triage-write ability (update / delete-by-staff) is not yet wired to a
- * controller — OV-D only shipped the read side (staffView, below).
+ * (always true now; reserved for future per-account bans). Staff triage:
+ * staffView (list, any staff role), staffTriage (status write, any staff
+ * role), staffDelete (junk removal, admin only).
  */
 class FeedbackPolicy extends BasePolicy
 {
@@ -65,5 +65,25 @@ class FeedbackPolicy extends BasePolicy
     public function staffView(PartnaStaff $actor, Feedback|string|null $feedback = null): bool
     {
         return in_array($actor->role, [PartnaStaff::ROLE_SUPPORT, PartnaStaff::ROLE_ADMIN], true);
+    }
+
+    /**
+     * Staff triage write (PATCH /staff/feedback/{feedback}) — status changes
+     * are routine triage, open to any staff role. Same rule as staffView.
+     */
+    public function staffTriage(PartnaStaff $actor, Feedback $feedback): bool
+    {
+        return in_array($actor->role, [PartnaStaff::ROLE_SUPPORT, PartnaStaff::ROLE_ADMIN], true);
+    }
+
+    /**
+     * Staff junk removal (DELETE /staff/feedback/{feedback}) — destructive
+     * (soft delete; PurgeSoftDeleted hard-deletes after 30 days), admin only.
+     * Mirrors EarlyAccessSignupPolicy::staffManage. The route also sits behind
+     * the staff.admin middleware — defence-in-depth, keep both.
+     */
+    public function staffDelete(PartnaStaff $actor, Feedback $feedback): bool
+    {
+        return $actor->isAdmin();
     }
 }

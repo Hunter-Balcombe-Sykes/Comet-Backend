@@ -75,7 +75,7 @@ git commit -m "docs(spec+plan): staff feedback triage — status updates + delet
 - Consumes: `PartnaStaff::ROLE_SUPPORT`, `PartnaStaff::ROLE_ADMIN`, `PartnaStaff::isAdmin()` (all exist).
 - Produces: `FeedbackPolicy::staffTriage(PartnaStaff $actor, Feedback $feedback): bool` (support+admin) and `FeedbackPolicy::staffDelete(PartnaStaff $actor, Feedback $feedback): bool` (admin only). Tasks 4 and 5 call these via `authorizeForUser`.
 
-- [ ] **Step 1: Create the test file with shared setup + failing Gate tests**
+- [x] **Step 1: Create the test file with shared setup + failing Gate tests**
 
 Create `tests/Feature/Staff/StaffFeedbackTriageTest.php`. Helper functions are file-scoped but PHP-global — the `triage` prefix keeps them unique across the suite (the list test owns `ovd*`).
 
@@ -201,12 +201,12 @@ it('allows only admin to staffDelete', function () {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: both `it` blocks FAIL — `allows('staffTriage', …)` returns false because the policy has no such method yet.
 
-- [ ] **Step 3: Add the two abilities to FeedbackPolicy**
+- [x] **Step 3: Add the two abilities to FeedbackPolicy**
 
 In `app/Policies/FeedbackPolicy.php`, append after `staffView()`:
 
@@ -240,12 +240,12 @@ becomes:
 
 > `Staff triage: staffView (list, any staff role), staffTriage (status write, any staff role), staffDelete (junk removal, admin only).`
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Pint + commit**
+- [x] **Step 5: Pint + commit**
 
 ```bash
 php artisan pint app/Policies/FeedbackPolicy.php tests/Feature/Staff/StaffFeedbackTriageTest.php
