@@ -57,22 +57,4 @@ abstract class ApiController extends Controller
 
         return response()->json($response, $status);
     }
-
-    /**
-     * Return paginated response.
-     */
-    protected function paginated($paginator, string $dataKey = 'data'): JsonResponse
-    {
-        return response()->json([
-            $dataKey => $paginator->items(),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
-                'next_page_url' => $paginator->nextPageUrl(),
-                'prev_page_url' => $paginator->previousPageUrl(),
-            ],
-        ]);
-    }
 }

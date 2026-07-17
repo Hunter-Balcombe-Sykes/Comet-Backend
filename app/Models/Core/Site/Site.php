@@ -157,11 +157,6 @@ class Site extends BaseModel
         return $this->hasMany(LinkClick::class, 'site_id');
     }
 
-    public function scopePublished($query)
-    {
-        return $query->where('is_published', true);
-    }
-
     public function siteMedia(): HasMany
     {
         return $this->hasMany(SiteMedia::class, 'site_id');
