@@ -145,6 +145,24 @@ class CloudflarePurgeService
             $productHandles = [];
         }
 
+        // Menu item detail pages (`/menu/<uuid>`, route added 2026-07-17) —
+        // same per-URL edge-key staleness the products fix closed; same
+        // bounded, never-break-the-purge pattern. (Events item pages
+        // deliberately NOT enumerated: their ids live inside platform
+        // payload JSON, not rows — they age out via the page TTL instead.)
+        try {
+            $menuItemIds = DB::connection('pgsql')->table('site.menu_items as mi')
+                ->join('site.menus as m', 'm.id', '=', 'mi.menu_id')
+                ->join('core.users as u', 'u.id', '=', 'm.user_id')
+                ->where('u.handle_lc', $h)
+                ->limit(150)
+                ->pluck('mi.id')
+                ->all();
+        } catch (\Throwable $e) {
+            Log::debug('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            $menuItemIds = [];
+        }
+
         $urls = [];
         foreach ($bases as $base) {
             // Root — slash + slash-less are distinct keys — and its shadow.
@@ -160,6 +178,11 @@ class CloudflarePurgeService
             foreach ($productHandles as $productHandle) {
                 $urls[] = "{$base}/products/{$productHandle}";
                 $urls[] = "{$base}/_swr-shadow/products/{$productHandle}";
+            }
+            // Each menu item detail page + its shadow.
+            foreach ($menuItemIds as $menuItemId) {
+                $urls[] = "{$base}/menu/{$menuItemId}";
+                $urls[] = "{$base}/_swr-shadow/menu/{$menuItemId}";
             }
         }
 
