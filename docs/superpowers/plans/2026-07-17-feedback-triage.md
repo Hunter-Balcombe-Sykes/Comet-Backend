@@ -587,7 +587,7 @@ git commit -m "feat(feedback): PATCH /staff/feedback/{id} — staff triage statu
 - Consumes: `FeedbackPolicy::staffDelete` (Task 2), `FeedbackService::deleteByStaff` (Task 3).
 - Produces: route `staff.feedback.destroy`, returns `204 No Content` (mirrors `StaffEarlyAccessController::destroy`).
 
-- [ ] **Step 1: Append failing DELETE tests**
+- [x] **Step 1: Append failing DELETE tests**
 
 Append to `tests/Feature/Staff/StaffFeedbackTriageTest.php`:
 
@@ -632,12 +632,12 @@ it('404s on double delete and unknown ids', function () {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: the three new tests FAIL (404/405 — no DELETE route yet).
 
-- [ ] **Step 3: Add `destroy()` to the controller**
+- [x] **Step 3: Add `destroy()` to the controller**
 
 In `app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php`, add after `update()`:
 
@@ -660,7 +660,7 @@ In `app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php`, add af
 
 (`Request` is already imported — `index()` uses it.)
 
-- [ ] **Step 4: Register the route (admin editing group)**
+- [x] **Step 4: Register the route (admin editing group)**
 
 In `routes/api/staff.php`, in the **"Authorised Staff Admin Editing"** group (`staff.admin` middleware), directly after the early-access block (`Route::delete('/early-access/{signup}', …)`):
 
@@ -672,12 +672,12 @@ In `routes/api/staff.php`, in the **"Authorised Staff Admin Editing"** group (`s
             ->name('staff.feedback.destroy');
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: PASS (16 tests).
 
-- [ ] **Step 6: Pint + commit**
+- [x] **Step 6: Pint + commit**
 
 ```bash
 php artisan pint app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php routes/api/staff.php tests/Feature/Staff/StaffFeedbackTriageTest.php

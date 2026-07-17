@@ -278,6 +278,12 @@ Route::prefix('staff')
         Route::patch('/early-access/{signup}', [StaffEarlyAccessController::class, 'update'])->whereUuid('signup');
         Route::delete('/early-access/{signup}', [StaffEarlyAccessController::class, 'destroy'])->whereUuid('signup');
 
+        // Feedback — junk/spam removal (soft delete; purged after 30 days).
+        // FeedbackPolicy::staffDelete adds defence-in-depth on top of staff.admin.
+        Route::delete('/feedback/{feedback}', [StaffFeedbackController::class, 'destroy'])
+            ->whereUuid('feedback')
+            ->name('staff.feedback.destroy');
+
         // Integrations — view + enable/disable per platform for a professional.
         Route::get('/professionals/{professional}/integrations', [StaffIntegrationManagementController::class, 'index']);
         Route::patch('/professionals/{professional}/integrations/{platform}', [StaffIntegrationManagementController::class, 'update'])

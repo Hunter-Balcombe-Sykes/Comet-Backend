@@ -227,3 +227,42 @@ it('records a staff audit row for the status write', function () {
         ->count();
     expect($writes)->toBe(1);
 });
+
+// ── DELETE /staff/feedback/{feedback} ──
+
+it('lets admin soft-delete junk feedback (204) and hides it from the list', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageAdminStaff())
+        ->deleteJson("/api/staff/feedback/{$id}")
+        ->assertStatus(204);
+
+    expect(Feedback::find($id))->toBeNull();
+    expect(Feedback::withTrashed()->findOrFail($id)->deleted_at)->not->toBeNull();
+
+    // Gone from the staff list too (default SoftDeletes scope).
+    $list = actingAsStaff(triageAdminStaff())->getJson('/api/staff/feedback');
+    expect($list->json('meta.total'))->toBe(0);
+});
+
+it('rejects support DELETE with 403 (staff.admin middleware)', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageSupportStaff())
+        ->deleteJson("/api/staff/feedback/{$id}")
+        ->assertStatus(403);
+
+    expect(Feedback::find($id))->not->toBeNull();
+});
+
+it('404s on double delete and unknown ids', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+    $admin = triageAdminStaff();
+
+    actingAsStaff($admin)->deleteJson("/api/staff/feedback/{$id}")->assertStatus(204);
+    actingAsStaff($admin)->deleteJson("/api/staff/feedback/{$id}")->assertStatus(404);
+    actingAsStaff($admin)->deleteJson('/api/staff/feedback/'.Str::uuid())->assertStatus(404);
+});

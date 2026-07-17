@@ -94,4 +94,19 @@ class StaffFeedbackController extends ApiController
             )->resolve(),
         ]);
     }
+
+    /**
+     * DELETE /staff/feedback/{feedback} — junk/spam removal (admin only).
+     * Soft delete; PurgeSoftDeleted hard-deletes after 30 days. Workflow
+     * outcomes use terminal statuses (shipped/wontfix/duplicate) instead.
+     */
+    public function destroy(Request $request, Feedback $feedback): JsonResponse
+    {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffDelete', $feedback);
+
+        $this->service->deleteByStaff($feedback);
+
+        return response()->json(null, 204);
+    }
 }
